@@ -165,7 +165,7 @@ function appendActionSuggestions(suggestions, permanent, rulings, normalizedText
   }
 
   if (normalizedText.includes("+1/+1 counter") || normalizedText.includes("+1/+1 counters")) {
-    const targetProfile = inferCounterTargetProfile(normalizedText);
+    const targetProfile = inferCounterTargetProfile(normalizedText, permanent.name);
     suggestions.push(createSuggestion(permanent, {
       ...context,
       actionType: "Add +1/+1 Counters",
@@ -324,8 +324,8 @@ function detectAttackTrigger(normalizedText, cardName) {
   return "";
 }
 
-function inferCounterTargetProfile(normalizedText) {
-  if (normalizedText.includes("on it") || normalizedText.includes("on itself")) {
+function inferCounterTargetProfile(normalizedText, cardName = "") {
+  if (hasSelfCounterTargetReference(normalizedText, cardName)) {
     return { targetType: "Self", requiresTargetSelection: false, optionalTarget: false };
   }
 
@@ -354,6 +354,31 @@ function inferCounterTargetProfile(normalizedText) {
   }
 
   return { targetType: "Board", requiresTargetSelection: false, optionalTarget: false };
+}
+
+function hasSelfCounterTargetReference(text, cardName = "") {
+  const normalizedText = normalizeMatcherText(text);
+  if (!normalizedText) {
+    return false;
+  }
+
+  if (normalizedText.includes("on it") || normalizedText.includes("on itself")) {
+    return true;
+  }
+
+  const normalizedName = normalizeMatcherText(cardName);
+  if (!normalizedName) {
+    return false;
+  }
+
+  return normalizedText.includes(`on ${normalizedName}`) || normalizedText.includes(`onto ${normalizedName}`);
+}
+
+function normalizeMatcherText(value) {
+  return normalizeText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function parseStaticBuff(normalizedText) {

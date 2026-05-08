@@ -4126,14 +4126,26 @@ function executeTrigger(trigger, boardState, context = {}) {
 
     case "Add +1/+1 Counters": {
       const needsManualTarget = trigger.requiresTargetSelection && targetLabel === "Selected";
-      if (needsManualTarget && context.skipTargetSelection) {
+      const sourcePermanent =
+        context.sourcePermanent ||
+        boardState.permanents.find((permanent) => permanent.id === context.sourcePermanentId) ||
+        null;
+      const canAutoResolveSelfTarget =
+        needsManualTarget &&
+        context.skipTargetSelection &&
+        Boolean(sourcePermanent) &&
+        hasSelfCounterTargetReference(getPermanentReferenceText(sourcePermanent), sourcePermanent.name);
+
+      if (needsManualTarget && context.skipTargetSelection && !canAutoResolveSelfTarget) {
         return { boardState, changed: false, message: "", modifierSummary: "" };
       }
 
       const counterTargets = (
-        needsManualTarget
-          ? resolveManualAutomationTargets(boardState, sourcePermanent, trigger, context)
-          : getTargets(targetLabel, boardState.permanents, context)
+        canAutoResolveSelfTarget
+          ? [sourcePermanent]
+          : needsManualTarget
+            ? resolveManualAutomationTargets(boardState, sourcePermanent, trigger, context)
+            : getTargets(targetLabel, boardState.permanents, context)
       ).filter((permanent) => permanent.isCreature);
 
       if (counterTargets.length === 0 || trigger.value <= 0) {
@@ -5286,7 +5298,7 @@ function parseCombatAutomationRule(permanent) {
       actionType: "Add +1/+1 Counters",
       triggerType,
       value: extractCountFromText(oracleText || referenceText),
-      targetMode: extractCounterTargetMode(referenceText),
+      targetMode: extractCounterTargetMode(referenceText, permanent.name),
       optionalTarget:
         referenceText.includes("up to one target creature") || referenceText.includes("up to one target permanent"),
     };
@@ -5461,8 +5473,8 @@ function promptForCounterTarget(permanents, sourcePermanent, rule) {
   return [candidates[choiceIndex].id];
 }
 
-function extractCounterTargetMode(oracleText) {
-  if (oracleText.includes("on it") || oracleText.includes("on itself")) {
+function extractCounterTargetMode(oracleText, sourceName = "") {
+  if (hasSelfCounterTargetReference(oracleText, sourceName)) {
     return "self";
   }
 
@@ -5496,6 +5508,31 @@ function extractCounterTargetMode(oracleText) {
   }
 
   return "board";
+}
+
+function hasSelfCounterTargetReference(text, sourceName = "") {
+  const normalizedText = normalizeCounterReferenceText(text);
+  if (!normalizedText) {
+    return false;
+  }
+
+  if (normalizedText.includes("on it") || normalizedText.includes("on itself")) {
+    return true;
+  }
+
+  const normalizedName = normalizeCounterReferenceText(sourceName);
+  if (!normalizedName) {
+    return false;
+  }
+
+  return normalizedText.includes(`on ${normalizedName}`) || normalizedText.includes(`onto ${normalizedName}`);
+}
+
+function normalizeCounterReferenceText(value) {
+  return normalizeLabel(value, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function extractTokenSpec(oracleText) {
