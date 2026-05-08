@@ -24,6 +24,87 @@ BoardState is an MTG companion assistant, not a full official rules simulator.
 - Simulated local multiplayer read-only views
 - Local storage persistence
 
+  BOARDSTATE QUICK OPERATING GUIDE
+
+APP LINK
+https://haroldh1995.github.io/boardstate/
+
+1) NAVIGATION
+- Use the left/right arrows (or swipe) to switch between:
+  - Life Tracker
+  - Board State
+
+2) FIRST-TIME SETUP (1 minute)
+- Tap Game Options.
+- Tap Edit Player Names to set your player/opponent names.
+- In Player Counters, toggle Poison / Energy / Experience / Tickets as needed.
+- In Commander Damage, set number of opponent trackers.
+- Close Game Options.
+
+3) LIFE TRACKER PAGE (during game)
+- Center box:
+  - Tap + / - to change Life Total.
+- Side boxes:
+  - Tax: track commander tax.
+  - Damage: open opponent commander damage trackers.
+  - Mana: track floating mana.
+  - Counters: open counter tray for enabled counters.
+- Bottom labels:
+  - “Life Tracker” is your current page.
+  - “Game Options” opens settings anytime.
+
+4) BOARD STATE PAGE (adding cards/permanents)
+- Use Scryfall Search box:
+  - Type card name.
+  - Tap Search.
+  - Pick a result.
+- Add behavior:
+  - Creature / Artifact Creature -> goes to Battlefield.
+  - Non-creature permanent -> goes to NCP section.
+  - Token result -> adds as token.
+- If needed, use Manual Add after selecting a result.
+- Use Cancel to clear search and close results instantly.
+
+5) PHASE + COMBAT FLOW
+- Tap Next Phase to cycle turn phases.
+- In Combat, use Combat Simulation:
+  - Attack with Selected
+  - Attack with All Creatures
+  - Confirm Combat (runs supported combat automation)
+  - Clear Attackers
+
+6) BATTLEFIELD ACTIONS
+- Tap a permanent to select/deselect.
+- Use Show P/T to show/hide total power/toughness overlay.
+- Use Remove All for mass removal options.
+- Use permanent details/menus for individual actions like destroy/exile/sacrifice.
+- NCP row is for non-creature permanents on board.
+
+7) AUTOMATION
+- Automation is enabled by default.
+- Open Game Options -> Automation Rules to manage behavior.
+- High-confidence effects can auto-run.
+- Lower-confidence/ambiguous effects ask for confirmation.
+- Use Undo Last Automation if needed.
+
+8) MULTIPLAYER (LOCAL PREVIEW)
+- Game Options -> Multiplayer.
+- Use Simulated Local Connection to test connected-player views.
+
+------------------------------------------------------------
+BOARDSTATE FOR ADHD (30-SECOND VERSION)
+
+Think of the app as 2 screens:
+- Life Tracker = your life/counters/commander damage math.
+- Board State = your battlefield and turn/combat helper.
+
+You update life on Tracker.
+You add cards and run combat on Board State.
+Next Phase moves the turn forward.
+Automation helps with tokens/counters when rules are clear.
+If rules are unclear, the app asks before doing anything risky.
+
+
 ## Scryfall Note
 
 BoardState uses the public [Scryfall API](https://api.scryfall.com/cards/search?q=) for card search and rulings lookup.
