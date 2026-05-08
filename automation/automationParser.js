@@ -667,7 +667,15 @@ function parseStaticBuffRules(normalizedText) {
   const selfTribalPattern = /([a-z]+) creatures you control get ([+\-]\d+)\/([+\-]\d+)/gi;
   for (const match of normalizedText.matchAll(selfTribalPattern)) {
     const creatureTypeToken = String(match[1] || "").toLowerCase();
-    if (creatureTypeToken === "other" || creatureTypeToken === "all" || creatureTypeToken === "attacking" || creatureTypeToken === "blocking") {
+    if (
+      creatureTypeToken === "other" ||
+      creatureTypeToken === "all" ||
+      creatureTypeToken === "attacking" ||
+      creatureTypeToken === "blocking" ||
+      creatureTypeToken === "artifact" ||
+      creatureTypeToken === "token" ||
+      creatureTypeToken === "creature"
+    ) {
       continue;
     }
     const prefix = typeof match.index === "number" ? normalizedText.slice(0, match.index) : "";
@@ -716,6 +724,26 @@ function parseStaticBuffRules(normalizedText) {
       continue;
     }
     pushRule(match[1], match[2], "opponent-creatures");
+  }
+
+  const tokenOwnPattern = /(?:other )?(?:creature )?tokens you control get ([+\-]\d+)\/([+\-]\d+)/gi;
+  for (const match of normalizedText.matchAll(tokenOwnPattern)) {
+    if (isTemporaryClause(match)) {
+      continue;
+    }
+    pushRule(match[1], match[2], "token-creatures-you-control", {
+      excludesSelf: match[0].startsWith("other"),
+    });
+  }
+
+  const artifactCreatureOwnPattern = /(?:other )?artifact creatures you control get ([+\-]\d+)\/([+\-]\d+)/gi;
+  for (const match of normalizedText.matchAll(artifactCreatureOwnPattern)) {
+    if (isTemporaryClause(match)) {
+      continue;
+    }
+    pushRule(match[1], match[2], "artifact-creatures-you-control", {
+      excludesSelf: match[0].startsWith("other"),
+    });
   }
 
   const attackingOwnPattern = /attacking creatures you control get ([+\-]\d+)\/([+\-]\d+)/gi;

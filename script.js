@@ -556,14 +556,15 @@ function createCommanderDamageTracker(source = {}) {
 function createPermanent(source = {}) {
   const isNonCreature = Boolean(source.isNonCreature);
   const isCreature = source.isCreature === undefined ? !isNonCreature : Boolean(source.isCreature);
+  const fallbackEffectMetadata = getEffectMetadataFromText(source.oracleText || source.notes || "");
   const normalizedCounters = normalizePermanentCounters(source.counters);
   const plusOneCounters = normalizeCount(source.plusOneCounters, normalizeCount(normalizedCounters["+1/+1"]));
   const minusOneCounters = normalizeCount(source.minusOneCounters, normalizeCount(normalizedCounters["-1/-1"]));
   const staticBuffRules = normalizeStaticBuffRules(source.staticBuffRules, {
-    power: source.staticBuffPower,
-    toughness: source.staticBuffToughness,
-    appliesTo: source.staticBuffAppliesTo,
-    excludesSelf: source.staticBuffExcludesSelf,
+    power: source.staticBuffPower || fallbackEffectMetadata.staticBuffPower,
+    toughness: source.staticBuffToughness || fallbackEffectMetadata.staticBuffToughness,
+    appliesTo: source.staticBuffAppliesTo || fallbackEffectMetadata.staticBuffAppliesTo,
+    excludesSelf: source.staticBuffExcludesSelf || fallbackEffectMetadata.staticBuffExcludesSelf,
   });
   if (plusOneCounters > 0) {
     normalizedCounters["+1/+1"] = plusOneCounters;
@@ -607,15 +608,21 @@ function createPermanent(source = {}) {
     plusOneCounters,
     minusOneCounters,
     counters: normalizedCounters,
-    doublesTokens: Boolean(source.doublesTokens),
-    doublesCounters: Boolean(source.doublesCounters),
-    counterModifierBonus: normalizeCount(source.counterModifierBonus),
-    createsTokens: Boolean(source.createsTokens),
-    addsCounters: Boolean(source.addsCounters),
-    staticBuffPower: normalizeSignedCount(source.staticBuffPower),
-    staticBuffToughness: normalizeSignedCount(source.staticBuffToughness),
-    staticBuffAppliesTo: typeof source.staticBuffAppliesTo === "string" ? source.staticBuffAppliesTo.trim() : "",
-    staticBuffExcludesSelf: Boolean(source.staticBuffExcludesSelf),
+    doublesTokens: Boolean(source.doublesTokens) || Boolean(fallbackEffectMetadata.doublesTokens),
+    doublesCounters: Boolean(source.doublesCounters) || Boolean(fallbackEffectMetadata.doublesCounters),
+    counterModifierBonus: Math.max(
+      normalizeCount(source.counterModifierBonus),
+      normalizeCount(fallbackEffectMetadata.counterModifierBonus)
+    ),
+    createsTokens: Boolean(source.createsTokens) || Boolean(fallbackEffectMetadata.createsTokens),
+    addsCounters: Boolean(source.addsCounters) || Boolean(fallbackEffectMetadata.addsCounters),
+    staticBuffPower: normalizeSignedCount(source.staticBuffPower, normalizeSignedCount(fallbackEffectMetadata.staticBuffPower)),
+    staticBuffToughness: normalizeSignedCount(source.staticBuffToughness, normalizeSignedCount(fallbackEffectMetadata.staticBuffToughness)),
+    staticBuffAppliesTo:
+      typeof source.staticBuffAppliesTo === "string" && source.staticBuffAppliesTo.trim()
+        ? source.staticBuffAppliesTo.trim()
+        : fallbackEffectMetadata.staticBuffAppliesTo || "",
+    staticBuffExcludesSelf: Boolean(source.staticBuffExcludesSelf) || Boolean(fallbackEffectMetadata.staticBuffExcludesSelf),
     staticBuffRules,
     temporaryPowerUntilTurnEnd: normalizeSignedCount(source.temporaryPowerUntilTurnEnd),
     temporaryToughnessUntilTurnEnd: normalizeSignedCount(source.temporaryToughnessUntilTurnEnd),
@@ -761,7 +768,7 @@ function normalizeBoardState(boardState = {}) {
       : []
   );
 
-  return {
+  const normalizedBoardState = {
     currentPhaseIndex: normalizePhaseIndex(boardState.currentPhaseIndex),
     controlsExpanded: Boolean(boardState.controlsExpanded),
     triggersExpanded: Boolean(boardState.triggersExpanded),
@@ -778,6 +785,8 @@ function normalizeBoardState(boardState = {}) {
     lastAutomationUndo: boardState.lastAutomationUndo ? normalizeBoardStateSnapshot(boardState.lastAutomationUndo) : null,
     combatState: normalizeCombatState(boardState.combatState),
   };
+
+  return ensureBoardStateAutomationCoverage(normalizedBoardState);
 }
 
 function normalizeCombatState(combatState = {}) {
@@ -859,7 +868,7 @@ function normalizeBoardStateSnapshot(source = {}) {
       : []
   );
 
-  return {
+  const normalizedSnapshot = {
     currentPhaseIndex: normalizePhaseIndex(source.currentPhaseIndex),
     controlsExpanded: Boolean(source.controlsExpanded),
     triggersExpanded: Boolean(source.triggersExpanded),
@@ -874,6 +883,40 @@ function normalizeBoardStateSnapshot(source = {}) {
     lastAutomationUndo: null,
     combatState: normalizeCombatState(source.combatState),
   };
+
+  return ensureBoardStateAutomationCoverage(normalizedSnapshot);
+}
+
+function ensureBoardStateAutomationCoverage(boardState) {
+  if (!boardState || !Array.isArray(boardState.permanents) || boardState.permanents.length === 0) {
+    return boardState;
+  }
+
+  let nextBoardState = boardState;
+  nextBoardState.permanents.forEach((permanent) => {
+    const referenceText = getPermanentReferenceText(permanent);
+    if (!referenceText) {
+      return;
+    }
+
+    const hasRuleLinked =
+      nextBoardState.automationRules.some((rule) => rule.sourcePermanentId === permanent.id) ||
+      nextBoardState.automationSuggestions.some((rule) => rule.sourcePermanentId === permanent.id) ||
+      (Array.isArray(permanent.automationRules) && permanent.automationRules.length > 0);
+
+    if (hasRuleLinked) {
+      return;
+    }
+
+    const suggestions = buildAutomationSuggestions(permanent);
+    if (!Array.isArray(suggestions) || suggestions.length === 0) {
+      return;
+    }
+
+    nextBoardState = attachAutomationSuggestions(nextBoardState, permanent.id, permanent.name, suggestions);
+  });
+
+  return nextBoardState;
 }
 
 function createMultiplayerPermissions(source = {}) {
@@ -4648,13 +4691,41 @@ function applyCounterToPermanent(permanent, rawCounterType, amount) {
 
   if (counterType === "+1/+1") {
     nextPermanent.plusOneCounters += counterAmount;
-    nextPermanent.counters["+1/+1"] = nextPermanent.plusOneCounters;
+    const cancellationCount = Math.min(nextPermanent.plusOneCounters, nextPermanent.minusOneCounters);
+    if (cancellationCount > 0) {
+      nextPermanent.plusOneCounters -= cancellationCount;
+      nextPermanent.minusOneCounters -= cancellationCount;
+    }
+    if (nextPermanent.plusOneCounters > 0) {
+      nextPermanent.counters["+1/+1"] = nextPermanent.plusOneCounters;
+    } else {
+      delete nextPermanent.counters["+1/+1"];
+    }
+    if (nextPermanent.minusOneCounters > 0) {
+      nextPermanent.counters["-1/-1"] = nextPermanent.minusOneCounters;
+    } else {
+      delete nextPermanent.counters["-1/-1"];
+    }
     return createPermanent(nextPermanent);
   }
 
   if (counterType === "-1/-1") {
     nextPermanent.minusOneCounters += counterAmount;
-    nextPermanent.counters["-1/-1"] = nextPermanent.minusOneCounters;
+    const cancellationCount = Math.min(nextPermanent.plusOneCounters, nextPermanent.minusOneCounters);
+    if (cancellationCount > 0) {
+      nextPermanent.plusOneCounters -= cancellationCount;
+      nextPermanent.minusOneCounters -= cancellationCount;
+    }
+    if (nextPermanent.plusOneCounters > 0) {
+      nextPermanent.counters["+1/+1"] = nextPermanent.plusOneCounters;
+    } else {
+      delete nextPermanent.counters["+1/+1"];
+    }
+    if (nextPermanent.minusOneCounters > 0) {
+      nextPermanent.counters["-1/-1"] = nextPermanent.minusOneCounters;
+    } else {
+      delete nextPermanent.counters["-1/-1"];
+    }
     return createPermanent(nextPermanent);
   }
 

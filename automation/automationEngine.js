@@ -156,6 +156,10 @@ function doesStaticBuffRuleApplyToPermanent(rule, source, permanent) {
     case "blocking-creatures":
     case "blocking-creatures-you-control":
       return Boolean(permanent?.isBlocking);
+    case "token-creatures-you-control":
+      return Boolean(permanent?.isToken);
+    case "artifact-creatures-you-control":
+      return Boolean(permanent?.isArtifact);
     case "equipped-creature":
     case "enchanted-creature":
       return Boolean(source?.attachedToId) && source.attachedToId === permanent.id;
