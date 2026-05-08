@@ -61,26 +61,23 @@ export function calculateStaticBuffs(permanent, permanents = []) {
   const modifiers = [];
 
   permanents.forEach((source) => {
-    const buffPower = Number(source?.staticBuffPower) || 0;
-    const buffToughness = Number(source?.staticBuffToughness) || 0;
-    if (buffPower === 0 && buffToughness === 0) {
+    const rules = getSourceStaticBuffRules(source);
+    if (rules.length === 0) {
       return;
     }
 
-    if (source?.staticBuffAppliesTo !== "creatures-you-control") {
-      return;
-    }
+    rules.forEach((rule) => {
+      if (!doesStaticBuffRuleApplyToPermanent(rule, source, permanent)) {
+        return;
+      }
 
-    if (source?.staticBuffExcludesSelf && source.id === permanent.id) {
-      return;
-    }
-
-    power += buffPower;
-    toughness += buffToughness;
-    modifiers.push({
-      source: source.name || "Static Buff",
-      power: buffPower,
-      toughness: buffToughness,
+      power += rule.power;
+      toughness += rule.toughness;
+      modifiers.push({
+        source: source.name || "Static Buff",
+        power: rule.power,
+        toughness: rule.toughness,
+      });
     });
   });
 
@@ -91,13 +88,89 @@ export function calculatePermanentPowerToughness(permanent, permanents = []) {
   const plusCounters = Number(permanent?.plusOneCounters) || 0;
   const minusCounters = Number(permanent?.minusOneCounters) || 0;
   const counters = plusCounters - minusCounters;
+  const temporaryPower =
+    (Number(permanent?.temporaryPowerUntilTurnEnd) || 0) +
+    (Number(permanent?.temporaryPowerUntilCombatEnd) || 0);
+  const temporaryToughness =
+    (Number(permanent?.temporaryToughnessUntilTurnEnd) || 0) +
+    (Number(permanent?.temporaryToughnessUntilCombatEnd) || 0);
   const buffs = calculateStaticBuffs(permanent, permanents);
 
   return {
-    power: (Number(permanent?.power) || 0) + counters + buffs.power,
-    toughness: (Number(permanent?.toughness) || 0) + counters + buffs.toughness,
+    power: (Number(permanent?.power) || 0) + counters + buffs.power + temporaryPower,
+    toughness: (Number(permanent?.toughness) || 0) + counters + buffs.toughness + temporaryToughness,
     modifiers: buffs.modifiers,
   };
+}
+
+function getSourceStaticBuffRules(source) {
+  if (Array.isArray(source?.staticBuffRules) && source.staticBuffRules.length > 0) {
+    return source.staticBuffRules
+      .map((rule) => ({
+        power: Number(rule?.power) || 0,
+        toughness: Number(rule?.toughness) || 0,
+        appliesTo: typeof rule?.appliesTo === "string" ? rule.appliesTo : "",
+        excludesSelf: Boolean(rule?.excludesSelf),
+        creatureType: typeof rule?.creatureType === "string" ? rule.creatureType.trim() : "",
+      }))
+      .filter((rule) => (rule.power !== 0 || rule.toughness !== 0) && rule.appliesTo);
+  }
+
+  const legacyPower = Number(source?.staticBuffPower) || 0;
+  const legacyToughness = Number(source?.staticBuffToughness) || 0;
+  const legacyAppliesTo = typeof source?.staticBuffAppliesTo === "string" ? source.staticBuffAppliesTo : "";
+  if ((legacyPower !== 0 || legacyToughness !== 0) && legacyAppliesTo) {
+    return [
+      {
+        power: legacyPower,
+        toughness: legacyToughness,
+        appliesTo: legacyAppliesTo,
+        excludesSelf: Boolean(source?.staticBuffExcludesSelf),
+        creatureType: "",
+      },
+    ];
+  }
+
+  return [];
+}
+
+function doesStaticBuffRuleApplyToPermanent(rule, source, permanent) {
+  if (!permanent?.isCreature) {
+    return false;
+  }
+
+  if (rule.excludesSelf && source?.id === permanent.id) {
+    return false;
+  }
+
+  switch (rule.appliesTo) {
+    case "creatures-you-control":
+      return true;
+    case "all-creatures":
+      return true;
+    case "opponent-creatures":
+      return false;
+    case "equipped-creature":
+    case "enchanted-creature":
+      return Boolean(source?.attachedToId) && source.attachedToId === permanent.id;
+    case "tribal-you-control":
+      return hasCreatureType(permanent, rule.creatureType);
+    default:
+      return false;
+  }
+}
+
+function hasCreatureType(permanent, creatureType) {
+  if (!creatureType) {
+    return false;
+  }
+
+  const typeLine = String(permanent?.typeLine || "").toLowerCase();
+  return new RegExp(`\\b${escapeRegExp(String(creatureType).toLowerCase())}\\b`, "i").test(typeLine);
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export function summarizeModifierList(modifiers = [], emptyLabel = "No modifiers applied.") {

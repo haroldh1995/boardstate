@@ -22,6 +22,7 @@ const AUTOMATION_ACTIONS = [
   "Multiply Tokens",
   "Add +1/+1 Counters",
   "Add Counters",
+  "Apply Temporary Buff",
   "Modify Token Amount",
   "Modify Counter Amount",
   "Board Buff",
@@ -81,6 +82,11 @@ const PLAYER_COUNTER_DEFS = [
  * @property {number} staticBuffToughness
  * @property {string} staticBuffAppliesTo
  * @property {boolean} staticBuffExcludesSelf
+ * @property {Array<{power: number, toughness: number, appliesTo: string, excludesSelf: boolean, creatureType: string}>} staticBuffRules
+ * @property {number} temporaryPowerUntilTurnEnd
+ * @property {number} temporaryToughnessUntilTurnEnd
+ * @property {number} temporaryPowerUntilCombatEnd
+ * @property {number} temporaryToughnessUntilCombatEnd
  * @property {boolean} isExpanded
  * @property {boolean} isSelected
  * @property {boolean} isFaceDown
@@ -120,6 +126,7 @@ const PLAYER_COUNTER_DEFS = [
  * @property {string} triggerType
  * @property {string} phase
  * @property {string} eventType
+ * @property {string} eventSourceScope
  * @property {string} actionType
  * @property {string} targetType
  * @property {number} value
@@ -129,6 +136,9 @@ const PLAYER_COUNTER_DEFS = [
  * @property {number} tokenToughness
  * @property {string} counterType
  * @property {"creature" | "permanent"} counterTargetEntity
+ * @property {number} buffPower
+ * @property {number} buffToughness
+ * @property {"until-end-of-turn" | "until-end-of-combat"} buffDuration
  * @property {boolean} requiresTargetSelection
  * @property {boolean} optionalTarget
  * @property {string} repeatBehavior
@@ -545,6 +555,12 @@ function createPermanent(source = {}) {
   const normalizedCounters = normalizePermanentCounters(source.counters);
   const plusOneCounters = normalizeCount(source.plusOneCounters, normalizeCount(normalizedCounters["+1/+1"]));
   const minusOneCounters = normalizeCount(source.minusOneCounters, normalizeCount(normalizedCounters["-1/-1"]));
+  const staticBuffRules = normalizeStaticBuffRules(source.staticBuffRules, {
+    power: source.staticBuffPower,
+    toughness: source.staticBuffToughness,
+    appliesTo: source.staticBuffAppliesTo,
+    excludesSelf: source.staticBuffExcludesSelf,
+  });
   if (plusOneCounters > 0) {
     normalizedCounters["+1/+1"] = plusOneCounters;
   } else {
@@ -596,6 +612,11 @@ function createPermanent(source = {}) {
     staticBuffToughness: normalizeSignedCount(source.staticBuffToughness),
     staticBuffAppliesTo: typeof source.staticBuffAppliesTo === "string" ? source.staticBuffAppliesTo.trim() : "",
     staticBuffExcludesSelf: Boolean(source.staticBuffExcludesSelf),
+    staticBuffRules,
+    temporaryPowerUntilTurnEnd: normalizeSignedCount(source.temporaryPowerUntilTurnEnd),
+    temporaryToughnessUntilTurnEnd: normalizeSignedCount(source.temporaryToughnessUntilTurnEnd),
+    temporaryPowerUntilCombatEnd: normalizeSignedCount(source.temporaryPowerUntilCombatEnd),
+    temporaryToughnessUntilCombatEnd: normalizeSignedCount(source.temporaryToughnessUntilCombatEnd),
     isExpanded: Boolean(source.isExpanded),
     isSelected: Boolean(source.isSelected),
     isFaceDown: Boolean(source.isFaceDown),
@@ -650,6 +671,7 @@ function createAutomationRule(source = {}) {
     triggerType: normalizeLabel(source.triggerType, "Phase"),
     phase: typeof source.phase === "string" ? source.phase.trim() : "",
     eventType: normalizeLabel(source.eventType, ""),
+    eventSourceScope: normalizeAutomationEventSourceScope(source.eventSourceScope),
     actionType: normalizeAutomationAction(source.actionType),
     targetType: normalizeAutomationTarget(source.targetType),
     value: normalizeSignedCount(source.value),
@@ -659,6 +681,9 @@ function createAutomationRule(source = {}) {
     tokenToughness: normalizeSignedCount(source.tokenToughness),
     counterType: normalizeCounterType(source.counterType),
     counterTargetEntity: normalizeCounterTargetEntity(source.counterTargetEntity),
+    buffPower: normalizeSignedCount(source.buffPower),
+    buffToughness: normalizeSignedCount(source.buffToughness),
+    buffDuration: normalizeAutomationBuffDuration(source.buffDuration),
     requiresTargetSelection: Boolean(source.requiresTargetSelection),
     optionalTarget: Boolean(source.optionalTarget),
     repeatBehavior: normalizeLabel(source.repeatBehavior, "per-event"),
@@ -998,6 +1023,32 @@ function normalizeCounterTargetEntity(value) {
   return "";
 }
 
+function normalizeAutomationEventSourceScope(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const normalized = value.trim().toLowerCase();
+  const supportedScopes = [
+    "",
+    "self",
+    "any-creature",
+    "another-creature",
+    "any-permanent",
+    "another-permanent",
+  ];
+  return supportedScopes.includes(normalized) ? normalized : "";
+}
+
+function normalizeAutomationBuffDuration(value) {
+  if (typeof value !== "string") {
+    return "until-end-of-turn";
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === "until-end-of-combat" ? "until-end-of-combat" : "until-end-of-turn";
+}
+
 function normalizePermanentCounters(value) {
   if (!value || typeof value !== "object") {
     return {};
@@ -1013,6 +1064,41 @@ function normalizePermanentCounters(value) {
     accumulator[type] = count;
     return accumulator;
   }, {});
+}
+
+function normalizeStaticBuffRules(value, legacyBuff = {}) {
+  const parsedRules = Array.isArray(value)
+    ? value
+        .map((entry) => ({
+          power: normalizeSignedCount(entry?.power),
+          toughness: normalizeSignedCount(entry?.toughness),
+          appliesTo: normalizeLabel(entry?.appliesTo, ""),
+          excludesSelf: Boolean(entry?.excludesSelf),
+          creatureType: normalizeLabel(entry?.creatureType, ""),
+        }))
+        .filter((entry) => (entry.power !== 0 || entry.toughness !== 0) && entry.appliesTo)
+    : [];
+
+  if (parsedRules.length > 0) {
+    return parsedRules;
+  }
+
+  const legacyPower = normalizeSignedCount(legacyBuff?.power);
+  const legacyToughness = normalizeSignedCount(legacyBuff?.toughness);
+  const legacyAppliesTo = normalizeLabel(legacyBuff?.appliesTo, "");
+  if ((legacyPower !== 0 || legacyToughness !== 0) && legacyAppliesTo) {
+    return [
+      {
+        power: legacyPower,
+        toughness: legacyToughness,
+        appliesTo: legacyAppliesTo,
+        excludesSelf: Boolean(legacyBuff?.excludesSelf),
+        creatureType: "",
+      },
+    ];
+  }
+
+  return [];
 }
 
 function normalizeAutomationConfidence(value) {
@@ -1722,6 +1808,15 @@ function getAutomationRuleSummary(rule) {
     return `${triggerLabel}: Add ${rule.value} ${counterType} Counter${rule.value === 1 ? "" : "s"} to ${rule.targetType}`;
   }
 
+  if (rule.actionType === "Apply Temporary Buff") {
+    const buffPower = normalizeSignedCount(rule.buffPower);
+    const buffToughness = normalizeSignedCount(rule.buffToughness);
+    const durationLabel = normalizeAutomationBuffDuration(rule.buffDuration) === "until-end-of-combat"
+      ? "until end of combat"
+      : "until end of turn";
+    return `${triggerLabel}: ${buffPower >= 0 ? "+" : ""}${buffPower}/${buffToughness >= 0 ? "+" : ""}${buffToughness} ${durationLabel} for ${rule.targetType}`;
+  }
+
   if (rule.actionType === "Board Buff") {
     return `${triggerLabel}: Board Buff`;
   }
@@ -1866,6 +1961,8 @@ function renderCardDetailOverlay() {
       <span class="card-detail-line"><strong>+1/+1 Counters:</strong> ${permanent.plusOneCounters}</span>
       <span class="card-detail-line"><strong>-1/-1 Counters:</strong> ${normalizeCount(permanent.minusOneCounters)}</span>
       <span class="card-detail-line"><strong>All Counters:</strong> ${escapeHtml(getPermanentCounterSummary(permanent))}</span>
+      <span class="card-detail-line"><strong>Temp Buff (EOT):</strong> ${normalizeSignedCount(permanent.temporaryPowerUntilTurnEnd) >= 0 ? "+" : ""}${normalizeSignedCount(permanent.temporaryPowerUntilTurnEnd)}/${normalizeSignedCount(permanent.temporaryToughnessUntilTurnEnd) >= 0 ? "+" : ""}${normalizeSignedCount(permanent.temporaryToughnessUntilTurnEnd)}</span>
+      <span class="card-detail-line"><strong>Temp Buff (EOC):</strong> ${normalizeSignedCount(permanent.temporaryPowerUntilCombatEnd) >= 0 ? "+" : ""}${normalizeSignedCount(permanent.temporaryPowerUntilCombatEnd)}/${normalizeSignedCount(permanent.temporaryToughnessUntilCombatEnd) >= 0 ? "+" : ""}${normalizeSignedCount(permanent.temporaryToughnessUntilCombatEnd)}</span>
       <span class="card-detail-line"><strong>Token:</strong> ${permanent.isToken ? "Yes" : "No"}</span>
       <span class="card-detail-line"><strong>Flags:</strong> ${escapeHtml(typeFlags)}</span>
       <span class="card-detail-line"><strong>Commander Legality:</strong> ${escapeHtml(commanderLegality)}</span>
@@ -3101,11 +3198,19 @@ function togglePermanentMenu(permanentId) {
 }
 
 function advanceBoardPhase() {
+  const currentPhase = PHASES[state.boardState.currentPhaseIndex];
   const nextPhaseIndex = (state.boardState.currentPhaseIndex + 1) % PHASES.length;
   const nextPhase = PHASES[nextPhaseIndex];
   const selectedIds = getSelectedPermanentIds(state.boardState.permanents);
-  const phaseBaseBoardState =
+  let phaseBaseBoardState =
     nextPhase === "Upkeep" ? untapAllPermanents(state.boardState) : normalizeBoardStateSnapshot(state.boardState);
+
+  if (currentPhase === "Combat" && nextPhase !== "Combat") {
+    phaseBaseBoardState = clearTemporaryBuffsByDuration(phaseBaseBoardState, "until-end-of-combat");
+  }
+  if (nextPhase === "Upkeep") {
+    phaseBaseBoardState = clearTemporaryBuffsByDuration(phaseBaseBoardState, "until-end-of-turn");
+  }
 
   resetTransientUiState();
 
@@ -3237,6 +3342,7 @@ function promptAndAddEffect() {
     counterModifierBonus: effectMetadata.counterModifierBonus,
     createsTokens: effectMetadata.createsTokens,
     addsCounters: effectMetadata.addsCounters,
+    staticBuffRules: effectMetadata.staticBuffRules,
     staticBuffPower: effectMetadata.staticBuffPower,
     staticBuffToughness: effectMetadata.staticBuffToughness,
     staticBuffAppliesTo: effectMetadata.staticBuffAppliesTo,
@@ -3566,6 +3672,7 @@ function mapScryfallCardToPermanent(card, rulings = []) {
     counterModifierBonus: effectMetadata.counterModifierBonus,
     createsTokens: effectMetadata.createsTokens,
     addsCounters: effectMetadata.addsCounters,
+    staticBuffRules: effectMetadata.staticBuffRules,
     staticBuffPower: effectMetadata.staticBuffPower,
     staticBuffToughness: effectMetadata.staticBuffToughness,
     staticBuffAppliesTo: effectMetadata.staticBuffAppliesTo,
@@ -3663,6 +3770,7 @@ function importScryfallToken(card, rulings = []) {
     counterModifierBonus: effectMetadata.counterModifierBonus,
     createsTokens: effectMetadata.createsTokens,
     addsCounters: effectMetadata.addsCounters,
+    staticBuffRules: effectMetadata.staticBuffRules,
     staticBuffPower: effectMetadata.staticBuffPower,
     staticBuffToughness: effectMetadata.staticBuffToughness,
     staticBuffAppliesTo: effectMetadata.staticBuffAppliesTo,
@@ -3674,10 +3782,61 @@ function importScryfallToken(card, rulings = []) {
 
 function addImportedPermanentToBoardState(boardState, permanent) {
   const addResult = addOrStackPermanentDetailed(boardState, permanent);
-  const sourcePermanent = addResult.boardState.permanents.find((entry) => entry.id === addResult.permanentId) || permanent;
+  const attachedBoardState = maybeAttachImportedPermanent(addResult.boardState, addResult.permanentId);
+  const sourcePermanent = attachedBoardState.permanents.find((entry) => entry.id === addResult.permanentId) || permanent;
   const suggestions = buildAutomationSuggestions(sourcePermanent);
-  const nextBoardState = attachAutomationSuggestions(addResult.boardState, sourcePermanent.id, sourcePermanent.name, suggestions);
+  const nextBoardState = attachAutomationSuggestions(attachedBoardState, sourcePermanent.id, sourcePermanent.name, suggestions);
   return executeEnterBattlefieldAutomation(nextBoardState, sourcePermanent.id, addResult.instancesAdded);
+}
+
+function maybeAttachImportedPermanent(boardState, permanentId) {
+  const sourcePermanent = boardState.permanents.find((permanent) => permanent.id === permanentId);
+  if (!sourcePermanent) {
+    return boardState;
+  }
+
+  const typeLine = String(sourcePermanent.typeLine || "").toLowerCase();
+  const isAura = typeLine.includes("aura");
+  const isEquipment = typeLine.includes("equipment");
+  if (!isAura && !isEquipment) {
+    return boardState;
+  }
+
+  const creatures = boardState.permanents.filter((permanent) => permanent.isCreature);
+  if (creatures.length === 0) {
+    return boardState;
+  }
+
+  const promptText = creatures.map((permanent, index) => `${index + 1}. ${permanent.name}`).join("\n");
+  const attachmentTypeLabel = isAura ? "aura" : "equipment";
+  const response = window.prompt(
+    `Attach ${sourcePermanent.name} to which creature?\nLeave blank to keep it unattached.\n\n${promptText}`,
+    ""
+  );
+  if (response === null || !response.trim()) {
+    return boardState;
+  }
+
+  const choiceIndex = Number(response) - 1;
+  if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || choiceIndex >= creatures.length) {
+    return boardState;
+  }
+
+  const target = creatures[choiceIndex];
+  return {
+    ...boardState,
+    permanents: boardState.permanents.map((permanent) => {
+      if (permanent.id !== sourcePermanent.id) {
+        return permanent;
+      }
+
+      return createPermanent({
+        ...permanent,
+        attachedToId: target.id,
+        attachmentKind: attachmentTypeLabel,
+      });
+    }),
+  };
 }
 
 function executeEnterBattlefieldAutomation(boardState, sourcePermanentId, instancesAdded = 1) {
@@ -3695,6 +3854,7 @@ function executeEnterBattlefieldAutomation(boardState, sourcePermanentId, instan
     phase: PHASES[boardState.currentPhaseIndex],
     sourcePermanentId,
     sourcePermanent,
+    eventPermanent: sourcePermanent,
     instancesAdded,
   });
 
@@ -3890,6 +4050,7 @@ function getAutomationRuleKey(rule) {
     rule.triggerType,
     rule.phase,
     rule.eventType,
+    rule.eventSourceScope,
     rule.actionType,
     rule.targetType,
     rule.value,
@@ -3897,6 +4058,9 @@ function getAutomationRuleKey(rule) {
     rule.tokenPower,
     rule.tokenToughness,
     rule.counterType,
+    rule.buffPower,
+    rule.buffToughness,
+    rule.buffDuration,
   ].join("|");
 }
 
@@ -3978,6 +4142,7 @@ function collectMatchingAutomationRules(boardState, context = {}) {
   const activeRules = boardState.automationRules.filter((rule) => rule.enabled);
   const removedRulePool = Array.isArray(context.removedAutomationRules) ? context.removedAutomationRules : [];
   const allRules = [...activeRules, ...removedRulePool];
+  const eventPermanent = context.eventPermanent || context.sourcePermanent || context.removedPermanent || null;
 
   return allRules.filter((rule) => {
     if (!rule.enabled || rule.actionType === "Board Buff" || rule.actionType === "Modify Token Amount" || rule.actionType === "Modify Counter Amount") {
@@ -3985,7 +4150,7 @@ function collectMatchingAutomationRules(boardState, context = {}) {
     }
 
     if (context.eventType === "ETB") {
-      return rule.eventType === "ETB" && rule.sourcePermanentId === context.sourcePermanentId;
+      return rule.eventType === "ETB" && matchesAutomationEventSource(rule, context, eventPermanent, boardState);
     }
 
     if (context.eventType === "Phase") {
@@ -3997,11 +4162,98 @@ function collectMatchingAutomationRules(boardState, context = {}) {
     }
 
     if (context.eventType === "OnDeath" || context.eventType === "OnSacrifice" || context.eventType === "OnExile") {
-      return rule.eventType === context.eventType && rule.sourcePermanentId === context.sourcePermanentId;
+      return rule.eventType === context.eventType && matchesAutomationEventSource(rule, context, eventPermanent, boardState);
     }
 
     return false;
   });
+}
+
+function matchesAutomationEventSource(rule, context = {}, eventPermanent = null, boardState = null) {
+  const scope = normalizeAutomationEventSourceScope(rule?.eventSourceScope) || inferLegacyEventSourceScope(rule, boardState);
+  const sourcePermanentId = rule?.sourcePermanentId || "";
+  const eventSourceId = context.sourcePermanentId || eventPermanent?.id || "";
+
+  if (scope === "self") {
+    return sourcePermanentId === eventSourceId;
+  }
+
+  if (!eventPermanent) {
+    return false;
+  }
+
+  if (scope === "any-creature") {
+    return Boolean(eventPermanent.isCreature);
+  }
+
+  if (scope === "another-creature") {
+    return Boolean(eventPermanent.isCreature) && eventPermanent.id !== sourcePermanentId;
+  }
+
+  if (scope === "any-permanent") {
+    return true;
+  }
+
+  if (scope === "another-permanent") {
+    return eventPermanent.id !== sourcePermanentId;
+  }
+
+  return sourcePermanentId === eventSourceId;
+}
+
+function inferLegacyEventSourceScope(rule, boardState) {
+  if (!boardState || !rule?.sourcePermanentId) {
+    return "self";
+  }
+
+  const sourcePermanent = boardState.permanents.find((permanent) => permanent.id === rule.sourcePermanentId);
+  if (!sourcePermanent) {
+    return "self";
+  }
+
+  const referenceText = getPermanentReferenceText(sourcePermanent);
+  if (rule.eventType === "ETB") {
+    if (
+      referenceText.includes("whenever another creature enters") ||
+      referenceText.includes("whenever a creature enters") ||
+      referenceText.includes("whenever one or more creatures enter")
+    ) {
+      return referenceText.includes("another creature enters") ? "another-creature" : "any-creature";
+    }
+    if (referenceText.includes("whenever another permanent enters") || referenceText.includes("whenever a permanent enters")) {
+      return referenceText.includes("another permanent enters") ? "another-permanent" : "any-permanent";
+    }
+  }
+
+  if (rule.eventType === "OnDeath") {
+    if (
+      referenceText.includes("whenever another creature dies") ||
+      referenceText.includes("whenever a creature dies") ||
+      referenceText.includes("whenever one or more creatures die")
+    ) {
+      return referenceText.includes("another creature dies") ? "another-creature" : "any-creature";
+    }
+  }
+
+  if (rule.eventType === "OnSacrifice") {
+    if (referenceText.includes("whenever a creature is sacrificed") || referenceText.includes("whenever you sacrifice a creature")) {
+      return "any-creature";
+    }
+    if (referenceText.includes("whenever a permanent is sacrificed") || referenceText.includes("whenever you sacrifice a permanent")) {
+      return "any-permanent";
+    }
+  }
+
+  if (rule.eventType === "OnExile") {
+    if (referenceText.includes("whenever a creature is exiled") || referenceText.includes("whenever a creature leaves")) {
+      return "any-creature";
+    }
+    if (referenceText.includes("whenever a permanent is exiled") || referenceText.includes("whenever a permanent leaves")) {
+      return "any-permanent";
+    }
+  }
+
+  return "self";
 }
 
 function getAutomationExecutionCount(rule, boardState, context = {}) {
@@ -4037,16 +4289,18 @@ function getAutomationExecutionCount(rule, boardState, context = {}) {
 
 function executeAutomationRule(rule, boardState, context = {}) {
   const sourcePermanent =
-    context.sourcePermanent ||
     boardState.permanents.find((permanent) => permanent.id === rule.sourcePermanentId) ||
+    context.sourcePermanent ||
     context.removedPermanent ||
     null;
+  const eventPermanent = context.eventPermanent || context.sourcePermanent || context.removedPermanent || null;
   const triggerLike = {
     ...rule,
     target: rule.targetType,
   };
   return executeTrigger(triggerLike, boardState, {
     ...context,
+    eventPermanent,
     sourcePermanent,
     sourcePermanentId: rule.sourcePermanentId,
     attachedToId: sourcePermanent?.attachedToId || "",
@@ -4205,6 +4459,9 @@ function executeTrigger(trigger, boardState, context = {}) {
     case "Add Counters":
       return executeCounterPlacementTrigger(trigger, boardState, context, sourcePermanent, targetLabel);
 
+    case "Apply Temporary Buff":
+      return executeTemporaryBuffTrigger(trigger, boardState, context, sourcePermanent, targetLabel);
+
     default:
       return { boardState, changed: false, message: "", modifierSummary: "" };
   }
@@ -4261,6 +4518,71 @@ function executeCounterPlacementTrigger(trigger, boardState, context = {}, sourc
     changed: true,
     message: `${resolvedSourcePermanent?.name || "Automation"} added ${counterResult.value} ${counterType} counter${counterResult.value === 1 ? "" : "s"}.`,
     modifierSummary: summarizeModifierList(counterResult.modifiers, "No counter modifiers applied."),
+  };
+}
+
+function executeTemporaryBuffTrigger(trigger, boardState, context = {}, sourcePermanent = null, targetLabel = "All") {
+  const needsManualTarget = trigger.requiresTargetSelection && targetLabel === "Selected";
+  if (needsManualTarget && context.skipTargetSelection) {
+    return { boardState, changed: false, message: "", modifierSummary: "" };
+  }
+
+  const targetEntity = normalizeCounterTargetEntity(trigger.counterTargetEntity) || "creature";
+  const temporaryBuffTargets = (
+    needsManualTarget
+      ? resolveManualAutomationTargets(boardState, sourcePermanent, trigger, {
+          ...context,
+          counterTargetEntity: targetEntity,
+        })
+      : getTargets(targetLabel, boardState.permanents, {
+          ...context,
+          counterTargetEntity: targetEntity,
+        })
+  ).filter((permanent) => (targetEntity === "creature" ? permanent.isCreature : true));
+
+  if (temporaryBuffTargets.length === 0) {
+    return { boardState, changed: false, message: "", modifierSummary: "" };
+  }
+
+  const buffPower = normalizeSignedCount(trigger.buffPower);
+  const buffToughness = normalizeSignedCount(trigger.buffToughness);
+  if (buffPower === 0 && buffToughness === 0) {
+    return { boardState, changed: false, message: "", modifierSummary: "" };
+  }
+
+  const duration = normalizeAutomationBuffDuration(trigger.buffDuration);
+  const targetIds = new Set(temporaryBuffTargets.map((permanent) => permanent.id));
+
+  return {
+    boardState: {
+      ...boardState,
+      permanents: boardState.permanents.map((permanent) => {
+        if (!targetIds.has(permanent.id)) {
+          return permanent;
+        }
+
+        const nextPermanent = {
+          ...permanent,
+          temporaryPowerUntilTurnEnd: normalizeSignedCount(permanent.temporaryPowerUntilTurnEnd),
+          temporaryToughnessUntilTurnEnd: normalizeSignedCount(permanent.temporaryToughnessUntilTurnEnd),
+          temporaryPowerUntilCombatEnd: normalizeSignedCount(permanent.temporaryPowerUntilCombatEnd),
+          temporaryToughnessUntilCombatEnd: normalizeSignedCount(permanent.temporaryToughnessUntilCombatEnd),
+        };
+
+        if (duration === "until-end-of-combat") {
+          nextPermanent.temporaryPowerUntilCombatEnd += buffPower;
+          nextPermanent.temporaryToughnessUntilCombatEnd += buffToughness;
+        } else {
+          nextPermanent.temporaryPowerUntilTurnEnd += buffPower;
+          nextPermanent.temporaryToughnessUntilTurnEnd += buffToughness;
+        }
+
+        return createPermanent(nextPermanent);
+      }),
+    },
+    changed: true,
+    message: `${sourcePermanent?.name || "Automation"} applied ${buffPower >= 0 ? "+" : ""}${buffPower}/${buffToughness >= 0 ? "+" : ""}${buffToughness} ${duration === "until-end-of-combat" ? "until end of combat" : "until end of turn"}.`,
+    modifierSummary: "Temporary stat effect applied.",
   };
 }
 
@@ -4407,6 +4729,7 @@ function removePermanent(boardState, permanentId) {
             createPermanent({
               ...permanent,
               isSelected: false,
+              attachedToId: permanent.attachedToId === permanentId ? "" : permanent.attachedToId,
             }),
           ];
         }
@@ -4466,6 +4789,7 @@ function applyPermanentRemovalToBoardState(boardState, permanentId, removalType)
   const triggerContext = {
     selectedIds,
     removedPermanent: removalResult.removedPermanent,
+    eventPermanent: removalResult.removedPermanent,
     sourcePermanentId: permanentId,
     removedAutomationRules,
     instancesRemoved: 1,
@@ -4970,18 +5294,18 @@ function calculateBoardTotals(permanents) {
   const selectedPermanents = permanents.filter((permanent) => permanent.isSelected);
   const activePermanents = selectedPermanents.length > 0 ? selectedPermanents : permanents;
 
-  return calculateAbsoluteBoardTotals(activePermanents);
+  return calculateAbsoluteBoardTotals(activePermanents, permanents);
 }
 
-function calculateAbsoluteBoardTotals(permanents) {
-  return permanents.reduce(
+function calculateAbsoluteBoardTotals(permanentsToCount, sourcePermanents = permanentsToCount) {
+  return permanentsToCount.reduce(
     (totals, permanent) => {
       if (!permanent.isCreature) {
         return totals;
       }
 
-      const currentPower = getPermanentCurrentPower(permanent, permanents);
-      const currentToughness = getPermanentCurrentToughness(permanent, permanents);
+      const currentPower = getPermanentCurrentPower(permanent, sourcePermanents);
+      const currentToughness = getPermanentCurrentToughness(permanent, sourcePermanents);
 
       return {
         power: totals.power + currentPower * permanent.quantity,
@@ -5078,20 +5402,59 @@ function untapAllPermanents(boardState) {
 }
 
 function calculatePowerToughness(permanents) {
-  return calculateAbsoluteBoardTotals(permanents.filter((permanent) => permanent.isCreature));
+  return calculateAbsoluteBoardTotals(
+    permanents.filter((permanent) => permanent.isCreature),
+    permanents
+  );
+}
+
+function clearTemporaryBuffsByDuration(boardState, duration) {
+  return {
+    ...boardState,
+    permanents: boardState.permanents.map((permanent) => {
+      const nextPermanent = {
+        ...permanent,
+        temporaryPowerUntilTurnEnd: normalizeSignedCount(permanent.temporaryPowerUntilTurnEnd),
+        temporaryToughnessUntilTurnEnd: normalizeSignedCount(permanent.temporaryToughnessUntilTurnEnd),
+        temporaryPowerUntilCombatEnd: normalizeSignedCount(permanent.temporaryPowerUntilCombatEnd),
+        temporaryToughnessUntilCombatEnd: normalizeSignedCount(permanent.temporaryToughnessUntilCombatEnd),
+      };
+
+      if (duration === "until-end-of-combat" || duration === "all") {
+        nextPermanent.temporaryPowerUntilCombatEnd = 0;
+        nextPermanent.temporaryToughnessUntilCombatEnd = 0;
+      }
+
+      if (duration === "until-end-of-turn" || duration === "all") {
+        nextPermanent.temporaryPowerUntilTurnEnd = 0;
+        nextPermanent.temporaryToughnessUntilTurnEnd = 0;
+      }
+
+      return createPermanent(nextPermanent);
+    }),
+  };
 }
 
 function calculateSelectedPowerToughness(permanents) {
-  return calculateAbsoluteBoardTotals(permanents.filter((permanent) => permanent.isCreature && permanent.isSelected));
+  return calculateAbsoluteBoardTotals(
+    permanents.filter((permanent) => permanent.isCreature && permanent.isSelected),
+    permanents
+  );
 }
 
 function calculateCombatTotals(permanents, attackerIds) {
   const attackerIdSet = new Set(attackerIds);
-  return calculateAbsoluteBoardTotals(permanents.filter((permanent) => attackerIdSet.has(permanent.id) && permanent.isCreature));
+  return calculateAbsoluteBoardTotals(
+    permanents.filter((permanent) => attackerIdSet.has(permanent.id) && permanent.isCreature),
+    permanents
+  );
 }
 
 function compareBoardTotals({ localTotals, opponentPermanents }) {
-  const opponentTotals = calculateAbsoluteBoardTotals(opponentPermanents.filter((permanent) => permanent.isCreature));
+  const opponentTotals = calculateAbsoluteBoardTotals(
+    opponentPermanents.filter((permanent) => permanent.isCreature),
+    opponentPermanents
+  );
 
   return {
     local: localTotals,
@@ -5512,6 +5875,26 @@ function parseCombatAutomationRules(permanent) {
     });
   }
 
+  const temporaryBuff = extractTemporaryBuffFromText(oracleText || referenceText);
+  if (temporaryBuff) {
+    const targetMode = extractCounterTargetMode(referenceText, permanent.name);
+    rules.push({
+      actionType: "Apply Temporary Buff",
+      triggerType,
+      value: 0,
+      targetMode,
+      counterTargetEntity: inferCounterTargetEntityFromMode(targetMode, referenceText, permanent),
+      buffPower: temporaryBuff.power,
+      buffToughness: temporaryBuff.toughness,
+      buffDuration: temporaryBuff.duration,
+      optionalTarget:
+        referenceText.includes("up to one target creature") ||
+        referenceText.includes("up to one target permanent") ||
+        referenceText.includes("up to one target attacking creature") ||
+        referenceText.includes("up to one target attacking permanent"),
+    });
+  }
+
   if ((referenceText.includes("double") || referenceText.includes("twice")) && referenceText.includes("token")) {
     rules.push({
       actionType: "Multiply Tokens",
@@ -5650,6 +6033,59 @@ function applyCombatAutomationRule(boardState, sourcePermanent, rule, attackerId
         }),
       },
       message: `${sourcePermanent.name} added ${counterResult.value} ${counterType} counter${counterResult.value === 1 ? "" : "s"}.`,
+    };
+  }
+
+  if (rule.actionType === "Apply Temporary Buff") {
+    const targetIds = resolveCounterAllocation(boardState, sourcePermanent, rule, attackerIds, {
+      allowManualSelection: false,
+    });
+    if (targetIds === null) {
+      return {
+        boardState,
+        message: `${sourcePermanent.name} needs a manual target before its temporary buff can resolve.`,
+      };
+    }
+
+    if (targetIds.length === 0) {
+      return {
+        boardState,
+        message: rule.optionalTarget ? `${sourcePermanent.name} skipped its optional temporary buff target.` : "",
+      };
+    }
+
+    const targetIdSet = new Set(targetIds);
+    const buffPower = normalizeSignedCount(rule.buffPower);
+    const buffToughness = normalizeSignedCount(rule.buffToughness);
+    const duration = normalizeAutomationBuffDuration(rule.buffDuration);
+    return {
+      boardState: {
+        ...boardState,
+        permanents: boardState.permanents.map((permanent) => {
+          if (!targetIdSet.has(permanent.id)) {
+            return permanent;
+          }
+
+          const nextPermanent = {
+            ...permanent,
+            temporaryPowerUntilTurnEnd: normalizeSignedCount(permanent.temporaryPowerUntilTurnEnd),
+            temporaryToughnessUntilTurnEnd: normalizeSignedCount(permanent.temporaryToughnessUntilTurnEnd),
+            temporaryPowerUntilCombatEnd: normalizeSignedCount(permanent.temporaryPowerUntilCombatEnd),
+            temporaryToughnessUntilCombatEnd: normalizeSignedCount(permanent.temporaryToughnessUntilCombatEnd),
+          };
+
+          if (duration === "until-end-of-combat") {
+            nextPermanent.temporaryPowerUntilCombatEnd += buffPower;
+            nextPermanent.temporaryToughnessUntilCombatEnd += buffToughness;
+          } else {
+            nextPermanent.temporaryPowerUntilTurnEnd += buffPower;
+            nextPermanent.temporaryToughnessUntilTurnEnd += buffToughness;
+          }
+
+          return createPermanent(nextPermanent);
+        }),
+      },
+      message: `${sourcePermanent.name} applied ${buffPower >= 0 ? "+" : ""}${buffPower}/${buffToughness >= 0 ? "+" : ""}${buffToughness} ${duration === "until-end-of-combat" ? "until end of combat" : "until end of turn"}.`,
     };
   }
 
@@ -5982,6 +6418,24 @@ function extractCounterCountFromText(text) {
   return extractCountFromText(normalizedText);
 }
 
+function extractTemporaryBuffFromText(text) {
+  const normalizedText = String(text || "").toLowerCase();
+  if (!normalizedText.includes("until end of turn") && !normalizedText.includes("until end of combat")) {
+    return null;
+  }
+
+  const match = normalizedText.match(/get(?:s)?\s+([+\-]\d+)\/([+\-]\d+)(?:[^.]*?)until end of (turn|combat)/i);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    power: normalizeSignedCount(match[1]),
+    toughness: normalizeSignedCount(match[2]),
+    duration: match[3] === "combat" ? "until-end-of-combat" : "until-end-of-turn",
+  };
+}
+
 function parseCountToken(token) {
   const normalizedToken = normalizeLabel(token, "").toLowerCase();
   if (!normalizedToken) {
@@ -6022,6 +6476,15 @@ function getTriggerSummary(trigger) {
   if (trigger.actionType === "Add +1/+1 Counters" || trigger.actionType === "Add Counters") {
     const counterType = normalizeCounterType(trigger.counterType || (trigger.actionType === "Add +1/+1 Counters" ? "+1/+1" : "Generic"));
     return `${trigger.triggerEvent === "Phase" ? trigger.phase : trigger.triggerEvent}: Add ${trigger.value} ${counterType} Counter${trigger.value === 1 ? "" : "s"} to ${trigger.target}`;
+  }
+
+  if (trigger.actionType === "Apply Temporary Buff") {
+    const buffPower = normalizeSignedCount(trigger.buffPower);
+    const buffToughness = normalizeSignedCount(trigger.buffToughness);
+    const durationLabel = normalizeAutomationBuffDuration(trigger.buffDuration) === "until-end-of-combat"
+      ? "until end of combat"
+      : "until end of turn";
+    return `${trigger.triggerEvent === "Phase" ? trigger.phase : trigger.triggerEvent}: ${buffPower >= 0 ? "+" : ""}${buffPower}/${buffToughness >= 0 ? "+" : ""}${buffToughness} ${durationLabel} to ${trigger.target}`;
   }
 
   return `${trigger.triggerEvent}: ${trigger.actionType}`;

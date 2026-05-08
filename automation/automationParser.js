@@ -4,7 +4,13 @@ import { findRelevantRuling } from "./scryfallRulingsService.js";
 
 export function extractEffectMetadata(oracleText = "") {
   const normalized = normalizeText(oracleText).toLowerCase();
-  const staticBuff = parseStaticBuff(normalized);
+  const staticBuffRules = parseStaticBuffRules(normalized);
+  const primaryStaticBuff = staticBuffRules[0] || {
+    power: 0,
+    toughness: 0,
+    appliesTo: "",
+    excludesSelf: false,
+  };
 
   return {
     doublesTokens:
@@ -14,10 +20,11 @@ export function extractEffectMetadata(oracleText = "") {
     counterModifierBonus: /that many plus one|plus an additional counter|additional \+1\/\+1 counter/i.test(normalized) ? 1 : 0,
     createsTokens: normalized.includes("create") && normalized.includes("token"),
     addsCounters: normalized.includes("counter"),
-    staticBuffPower: staticBuff.power,
-    staticBuffToughness: staticBuff.toughness,
-    staticBuffAppliesTo: staticBuff.appliesTo,
-    staticBuffExcludesSelf: staticBuff.excludesSelf,
+    staticBuffRules,
+    staticBuffPower: primaryStaticBuff.power,
+    staticBuffToughness: primaryStaticBuff.toughness,
+    staticBuffAppliesTo: primaryStaticBuff.appliesTo,
+    staticBuffExcludesSelf: primaryStaticBuff.excludesSelf,
   };
 }
 
@@ -85,6 +92,7 @@ export function buildAutomationSuggestions(permanent = {}) {
       triggerType: "ETB",
       eventType: "ETB",
       phase: "",
+      eventSourceScope: inferEventSourceScope(normalized, "ETB", permanent.name),
       repeatBehavior: "once",
       reasonPrefix: `${permanent.name} has an enters-the-battlefield trigger.`,
     });
@@ -107,6 +115,7 @@ export function buildAutomationSuggestions(permanent = {}) {
       triggerType: "OnDeath",
       eventType: "OnDeath",
       phase: "",
+      eventSourceScope: inferEventSourceScope(normalized, "OnDeath", permanent.name),
       repeatBehavior: "per-event",
       reasonPrefix: `${permanent.name} has a dies trigger.`,
     });
@@ -117,6 +126,7 @@ export function buildAutomationSuggestions(permanent = {}) {
       triggerType: "OnSacrifice",
       eventType: "OnSacrifice",
       phase: "",
+      eventSourceScope: inferEventSourceScope(normalized, "OnSacrifice", permanent.name),
       repeatBehavior: "per-event",
       reasonPrefix: `${permanent.name} has a sacrifice trigger.`,
     });
@@ -127,6 +137,7 @@ export function buildAutomationSuggestions(permanent = {}) {
       triggerType: "OnExile",
       eventType: "OnExile",
       phase: "",
+      eventSourceScope: inferEventSourceScope(normalized, "OnExile", permanent.name),
       repeatBehavior: "per-event",
       reasonPrefix: `${permanent.name} has an exile trigger.`,
     });
@@ -138,6 +149,7 @@ export function buildAutomationSuggestions(permanent = {}) {
       triggerType: attackTrigger,
       eventType: "Attack",
       phase: "Combat",
+      eventSourceScope: attackTrigger === "attack-self" ? "self" : "any-creature",
       repeatBehavior: "per-event",
       reasonPrefix: `${permanent.name} has an attack trigger.`,
     });
@@ -194,6 +206,26 @@ function appendActionSuggestions(suggestions, permanent, rulings, normalizedText
       rulingKeywords: ["token", "twice"],
     }, rulings));
   }
+
+  const temporaryBuff = extractTemporaryBuff(normalizedText);
+  if (temporaryBuff) {
+    const targetProfile = inferTemporaryBuffTargetProfile(normalizedText, permanent.name);
+    suggestions.push(createSuggestion(permanent, {
+      ...context,
+      actionType: "Apply Temporary Buff",
+      targetType: targetProfile.targetType,
+      counterTargetEntity: targetProfile.counterTargetEntity,
+      requiresTargetSelection: targetProfile.requiresTargetSelection,
+      optionalTarget: targetProfile.optionalTarget,
+      buffPower: temporaryBuff.power,
+      buffToughness: temporaryBuff.toughness,
+      buffDuration: temporaryBuff.duration,
+      value: 0,
+      reasonSummary: `${context.reasonPrefix} It applies a temporary power/toughness effect on a supported timing window.`,
+      evidenceSummary: `Oracle text grants ${temporaryBuff.power >= 0 ? "+" : ""}${temporaryBuff.power}/${temporaryBuff.toughness >= 0 ? "+" : ""}${temporaryBuff.toughness} ${temporaryBuff.duration === "until-end-of-combat" ? "until end of combat" : "until end of turn"}.`,
+      rulingKeywords: ["combat", "until end of turn"],
+    }, rulings));
+  }
 }
 
 function createSuggestion(permanent, partialRule, rulings = permanent.rulings || []) {
@@ -217,6 +249,7 @@ function createSuggestion(permanent, partialRule, rulings = permanent.rulings ||
     triggerType: partialRule.triggerType,
     phase: partialRule.phase || "",
     eventType: partialRule.eventType || "",
+    eventSourceScope: partialRule.eventSourceScope || "self",
     actionType: partialRule.actionType || "",
     targetType: partialRule.targetType || "All",
     value: Number.isFinite(Number(partialRule.value)) ? Number(partialRule.value) : 0,
@@ -226,6 +259,9 @@ function createSuggestion(permanent, partialRule, rulings = permanent.rulings ||
     tokenManaCost: partialRule.tokenManaCost || "",
     counterType: partialRule.counterType || "",
     counterTargetEntity: partialRule.counterTargetEntity === "permanent" ? "permanent" : partialRule.counterTargetEntity === "creature" ? "creature" : "",
+    buffPower: Number.isFinite(Number(partialRule.buffPower)) ? Number(partialRule.buffPower) : 0,
+    buffToughness: Number.isFinite(Number(partialRule.buffToughness)) ? Number(partialRule.buffToughness) : 0,
+    buffDuration: partialRule.buffDuration || "until-end-of-turn",
     requiresTargetSelection: Boolean(partialRule.requiresTargetSelection),
     optionalTarget: Boolean(partialRule.optionalTarget),
     repeatBehavior: partialRule.repeatBehavior || "per-event",
@@ -332,6 +368,75 @@ function detectAttackTrigger(normalizedText, cardName) {
   return "";
 }
 
+function inferEventSourceScope(normalizedText, eventType, cardName = "") {
+  const normalizedName = normalizeMatcherText(cardName);
+  const text = normalizeMatcherText(normalizedText);
+
+  if (eventType === "ETB") {
+    if (
+      text.includes("whenever another creature enters") ||
+      text.includes("whenever a creature enters") ||
+      text.includes("whenever one or more creatures enter")
+    ) {
+      return text.includes("another creature enters") ? "another-creature" : "any-creature";
+    }
+
+    if (text.includes("whenever another permanent enters") || text.includes("whenever a permanent enters")) {
+      return text.includes("another permanent enters") ? "another-permanent" : "any-permanent";
+    }
+  }
+
+  if (eventType === "OnDeath") {
+    if (
+      text.includes("whenever another creature dies") ||
+      text.includes("whenever a creature dies") ||
+      text.includes("whenever one or more creatures die")
+    ) {
+      return text.includes("another creature dies") ? "another-creature" : "any-creature";
+    }
+  }
+
+  if (eventType === "OnSacrifice") {
+    if (text.includes("whenever another creature is sacrificed") || text.includes("whenever another creature sacrifices")) {
+      return "another-creature";
+    }
+    if (text.includes("whenever a creature is sacrificed") || text.includes("whenever you sacrifice a creature")) {
+      return "any-creature";
+    }
+    if (text.includes("whenever a permanent is sacrificed") || text.includes("whenever you sacrifice a permanent")) {
+      return "any-permanent";
+    }
+  }
+
+  if (eventType === "OnExile") {
+    if (text.includes("whenever another creature is exiled") || text.includes("whenever another creature leaves")) {
+      return "another-creature";
+    }
+    if (text.includes("whenever a creature is exiled") || text.includes("whenever a creature leaves")) {
+      return "any-creature";
+    }
+    if (text.includes("whenever a permanent is exiled") || text.includes("whenever a permanent leaves")) {
+      return "any-permanent";
+    }
+  }
+
+  if (
+    normalizedName &&
+    (text.includes(`${normalizedName} enters`) ||
+      text.includes(`${normalizedName} dies`) ||
+      text.includes(`${normalizedName} is exiled`) ||
+      text.includes(`${normalizedName} is sacrificed`))
+  ) {
+    return "self";
+  }
+
+  if (text.includes("when this enters") || text.includes("when this dies") || text.includes("when this is exiled")) {
+    return "self";
+  }
+
+  return "self";
+}
+
 function inferCounterTargetProfile(normalizedText, cardName = "") {
   if (hasSelfCounterTargetReference(normalizedText, cardName)) {
     return { targetType: "Self", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
@@ -412,6 +517,55 @@ function inferCounterTargetProfile(normalizedText, cardName = "") {
   return { targetType: "Board", counterTargetEntity: "creature", requiresTargetSelection: false, optionalTarget: false };
 }
 
+function inferTemporaryBuffTargetProfile(normalizedText, cardName = "") {
+  if (hasSelfCounterTargetReference(normalizedText, cardName)) {
+    return { targetType: "Self", counterTargetEntity: "creature", requiresTargetSelection: false, optionalTarget: false };
+  }
+
+  if (
+    normalizedText.includes("each attacking creature") ||
+    normalizedText.includes("all attacking creatures") ||
+    normalizedText.includes("attacking creatures you control")
+  ) {
+    return { targetType: "All Attackers", counterTargetEntity: "creature", requiresTargetSelection: false, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("equipped creature") || normalizedText.includes("enchanted creature")) {
+    return { targetType: "Attached Permanent", counterTargetEntity: "creature", requiresTargetSelection: false, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("creatures you control") || normalizedText.includes("each creature you control")) {
+    return { targetType: "All Creatures", counterTargetEntity: "creature", requiresTargetSelection: false, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("up to one target creature")) {
+    return { targetType: "Selected", counterTargetEntity: "creature", requiresTargetSelection: true, optionalTarget: true };
+  }
+
+  if (normalizedText.includes("target creature")) {
+    return { targetType: "Selected", counterTargetEntity: "creature", requiresTargetSelection: true, optionalTarget: false };
+  }
+
+  return { targetType: "Board", counterTargetEntity: "creature", requiresTargetSelection: false, optionalTarget: false };
+}
+
+function extractTemporaryBuff(normalizedText) {
+  if (!normalizedText.includes("until end of turn") && !normalizedText.includes("until end of combat")) {
+    return null;
+  }
+
+  const match = normalizedText.match(/get(?:s)?\s+([+\-]\d+)\/([+\-]\d+)(?:[^.]*?)until end of (turn|combat)/i);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    power: Number(match[1]) || 0,
+    toughness: Number(match[2]) || 0,
+    duration: match[3] === "combat" ? "until-end-of-combat" : "until-end-of-turn",
+  };
+}
+
 function hasCounterPlacementLanguage(normalizedText) {
   if (!normalizedText.includes("counter")) {
     return false;
@@ -483,33 +637,104 @@ function normalizeMatcherText(value) {
     .trim();
 }
 
-function parseStaticBuff(normalizedText) {
-  const otherMatch = normalizedText.match(/other creatures you control get \+(\d+)\/\+(\d+)/i);
-  if (otherMatch) {
-    return {
-      power: Number(otherMatch[1]) || 0,
-      toughness: Number(otherMatch[2]) || 0,
-      appliesTo: "creatures-you-control",
-      excludesSelf: true,
-    };
-  }
+function parseStaticBuffRules(normalizedText) {
+  const rules = [];
+  const isTemporaryClause = (match) =>
+    typeof match?.index === "number" &&
+    normalizedText.slice(match.index, match.index + String(match[0] || "").length + 48).includes("until end of");
 
-  const allMatch = normalizedText.match(/creatures you control get \+(\d+)\/\+(\d+)/i);
-  if (allMatch) {
-    return {
-      power: Number(allMatch[1]) || 0,
-      toughness: Number(allMatch[2]) || 0,
-      appliesTo: "creatures-you-control",
-      excludesSelf: false,
-    };
-  }
-
-  return {
-    power: 0,
-    toughness: 0,
-    appliesTo: "",
-    excludesSelf: false,
+  const pushRule = (power, toughness, appliesTo, options = {}) => {
+    rules.push({
+      power: Number(power) || 0,
+      toughness: Number(toughness) || 0,
+      appliesTo,
+      excludesSelf: Boolean(options.excludesSelf),
+      creatureType: options.creatureType || "",
+    });
   };
+
+  const tribalPattern = /other ([a-z]+) creatures you control get ([+\-]\d+)\/([+\-]\d+)/gi;
+  for (const match of normalizedText.matchAll(tribalPattern)) {
+    if (isTemporaryClause(match)) {
+      continue;
+    }
+    pushRule(match[2], match[3], "tribal-you-control", {
+      excludesSelf: true,
+      creatureType: capitalize(match[1]),
+    });
+  }
+
+  const selfTribalPattern = /([a-z]+) creatures you control get ([+\-]\d+)\/([+\-]\d+)/gi;
+  for (const match of normalizedText.matchAll(selfTribalPattern)) {
+    const creatureTypeToken = String(match[1] || "").toLowerCase();
+    if (creatureTypeToken === "other" || creatureTypeToken === "all" || creatureTypeToken === "attacking") {
+      continue;
+    }
+    const prefix = typeof match.index === "number" ? normalizedText.slice(0, match.index) : "";
+    const precedingWord = (prefix.match(/([a-z]+)\s*$/i)?.[1] || "").toLowerCase();
+    if (precedingWord === "other") {
+      continue;
+    }
+    if (/other [a-z]+ creatures you control/.test(match[0])) {
+      continue;
+    }
+    if (isTemporaryClause(match)) {
+      continue;
+    }
+    pushRule(match[2], match[3], "tribal-you-control", {
+      excludesSelf: false,
+      creatureType: capitalize(match[1]),
+    });
+  }
+
+  const ownPattern = /(?:other )?creatures you control get ([+\-]\d+)\/([+\-]\d+)/gi;
+  for (const match of normalizedText.matchAll(ownPattern)) {
+    if (isTemporaryClause(match)) {
+      continue;
+    }
+    const prefix = typeof match.index === "number" ? normalizedText.slice(0, match.index) : "";
+    const precedingWord = (prefix.match(/([a-z]+)\s*$/i)?.[1] || "").toLowerCase();
+    if (precedingWord && precedingWord !== "other") {
+      continue;
+    }
+    pushRule(match[1], match[2], "creatures-you-control", {
+      excludesSelf: match[0].startsWith("other"),
+    });
+  }
+
+  const allPattern = /all creatures get ([+\-]\d+)\/([+\-]\d+)/gi;
+  for (const match of normalizedText.matchAll(allPattern)) {
+    if (isTemporaryClause(match)) {
+      continue;
+    }
+    pushRule(match[1], match[2], "all-creatures");
+  }
+
+  const opponentPattern = /creatures (?:your opponents|opponents) control get ([+\-]\d+)\/([+\-]\d+)/gi;
+  for (const match of normalizedText.matchAll(opponentPattern)) {
+    if (isTemporaryClause(match)) {
+      continue;
+    }
+    pushRule(match[1], match[2], "opponent-creatures");
+  }
+
+  const equippedPattern = /equipped creature gets ([+\-]\d+)\/([+\-]\d+)/gi;
+  for (const match of normalizedText.matchAll(equippedPattern)) {
+    if (isTemporaryClause(match)) {
+      continue;
+    }
+    pushRule(match[1], match[2], "equipped-creature");
+  }
+
+  const enchantedPattern = /enchanted creature gets ([+\-]\d+)\/([+\-]\d+)/gi;
+  for (const match of normalizedText.matchAll(enchantedPattern)) {
+    if (isTemporaryClause(match)) {
+      continue;
+    }
+    pushRule(match[1], match[2], "enchanted-creature");
+  }
+
+  return rules;
 }
 
 function extractTokenSpec(normalizedText) {
@@ -600,10 +825,14 @@ function dedupeSuggestions(suggestions) {
       suggestion.triggerType,
       suggestion.phase,
       suggestion.eventType,
+      suggestion.eventSourceScope,
       suggestion.actionType,
       suggestion.targetType,
       suggestion.counterType,
       suggestion.counterTargetEntity,
+      suggestion.buffPower,
+      suggestion.buffToughness,
+      suggestion.buffDuration,
       suggestion.value,
       suggestion.tokenName,
       suggestion.tokenPower,
