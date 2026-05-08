@@ -167,6 +167,7 @@ const PLAYER_COUNTER_DEFS = [
 
 let boardUi = {
   activeMenuPermanentId: "",
+  pendingCounterSelection: null,
   searchQuery: "",
   searchStatus: "idle",
   searchResults: [],
@@ -304,6 +305,8 @@ const effectStrip = document.querySelector("#effectStrip");
 const battlefieldGrid = document.querySelector("#battlefieldGrid");
 const battlefieldEmpty = document.querySelector("#battlefieldEmpty");
 const removeAllBattlefieldButton = document.querySelector("#removeAllBattlefieldButton");
+const battlefieldAddCounterButton = document.querySelector("#battlefieldAddCounterButton");
+const confirmCounterSelectionButton = document.querySelector("#confirmCounterSelectionButton");
 const toggleBoardTotalsButton = document.querySelector("#toggleBoardTotalsButton");
 const boardTotalBar = document.querySelector("#boardTotalBar");
 const battlefieldHeadingRow = document.querySelector(".board-state-battlefield .board-section-heading-row");
@@ -337,6 +340,7 @@ const automationUndoButton = document.querySelector("#automationUndoButton");
 const cardDetailTitle = document.querySelector("#cardDetailTitle");
 const cardDetailContent = document.querySelector("#cardDetailContent");
 const genericTokenForm = document.querySelector("#genericTokenForm");
+const battlefieldCounterDialog = document.querySelector("#battlefieldCounterDialog");
 const tokenNameInput = document.querySelector("#tokenNameInput");
 const tokenManaCostInput = document.querySelector("#tokenManaCostInput");
 const tokenPowerInput = document.querySelector("#tokenPowerInput");
@@ -418,6 +422,8 @@ toggleBoardControlsButton?.addEventListener("click", toggleBoardControlsExpanded
 expandAllButton?.addEventListener("click", () => setAllPermanentsExpanded(true));
 collapseAllButton?.addEventListener("click", () => setAllPermanentsExpanded(false));
 removeAllBattlefieldButton?.addEventListener("click", () => showDialog(bulkRemoveDialog));
+battlefieldAddCounterButton?.addEventListener("click", () => showDialog(battlefieldCounterDialog));
+confirmCounterSelectionButton?.addEventListener("click", confirmBattlefieldCounterSelection);
 toggleBoardTotalsButton.addEventListener("click", toggleBoardTotalsVisibility);
 attackSelectedButton.addEventListener("click", () => beginCombatSimulation("selected"));
 attackAllButton.addEventListener("click", () => beginCombatSimulation("all"));
@@ -457,7 +463,7 @@ cardDetailDialog?.addEventListener("close", clearExpandedCardState);
   });
 });
 
-[optionsDialog, nameSettingsDialog, counterSheetDialog, damageSheetDialog, connectedPlayersDialog, connectedPlayerViewDialog, boardOptionsDialog, bulkRemoveDialog, multiplayerHubDialog, automationRulesDialog, cardDetailDialog, genericTokenDialog].forEach((dialog) => {
+[optionsDialog, nameSettingsDialog, counterSheetDialog, damageSheetDialog, connectedPlayersDialog, connectedPlayerViewDialog, boardOptionsDialog, bulkRemoveDialog, multiplayerHubDialog, automationRulesDialog, cardDetailDialog, genericTokenDialog, battlefieldCounterDialog].forEach((dialog) => {
   dialog.addEventListener("click", (event) => {
     if (event.target === dialog) {
       dialog.close();
@@ -472,6 +478,15 @@ bulkRemoveDialog?.addEventListener("click", (event) => {
   }
 
   destroyAllMatchingPermanents(button.dataset.bulkDestroyOption || "");
+});
+
+battlefieldCounterDialog?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-battlefield-counter-mode]");
+  if (!button) {
+    return;
+  }
+
+  handleBattlefieldCounterMode(button.dataset.battlefieldCounterMode || "");
 });
 
 pageViewport.addEventListener("scroll", handlePageViewportScroll, { passive: true });
@@ -1328,6 +1343,7 @@ function renderBoardStatePage() {
     battlefieldSection.dataset.hasEffects = String(effects.length > 0);
     battlefieldSection.dataset.hasCreatures = String(battlefield.length > 0);
   }
+  renderBattlefieldActionButtons();
   renderBoardSearch();
   renderBoardControls(boardState.controlsExpanded);
   renderEffectStrip(effects);
@@ -1360,7 +1376,9 @@ function setupBoardStateLayout() {
     return;
   }
 
-  [removeAllBattlefieldButton, toggleBoardTotalsButton].forEach((button) => {
+  [removeAllBattlefieldButton, battlefieldAddCounterButton, confirmCounterSelectionButton, toggleBoardTotalsButton]
+    .filter(Boolean)
+    .forEach((button) => {
     button.classList.remove("board-control-button", "board-control-button-wide");
     button.classList.add("board-section-action");
   });
@@ -1375,7 +1393,14 @@ function setupBoardStateLayout() {
     battlefieldHeadingRow.append(actionGroup);
   }
 
-  actionGroup.append(removeAllBattlefieldButton, toggleBoardTotalsButton);
+  actionGroup.append(removeAllBattlefieldButton);
+  if (battlefieldAddCounterButton) {
+    actionGroup.append(battlefieldAddCounterButton);
+  }
+  if (confirmCounterSelectionButton) {
+    actionGroup.append(confirmCounterSelectionButton);
+  }
+  actionGroup.append(toggleBoardTotalsButton);
   boardStateControls?.remove();
 }
 
@@ -2117,6 +2142,16 @@ function renderBoardTotals(totals, selectedCount) {
   toggleBoardTotalsButton.setAttribute("aria-expanded", boardUi.totalsVisible ? "true" : "false");
 }
 
+function renderBattlefieldActionButtons() {
+  if (!confirmCounterSelectionButton) {
+    return;
+  }
+
+  const hasPendingSelection = Boolean(boardUi.pendingCounterSelection);
+  confirmCounterSelectionButton.hidden = !hasPendingSelection;
+  confirmCounterSelectionButton.disabled = !hasPendingSelection;
+}
+
 function renderBoardSearch() {
   boardSearchInput.value = boardUi.searchQuery;
   boardSearchButton.disabled = boardUi.searchStatus === "loading";
@@ -2321,6 +2356,7 @@ function renderEffectDockChip(permanent) {
               ? `
             <div class="board-tile-menu">
               <button class="board-tile-menu-action" type="button" data-board-action="${permanent.isTapped ? "untap" : "tap"}" data-permanent-id="${permanent.id}">${permanent.isTapped ? "Untap" : "Tap"}</button>
+              <button class="board-tile-menu-action" type="button" data-board-action="remove" data-permanent-id="${permanent.id}">Remove</button>
               <button class="board-tile-menu-action" type="button" data-board-action="destroy" data-permanent-id="${permanent.id}">Destroy</button>
               <button class="board-tile-menu-action" type="button" data-board-action="exile" data-permanent-id="${permanent.id}">Exile</button>
               <button class="board-tile-menu-action" type="button" data-board-action="sacrifice" data-permanent-id="${permanent.id}">Sacrifice</button>
@@ -2744,6 +2780,173 @@ function toggleBoardTotalsVisibility() {
   );
 }
 
+function handleBattlefieldCounterMode(mode) {
+  if (mode === "all") {
+    battlefieldCounterDialog?.close();
+    applyBattlefieldPlusOneCountersToAllCreatures();
+    return;
+  }
+
+  if (mode === "specific") {
+    battlefieldCounterDialog?.close();
+    startBattlefieldCounterTargetSelection();
+  }
+}
+
+function startBattlefieldCounterTargetSelection() {
+  if (state.boardState.permanents.length === 0) {
+    showQuickToast("No permanents available to target.");
+    return;
+  }
+
+  state = {
+    ...state,
+    boardState: {
+      ...state.boardState,
+      permanents: state.boardState.permanents.map((permanent) =>
+        createPermanent({
+          ...permanent,
+          isSelected: false,
+        })
+      ),
+    },
+  };
+
+  boardUi = {
+    ...boardUi,
+    activeMenuPermanentId: "",
+    pendingCounterSelection: {
+      counterType: "+1/+1",
+      value: 1,
+    },
+  };
+
+  persistState();
+  render();
+  showQuickToast("Select target(s), then tap Confirm Targets.");
+}
+
+function clearPendingCounterSelection() {
+  boardUi = {
+    ...boardUi,
+    pendingCounterSelection: null,
+  };
+}
+
+function confirmBattlefieldCounterSelection() {
+  const pendingSelection = boardUi.pendingCounterSelection;
+  if (!pendingSelection) {
+    return;
+  }
+
+  const selectedIds = getSelectedPermanentIds(state.boardState.permanents);
+  if (selectedIds.length === 0) {
+    showQuickToast("Select at least one target first.");
+    return;
+  }
+
+  const outcome = applyCounterToPermanentTargets(
+    state.boardState,
+    selectedIds,
+    pendingSelection.counterType || "+1/+1",
+    pendingSelection.value || 1
+  );
+
+  if (outcome.appliedCount === 0) {
+    showQuickToast("No valid targets selected.");
+    return;
+  }
+
+  state = {
+    ...state,
+    boardState: {
+      ...outcome.boardState,
+      permanents: outcome.boardState.permanents.map((permanent) =>
+        createPermanent({
+          ...permanent,
+          isSelected: false,
+        })
+      ),
+    },
+  };
+
+  clearPendingCounterSelection();
+  persistState();
+  render();
+  showQuickToast(formatCounterPlacementMessage(outcome, "selected target(s)"));
+}
+
+function applyBattlefieldPlusOneCountersToAllCreatures() {
+  const creatureIds = state.boardState.permanents
+    .filter((permanent) => permanent.isCreature)
+    .map((permanent) => permanent.id);
+
+  if (creatureIds.length === 0) {
+    showQuickToast("No creatures on the battlefield.");
+    return;
+  }
+
+  const outcome = applyCounterToPermanentTargets(state.boardState, creatureIds, "+1/+1", 1);
+  if (outcome.appliedCount === 0) {
+    showQuickToast("No valid creatures found.");
+    return;
+  }
+
+  state = {
+    ...state,
+    boardState: outcome.boardState,
+  };
+
+  clearPendingCounterSelection();
+  persistState();
+  render();
+  showQuickToast(formatCounterPlacementMessage(outcome, "all creatures"));
+}
+
+function applyCounterToPermanentTargets(boardState, targetIds, counterType, value) {
+  const uniqueTargetIds = Array.from(new Set(targetIds));
+  if (uniqueTargetIds.length === 0) {
+    return {
+      boardState,
+      appliedCount: 0,
+      appliedAmount: 0,
+      modifierSummary: "",
+    };
+  }
+
+  const targetIdSet = new Set(uniqueTargetIds);
+  const counterResult = applyCounterModifiersDetailed(value, boardState.permanents);
+  let appliedCount = 0;
+  const nextPermanents = boardState.permanents.map((permanent) => {
+    if (!targetIdSet.has(permanent.id)) {
+      return permanent;
+    }
+
+    appliedCount += 1;
+    return applyCounterToPermanent(permanent, counterType, counterResult.value);
+  });
+
+  return {
+    boardState: {
+      ...boardState,
+      permanents: nextPermanents,
+    },
+    appliedCount,
+    appliedAmount: counterResult.value,
+    modifierSummary: summarizeModifierList(counterResult.modifiers),
+  };
+}
+
+function formatCounterPlacementMessage(outcome, scopeLabel) {
+  const baseMessage = `Added ${outcome.appliedAmount} +1/+1 counter${outcome.appliedAmount === 1 ? "" : "s"} to ${outcome.appliedCount} ${scopeLabel}.`;
+  const modifierSummary = outcome.modifierSummary || "";
+  if (!modifierSummary || modifierSummary === "No active modifiers.") {
+    return baseMessage;
+  }
+
+  return `${baseMessage} ${modifierSummary}`;
+}
+
 function updatePlayerCounter(counterId, delta) {
   const counterState = state.playerCounters[counterId];
   if (!counterState) {
@@ -2953,6 +3156,7 @@ function resetBoardState() {
   boardUi = {
     ...boardUi,
     activeMenuPermanentId: "",
+    pendingCounterSelection: null,
     detailPermanentId: "",
     detailDialogPermanentId: "",
     searchResults: [],
@@ -3122,6 +3326,7 @@ function closeAllDialogs() {
     automationRulesDialog,
     cardDetailDialog,
     genericTokenDialog,
+    battlefieldCounterDialog,
   ].forEach((dialog) => {
     if (dialog.open) {
       dialog.close();
@@ -4872,6 +5077,27 @@ function removePermanent(boardState, permanentId) {
   };
 }
 
+function removePermanentInstance(permanentId) {
+  const removalResult = removePermanent(state.boardState, permanentId);
+  if (!removalResult.removedPermanent) {
+    return;
+  }
+
+  boardUi = {
+    ...boardUi,
+    activeMenuPermanentId: "",
+  };
+
+  state = {
+    ...state,
+    boardState: removalResult.boardState,
+  };
+
+  persistState();
+  render();
+  showQuickToast(`Removed 1 ${removalResult.removedPermanent.name}.`);
+}
+
 function applyPermanentRemoval(permanentId, removalType) {
   const removalOutcome = applyPermanentRemovalToBoardState(state.boardState, permanentId, removalType);
   if (!removalOutcome.changed) {
@@ -4975,6 +5201,8 @@ function matchesBulkDestroyOption(permanent, destroyOption) {
   switch (destroyOption) {
     case "creatures":
       return permanent.isCreature;
+    case "tokens":
+      return permanent.isToken;
     case "non-creature-permanents":
       return permanent.isNonCreature;
     case "artifacts":
@@ -5194,6 +5422,11 @@ function handleBoardAction(action, permanentId) {
 
   if (action === "tap" || action === "untap") {
     setPermanentTappedState(permanentId, action === "tap");
+    return;
+  }
+
+  if (action === "remove") {
+    removePermanentInstance(permanentId);
     return;
   }
 

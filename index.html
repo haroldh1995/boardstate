@@ -240,6 +240,17 @@
                     <button class="sheet-secondary board-section-action" id="removeAllBattlefieldButton" type="button">
                       Remove All
                     </button>
+                    <button class="sheet-secondary board-section-action" id="battlefieldAddCounterButton" type="button">
+                      +1/+1
+                    </button>
+                    <button
+                      class="sheet-secondary board-section-action"
+                      id="confirmCounterSelectionButton"
+                      type="button"
+                      hidden
+                    >
+                      Confirm Targets
+                    </button>
                     <button
                       class="sheet-secondary board-section-action"
                       id="toggleBoardTotalsButton"
@@ -485,11 +496,27 @@
         <p class="bulk-remove-note">Choose which permanents to destroy from the battlefield.</p>
         <div class="options-actions bulk-remove-actions">
           <button class="sheet-action" data-bulk-destroy-option="creatures" type="button">Destroy All Creatures</button>
+          <button class="sheet-action" data-bulk-destroy-option="tokens" type="button">Destroy All Tokens</button>
           <button class="sheet-action" data-bulk-destroy-option="non-creature-permanents" type="button">Destroy All Non-Creature Permanents</button>
           <button class="sheet-action" data-bulk-destroy-option="artifacts" type="button">Destroy All Artifacts</button>
           <button class="sheet-action" data-bulk-destroy-option="enchantments" type="button">Destroy All Enchantments</button>
           <button class="sheet-action" data-bulk-destroy-option="legendary-creatures" type="button">Destroy All Legendary Creatures</button>
           <button class="sheet-action" data-bulk-destroy-option="non-legendary-creatures" type="button">Destroy All Non-Legendary Creatures</button>
+        </div>
+        <button class="sheet-close" type="submit">Close</button>
+      </form>
+    </dialog>
+
+    <dialog class="options-dialog" id="battlefieldCounterDialog">
+      <form method="dialog" class="options-sheet tracker-sheet">
+        <div class="options-header">
+          <p class="options-kicker">Battlefield</p>
+          <h1>+1/+1 Counters</h1>
+        </div>
+        <p class="bulk-remove-note">Choose how to place +1/+1 counters.</p>
+        <div class="options-actions bulk-remove-actions">
+          <button class="sheet-action" data-battlefield-counter-mode="all" type="button">Add to All Creatures</button>
+          <button class="sheet-action" data-battlefield-counter-mode="specific" type="button">Add to Specific Target(s)</button>
         </div>
         <button class="sheet-close" type="submit">Close</button>
       </form>
