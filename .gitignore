@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.vite/
+*.log
+devcheck.log
+vite-*.log
+dom-*.html
+preview.png
+*-preview*.png
