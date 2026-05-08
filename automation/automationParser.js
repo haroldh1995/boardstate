@@ -170,6 +170,7 @@ function appendActionSuggestions(suggestions, permanent, rulings, normalizedText
       ...context,
       actionType: "Add +1/+1 Counters",
       targetType: targetProfile.targetType,
+      counterTargetEntity: targetProfile.counterTargetEntity,
       value: extractCountFromText(normalizedText),
       counterType: "+1/+1",
       requiresTargetSelection: targetProfile.requiresTargetSelection,
@@ -222,6 +223,7 @@ function createSuggestion(permanent, partialRule, rulings = permanent.rulings ||
     tokenToughness: Number.isFinite(Number(partialRule.tokenToughness)) ? Number(partialRule.tokenToughness) : 0,
     tokenManaCost: partialRule.tokenManaCost || "",
     counterType: partialRule.counterType || "",
+    counterTargetEntity: partialRule.counterTargetEntity === "permanent" ? "permanent" : partialRule.counterTargetEntity === "creature" ? "creature" : "",
     requiresTargetSelection: Boolean(partialRule.requiresTargetSelection),
     optionalTarget: Boolean(partialRule.optionalTarget),
     repeatBehavior: partialRule.repeatBehavior || "per-event",
@@ -326,34 +328,54 @@ function detectAttackTrigger(normalizedText, cardName) {
 
 function inferCounterTargetProfile(normalizedText, cardName = "") {
   if (hasSelfCounterTargetReference(normalizedText, cardName)) {
-    return { targetType: "Self", requiresTargetSelection: false, optionalTarget: false };
+    return { targetType: "Self", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
+  }
+
+  if (
+    normalizedText.includes("each permanent you control") ||
+    normalizedText.includes("permanents you control") ||
+    normalizedText.includes("each permanent")
+  ) {
+    return { targetType: "All", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
   }
 
   if (normalizedText.includes("each attacking creature") || normalizedText.includes("all attacking creatures")) {
-    return { targetType: "All Attackers", requiresTargetSelection: false, optionalTarget: false };
+    return { targetType: "All Attackers", counterTargetEntity: "creature", requiresTargetSelection: false, optionalTarget: false };
   }
 
   if (normalizedText.includes("each creature you control") || normalizedText.includes("creatures you control")) {
-    return { targetType: "All Creatures", requiresTargetSelection: false, optionalTarget: false };
+    return { targetType: "All Creatures", counterTargetEntity: "creature", requiresTargetSelection: false, optionalTarget: false };
   }
 
   if (normalizedText.includes("equipped creature") || normalizedText.includes("enchanted creature")) {
-    return { targetType: "Attached Permanent", requiresTargetSelection: false, optionalTarget: false };
+    return { targetType: "Attached Permanent", counterTargetEntity: "creature", requiresTargetSelection: false, optionalTarget: false };
   }
 
   if (normalizedText.includes("another target creature")) {
-    return { targetType: "Selected", requiresTargetSelection: true, optionalTarget: false };
+    return { targetType: "Selected", counterTargetEntity: "creature", requiresTargetSelection: true, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("another target permanent")) {
+    return { targetType: "Selected", counterTargetEntity: "permanent", requiresTargetSelection: true, optionalTarget: false };
   }
 
   if (normalizedText.includes("up to one target creature")) {
-    return { targetType: "Selected", requiresTargetSelection: true, optionalTarget: true };
+    return { targetType: "Selected", counterTargetEntity: "creature", requiresTargetSelection: true, optionalTarget: true };
   }
 
-  if (normalizedText.includes("target creature") || normalizedText.includes("target permanent")) {
-    return { targetType: "Selected", requiresTargetSelection: true, optionalTarget: false };
+  if (normalizedText.includes("up to one target permanent")) {
+    return { targetType: "Selected", counterTargetEntity: "permanent", requiresTargetSelection: true, optionalTarget: true };
   }
 
-  return { targetType: "Board", requiresTargetSelection: false, optionalTarget: false };
+  if (normalizedText.includes("target creature")) {
+    return { targetType: "Selected", counterTargetEntity: "creature", requiresTargetSelection: true, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("target permanent")) {
+    return { targetType: "Selected", counterTargetEntity: "permanent", requiresTargetSelection: true, optionalTarget: false };
+  }
+
+  return { targetType: "Board", counterTargetEntity: "creature", requiresTargetSelection: false, optionalTarget: false };
 }
 
 function hasSelfCounterTargetReference(text, cardName = "") {

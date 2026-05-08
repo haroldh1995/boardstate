@@ -123,6 +123,7 @@ const PLAYER_COUNTER_DEFS = [
  * @property {number} tokenPower
  * @property {number} tokenToughness
  * @property {string} counterType
+ * @property {"creature" | "permanent"} counterTargetEntity
  * @property {boolean} requiresTargetSelection
  * @property {boolean} optionalTarget
  * @property {string} repeatBehavior
@@ -634,6 +635,7 @@ function createAutomationRule(source = {}) {
     tokenPower: normalizeSignedCount(source.tokenPower),
     tokenToughness: normalizeSignedCount(source.tokenToughness),
     counterType: typeof source.counterType === "string" ? source.counterType.trim() : "",
+    counterTargetEntity: normalizeCounterTargetEntity(source.counterTargetEntity),
     requiresTargetSelection: Boolean(source.requiresTargetSelection),
     optionalTarget: Boolean(source.optionalTarget),
     repeatBehavior: normalizeLabel(source.repeatBehavior, "per-event"),
@@ -958,6 +960,19 @@ function normalizeAutomationTarget(value) {
   }
 
   return normalizeLabel(value, "All");
+}
+
+function normalizeCounterTargetEntity(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "creature" || normalized === "permanent") {
+    return normalized;
+  }
+
+  return "";
 }
 
 function normalizeAutomationConfidence(value) {
@@ -4130,6 +4145,7 @@ function executeTrigger(trigger, boardState, context = {}) {
         context.sourcePermanent ||
         boardState.permanents.find((permanent) => permanent.id === context.sourcePermanentId) ||
         null;
+      const counterTargetEntity = resolveCounterTargetEntity(trigger, targetLabel, sourcePermanent);
       const canAutoResolveSelfTarget =
         needsManualTarget &&
         context.skipTargetSelection &&
@@ -4145,8 +4161,13 @@ function executeTrigger(trigger, boardState, context = {}) {
           ? [sourcePermanent]
           : needsManualTarget
             ? resolveManualAutomationTargets(boardState, sourcePermanent, trigger, context)
-            : getTargets(targetLabel, boardState.permanents, context)
-      ).filter((permanent) => permanent.isCreature);
+            : getTargets(targetLabel, boardState.permanents, {
+                ...context,
+                counterTargetEntity,
+              })
+      ).filter((permanent) =>
+        canPermanentReceiveCounterFromRule(permanent, sourcePermanent, trigger, counterTargetEntity)
+      );
 
       if (counterTargets.length === 0 || trigger.value <= 0) {
         return { boardState, changed: false, message: "", modifierSummary: "" };
@@ -4439,11 +4460,14 @@ function normalizeBoardTarget(target) {
 }
 
 function resolveManualAutomationTargets(boardState, sourcePermanent, trigger, context = {}) {
+  const targetLabel = trigger.targetType || trigger.target || "Selected";
+  const counterTargetEntity = resolveCounterTargetEntity(trigger, targetLabel, sourcePermanent);
   const targetIds = promptForCounterTarget(
     boardState.permanents,
     sourcePermanent || createPermanent({ name: trigger.sourceCardName || "Automation" }),
     {
-      targetMode: "manual",
+      targetMode: trigger.targetMode || "manual",
+      counterTargetEntity,
       optionalTarget: Boolean(trigger.optionalTarget),
     }
   );
@@ -4462,7 +4486,7 @@ function matchesPermanentTarget(permanent, target, selectedIds, context = {}) {
     case "All Attackers":
       return permanent.isCreature && attackerIds.has(permanent.id);
     case "Board":
-      return permanent.isCreature;
+      return normalizeCounterTargetEntity(context.counterTargetEntity) === "permanent" ? true : permanent.isCreature;
     case "Attached Permanent":
       return permanent.id === context.attachedToId;
     case "Tokens Only":
@@ -4483,6 +4507,87 @@ function matchesPermanentTarget(permanent, target, selectedIds, context = {}) {
     default:
       return true;
   }
+}
+
+function canPermanentReceiveCounterFromRule(permanent, sourcePermanent, trigger, targetEntity) {
+  if (!permanent) {
+    return false;
+  }
+
+  const targetLabel = trigger?.targetType || trigger?.target || "";
+  if (targetLabel === "Self" || trigger?.targetMode === "self") {
+    return Boolean(sourcePermanent) && permanent.id === sourcePermanent.id;
+  }
+
+  return targetEntity === "creature" ? permanent.isCreature : true;
+}
+
+function resolveCounterTargetEntity(trigger, targetLabel, sourcePermanent) {
+  const explicitEntity = normalizeCounterTargetEntity(trigger?.counterTargetEntity);
+  if (explicitEntity) {
+    return explicitEntity;
+  }
+
+  const mode = normalizeLabel(trigger?.targetMode, "").toLowerCase();
+  if (mode.includes("permanent")) {
+    return "permanent";
+  }
+  if (mode.includes("creature") || mode === "all-attackers" || mode === "all-creatures" || mode === "self") {
+    return "creature";
+  }
+
+  if (targetLabel === "All Creatures" || targetLabel === "All Attackers" || targetLabel === "Artifact Creature Only") {
+    return "creature";
+  }
+
+  const referenceText = getPermanentReferenceText(sourcePermanent);
+  if (hasPermanentCounterTargetReference(referenceText)) {
+    return "permanent";
+  }
+  if (hasCreatureCounterTargetReference(referenceText)) {
+    return "creature";
+  }
+
+  if (targetLabel === "Selected") {
+    return "permanent";
+  }
+
+  if (targetLabel === "Board" || targetLabel === "Attached Permanent") {
+    return "creature";
+  }
+
+  return "permanent";
+}
+
+function hasPermanentCounterTargetReference(text) {
+  const normalizedText = normalizeCounterReferenceText(text);
+  if (!normalizedText) {
+    return false;
+  }
+
+  return (
+    normalizedText.includes("target permanent") ||
+    normalizedText.includes("another target permanent") ||
+    normalizedText.includes("up to one target permanent") ||
+    normalizedText.includes("each permanent") ||
+    normalizedText.includes("permanents you control") ||
+    normalizedText.includes("permanent you control")
+  );
+}
+
+function hasCreatureCounterTargetReference(text) {
+  const normalizedText = normalizeCounterReferenceText(text);
+  if (!normalizedText) {
+    return false;
+  }
+
+  return (
+    normalizedText.includes("target creature") ||
+    normalizedText.includes("another target creature") ||
+    normalizedText.includes("up to one target creature") ||
+    normalizedText.includes("each creature") ||
+    normalizedText.includes("creatures you control")
+  );
 }
 
 function getTokenMultiplier(permanents) {
@@ -5417,6 +5522,8 @@ function resolveCounterAllocation(boardState, sourcePermanent, rule, attackerIds
   const permanents = boardState.permanents;
   const attackerIdSet = new Set(attackerIds);
   const creatureIds = permanents.filter((permanent) => permanent.isCreature).map((permanent) => permanent.id);
+  const allPermanentIds = permanents.map((permanent) => permanent.id);
+  const targetEntity = resolveCounterTargetEntity(rule, "Board", sourcePermanent);
 
   switch (rule.targetMode) {
     case "self":
@@ -5424,12 +5531,17 @@ function resolveCounterAllocation(boardState, sourcePermanent, rule, attackerIds
     case "all-attackers":
       return permanents.filter((permanent) => attackerIdSet.has(permanent.id) && permanent.isCreature).map((permanent) => permanent.id);
     case "all-creatures":
-    case "board":
       return creatureIds;
+    case "all-permanents":
+      return allPermanentIds;
+    case "board":
+      return targetEntity === "permanent" ? allPermanentIds : creatureIds;
     case "attached":
       return sourcePermanent.attachedToId ? [sourcePermanent.attachedToId] : [];
-    case "manual-other":
-    case "manual":
+    case "manual-other-creature":
+    case "manual-creature":
+    case "manual-other-permanent":
+    case "manual-permanent":
       return allowManualSelection ? promptForCounterTarget(permanents, sourcePermanent, rule) : null;
     default:
       return [];
@@ -5437,12 +5549,17 @@ function resolveCounterAllocation(boardState, sourcePermanent, rule, attackerIds
 }
 
 function promptForCounterTarget(permanents, sourcePermanent, rule) {
+  const targetEntity =
+    normalizeCounterTargetEntity(rule?.counterTargetEntity) ||
+    (String(rule?.targetMode || "").includes("permanent") ? "permanent" : "creature");
+  const requiresCreatureTarget = targetEntity === "creature";
+  const allowsSelf = !String(rule?.targetMode || "").includes("manual-other");
   const candidates = permanents.filter((permanent) => {
-    if (!permanent.isCreature) {
+    if (requiresCreatureTarget && !permanent.isCreature) {
       return false;
     }
 
-    if (rule.targetMode === "manual-other" && permanent.id === sourcePermanent.id) {
+    if (!allowsSelf && permanent.id === sourcePermanent.id) {
       return false;
     }
 
@@ -5456,8 +5573,9 @@ function promptForCounterTarget(permanents, sourcePermanent, rule) {
   const promptText = candidates
     .map((permanent, index) => `${index + 1}. ${permanent.name}`)
     .join("\n");
+  const targetLabel = requiresCreatureTarget ? "creature" : "permanent";
   const response = window.prompt(
-    `${sourcePermanent.name} needs a target.\nChoose a creature number:${rule.optionalTarget ? "\nLeave blank to skip." : ""}\n\n${promptText}`,
+    `${sourcePermanent.name} needs a target.\nChoose a ${targetLabel} number:${rule.optionalTarget ? "\nLeave blank to skip." : ""}\n\n${promptText}`,
     rule.optionalTarget ? "" : "1"
   );
 
@@ -5478,6 +5596,14 @@ function extractCounterTargetMode(oracleText, sourceName = "") {
     return "self";
   }
 
+  if (
+    oracleText.includes("each permanent you control") ||
+    oracleText.includes("permanents you control") ||
+    oracleText.includes("each permanent")
+  ) {
+    return "all-permanents";
+  }
+
   if (oracleText.includes("each attacking creature") || oracleText.includes("all attacking creatures")) {
     return "all-attackers";
   }
@@ -5491,20 +5617,19 @@ function extractCounterTargetMode(oracleText, sourceName = "") {
   }
 
   if (oracleText.includes("another target creature")) {
-    return "manual-other";
+    return "manual-other-creature";
   }
 
   if (oracleText.includes("another target permanent")) {
-    return "manual-other";
+    return "manual-other-permanent";
   }
 
-  if (
-    oracleText.includes("target creature") ||
-    oracleText.includes("up to one target creature") ||
-    oracleText.includes("target permanent") ||
-    oracleText.includes("up to one target permanent")
-  ) {
-    return "manual";
+  if (oracleText.includes("target creature") || oracleText.includes("up to one target creature")) {
+    return "manual-creature";
+  }
+
+  if (oracleText.includes("target permanent") || oracleText.includes("up to one target permanent")) {
+    return "manual-permanent";
   }
 
   return "board";
