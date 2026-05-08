@@ -301,15 +301,15 @@ function detectPhaseTrigger(normalizedText) {
 
 function detectAttackTrigger(normalizedText, cardName) {
   const lowerName = normalizeText(cardName).toLowerCase();
-  if (!normalizedText.includes("attack")) {
+  if (!/\battack(?:s|ing)?\b/.test(normalizedText)) {
     return "";
   }
 
-  if (normalizedText.includes("whenever one or more creatures attack")) {
+  if (/whenever one or more [a-z0-9,\- ]*creatures?[a-z0-9,\- ]* attack/.test(normalizedText)) {
     return "attack-group";
   }
 
-  if (normalizedText.includes("whenever a creature attacks")) {
+  if (/whenever (?:a|another) [a-z0-9,\- ]*creatures?[a-z0-9,\- ]* attacks/.test(normalizedText)) {
     return "attack-any";
   }
 
@@ -321,7 +321,11 @@ function detectAttackTrigger(normalizedText, cardName) {
     return "attack-enchanted";
   }
 
-  if ((lowerName && normalizedText.includes(`${lowerName} attacks`)) || normalizedText.includes("this creature attacks")) {
+  if (
+    (lowerName && normalizedText.includes(`${lowerName} attacks`)) ||
+    normalizedText.includes("this creature attacks") ||
+    normalizedText.includes("whenever this attacks")
+  ) {
     return "attack-self";
   }
 
@@ -341,7 +345,11 @@ function inferCounterTargetProfile(normalizedText, cardName = "") {
     return { targetType: "All", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
   }
 
-  if (normalizedText.includes("each attacking creature") || normalizedText.includes("all attacking creatures")) {
+  if (
+    normalizedText.includes("each attacking creature") ||
+    normalizedText.includes("all attacking creatures") ||
+    normalizedText.includes("attacking creatures you control")
+  ) {
     return { targetType: "All Attackers", counterTargetEntity: "creature", requiresTargetSelection: false, optionalTarget: false };
   }
 
@@ -351,6 +359,30 @@ function inferCounterTargetProfile(normalizedText, cardName = "") {
 
   if (normalizedText.includes("equipped creature") || normalizedText.includes("enchanted creature")) {
     return { targetType: "Attached Permanent", counterTargetEntity: "creature", requiresTargetSelection: false, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("another target attacking creature")) {
+    return { targetType: "Selected", counterTargetEntity: "creature", requiresTargetSelection: true, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("another target attacking permanent")) {
+    return { targetType: "Selected", counterTargetEntity: "permanent", requiresTargetSelection: true, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("up to one target attacking creature")) {
+    return { targetType: "Selected", counterTargetEntity: "creature", requiresTargetSelection: true, optionalTarget: true };
+  }
+
+  if (normalizedText.includes("up to one target attacking permanent")) {
+    return { targetType: "Selected", counterTargetEntity: "permanent", requiresTargetSelection: true, optionalTarget: true };
+  }
+
+  if (normalizedText.includes("target attacking creature")) {
+    return { targetType: "Selected", counterTargetEntity: "creature", requiresTargetSelection: true, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("target attacking permanent")) {
+    return { targetType: "Selected", counterTargetEntity: "permanent", requiresTargetSelection: true, optionalTarget: false };
   }
 
   if (normalizedText.includes("another target creature")) {

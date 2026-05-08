@@ -5431,32 +5431,37 @@ function executeCombatTriggers(boardState, attackerIds) {
       `${pendingManualRules.length} combat trigger${pendingManualRules.length === 1 ? "" : "s"} still need manual targets.`
     );
   }
-  const automatedSourceIds = new Set(
-    nextBoardState.automationRules.filter((rule) => rule.eventType === "Attack").map((rule) => rule.sourcePermanentId)
+  const automatedRuleKeys = new Set(
+    nextBoardState.automationRules
+      .filter((rule) => rule.eventType === "Attack" && rule.enabled && !rule.requiresTargetSelection)
+      .map((rule) => `${rule.sourcePermanentId}|${normalizeAutomationAction(rule.actionType)}`)
   );
 
   boardState.permanents.forEach((permanent) => {
-    if (automatedSourceIds.has(permanent.id)) {
+    const rules = parseCombatAutomationRules(permanent);
+    if (rules.length === 0) {
       return;
     }
 
-    const rule = parseCombatAutomationRule(permanent);
-    if (!rule) {
-      return;
-    }
-
-    const triggerCount = getCombatTriggerCount(rule, permanent, attackerIds);
-    if (triggerCount <= 0) {
-      return;
-    }
-
-    for (let index = 0; index < triggerCount; index += 1) {
-      const result = applyCombatAutomationRule(nextBoardState, permanent, rule, attackerIds);
-      nextBoardState = result.boardState;
-      if (result.message) {
-        messages.push(result.message);
+    rules.forEach((rule) => {
+      const ruleKey = `${permanent.id}|${normalizeAutomationAction(rule.actionType)}`;
+      if (automatedRuleKeys.has(ruleKey)) {
+        return;
       }
-    }
+
+      const triggerCount = getCombatTriggerCount(rule, permanent, attackerIds);
+      if (triggerCount <= 0) {
+        return;
+      }
+
+      for (let index = 0; index < triggerCount; index += 1) {
+        const result = applyCombatAutomationRule(nextBoardState, permanent, rule, attackerIds);
+        nextBoardState = result.boardState;
+        if (result.message) {
+          messages.push(result.message);
+        }
+      }
+    });
   });
 
   return {
@@ -5465,33 +5470,20 @@ function executeCombatTriggers(boardState, attackerIds) {
   };
 }
 
-function parseCombatAutomationRule(permanent) {
+function parseCombatAutomationRules(permanent) {
   const oracleText = String(permanent.oracleText || permanent.notes || "").toLowerCase();
   const referenceText = getPermanentReferenceText(permanent);
-  if (!referenceText.includes("whenever") || !referenceText.includes("attack")) {
-    return null;
-  }
-
-  const triggerType =
-    referenceText.includes("one or more creatures attack")
-      ? "attack-group"
-      : referenceText.includes("a creature attacks")
-        ? "attack-any"
-        : referenceText.includes("equipped creature attacks")
-          ? "attack-equipped"
-          : referenceText.includes("enchanted creature attacks")
-            ? "attack-enchanted"
-            : referenceText.includes(`${permanent.name.toLowerCase()} attacks`) || referenceText.includes("this creature attacks")
-              ? "attack-self"
-              : null;
-
+  const triggerType = detectCombatTriggerType(referenceText, permanent.name);
   if (!triggerType) {
-    return null;
+    return [];
   }
+
+  /** @type {Array<Record<string, unknown>>} */
+  const rules = [];
 
   if (referenceText.includes("create") && referenceText.includes("token")) {
     const tokenSpec = extractTokenSpec(oracleText || referenceText);
-    return {
+    rules.push({
       actionType: "Create Tokens",
       triggerType,
       value: extractCountFromText(oracleText || referenceText),
@@ -5499,13 +5491,13 @@ function parseCombatAutomationRule(permanent) {
       tokenPower: tokenSpec.power,
       tokenToughness: tokenSpec.toughness,
       tokenManaCost: "",
-    };
+    });
   }
 
-  if (referenceText.includes("counter")) {
+  if (hasCombatCounterPlacementLanguage(referenceText)) {
     const counterType = extractCounterTypeFromText(referenceText);
     const targetMode = extractCounterTargetMode(referenceText, permanent.name);
-    return {
+    rules.push({
       actionType: counterType === "+1/+1" ? "Add +1/+1 Counters" : "Add Counters",
       triggerType,
       value: extractCounterCountFromText(oracleText || referenceText),
@@ -5513,18 +5505,62 @@ function parseCombatAutomationRule(permanent) {
       targetMode,
       counterTargetEntity: inferCounterTargetEntityFromMode(targetMode, referenceText, permanent),
       optionalTarget:
-        referenceText.includes("up to one target creature") || referenceText.includes("up to one target permanent"),
-    };
+        referenceText.includes("up to one target creature") ||
+        referenceText.includes("up to one target permanent") ||
+        referenceText.includes("up to one target attacking creature") ||
+        referenceText.includes("up to one target attacking permanent"),
+    });
   }
 
   if ((referenceText.includes("double") || referenceText.includes("twice")) && referenceText.includes("token")) {
-    return {
+    rules.push({
       actionType: "Multiply Tokens",
       triggerType,
-    };
+    });
   }
 
-  return null;
+  return rules;
+}
+
+function detectCombatTriggerType(referenceText, sourceName = "") {
+  const normalizedText = normalizeCounterReferenceText(referenceText);
+  if (!normalizedText.includes("whenever") || !/\battack(?:s|ing)?\b/.test(normalizedText)) {
+    return "";
+  }
+
+  if (/whenever one or more [a-z0-9 ]*creatures?[a-z0-9 ]* attack/.test(normalizedText)) {
+    return "attack-group";
+  }
+
+  if (/whenever (?:a|another) [a-z0-9 ]*creatures?[a-z0-9 ]* attacks/.test(normalizedText)) {
+    return "attack-any";
+  }
+
+  if (normalizedText.includes("equipped creature attacks")) {
+    return "attack-equipped";
+  }
+
+  if (normalizedText.includes("enchanted creature attacks")) {
+    return "attack-enchanted";
+  }
+
+  const normalizedName = normalizeCounterReferenceText(sourceName);
+  if (
+    normalizedText.includes("this creature attacks") ||
+    normalizedText.includes("whenever this attacks") ||
+    (normalizedName && normalizedText.includes(`${normalizedName} attacks`))
+  ) {
+    return "attack-self";
+  }
+
+  return "";
+}
+
+function hasCombatCounterPlacementLanguage(referenceText) {
+  return (
+    referenceText.includes("counter") &&
+    /\bput\b|\bputs\b|\badd\b|\badds\b|\bmove\b|\bmoves\b|\bdistribute\b|\bdistributes\b/.test(referenceText)
+  );
 }
 
 function getCombatTriggerCount(rule, sourcePermanent, attackerIds) {
@@ -5710,7 +5746,11 @@ function extractCounterTargetMode(oracleText, sourceName = "") {
     return "all-permanents";
   }
 
-  if (oracleText.includes("each attacking creature") || oracleText.includes("all attacking creatures")) {
+  if (
+    oracleText.includes("each attacking creature") ||
+    oracleText.includes("all attacking creatures") ||
+    oracleText.includes("attacking creatures you control")
+  ) {
     return "all-attackers";
   }
 
@@ -5720,6 +5760,30 @@ function extractCounterTargetMode(oracleText, sourceName = "") {
 
   if (oracleText.includes("equipped creature") || oracleText.includes("enchanted creature")) {
     return "attached";
+  }
+
+  if (oracleText.includes("another target attacking creature")) {
+    return "manual-other-creature";
+  }
+
+  if (oracleText.includes("another target attacking permanent")) {
+    return "manual-other-permanent";
+  }
+
+  if (oracleText.includes("up to one target attacking creature")) {
+    return "manual-creature";
+  }
+
+  if (oracleText.includes("up to one target attacking permanent")) {
+    return "manual-permanent";
+  }
+
+  if (oracleText.includes("target attacking creature")) {
+    return "manual-creature";
+  }
+
+  if (oracleText.includes("target attacking permanent")) {
+    return "manual-permanent";
   }
 
   if (oracleText.includes("another target creature")) {
