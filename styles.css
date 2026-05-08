@@ -2532,7 +2532,7 @@ button {
 
   #trackerBoard .life-total {
     --life-total-origin-x: left;
-    --life-total-scale-x: 0.36;
+    --life-total-scale-x: 0.63;
     transform: translateX(10px) scale(var(--life-total-scale-x), var(--life-total-scale-y));
   }
 }
