@@ -41,6 +41,8 @@ const TRIGGER_TARGETS = [
 ];
 const PAGE_ORDER = ["tracker", "board-state"];
 const MAX_AUTOMATION_LOG_ENTRIES = 14;
+const MAX_AUTOMATION_CHAIN_DEPTH = 40;
+let automationChainDepth = 0;
 
 const PLAYER_COUNTER_DEFS = [
   { id: "poison", label: "Poison" },
@@ -97,6 +99,8 @@ const PLAYER_COUNTER_DEFS = [
  * @property {boolean} autoRulesEnabled
  * @property {boolean} hasResolvedEtbTriggers
  * @property {boolean} isTapped
+ * @property {boolean} isAttacking
+ * @property {boolean} isBlocking
  * @property {string} notes
  * @property {string} attachedToId
  * @property {string} attachmentKind
@@ -629,6 +633,8 @@ function createPermanent(source = {}) {
     autoRulesEnabled: Boolean(source.autoRulesEnabled),
     hasResolvedEtbTriggers: Boolean(source.hasResolvedEtbTriggers),
     isTapped: Boolean(source.isTapped),
+    isAttacking: Boolean(source.isAttacking),
+    isBlocking: Boolean(source.isBlocking),
     notes: typeof source.notes === "string" ? source.notes.trim() : "",
     attachedToId: typeof source.attachedToId === "string" ? source.attachedToId.trim() : "",
     attachmentKind: typeof source.attachmentKind === "string" ? source.attachmentKind.trim() : "",
@@ -3207,6 +3213,7 @@ function advanceBoardPhase() {
 
   if (currentPhase === "Combat" && nextPhase !== "Combat") {
     phaseBaseBoardState = clearTemporaryBuffsByDuration(phaseBaseBoardState, "until-end-of-combat");
+    phaseBaseBoardState = clearCombatEngagementFlags(phaseBaseBoardState);
   }
   if (nextPhase === "Upkeep") {
     phaseBaseBoardState = clearTemporaryBuffsByDuration(phaseBaseBoardState, "until-end-of-turn");
@@ -3849,19 +3856,28 @@ function executeEnterBattlefieldAutomation(boardState, sourcePermanentId, instan
     return boardState;
   }
 
-  const nextBoardState = executeActiveAutomationRules(boardState, {
-    eventType: "ETB",
-    phase: PHASES[boardState.currentPhaseIndex],
-    sourcePermanentId,
-    sourcePermanent,
-    eventPermanent: sourcePermanent,
-    instancesAdded,
-  });
+  if (automationChainDepth >= MAX_AUTOMATION_CHAIN_DEPTH) {
+    return boardState;
+  }
 
-  return updateBoardPermanent(nextBoardState, sourcePermanentId, (permanent) => ({
-    ...permanent,
-    hasResolvedEtbTriggers: true,
-  }));
+  automationChainDepth += 1;
+  try {
+    const nextBoardState = executeActiveAutomationRules(boardState, {
+      eventType: "ETB",
+      phase: PHASES[boardState.currentPhaseIndex],
+      sourcePermanentId,
+      sourcePermanent,
+      eventPermanent: sourcePermanent,
+      instancesAdded,
+    });
+
+    return updateBoardPermanent(nextBoardState, sourcePermanentId, (permanent) => ({
+      ...permanent,
+      hasResolvedEtbTriggers: true,
+    }));
+  } finally {
+    automationChainDepth = Math.max(0, automationChainDepth - 1);
+  }
 }
 
 function promptCreateGenericToken() {
@@ -4412,12 +4428,19 @@ function executeTrigger(trigger, boardState, context = {}) {
         staticBuffToughness: 0,
         staticBuffAppliesTo: "",
         staticBuffExcludesSelf: false,
+        staticBuffRules: [],
         isExpanded: false,
         isSelected: false,
       });
+      const addResult = addOrStackPermanentDetailed(boardState, tokenPermanent);
+      const etbResolvedBoardState = executeEnterBattlefieldAutomation(
+        addResult.boardState,
+        addResult.permanentId,
+        addResult.instancesAdded
+      );
 
       return {
-        boardState: addOrStackPermanent(boardState, tokenPermanent),
+        boardState: etbResolvedBoardState,
         changed: true,
         message: `${sourcePermanent?.name || "Automation"} created ${tokenResult.value} ${trigger.tokenName} token${tokenResult.value === 1 ? "" : "s"}.`,
         modifierSummary: summarizeModifierList(tokenResult.modifiers, "No token modifiers applied."),
@@ -4433,24 +4456,46 @@ function executeTrigger(trigger, boardState, context = {}) {
         return { boardState, changed: false, message: "", modifierSummary: "" };
       }
 
-      const targetIds = new Set(tokenTargets.map((permanent) => permanent.id));
-      return {
-        boardState: {
-          ...boardState,
-          permanents: boardState.permanents.map((permanent) => {
-            if (!targetIds.has(permanent.id)) {
+      let nextBoardState = boardState;
+      let totalCreated = 0;
+      const targetIds = tokenTargets.map((permanent) => permanent.id);
+      targetIds.forEach((targetId) => {
+        const targetPermanent = nextBoardState.permanents.find((permanent) => permanent.id === targetId);
+        if (!targetPermanent || !targetPermanent.isToken) {
+          return;
+        }
+
+        const createdQuantity = applyTokenModifiersDetailed(targetPermanent.quantity, nextBoardState.permanents);
+        const increment = normalizeCount(createdQuantity.value);
+        if (increment <= 0) {
+          return;
+        }
+
+        totalCreated += increment;
+        nextBoardState = {
+          ...nextBoardState,
+          permanents: nextBoardState.permanents.map((permanent) => {
+            if (permanent.id !== targetId) {
               return permanent;
             }
 
-            const createdQuantity = applyTokenModifiersDetailed(permanent.quantity, boardState.permanents);
             return createPermanent({
               ...permanent,
-              quantity: permanent.quantity + createdQuantity.value,
+              quantity: permanent.quantity + increment,
             });
           }),
-        },
+        };
+        nextBoardState = executeEnterBattlefieldAutomation(nextBoardState, targetId, increment);
+      });
+
+      if (totalCreated <= 0) {
+        return { boardState, changed: false, message: "", modifierSummary: "" };
+      }
+
+      return {
+        boardState: nextBoardState,
         changed: true,
-        message: `${sourcePermanent?.name || "Automation"} multiplied ${tokenTargets.length} token stack${tokenTargets.length === 1 ? "" : "s"}.`,
+        message: `${sourcePermanent?.name || "Automation"} multiplied ${tokenTargets.length} token stack${tokenTargets.length === 1 ? "" : "s"} and created ${totalCreated} token${totalCreated === 1 ? "" : "s"}.`,
         modifierSummary: "Token multiplication applied to supported token stacks.",
       };
     }
@@ -5241,10 +5286,11 @@ function confirmCombatSimulation() {
 }
 
 function clearCombatAttackers() {
+  const clearedBoardState = clearCombatEngagementFlags(state.boardState);
   state = {
     ...state,
     boardState: {
-      ...state.boardState,
+      ...clearedBoardState,
       combatState: createDefaultCombatState(),
     },
   };
@@ -5362,23 +5408,40 @@ function tapAttackersForCombat(boardState, attackerIds) {
     boardState: {
       ...boardState,
       permanents: boardState.permanents.map((permanent) => {
-        if (!attackerIdSet.has(permanent.id) || !permanent.isCreature) {
-          return permanent;
+        if (!permanent.isCreature) {
+          return createPermanent({
+            ...permanent,
+            isAttacking: false,
+          });
+        }
+
+        if (!attackerIdSet.has(permanent.id)) {
+          return createPermanent({
+            ...permanent,
+            isAttacking: false,
+          });
         }
 
         if (hasAttackTapExemption(permanent)) {
           exemptCount += 1;
-          return permanent;
+          return createPermanent({
+            ...permanent,
+            isAttacking: true,
+          });
         }
 
         if (permanent.isTapped) {
-          return permanent;
+          return createPermanent({
+            ...permanent,
+            isAttacking: true,
+          });
         }
 
         tappedCount += 1;
         return createPermanent({
           ...permanent,
           isTapped: true,
+          isAttacking: true,
         });
       }),
     },
@@ -5396,7 +5459,7 @@ function untapAllPermanents(boardState) {
             ...permanent,
             isTapped: false,
           })
-        : permanent
+        : createPermanent(permanent)
     ),
   };
 }
@@ -5432,6 +5495,21 @@ function clearTemporaryBuffsByDuration(boardState, duration) {
 
       return createPermanent(nextPermanent);
     }),
+  };
+}
+
+function clearCombatEngagementFlags(boardState) {
+  return {
+    ...boardState,
+    permanents: boardState.permanents.map((permanent) =>
+      permanent.isAttacking || permanent.isBlocking
+        ? createPermanent({
+            ...permanent,
+            isAttacking: false,
+            isBlocking: false,
+          })
+        : createPermanent(permanent)
+    ),
   };
 }
 

@@ -667,7 +667,7 @@ function parseStaticBuffRules(normalizedText) {
   const selfTribalPattern = /([a-z]+) creatures you control get ([+\-]\d+)\/([+\-]\d+)/gi;
   for (const match of normalizedText.matchAll(selfTribalPattern)) {
     const creatureTypeToken = String(match[1] || "").toLowerCase();
-    if (creatureTypeToken === "other" || creatureTypeToken === "all" || creatureTypeToken === "attacking") {
+    if (creatureTypeToken === "other" || creatureTypeToken === "all" || creatureTypeToken === "attacking" || creatureTypeToken === "blocking") {
       continue;
     }
     const prefix = typeof match.index === "number" ? normalizedText.slice(0, match.index) : "";
@@ -716,6 +716,38 @@ function parseStaticBuffRules(normalizedText) {
       continue;
     }
     pushRule(match[1], match[2], "opponent-creatures");
+  }
+
+  const attackingOwnPattern = /attacking creatures you control get ([+\-]\d+)\/([+\-]\d+)/gi;
+  for (const match of normalizedText.matchAll(attackingOwnPattern)) {
+    if (isTemporaryClause(match)) {
+      continue;
+    }
+    pushRule(match[1], match[2], "attacking-creatures-you-control");
+  }
+
+  const attackingPattern = /attacking creatures get ([+\-]\d+)\/([+\-]\d+)/gi;
+  for (const match of normalizedText.matchAll(attackingPattern)) {
+    if (isTemporaryClause(match)) {
+      continue;
+    }
+    pushRule(match[1], match[2], "attacking-creatures");
+  }
+
+  const blockingOwnPattern = /blocking creatures you control get ([+\-]\d+)\/([+\-]\d+)/gi;
+  for (const match of normalizedText.matchAll(blockingOwnPattern)) {
+    if (isTemporaryClause(match)) {
+      continue;
+    }
+    pushRule(match[1], match[2], "blocking-creatures-you-control");
+  }
+
+  const blockingPattern = /blocking creatures get ([+\-]\d+)\/([+\-]\d+)/gi;
+  for (const match of normalizedText.matchAll(blockingPattern)) {
+    if (isTemporaryClause(match)) {
+      continue;
+    }
+    pushRule(match[1], match[2], "blocking-creatures");
   }
 
   const equippedPattern = /equipped creature gets ([+\-]\d+)\/([+\-]\d+)/gi;
