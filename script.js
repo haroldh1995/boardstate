@@ -16,11 +16,12 @@ const MAX_COMMANDER_DAMAGE_TRACKERS = 7;
 const MIN_COMMANDER_DAMAGE_TRACKERS = 1;
 const PHASES = ["Upkeep", "Main", "Combat", "Main 2", "End"];
 const TRIGGER_EVENTS = ["Phase", "OnDeath", "OnExile", "OnSacrifice"];
-const TRIGGER_ACTIONS = ["Create Tokens", "Multiply Tokens", "Add +1/+1 Counters"];
+const TRIGGER_ACTIONS = ["Create Tokens", "Multiply Tokens", "Add +1/+1 Counters", "Add Counters"];
 const AUTOMATION_ACTIONS = [
   "Create Tokens",
   "Multiply Tokens",
   "Add +1/+1 Counters",
+  "Add Counters",
   "Modify Token Amount",
   "Modify Counter Amount",
   "Board Buff",
@@ -69,6 +70,8 @@ const PLAYER_COUNTER_DEFS = [
  * @property {boolean} isArtifact
  * @property {boolean} isCreature
  * @property {number} plusOneCounters
+ * @property {number} minusOneCounters
+ * @property {Record<string, number>} counters
  * @property {boolean} doublesTokens
  * @property {boolean} doublesCounters
  * @property {number} counterModifierBonus
@@ -105,6 +108,8 @@ const PLAYER_COUNTER_DEFS = [
  * @property {string} tokenManaCost
  * @property {number} tokenPower
  * @property {number} tokenToughness
+ * @property {string} counterType
+ * @property {"creature" | "permanent"} counterTargetEntity
  */
 
 /**
@@ -537,6 +542,19 @@ function createCommanderDamageTracker(source = {}) {
 function createPermanent(source = {}) {
   const isNonCreature = Boolean(source.isNonCreature);
   const isCreature = source.isCreature === undefined ? !isNonCreature : Boolean(source.isCreature);
+  const normalizedCounters = normalizePermanentCounters(source.counters);
+  const plusOneCounters = normalizeCount(source.plusOneCounters, normalizeCount(normalizedCounters["+1/+1"]));
+  const minusOneCounters = normalizeCount(source.minusOneCounters, normalizeCount(normalizedCounters["-1/-1"]));
+  if (plusOneCounters > 0) {
+    normalizedCounters["+1/+1"] = plusOneCounters;
+  } else {
+    delete normalizedCounters["+1/+1"];
+  }
+  if (minusOneCounters > 0) {
+    normalizedCounters["-1/-1"] = minusOneCounters;
+  } else {
+    delete normalizedCounters["-1/-1"];
+  }
 
   return {
     id: source.id || createId(),
@@ -566,7 +584,9 @@ function createPermanent(source = {}) {
     isLegendary: Boolean(source.isLegendary),
     isArtifact: Boolean(source.isArtifact),
     isCreature,
-    plusOneCounters: normalizeCount(source.plusOneCounters),
+    plusOneCounters,
+    minusOneCounters,
+    counters: normalizedCounters,
     doublesTokens: Boolean(source.doublesTokens),
     doublesCounters: Boolean(source.doublesCounters),
     counterModifierBonus: normalizeCount(source.counterModifierBonus),
@@ -600,18 +620,21 @@ function createPermanent(source = {}) {
  */
 function createTrigger(source = {}) {
   const triggerEvent = TRIGGER_EVENTS.includes(source.triggerEvent) ? source.triggerEvent : "Phase";
+  const actionType = normalizeTriggerAction(source.actionType);
 
   return {
     id: source.id || createId(),
     triggerEvent,
     phase: triggerEvent === "Phase" ? normalizePhase(source.phase) : "",
-    actionType: normalizeTriggerAction(source.actionType),
+    actionType,
     target: normalizeTriggerTarget(source.target),
     value: normalizeCount(source.value),
     tokenName: typeof source.tokenName === "string" ? source.tokenName.trim() : "",
     tokenManaCost: typeof source.tokenManaCost === "string" ? source.tokenManaCost.trim() : "",
     tokenPower: normalizeSignedCount(source.tokenPower),
     tokenToughness: normalizeSignedCount(source.tokenToughness),
+    counterType: normalizeCounterType(source.counterType || (actionType === "Add +1/+1 Counters" ? "+1/+1" : "")),
+    counterTargetEntity: normalizeCounterTargetEntity(source.counterTargetEntity),
   };
 }
 
@@ -634,7 +657,7 @@ function createAutomationRule(source = {}) {
     tokenManaCost: typeof source.tokenManaCost === "string" ? source.tokenManaCost.trim() : "",
     tokenPower: normalizeSignedCount(source.tokenPower),
     tokenToughness: normalizeSignedCount(source.tokenToughness),
-    counterType: typeof source.counterType === "string" ? source.counterType.trim() : "",
+    counterType: normalizeCounterType(source.counterType),
     counterTargetEntity: normalizeCounterTargetEntity(source.counterTargetEntity),
     requiresTargetSelection: Boolean(source.requiresTargetSelection),
     optionalTarget: Boolean(source.optionalTarget),
@@ -973,6 +996,23 @@ function normalizeCounterTargetEntity(value) {
   }
 
   return "";
+}
+
+function normalizePermanentCounters(value) {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  return Object.entries(value).reduce((accumulator, [rawType, rawCount]) => {
+    const type = normalizeCounterType(rawType);
+    const count = normalizeCount(rawCount);
+    if (!type || count <= 0) {
+      return accumulator;
+    }
+
+    accumulator[type] = count;
+    return accumulator;
+  }, {});
 }
 
 function normalizeAutomationConfidence(value) {
@@ -1673,8 +1713,13 @@ function getAutomationRuleSummary(rule) {
     return `${triggerLabel}: ${rule.actionType === "Modify Token Amount" ? "Modify Token Output" : "Multiply Tokens"} for ${rule.targetType}`;
   }
 
-  if (rule.actionType === "Add +1/+1 Counters" || rule.actionType === "Modify Counter Amount") {
-    return `${triggerLabel}: ${rule.actionType === "Modify Counter Amount" ? "Modify Counter Placement" : `Add ${rule.value} +1/+1 Counter${rule.value === 1 ? "" : "s"}`} to ${rule.targetType}`;
+  if (rule.actionType === "Add +1/+1 Counters" || rule.actionType === "Add Counters" || rule.actionType === "Modify Counter Amount") {
+    if (rule.actionType === "Modify Counter Amount") {
+      return `${triggerLabel}: Modify Counter Placement`;
+    }
+
+    const counterType = normalizeCounterType(rule.counterType || (rule.actionType === "Add +1/+1 Counters" ? "+1/+1" : "Generic"));
+    return `${triggerLabel}: Add ${rule.value} ${counterType} Counter${rule.value === 1 ? "" : "s"} to ${rule.targetType}`;
   }
 
   if (rule.actionType === "Board Buff") {
@@ -1819,6 +1864,8 @@ function renderCardDetailOverlay() {
       <span class="card-detail-line"><strong>Quantity:</strong> ${permanent.quantity}</span>
       <span class="card-detail-line"><strong>Tapped:</strong> ${permanent.isTapped ? "Yes" : "No"}</span>
       <span class="card-detail-line"><strong>+1/+1 Counters:</strong> ${permanent.plusOneCounters}</span>
+      <span class="card-detail-line"><strong>-1/-1 Counters:</strong> ${normalizeCount(permanent.minusOneCounters)}</span>
+      <span class="card-detail-line"><strong>All Counters:</strong> ${escapeHtml(getPermanentCounterSummary(permanent))}</span>
       <span class="card-detail-line"><strong>Token:</strong> ${permanent.isToken ? "Yes" : "No"}</span>
       <span class="card-detail-line"><strong>Flags:</strong> ${escapeHtml(typeFlags)}</span>
       <span class="card-detail-line"><strong>Commander Legality:</strong> ${escapeHtml(commanderLegality)}</span>
@@ -2049,6 +2096,8 @@ function renderBoardTile(permanent, variant) {
           <span class="board-tile-detail">Token: ${permanent.isToken ? "Yes" : "No"}</span>
           <span class="board-tile-detail">Tapped: ${permanent.isTapped ? "Yes" : "No"}</span>
           <span class="board-tile-detail">+1/+1 Counters: ${permanent.plusOneCounters}</span>
+          <span class="board-tile-detail">-1/-1 Counters: ${normalizeCount(permanent.minusOneCounters)}</span>
+          <span class="board-tile-detail">All Counters: ${escapeHtml(getPermanentCounterSummary(permanent))}</span>
           <span class="board-tile-detail">Doubles Tokens: ${permanent.doublesTokens ? "Yes" : "No"}</span>
           <span class="board-tile-detail">Creates Tokens: ${permanent.createsTokens ? "Yes" : "No"}</span>
           <span class="board-tile-detail">Adds Counters: ${permanent.addsCounters ? "Yes" : "No"}</span>
@@ -3246,6 +3295,8 @@ function promptAndAddTrigger() {
   let tokenManaCostPrompt = "";
   let tokenPowerPrompt = "0";
   let tokenToughnessPrompt = "0";
+  let counterTypePrompt = actionType === "Add +1/+1 Counters" ? "+1/+1" : "";
+  let counterTargetEntityPrompt = "";
   if (actionType === "Create Tokens") {
     tokenNamePrompt = window.prompt("Token name", "");
     if (tokenNamePrompt === null) {
@@ -3269,6 +3320,15 @@ function promptAndAddTrigger() {
     }
   }
 
+  if (actionType === "Add Counters") {
+    const counterTypeInput = window.prompt("Counter type (example: Charge, Loyalty, Oil, Shield)", "Charge");
+    if (counterTypeInput === null) {
+      return;
+    }
+    counterTypePrompt = normalizeCounterType(counterTypeInput);
+    counterTargetEntityPrompt = counterTypePrompt === "+1/+1" || counterTypePrompt === "-1/-1" ? "creature" : "permanent";
+  }
+
   const trigger = createTrigger({
     triggerEvent,
     phase,
@@ -3279,6 +3339,8 @@ function promptAndAddTrigger() {
     tokenManaCost: tokenManaCostPrompt,
     tokenPower: tokenPowerPrompt,
     tokenToughness: tokenToughnessPrompt,
+    counterType: counterTypePrompt,
+    counterTargetEntity: counterTargetEntityPrompt,
   });
 
   state = {
@@ -4139,65 +4201,99 @@ function executeTrigger(trigger, boardState, context = {}) {
       };
     }
 
-    case "Add +1/+1 Counters": {
-      const needsManualTarget = trigger.requiresTargetSelection && targetLabel === "Selected";
-      const sourcePermanent =
-        context.sourcePermanent ||
-        boardState.permanents.find((permanent) => permanent.id === context.sourcePermanentId) ||
-        null;
-      const counterTargetEntity = resolveCounterTargetEntity(trigger, targetLabel, sourcePermanent);
-      const canAutoResolveSelfTarget =
-        needsManualTarget &&
-        context.skipTargetSelection &&
-        Boolean(sourcePermanent) &&
-        hasSelfCounterTargetReference(getPermanentReferenceText(sourcePermanent), sourcePermanent.name);
-
-      if (needsManualTarget && context.skipTargetSelection && !canAutoResolveSelfTarget) {
-        return { boardState, changed: false, message: "", modifierSummary: "" };
-      }
-
-      const counterTargets = (
-        canAutoResolveSelfTarget
-          ? [sourcePermanent]
-          : needsManualTarget
-            ? resolveManualAutomationTargets(boardState, sourcePermanent, trigger, context)
-            : getTargets(targetLabel, boardState.permanents, {
-                ...context,
-                counterTargetEntity,
-              })
-      ).filter((permanent) =>
-        canPermanentReceiveCounterFromRule(permanent, sourcePermanent, trigger, counterTargetEntity)
-      );
-
-      if (counterTargets.length === 0 || trigger.value <= 0) {
-        return { boardState, changed: false, message: "", modifierSummary: "" };
-      }
-
-      const counterResult = applyCounterModifiersDetailed(trigger.value, boardState.permanents);
-      const targetIds = new Set(counterTargets.map((permanent) => permanent.id));
-      return {
-        boardState: {
-          ...boardState,
-          permanents: boardState.permanents.map((permanent) => {
-            if (!targetIds.has(permanent.id)) {
-              return permanent;
-            }
-
-            return createPermanent({
-              ...permanent,
-              plusOneCounters: permanent.plusOneCounters + counterResult.value,
-            });
-          }),
-        },
-        changed: true,
-        message: `${sourcePermanent?.name || "Automation"} added ${counterResult.value} +1/+1 counter${counterResult.value === 1 ? "" : "s"}.`,
-        modifierSummary: summarizeModifierList(counterResult.modifiers, "No counter modifiers applied."),
-      };
-    }
+    case "Add +1/+1 Counters":
+    case "Add Counters":
+      return executeCounterPlacementTrigger(trigger, boardState, context, sourcePermanent, targetLabel);
 
     default:
       return { boardState, changed: false, message: "", modifierSummary: "" };
   }
+}
+
+function executeCounterPlacementTrigger(trigger, boardState, context = {}, sourcePermanent = null, targetLabel = "All") {
+  const needsManualTarget = trigger.requiresTargetSelection && targetLabel === "Selected";
+  const resolvedSourcePermanent =
+    sourcePermanent ||
+    context.sourcePermanent ||
+    boardState.permanents.find((permanent) => permanent.id === context.sourcePermanentId) ||
+    null;
+  const counterTargetEntity = resolveCounterTargetEntity(trigger, targetLabel, resolvedSourcePermanent);
+  const canAutoResolveSelfTarget =
+    needsManualTarget &&
+    context.skipTargetSelection &&
+    Boolean(resolvedSourcePermanent) &&
+    hasSelfCounterTargetReference(getPermanentReferenceText(resolvedSourcePermanent), resolvedSourcePermanent.name);
+
+  if (needsManualTarget && context.skipTargetSelection && !canAutoResolveSelfTarget) {
+    return { boardState, changed: false, message: "", modifierSummary: "" };
+  }
+
+  const counterTargets = (
+    canAutoResolveSelfTarget
+      ? [resolvedSourcePermanent]
+      : needsManualTarget
+        ? resolveManualAutomationTargets(boardState, resolvedSourcePermanent, trigger, context)
+        : getTargets(targetLabel, boardState.permanents, {
+            ...context,
+            counterTargetEntity,
+          })
+  ).filter((permanent) => canPermanentReceiveCounterFromRule(permanent, resolvedSourcePermanent, trigger, counterTargetEntity));
+
+  if (counterTargets.length === 0 || trigger.value <= 0) {
+    return { boardState, changed: false, message: "", modifierSummary: "" };
+  }
+
+  const counterResult = applyCounterModifiersDetailed(trigger.value, boardState.permanents);
+  const counterType = normalizeCounterType(trigger.counterType || (trigger.actionType === "Add +1/+1 Counters" ? "+1/+1" : "Generic"));
+  const targetIds = new Set(counterTargets.map((permanent) => permanent.id));
+
+  return {
+    boardState: {
+      ...boardState,
+      permanents: boardState.permanents.map((permanent) => {
+        if (!targetIds.has(permanent.id)) {
+          return permanent;
+        }
+
+        return applyCounterToPermanent(permanent, counterType, counterResult.value);
+      }),
+    },
+    changed: true,
+    message: `${resolvedSourcePermanent?.name || "Automation"} added ${counterResult.value} ${counterType} counter${counterResult.value === 1 ? "" : "s"}.`,
+    modifierSummary: summarizeModifierList(counterResult.modifiers, "No counter modifiers applied."),
+  };
+}
+
+function applyCounterToPermanent(permanent, rawCounterType, amount) {
+  const counterType = normalizeCounterType(rawCounterType);
+  const counterAmount = Math.max(0, normalizeCount(amount));
+  if (!counterType || counterAmount <= 0) {
+    return createPermanent(permanent);
+  }
+
+  const counters = normalizePermanentCounters(permanent.counters);
+  const nextPermanent = {
+    ...permanent,
+    plusOneCounters: normalizeCount(permanent.plusOneCounters),
+    minusOneCounters: normalizeCount(permanent.minusOneCounters),
+    counters,
+  };
+
+  if (counterType === "+1/+1") {
+    nextPermanent.plusOneCounters += counterAmount;
+    nextPermanent.counters["+1/+1"] = nextPermanent.plusOneCounters;
+    return createPermanent(nextPermanent);
+  }
+
+  if (counterType === "-1/-1") {
+    nextPermanent.minusOneCounters += counterAmount;
+    nextPermanent.counters["-1/-1"] = nextPermanent.minusOneCounters;
+    return createPermanent(nextPermanent);
+  }
+
+  const currentCount = normalizeCount(nextPermanent.counters[counterType]);
+  nextPermanent.counters[counterType] = currentCount + counterAmount;
+  return createPermanent(nextPermanent);
 }
 
 function executeEventTriggers(eventName, boardState, context = {}) {
@@ -4529,10 +4625,18 @@ function resolveCounterTargetEntity(trigger, targetLabel, sourcePermanent) {
   }
 
   const mode = normalizeLabel(trigger?.targetMode, "").toLowerCase();
+  const counterType = normalizeCounterType(trigger?.counterType);
   if (mode.includes("permanent")) {
     return "permanent";
   }
   if (mode.includes("creature") || mode === "all-attackers" || mode === "all-creatures" || mode === "self") {
+    return "creature";
+  }
+
+  if (counterType === "+1/+1" || counterType === "-1/-1") {
+    if (targetLabel === "Self" && sourcePermanent && !sourcePermanent.isCreature) {
+      return "permanent";
+    }
     return "creature";
   }
 
@@ -5398,12 +5502,16 @@ function parseCombatAutomationRule(permanent) {
     };
   }
 
-  if (referenceText.includes("+1/+1 counter") || referenceText.includes("+1/+1 counters")) {
+  if (referenceText.includes("counter")) {
+    const counterType = extractCounterTypeFromText(referenceText);
+    const targetMode = extractCounterTargetMode(referenceText, permanent.name);
     return {
-      actionType: "Add +1/+1 Counters",
+      actionType: counterType === "+1/+1" ? "Add +1/+1 Counters" : "Add Counters",
       triggerType,
-      value: extractCountFromText(oracleText || referenceText),
-      targetMode: extractCounterTargetMode(referenceText, permanent.name),
+      value: extractCounterCountFromText(oracleText || referenceText),
+      counterType,
+      targetMode,
+      counterTargetEntity: inferCounterTargetEntityFromMode(targetMode, referenceText, permanent),
       optionalTarget:
         referenceText.includes("up to one target creature") || referenceText.includes("up to one target permanent"),
     };
@@ -5473,7 +5581,7 @@ function applyCombatAutomationRule(boardState, sourcePermanent, rule, attackerId
     };
   }
 
-  if (rule.actionType === "Add +1/+1 Counters") {
+  if (rule.actionType === "Add +1/+1 Counters" || rule.actionType === "Add Counters") {
     const targetIds = resolveCounterAllocation(boardState, sourcePermanent, rule, attackerIds, {
       allowManualSelection: false,
     });
@@ -5492,6 +5600,7 @@ function applyCombatAutomationRule(boardState, sourcePermanent, rule, attackerId
     }
 
     const counterResult = applyCounterModifiersDetailed(rule.value, boardState.permanents);
+    const counterType = normalizeCounterType(rule.counterType || (rule.actionType === "Add +1/+1 Counters" ? "+1/+1" : "Generic"));
     const targetIdSet = new Set(targetIds);
     return {
       boardState: {
@@ -5501,13 +5610,10 @@ function applyCombatAutomationRule(boardState, sourcePermanent, rule, attackerId
             return permanent;
           }
 
-          return createPermanent({
-            ...permanent,
-            plusOneCounters: permanent.plusOneCounters + counterResult.value,
-          });
+          return applyCounterToPermanent(permanent, counterType, counterResult.value);
         }),
       },
-      message: `${sourcePermanent.name} added ${counterResult.value} +1/+1 counter${counterResult.value === 1 ? "" : "s"}.`,
+      message: `${sourcePermanent.name} added ${counterResult.value} ${counterType} counter${counterResult.value === 1 ? "" : "s"}.`,
     };
   }
 
@@ -5635,6 +5741,57 @@ function extractCounterTargetMode(oracleText, sourceName = "") {
   return "board";
 }
 
+function inferCounterTargetEntityFromMode(targetMode, referenceText = "", permanent = null) {
+  if (targetMode.includes("permanent")) {
+    return "permanent";
+  }
+
+  if (targetMode.includes("creature") || targetMode === "all-attackers" || targetMode === "all-creatures") {
+    return "creature";
+  }
+
+  if (targetMode === "self") {
+    return permanent?.isCreature ? "creature" : "permanent";
+  }
+
+  return hasPermanentCounterTargetReference(referenceText) ? "permanent" : "creature";
+}
+
+function extractCounterTypeFromText(referenceText) {
+  const rawText = normalizeLabel(referenceText, "").toLowerCase();
+  if (rawText.includes("+1/+1 counter") || rawText.includes("+1/+1 counters")) {
+    return "+1/+1";
+  }
+
+  if (rawText.includes("-1/-1 counter") || rawText.includes("-1/-1 counters")) {
+    return "-1/-1";
+  }
+
+  const normalized = normalizeCounterReferenceText(referenceText);
+  if (!normalized) {
+    return "Generic";
+  }
+
+  if (normalized.includes("plus 1 plus 1 counter")) {
+    return "+1/+1";
+  }
+
+  if (normalized.includes("minus 1 minus 1 counter")) {
+    return "-1/-1";
+  }
+
+  const match = normalized.match(/([a-z0-9]+(?:\s+[a-z0-9]+){0,2})\s+counters?\b/);
+  if (!match) {
+    return "Generic";
+  }
+
+  const candidate = match[1]
+    .replace(/^(?:that\s+many|an?\s+additional|additional)\s+/i, "")
+    .replace(/^(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+/i, "")
+    .trim();
+  return normalizeCounterType(candidate || "Generic");
+}
+
 function hasSelfCounterTargetReference(text, sourceName = "") {
   const normalizedText = normalizeCounterReferenceText(text);
   if (!normalizedText) {
@@ -5658,6 +5815,50 @@ function normalizeCounterReferenceText(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+function normalizeCounterType(value) {
+  const raw = normalizeLabel(value, "").trim();
+  if (!raw) {
+    return "";
+  }
+
+  const compact = raw.replace(/\s+/g, "").toLowerCase();
+  if (/^\+?1\/\+?1$/.test(compact) || compact === "plusoneplusone" || compact === "plus1plus1") {
+    return "+1/+1";
+  }
+
+  if (/^-?1\/-?1$/.test(compact) || compact === "minusoneminusone" || compact === "minus1minus1") {
+    return "-1/-1";
+  }
+
+  const normalized = raw
+    .replace(/counter(s)?$/i, "")
+    .trim()
+    .replace(/[^a-z0-9]+/gi, " ")
+    .toLowerCase();
+
+  if (!normalized) {
+    return "";
+  }
+
+  return normalized
+    .split(/\s+/)
+    .map((segment) => `${segment[0]?.toUpperCase() || ""}${segment.slice(1)}`)
+    .join(" ");
+}
+
+function getPermanentCounterSummary(permanent) {
+  const counters = normalizePermanentCounters(permanent?.counters);
+  const entries = Object.entries(counters)
+    .filter(([, count]) => normalizeCount(count) > 0)
+    .sort((a, b) => a[0].localeCompare(b[0]));
+
+  if (entries.length === 0) {
+    return "None";
+  }
+
+  return entries.map(([type, count]) => `${type}: ${count}`).join(" • ");
 }
 
 function extractTokenSpec(oracleText) {
@@ -5702,6 +5903,49 @@ function extractCountFromText(text) {
   return 1;
 }
 
+function extractCounterCountFromText(text) {
+  const normalizedText = String(text || "").toLowerCase();
+  const countTokenPattern = "(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\\d+)";
+  const leadPattern = new RegExp(
+    `(?:put|puts|add|adds|move|moves|distribute|distributes|with)\\s+${countTokenPattern}\\s+(?:[a-z0-9+\\/-]+\\s+){0,4}counters?\\b`,
+    "i"
+  );
+  const leadMatch = normalizedText.match(leadPattern);
+  if (leadMatch?.[1]) {
+    return parseCountToken(leadMatch[1]);
+  }
+
+  return extractCountFromText(normalizedText);
+}
+
+function parseCountToken(token) {
+  const normalizedToken = normalizeLabel(token, "").toLowerCase();
+  if (!normalizedToken) {
+    return 1;
+  }
+
+  if (/^\d+$/.test(normalizedToken)) {
+    return normalizeCount(normalizedToken, 1);
+  }
+
+  const wordCounts = {
+    a: 1,
+    an: 1,
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+  };
+
+  return wordCounts[normalizedToken] || 1;
+}
+
 function getTriggerSummary(trigger) {
   if (trigger.actionType === "Create Tokens") {
     return `${trigger.triggerEvent === "Phase" ? trigger.phase : trigger.triggerEvent}: Create ${trigger.value} ${trigger.tokenPower}/${trigger.tokenToughness} ${trigger.tokenName || "Token"} Tokens`;
@@ -5711,8 +5955,9 @@ function getTriggerSummary(trigger) {
     return `${trigger.triggerEvent === "Phase" ? trigger.phase : trigger.triggerEvent}: Multiply Tokens for ${trigger.target}`;
   }
 
-  if (trigger.actionType === "Add +1/+1 Counters") {
-    return `${trigger.triggerEvent === "Phase" ? trigger.phase : trigger.triggerEvent}: Add ${trigger.value} +1/+1 Counter${trigger.value === 1 ? "" : "s"} to ${trigger.target}`;
+  if (trigger.actionType === "Add +1/+1 Counters" || trigger.actionType === "Add Counters") {
+    const counterType = normalizeCounterType(trigger.counterType || (trigger.actionType === "Add +1/+1 Counters" ? "+1/+1" : "Generic"));
+    return `${trigger.triggerEvent === "Phase" ? trigger.phase : trigger.triggerEvent}: Add ${trigger.value} ${counterType} Counter${trigger.value === 1 ? "" : "s"} to ${trigger.target}`;
   }
 
   return `${trigger.triggerEvent}: ${trigger.actionType}`;

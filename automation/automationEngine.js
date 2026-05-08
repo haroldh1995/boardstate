@@ -88,7 +88,9 @@ export function calculateStaticBuffs(permanent, permanents = []) {
 }
 
 export function calculatePermanentPowerToughness(permanent, permanents = []) {
-  const counters = Number(permanent?.plusOneCounters) || 0;
+  const plusCounters = Number(permanent?.plusOneCounters) || 0;
+  const minusCounters = Number(permanent?.minusOneCounters) || 0;
+  const counters = plusCounters - minusCounters;
   const buffs = calculateStaticBuffs(permanent, permanents);
 
   return {

@@ -164,19 +164,21 @@ function appendActionSuggestions(suggestions, permanent, rulings, normalizedText
     }, rulings));
   }
 
-  if (normalizedText.includes("+1/+1 counter") || normalizedText.includes("+1/+1 counters")) {
+  if (hasCounterPlacementLanguage(normalizedText)) {
     const targetProfile = inferCounterTargetProfile(normalizedText, permanent.name);
+    const counterType = extractCounterTypeFromText(normalizedText);
+    const actionType = counterType === "+1/+1" ? "Add +1/+1 Counters" : "Add Counters";
     suggestions.push(createSuggestion(permanent, {
       ...context,
-      actionType: "Add +1/+1 Counters",
+      actionType,
       targetType: targetProfile.targetType,
       counterTargetEntity: targetProfile.counterTargetEntity,
-      value: extractCountFromText(normalizedText),
-      counterType: "+1/+1",
+      value: extractCounterCountFromText(normalizedText),
+      counterType,
       requiresTargetSelection: targetProfile.requiresTargetSelection,
       optionalTarget: targetProfile.optionalTarget,
-      reasonSummary: `${context.reasonPrefix} It places +1/+1 counters in a supported way.`,
-      evidenceSummary: "Oracle text explicitly places +1/+1 counters.",
+      reasonSummary: `${context.reasonPrefix} It places ${counterType} counters in a supported way.`,
+      evidenceSummary: `Oracle text explicitly places ${counterType} counters.`,
       rulingKeywords: ["counter"],
     }, rulings));
   }
@@ -378,6 +380,52 @@ function inferCounterTargetProfile(normalizedText, cardName = "") {
   return { targetType: "Board", counterTargetEntity: "creature", requiresTargetSelection: false, optionalTarget: false };
 }
 
+function hasCounterPlacementLanguage(normalizedText) {
+  if (!normalizedText.includes("counter")) {
+    return false;
+  }
+
+  return (
+    /\bput\b|\bputs\b|\badd\b|\badds\b|\bdistribute\b|\bdistributes\b|\bmove\b|\bmoves\b/.test(normalizedText) ||
+    /\benters\b.+\bwith\b.+\bcounters?\b/.test(normalizedText) ||
+    /\bwith\b.+\bcounters?\b.+\bon\b/.test(normalizedText)
+  );
+}
+
+function extractCounterTypeFromText(normalizedText) {
+  if (normalizedText.includes("+1/+1 counter")) {
+    return "+1/+1";
+  }
+
+  if (normalizedText.includes("-1/-1 counter")) {
+    return "-1/-1";
+  }
+
+  const match = normalizedText.match(/([+\-]\d+\/[+\-]\d+|[a-z][a-z0-9+\/-]*(?:\s+[a-z][a-z0-9+\/-]*){0,2})\s+counters?\b/);
+  if (!match) {
+    return "Generic";
+  }
+
+  let candidate = match[1].trim();
+  candidate = candidate
+    .replace(/^(?:that\s+many|an?\s+additional|additional)\s+/i, "")
+    .replace(/^(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+/i, "")
+    .trim();
+
+  if (!candidate) {
+    return "Generic";
+  }
+
+  if (candidate === "+1/+1" || candidate === "-1/-1") {
+    return candidate;
+  }
+
+  return candidate
+    .split(/\s+/)
+    .map((part) => `${part[0]?.toUpperCase() || ""}${part.slice(1)}`)
+    .join(" ");
+}
+
 function hasSelfCounterTargetReference(text, cardName = "") {
   const normalizedText = normalizeMatcherText(text);
   if (!normalizedText) {
@@ -469,6 +517,49 @@ function extractCountFromText(normalizedText) {
   return Object.entries(wordCounts).find(([word]) => new RegExp(`\\b${word}\\b`).test(normalizedText))?.[1] || 1;
 }
 
+function extractCounterCountFromText(normalizedText) {
+  const countTokenPattern =
+    "(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\\d+)";
+  const leadPattern = new RegExp(
+    `(?:put|puts|add|adds|move|moves|distribute|distributes|with)\\s+${countTokenPattern}\\s+(?:[a-z0-9+\\/-]+\\s+){0,4}counters?\\b`,
+    "i"
+  );
+  const leadMatch = normalizedText.match(leadPattern);
+  if (leadMatch?.[1]) {
+    return parseCountToken(leadMatch[1]);
+  }
+
+  return extractCountFromText(normalizedText);
+}
+
+function parseCountToken(token) {
+  const normalizedToken = normalizeText(token).toLowerCase();
+  if (!normalizedToken) {
+    return 1;
+  }
+
+  if (/^\d+$/.test(normalizedToken)) {
+    return Number(normalizedToken) || 1;
+  }
+
+  const wordCounts = {
+    a: 1,
+    an: 1,
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+  };
+
+  return wordCounts[normalizedToken] || 1;
+}
+
 function dedupeSuggestions(suggestions) {
   const seen = new Set();
   return suggestions.filter((suggestion) => {
@@ -479,6 +570,8 @@ function dedupeSuggestions(suggestions) {
       suggestion.eventType,
       suggestion.actionType,
       suggestion.targetType,
+      suggestion.counterType,
+      suggestion.counterTargetEntity,
       suggestion.value,
       suggestion.tokenName,
       suggestion.tokenPower,

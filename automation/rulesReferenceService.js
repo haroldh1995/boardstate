@@ -125,7 +125,7 @@ export function getRulesReferenceEntries(ruleLike = {}) {
     keys.add("tokens");
   }
 
-  if (ruleLike.actionType === "Add +1/+1 Counters" || ruleLike.actionType === "Modify Counter Amount") {
+  if (ruleLike.actionType === "Add +1/+1 Counters" || ruleLike.actionType === "Add Counters" || ruleLike.actionType === "Modify Counter Amount") {
     keys.add("counters");
   }
 
