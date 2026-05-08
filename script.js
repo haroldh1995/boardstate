@@ -29,6 +29,8 @@ const AUTOMATION_ACTIONS = [
 ];
 const SCRYFALL_SEARCH_URL = "https://api.scryfall.com/cards/search";
 const SEARCH_RESULT_LIMIT = 10;
+const DEFAULT_RECENT_COUNTER_TYPES = ["+1/+1", "-1/-1", "Loyalty", "Charge", "Shield", "Oil", "Stun", "Time", "Quest"];
+const MAX_RECENT_COUNTER_TYPES = 12;
 const TRIGGER_TARGETS = [
   "All",
   "Tokens Only",
@@ -341,6 +343,11 @@ const cardDetailTitle = document.querySelector("#cardDetailTitle");
 const cardDetailContent = document.querySelector("#cardDetailContent");
 const genericTokenForm = document.querySelector("#genericTokenForm");
 const battlefieldCounterDialog = document.querySelector("#battlefieldCounterDialog");
+const counterTypeDialog = document.querySelector("#counterTypeDialog");
+const counterTypeForm = document.querySelector("#counterTypeForm");
+const counterTypeRecentList = document.querySelector("#counterTypeRecentList");
+const counterTypeInput = document.querySelector("#counterTypeInput");
+const cancelCounterTypeButton = document.querySelector("#cancelCounterTypeButton");
 const tokenNameInput = document.querySelector("#tokenNameInput");
 const tokenManaCostInput = document.querySelector("#tokenManaCostInput");
 const tokenPowerInput = document.querySelector("#tokenPowerInput");
@@ -430,6 +437,9 @@ attackAllButton.addEventListener("click", () => beginCombatSimulation("all"));
 confirmCombatButton?.addEventListener("click", confirmCombatSimulation);
 clearAttackersButton.addEventListener("click", clearCombatAttackers);
 clearSelectionButton.addEventListener("click", clearPermanentSelection);
+counterTypeForm?.addEventListener("submit", handleCounterTypeSubmit);
+cancelCounterTypeButton?.addEventListener("click", handleCounterTypeCancel);
+counterTypeDialog?.addEventListener("close", handleCounterTypeDialogClose);
 document.addEventListener("click", handleDocumentSearchClick);
 
 counterToggleInputs.forEach((input) => {
@@ -463,7 +473,7 @@ cardDetailDialog?.addEventListener("close", clearExpandedCardState);
   });
 });
 
-[optionsDialog, nameSettingsDialog, counterSheetDialog, damageSheetDialog, connectedPlayersDialog, connectedPlayerViewDialog, boardOptionsDialog, bulkRemoveDialog, multiplayerHubDialog, automationRulesDialog, cardDetailDialog, genericTokenDialog, battlefieldCounterDialog].forEach((dialog) => {
+[optionsDialog, nameSettingsDialog, counterSheetDialog, damageSheetDialog, connectedPlayersDialog, connectedPlayerViewDialog, boardOptionsDialog, bulkRemoveDialog, multiplayerHubDialog, automationRulesDialog, cardDetailDialog, genericTokenDialog, battlefieldCounterDialog, counterTypeDialog].forEach((dialog) => {
   dialog.addEventListener("click", (event) => {
     if (event.target === dialog) {
       dialog.close();
@@ -481,12 +491,12 @@ bulkRemoveDialog?.addEventListener("click", (event) => {
 });
 
 battlefieldCounterDialog?.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-battlefield-counter-mode]");
+  const button = event.target.closest("[data-battlefield-counter-target]");
   if (!button) {
     return;
   }
 
-  handleBattlefieldCounterMode(button.dataset.battlefieldCounterMode || "");
+  handleBattlefieldCounterTargetMode(button.dataset.battlefieldCounterTarget || "");
 });
 
 pageViewport.addEventListener("scroll", handlePageViewportScroll, { passive: true });
@@ -526,6 +536,7 @@ function createDefaultBoardState() {
     automationRules: [],
     automationSuggestions: [],
     automationLog: [],
+    recentCounterTypes: [...DEFAULT_RECENT_COUNTER_TYPES],
     automationEnabled: true,
     lastAutomationUndo: null,
     combatState: createDefaultCombatState(),
@@ -796,6 +807,7 @@ function normalizeBoardState(boardState = {}) {
           .map((entry) => createAutomationLogEntry(entry))
           .filter((entry) => entry.id)
       : [],
+    recentCounterTypes: normalizeRecentCounterTypes(boardState.recentCounterTypes),
     automationEnabled: boardState.automationEnabled !== false,
     lastAutomationUndo: boardState.lastAutomationUndo ? normalizeBoardStateSnapshot(boardState.lastAutomationUndo) : null,
     combatState: normalizeCombatState(boardState.combatState),
@@ -894,12 +906,24 @@ function normalizeBoardStateSnapshot(source = {}) {
     automationLog: Array.isArray(source.automationLog)
       ? source.automationLog.map((entry) => createAutomationLogEntry(entry))
       : [],
+    recentCounterTypes: normalizeRecentCounterTypes(source.recentCounterTypes),
     automationEnabled: source.automationEnabled !== false,
     lastAutomationUndo: null,
     combatState: normalizeCombatState(source.combatState),
   };
 
   return ensureBoardStateAutomationCoverage(normalizedSnapshot);
+}
+
+function normalizeRecentCounterTypes(counterTypes) {
+  const normalized = Array.isArray(counterTypes)
+    ? counterTypes
+        .map((type) => normalizeCounterType(type))
+        .filter((type) => Boolean(type))
+    : [];
+  const uniqueTypes = Array.from(new Set(normalized));
+  const fallbackTypes = DEFAULT_RECENT_COUNTER_TYPES.filter((type) => !uniqueTypes.includes(type));
+  return [...uniqueTypes, ...fallbackTypes].slice(0, MAX_RECENT_COUNTER_TYPES);
 }
 
 function ensureBoardStateAutomationCoverage(boardState) {
@@ -2147,9 +2171,20 @@ function renderBattlefieldActionButtons() {
     return;
   }
 
-  const hasPendingSelection = Boolean(boardUi.pendingCounterSelection);
-  confirmCounterSelectionButton.hidden = !hasPendingSelection;
-  confirmCounterSelectionButton.disabled = !hasPendingSelection;
+  const pendingSelection = boardUi.pendingCounterSelection;
+  const requiresSelectionConfirm = pendingSelection?.targetMode === "selected-permanents";
+  if (!requiresSelectionConfirm) {
+    confirmCounterSelectionButton.hidden = true;
+    confirmCounterSelectionButton.disabled = true;
+    confirmCounterSelectionButton.textContent = "Confirm Targets";
+    return;
+  }
+
+  const selectedCount = getSelectedPermanentIds(state.boardState.permanents).length;
+  confirmCounterSelectionButton.hidden = false;
+  confirmCounterSelectionButton.disabled = selectedCount === 0;
+  confirmCounterSelectionButton.textContent =
+    selectedCount > 0 ? `Confirm (${selectedCount})` : "Confirm Targets";
 }
 
 function renderBoardSearch() {
@@ -2780,25 +2815,38 @@ function toggleBoardTotalsVisibility() {
   );
 }
 
-function handleBattlefieldCounterMode(mode) {
-  if (mode === "all") {
-    battlefieldCounterDialog?.close();
-    applyBattlefieldPlusOneCountersToAllCreatures();
+function handleBattlefieldCounterTargetMode(targetMode) {
+  if (!targetMode) {
     return;
   }
 
-  if (mode === "specific") {
+  if (state.boardState.permanents.length === 0) {
     battlefieldCounterDialog?.close();
-    startBattlefieldCounterTargetSelection();
+    showQuickToast("No permanents available for counters.");
+    return;
   }
+
+  if (targetMode === "selected-permanents") {
+    battlefieldCounterDialog?.close();
+    startBattlefieldCounterTargetSelection(targetMode);
+    return;
+  }
+
+  boardUi = {
+    ...boardUi,
+    activeMenuPermanentId: "",
+    pendingCounterSelection: {
+      targetMode,
+      targetIds: [],
+      value: 1,
+      counterType: "",
+    },
+  };
+  battlefieldCounterDialog?.close();
+  openCounterTypeDialog();
 }
 
-function startBattlefieldCounterTargetSelection() {
-  if (state.boardState.permanents.length === 0) {
-    showQuickToast("No permanents available to target.");
-    return;
-  }
-
+function startBattlefieldCounterTargetSelection(targetMode) {
   state = {
     ...state,
     boardState: {
@@ -2816,17 +2864,35 @@ function startBattlefieldCounterTargetSelection() {
     ...boardUi,
     activeMenuPermanentId: "",
     pendingCounterSelection: {
-      counterType: "+1/+1",
+      targetMode,
+      targetIds: [],
       value: 1,
+      counterType: "",
     },
   };
 
   persistState();
   render();
-  showQuickToast("Select target(s), then tap Confirm Targets.");
+  showQuickToast("Select permanent(s), then tap Confirm.");
 }
 
-function clearPendingCounterSelection() {
+function clearPendingCounterSelection(options = {}) {
+  const { clearSelections = false } = options;
+  if (clearSelections) {
+    state = {
+      ...state,
+      boardState: {
+        ...state.boardState,
+        permanents: state.boardState.permanents.map((permanent) =>
+          createPermanent({
+            ...permanent,
+            isSelected: false,
+          })
+        ),
+      },
+    };
+  }
+
   boardUi = {
     ...boardUi,
     pendingCounterSelection: null,
@@ -2835,32 +2901,106 @@ function clearPendingCounterSelection() {
 
 function confirmBattlefieldCounterSelection() {
   const pendingSelection = boardUi.pendingCounterSelection;
-  if (!pendingSelection) {
+  if (!pendingSelection || pendingSelection.targetMode !== "selected-permanents") {
     return;
   }
 
   const selectedIds = getSelectedPermanentIds(state.boardState.permanents);
   if (selectedIds.length === 0) {
-    showQuickToast("Select at least one target first.");
+    showQuickToast("Select at least one permanent first.");
     return;
   }
 
-  const outcome = applyCounterToPermanentTargets(
-    state.boardState,
-    selectedIds,
-    pendingSelection.counterType || "+1/+1",
-    pendingSelection.value || 1
-  );
+  boardUi = {
+    ...boardUi,
+    pendingCounterSelection: {
+      ...pendingSelection,
+      targetIds: selectedIds,
+    },
+  };
+  openCounterTypeDialog();
+}
 
+function openCounterTypeDialog() {
+  const pendingSelection = boardUi.pendingCounterSelection;
+  if (!pendingSelection) {
+    return;
+  }
+
+  renderCounterTypeDialog();
+  showDialog(counterTypeDialog);
+}
+
+function renderCounterTypeDialog() {
+  if (!counterTypeRecentList || !counterTypeInput) {
+    return;
+  }
+
+  const recentTypes = normalizeRecentCounterTypes(state.boardState.recentCounterTypes);
+  counterTypeRecentList.innerHTML = recentTypes
+    .map((counterType) => {
+      return `
+        <button class="sheet-action" type="button" data-counter-type-option="${escapeHtml(counterType)}">
+          ${escapeHtml(counterType)}
+        </button>
+      `;
+    })
+    .join("");
+
+  const pendingCounterType = boardUi.pendingCounterSelection?.counterType || recentTypes[0] || "+1/+1";
+  counterTypeInput.value = pendingCounterType;
+
+  counterTypeRecentList
+    .querySelectorAll("[data-counter-type-option]")
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        counterTypeInput.value = button.dataset.counterTypeOption || "";
+        counterTypeInput.focus();
+        counterTypeInput.select();
+      });
+    });
+}
+
+function handleCounterTypeSubmit(event) {
+  event.preventDefault();
+  const pendingSelection = boardUi.pendingCounterSelection;
+  if (!pendingSelection) {
+    counterTypeDialog?.close();
+    return;
+  }
+
+  const counterType = normalizeCounterType(counterTypeInput?.value || "");
+  if (!counterType) {
+    showQuickToast("Enter a counter type first.");
+    return;
+  }
+
+  const targetIds = resolveCounterTargetIdsForPendingSelection(state.boardState.permanents, pendingSelection);
+  if (targetIds.length === 0) {
+    if (pendingSelection.targetMode === "selected-permanents") {
+      showQuickToast("No selected permanents to apply counters.");
+      return;
+    }
+
+    showQuickToast("No valid permanents for that target.");
+    clearPendingCounterSelection();
+    render();
+    counterTypeDialog?.close();
+    return;
+  }
+
+  const outcome = applyCounterToPermanentTargets(state.boardState, targetIds, counterType, pendingSelection.value || 1);
   if (outcome.appliedCount === 0) {
-    showQuickToast("No valid targets selected.");
+    showQuickToast("No valid permanents were updated.");
     return;
   }
 
+  const nextRecentCounterTypes = getNextRecentCounterTypes(state.boardState.recentCounterTypes, counterType);
   state = {
     ...state,
     boardState: {
       ...outcome.boardState,
+      recentCounterTypes: nextRecentCounterTypes,
       permanents: outcome.boardState.permanents.map((permanent) =>
         createPermanent({
           ...permanent,
@@ -2873,34 +3013,80 @@ function confirmBattlefieldCounterSelection() {
   clearPendingCounterSelection();
   persistState();
   render();
-  showQuickToast(formatCounterPlacementMessage(outcome, "selected target(s)"));
+  counterTypeDialog?.close();
+  showQuickToast(formatCounterPlacementMessage(outcome, counterType, getCounterTargetLabel(pendingSelection.targetMode)));
 }
 
-function applyBattlefieldPlusOneCountersToAllCreatures() {
-  const creatureIds = state.boardState.permanents
-    .filter((permanent) => permanent.isCreature)
-    .map((permanent) => permanent.id);
+function handleCounterTypeCancel() {
+  const pendingSelection = boardUi.pendingCounterSelection;
+  if (!pendingSelection || pendingSelection.targetMode !== "selected-permanents") {
+    clearPendingCounterSelection();
+    render();
+  }
+  counterTypeDialog?.close();
+}
 
-  if (creatureIds.length === 0) {
-    showQuickToast("No creatures on the battlefield.");
+function handleCounterTypeDialogClose() {
+  const pendingSelection = boardUi.pendingCounterSelection;
+  if (!pendingSelection) {
     return;
   }
 
-  const outcome = applyCounterToPermanentTargets(state.boardState, creatureIds, "+1/+1", 1);
-  if (outcome.appliedCount === 0) {
-    showQuickToast("No valid creatures found.");
-    return;
+  if (pendingSelection.targetMode !== "selected-permanents") {
+    clearPendingCounterSelection();
+    render();
+  }
+}
+
+function resolveCounterTargetIdsForPendingSelection(permanents, pendingSelection) {
+  if (!pendingSelection) {
+    return [];
   }
 
-  state = {
-    ...state,
-    boardState: outcome.boardState,
-  };
+  switch (pendingSelection.targetMode) {
+    case "all-creatures":
+      return permanents.filter((permanent) => permanent.isCreature).map((permanent) => permanent.id);
+    case "all-permanents":
+      return permanents.map((permanent) => permanent.id);
+    case "all-tokens":
+      return permanents.filter((permanent) => permanent.isToken).map((permanent) => permanent.id);
+    case "selected-permanents": {
+      const storedTargetIds = Array.isArray(pendingSelection.targetIds) ? pendingSelection.targetIds : [];
+      if (storedTargetIds.length > 0) {
+        return storedTargetIds;
+      }
+      return getSelectedPermanentIds(permanents);
+    }
+    default:
+      return [];
+  }
+}
 
-  clearPendingCounterSelection();
-  persistState();
-  render();
-  showQuickToast(formatCounterPlacementMessage(outcome, "all creatures"));
+function getCounterTargetLabel(targetMode) {
+  switch (targetMode) {
+    case "all-creatures":
+      return "all creatures";
+    case "all-permanents":
+      return "all permanents";
+    case "all-tokens":
+      return "all tokens";
+    case "selected-permanents":
+      return "selected permanent(s)";
+    default:
+      return "selected targets";
+  }
+}
+
+function getNextRecentCounterTypes(existingTypes, newType) {
+  const normalizedNewType = normalizeCounterType(newType);
+  if (!normalizedNewType) {
+    return normalizeRecentCounterTypes(existingTypes);
+  }
+
+  const existingNormalized = normalizeRecentCounterTypes(existingTypes).filter(
+    (counterType) => counterType !== normalizedNewType
+  );
+  return [normalizedNewType, ...existingNormalized].slice(0, MAX_RECENT_COUNTER_TYPES);
 }
 
 function applyCounterToPermanentTargets(boardState, targetIds, counterType, value) {
@@ -2937,8 +3123,9 @@ function applyCounterToPermanentTargets(boardState, targetIds, counterType, valu
   };
 }
 
-function formatCounterPlacementMessage(outcome, scopeLabel) {
-  const baseMessage = `Added ${outcome.appliedAmount} +1/+1 counter${outcome.appliedAmount === 1 ? "" : "s"} to ${outcome.appliedCount} ${scopeLabel}.`;
+function formatCounterPlacementMessage(outcome, counterType, scopeLabel) {
+  const normalizedCounterType = normalizeCounterType(counterType) || "Generic";
+  const baseMessage = `Added ${outcome.appliedAmount} ${normalizedCounterType} counter${outcome.appliedAmount === 1 ? "" : "s"} to ${outcome.appliedCount} ${scopeLabel}.`;
   const modifierSummary = outcome.modifierSummary || "";
   if (!modifierSummary || modifierSummary === "No active modifiers.") {
     return baseMessage;
@@ -3327,6 +3514,7 @@ function closeAllDialogs() {
     cardDetailDialog,
     genericTokenDialog,
     battlefieldCounterDialog,
+    counterTypeDialog,
   ].forEach((dialog) => {
     if (dialog.open) {
       dialog.close();

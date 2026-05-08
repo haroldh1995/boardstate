@@ -241,7 +241,7 @@
                       Remove All
                     </button>
                     <button class="sheet-secondary board-section-action" id="battlefieldAddCounterButton" type="button">
-                      +1/+1
+                      Counters
                     </button>
                     <button
                       class="sheet-secondary board-section-action"
@@ -511,14 +511,44 @@
       <form method="dialog" class="options-sheet tracker-sheet">
         <div class="options-header">
           <p class="options-kicker">Battlefield</p>
-          <h1>+1/+1 Counters</h1>
+          <h1>Add Counters</h1>
         </div>
-        <p class="bulk-remove-note">Choose how to place +1/+1 counters.</p>
+        <p class="bulk-remove-note">Choose where counters should go first.</p>
         <div class="options-actions bulk-remove-actions">
-          <button class="sheet-action" data-battlefield-counter-mode="all" type="button">Add to All Creatures</button>
-          <button class="sheet-action" data-battlefield-counter-mode="specific" type="button">Add to Specific Target(s)</button>
+          <button class="sheet-action" data-battlefield-counter-target="all-creatures" type="button">All Creatures</button>
+          <button class="sheet-action" data-battlefield-counter-target="all-permanents" type="button">All Permanents</button>
+          <button class="sheet-action" data-battlefield-counter-target="all-tokens" type="button">All Tokens</button>
+          <button class="sheet-action" data-battlefield-counter-target="selected-permanents" type="button">Select Permanent(s)</button>
         </div>
         <button class="sheet-close" type="submit">Close</button>
+      </form>
+    </dialog>
+
+    <dialog class="options-dialog" id="counterTypeDialog">
+      <form class="options-sheet tracker-sheet" id="counterTypeForm">
+        <div class="options-header">
+          <p class="options-kicker">Counter Type</p>
+          <h1>Select Counter</h1>
+        </div>
+        <p class="bulk-remove-note">Most recently used counters appear first.</p>
+        <div class="options-actions bulk-remove-actions" id="counterTypeRecentList"></div>
+        <label class="sheet-field" for="counterTypeInput">
+          <span class="sheet-field-label">Counter Type</span>
+          <input
+            class="sheet-text-input"
+            id="counterTypeInput"
+            name="counterType"
+            type="text"
+            maxlength="24"
+            placeholder="Example: +1/+1, Loyalty, Charge"
+            autocomplete="off"
+            required
+          />
+        </label>
+        <div class="sheet-footer">
+          <button class="sheet-secondary" id="cancelCounterTypeButton" type="button">Cancel</button>
+          <button class="sheet-action" id="confirmCounterTypeButton" type="submit">Confirm</button>
+        </div>
       </form>
     </dialog>
 
