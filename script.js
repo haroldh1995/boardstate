@@ -1122,6 +1122,8 @@ function normalizeAutomationEventSourceScope(value) {
     "self",
     "any-creature",
     "another-creature",
+    "any-enchantment",
+    "another-enchantment",
     "any-permanent",
     "another-permanent",
   ];
@@ -1199,6 +1201,19 @@ function normalizeAutomationConfidence(value) {
 }
 
 function persistState() {
+  if (state?.boardState) {
+    const currentPhase = PHASES[normalizePhaseIndex(state.boardState.currentPhaseIndex)];
+    const enchantmentResult = runEnchantmentEngine(state.boardState, {
+      phase: currentPhase,
+    });
+    if (enchantmentResult.changed) {
+      state = {
+        ...state,
+        boardState: enchantmentResult.boardState,
+      };
+    }
+  }
+
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
@@ -3666,6 +3681,10 @@ function advanceBoardPhase() {
     phase: nextPhase,
     selectedIds,
   });
+  nextBoardState = runEnchantmentEngine(nextBoardState, {
+    phase: nextPhase,
+    advanceSagas: nextPhase === "Main",
+  }).boardState;
 
   state = {
     ...state,
@@ -4229,7 +4248,11 @@ function addImportedPermanentToBoardState(boardState, permanent) {
   const sourcePermanent = attachedBoardState.permanents.find((entry) => entry.id === addResult.permanentId) || permanent;
   const suggestions = buildAutomationSuggestions(sourcePermanent);
   const nextBoardState = attachAutomationSuggestions(attachedBoardState, sourcePermanent.id, sourcePermanent.name, suggestions);
-  return executeEnterBattlefieldAutomation(nextBoardState, sourcePermanent.id, addResult.instancesAdded);
+  const etbBoardState = executeEnterBattlefieldAutomation(nextBoardState, sourcePermanent.id, addResult.instancesAdded);
+  return runEnchantmentEngine(etbBoardState, {
+    phase: PHASES[normalizePhaseIndex(etbBoardState.currentPhaseIndex)],
+    sagaEnterIds: [sourcePermanent.id],
+  }).boardState;
 }
 
 function maybeAttachImportedPermanent(boardState, permanentId) {
@@ -4280,6 +4303,617 @@ function maybeAttachImportedPermanent(boardState, permanentId) {
       });
     }),
   };
+}
+
+function runEnchantmentEngine(boardState, options = {}) {
+  if (!boardState || !Array.isArray(boardState.permanents)) {
+    return { boardState, changed: false };
+  }
+
+  const phase = normalizePhase(options.phase || PHASES[normalizePhaseIndex(boardState.currentPhaseIndex)]);
+  const sagaEnterIds = Array.isArray(options.sagaEnterIds)
+    ? options.sagaEnterIds.filter((id) => typeof id === "string" && id.trim())
+    : [];
+  const shouldAdvanceSagas = Boolean(options.advanceSagas);
+
+  let nextBoardState = normalizeBoardState(boardState);
+  let changed = false;
+  let attachmentResult = enforceEnchantmentAttachmentLegality(nextBoardState);
+  if (attachmentResult.changed) {
+    nextBoardState = attachmentResult.boardState;
+    changed = true;
+  }
+
+  const chapterEvents = [];
+  sagaEnterIds.forEach((sagaId) => {
+    const sagaResult = advanceSagaLoreCounter(nextBoardState, sagaId);
+    if (!sagaResult.changed) {
+      return;
+    }
+
+    nextBoardState = sagaResult.boardState;
+    changed = true;
+    chapterEvents.push(...sagaResult.chapterEvents);
+  });
+
+  if (shouldAdvanceSagas) {
+    const sagaIds = nextBoardState.permanents.filter((permanent) => isSagaPermanent(permanent)).map((permanent) => permanent.id);
+    sagaIds.forEach((sagaId) => {
+      const sagaResult = advanceSagaLoreCounter(nextBoardState, sagaId);
+      if (!sagaResult.changed) {
+        return;
+      }
+
+      nextBoardState = sagaResult.boardState;
+      changed = true;
+      chapterEvents.push(...sagaResult.chapterEvents);
+    });
+  }
+
+  if (chapterEvents.length > 0) {
+    const chaptersBySaga = chapterEvents.reduce((accumulator, chapterEvent) => {
+      const list = accumulator.get(chapterEvent.sagaId) || [];
+      list.push(chapterEvent);
+      accumulator.set(chapterEvent.sagaId, list);
+      return accumulator;
+    }, new Map());
+
+    chaptersBySaga.forEach((eventsForSaga, sagaId) => {
+      const orderedEvents = [...eventsForSaga].sort((a, b) => a.chapter - b.chapter);
+      orderedEvents.forEach((chapterEvent) => {
+        const sourcePermanent = nextBoardState.permanents.find((permanent) => permanent.id === chapterEvent.sagaId);
+        if (!sourcePermanent) {
+          return;
+        }
+
+        const chapterTrigger = buildSagaChapterTrigger(sourcePermanent, chapterEvent.actionText);
+        if (!chapterTrigger) {
+          return;
+        }
+
+        const triggerResult = executeTrigger(chapterTrigger, nextBoardState, {
+          phase,
+          selectedIds: getSelectedPermanentIds(nextBoardState.permanents),
+          sourcePermanentId: sourcePermanent.id,
+          sourcePermanent,
+        });
+
+        if (triggerResult.changed) {
+          nextBoardState = triggerResult.boardState;
+          changed = true;
+        }
+      });
+
+      const lastChapterEvent = orderedEvents[orderedEvents.length - 1];
+      if (!lastChapterEvent) {
+        return;
+      }
+
+      if (shouldSacrificeSagaAfterChapter(nextBoardState, sagaId, lastChapterEvent.finalChapter)) {
+        const removalResult = applyPermanentRemovalToBoardState(nextBoardState, sagaId, "sacrifice");
+        if (removalResult.changed) {
+          nextBoardState = removalResult.boardState;
+          changed = true;
+        }
+      }
+    });
+  }
+
+  attachmentResult = enforceEnchantmentAttachmentLegality(nextBoardState);
+  if (attachmentResult.changed) {
+    nextBoardState = attachmentResult.boardState;
+    changed = true;
+  }
+
+  return {
+    boardState: nextBoardState,
+    changed,
+  };
+}
+
+function enforceEnchantmentAttachmentLegality(boardState) {
+  if (!boardState || !Array.isArray(boardState.permanents)) {
+    return { boardState, changed: false };
+  }
+
+  const permanents = boardState.permanents;
+  const byId = new Map(permanents.map((permanent) => [permanent.id, permanent]));
+  const auraIdsToRemove = new Set();
+  let detachChanged = false;
+
+  permanents.forEach((permanent) => {
+    if (!isAuraPermanent(permanent)) {
+      return;
+    }
+
+    const target = permanent.attachedToId ? byId.get(permanent.attachedToId) : null;
+    if (!isAuraAttachmentLegal(permanent, target)) {
+      auraIdsToRemove.add(permanent.id);
+    }
+  });
+
+  const nextPermanents = permanents
+    .filter((permanent) => !auraIdsToRemove.has(permanent.id))
+    .map((permanent) => {
+      if (isAuraPermanent(permanent)) {
+        return createPermanent(permanent);
+      }
+
+      if (permanent.attachedToId && !byId.has(permanent.attachedToId)) {
+        detachChanged = true;
+        return createPermanent({
+          ...permanent,
+          attachedToId: "",
+          attachmentKind: "",
+        });
+      }
+
+      return createPermanent(permanent);
+    });
+
+  if (auraIdsToRemove.size === 0 && !detachChanged) {
+    return { boardState, changed: false };
+  }
+
+  return {
+    boardState: {
+      ...boardState,
+      permanents: nextPermanents,
+      automationRules: boardState.automationRules.filter((rule) => !auraIdsToRemove.has(rule.sourcePermanentId)),
+      automationSuggestions: boardState.automationSuggestions.filter((rule) => !auraIdsToRemove.has(rule.sourcePermanentId)),
+    },
+    changed: true,
+  };
+}
+
+function isEnchantmentType(permanent) {
+  return hasTypeLine(permanent?.typeLine || "", "Enchantment");
+}
+
+function isAuraPermanent(permanent) {
+  return isEnchantmentType(permanent) && hasTypeLine(permanent?.typeLine || "", "Aura");
+}
+
+function isSagaPermanent(permanent) {
+  return isEnchantmentType(permanent) && hasTypeLine(permanent?.typeLine || "", "Saga");
+}
+
+function isAuraAttachmentLegal(auraPermanent, targetPermanent) {
+  if (!auraPermanent || !targetPermanent) {
+    return false;
+  }
+
+  if (auraPermanent.id === targetPermanent.id) {
+    return false;
+  }
+
+  const enchantClauses = parseAuraEnchantClauses(auraPermanent);
+  if (enchantClauses.length === 0) {
+    return targetPermanent.isCreature;
+  }
+
+  return enchantClauses.some((clause) => doesAuraClauseMatchTarget(clause, targetPermanent));
+}
+
+function parseAuraEnchantClauses(auraPermanent) {
+  const oracleText = normalizeLabel(auraPermanent?.oracleText, "");
+  if (!oracleText) {
+    return [];
+  }
+
+  const matches = [...oracleText.matchAll(/\benchant\s+([^.\n]+)/gi)];
+  return matches
+    .map((match) => normalizeLabel(match?.[1], "").toLowerCase())
+    .filter((clause) => clause && !clause.includes("player"))
+    .map((clause) => clause.replace(/[^\w\s\-]/g, " ").replace(/\s+/g, " ").trim());
+}
+
+function doesAuraClauseMatchTarget(clause, targetPermanent) {
+  if (!clause || !targetPermanent) {
+    return false;
+  }
+
+  const normalizedClause = clause.toLowerCase();
+  const typeLine = String(targetPermanent.typeLine || "").toLowerCase();
+  const isPermanent = true;
+  const isCreature = Boolean(targetPermanent.isCreature);
+  const isArtifact = Boolean(targetPermanent.isArtifact);
+  const isLegendary = Boolean(targetPermanent.isLegendary);
+  const isEnchantment = hasTypeLine(typeLine, "Enchantment");
+  const isLand = hasTypeLine(typeLine, "Land");
+  const isPlaneswalker = hasTypeLine(typeLine, "Planeswalker");
+  const isNonCreature = !isCreature;
+  const isNonLegendary = !isLegendary;
+
+  if (normalizedClause.includes("permanent")) {
+    if (normalizedClause.includes("noncreature") && !isNonCreature) {
+      return false;
+    }
+    if (normalizedClause.includes("creature") && !isCreature) {
+      return false;
+    }
+    if (normalizedClause.includes("artifact") && !isArtifact) {
+      return false;
+    }
+    if (normalizedClause.includes("enchantment") && !isEnchantment) {
+      return false;
+    }
+    if (normalizedClause.includes("land") && !isLand) {
+      return false;
+    }
+    if (normalizedClause.includes("planeswalker") && !isPlaneswalker) {
+      return false;
+    }
+    if (normalizedClause.includes("legendary") && !isLegendary) {
+      return false;
+    }
+    if (normalizedClause.includes("nonlegendary") && !isNonLegendary) {
+      return false;
+    }
+    return isPermanent;
+  }
+
+  if (normalizedClause.includes("creature")) {
+    if (!isCreature) {
+      return false;
+    }
+    if (normalizedClause.includes("legendary") && !isLegendary) {
+      return false;
+    }
+    if (normalizedClause.includes("nonlegendary") && !isNonLegendary) {
+      return false;
+    }
+    if (normalizedClause.includes("artifact") && !isArtifact) {
+      return false;
+    }
+    return true;
+  }
+
+  if (normalizedClause.includes("artifact")) {
+    if (!isArtifact) {
+      return false;
+    }
+    if (normalizedClause.includes("creature") && !isCreature) {
+      return false;
+    }
+    if (normalizedClause.includes("noncreature") && !isNonCreature) {
+      return false;
+    }
+    return true;
+  }
+
+  if (normalizedClause.includes("land")) {
+    return isLand;
+  }
+
+  if (normalizedClause.includes("planeswalker")) {
+    return isPlaneswalker;
+  }
+
+  if (normalizedClause.includes("enchantment")) {
+    return isEnchantment;
+  }
+
+  return isCreature;
+}
+
+function advanceSagaLoreCounter(boardState, sagaId) {
+  const sagaPermanent = boardState.permanents.find((permanent) => permanent.id === sagaId);
+  if (!sagaPermanent || !isSagaPermanent(sagaPermanent)) {
+    return { boardState, changed: false, chapterEvents: [] };
+  }
+
+  const chapterMap = parseSagaChapterMap(sagaPermanent.oracleText || "");
+  const chapterValues = Object.keys(chapterMap)
+    .map((key) => Number(key))
+    .filter((value) => Number.isInteger(value) && value > 0)
+    .sort((a, b) => a - b);
+  if (chapterValues.length === 0) {
+    return { boardState, changed: false, chapterEvents: [] };
+  }
+
+  const finalChapter = chapterValues[chapterValues.length - 1];
+  const previousLoreCount = normalizeCount(getPermanentCounterValue(sagaPermanent, "Lore"));
+  const loreModifierResult = applyCounterModifiersDetailed(1, boardState.permanents);
+  const loreToAdd = Math.max(0, normalizeCount(loreModifierResult.value));
+  if (loreToAdd <= 0) {
+    return { boardState, changed: false, chapterEvents: [] };
+  }
+
+  let nextBoardState = {
+    ...boardState,
+    permanents: boardState.permanents.map((permanent) => {
+      if (permanent.id !== sagaId) {
+        return permanent;
+      }
+
+      return applyCounterToPermanent(permanent, "Lore", loreToAdd);
+    }),
+  };
+
+  const nextSagaPermanent = nextBoardState.permanents.find((permanent) => permanent.id === sagaId);
+  const nextLoreCount = normalizeCount(getPermanentCounterValue(nextSagaPermanent, "Lore"));
+  const chapterEvents = chapterValues
+    .filter((chapterValue) => chapterValue > previousLoreCount && chapterValue <= nextLoreCount)
+    .map((chapterValue) => ({
+      sagaId,
+      sagaName: sagaPermanent.name,
+      chapter: chapterValue,
+      actionText: chapterMap[chapterValue] || "",
+      finalChapter,
+    }));
+
+  return {
+    boardState: nextBoardState,
+    changed: true,
+    chapterEvents,
+  };
+}
+
+function parseSagaChapterMap(oracleText) {
+  const chapterMap = {};
+  const text = String(oracleText || "").replace(/\r/g, "");
+  const chapterPattern = /(?:^|\n)\s*([ivxlcdm,\s]+)\s*[—-]\s*([^\n]+)/gim;
+  let match = chapterPattern.exec(text);
+
+  while (match) {
+    const chapterLabel = normalizeLabel(match[1], "");
+    const actionText = normalizeLabel(match[2], "");
+    chapterLabel
+      .split(",")
+      .map((part) => romanNumeralToNumber(part.trim()))
+      .filter((value) => Number.isInteger(value) && value > 0)
+      .forEach((value) => {
+        chapterMap[value] = actionText;
+      });
+    match = chapterPattern.exec(text);
+  }
+
+  return chapterMap;
+}
+
+function romanNumeralToNumber(value) {
+  const normalized = String(value || "").toUpperCase().replace(/[^IVXLCDM]/g, "");
+  if (!normalized) {
+    return 0;
+  }
+
+  const numerals = {
+    I: 1,
+    V: 5,
+    X: 10,
+    L: 50,
+    C: 100,
+    D: 500,
+    M: 1000,
+  };
+
+  let total = 0;
+  for (let index = 0; index < normalized.length; index += 1) {
+    const current = numerals[normalized[index]] || 0;
+    const next = numerals[normalized[index + 1]] || 0;
+    total += current < next ? -current : current;
+  }
+
+  return total > 0 ? total : 0;
+}
+
+function getPermanentCounterValue(permanent, counterType) {
+  if (!permanent) {
+    return 0;
+  }
+
+  const normalizedCounterType = normalizeCounterType(counterType);
+  if (!normalizedCounterType) {
+    return 0;
+  }
+
+  if (normalizedCounterType === "+1/+1") {
+    return normalizeCount(permanent.plusOneCounters);
+  }
+
+  if (normalizedCounterType === "-1/-1") {
+    return normalizeCount(permanent.minusOneCounters);
+  }
+
+  const counters = normalizePermanentCounters(permanent.counters);
+  return normalizeCount(counters[normalizedCounterType]);
+}
+
+function buildSagaChapterTrigger(sourcePermanent, actionText) {
+  const normalizedText = normalizeLabel(actionText, "").toLowerCase();
+  if (!normalizedText) {
+    return null;
+  }
+
+  if (normalizedText.includes("create") && normalizedText.includes("token")) {
+    const tokenSpec = extractTokenSpec(actionText);
+    return {
+      actionType: "Create Tokens",
+      target: "All",
+      value: extractCountFromText(actionText),
+      tokenName: tokenSpec.name,
+      tokenPower: tokenSpec.power,
+      tokenToughness: tokenSpec.toughness,
+      tokenManaCost: "",
+      counterType: "",
+      requiresTargetSelection: false,
+      counterTargetEntity: "creature",
+      sourcePermanentId: sourcePermanent.id,
+    };
+  }
+
+  if (normalizedText.includes("counter")) {
+    const counterType = extractCounterTypeFromText(actionText);
+    const actionType = counterType === "+1/+1" ? "Add +1/+1 Counters" : "Add Counters";
+    const targetProfile = inferSagaCounterTargetProfile(normalizedText, sourcePermanent);
+    return {
+      actionType,
+      target: targetProfile.target,
+      value: extractCounterCountFromText(actionText),
+      counterType,
+      requiresTargetSelection: targetProfile.requiresTargetSelection,
+      counterTargetEntity: targetProfile.counterTargetEntity,
+      sourcePermanentId: sourcePermanent.id,
+    };
+  }
+
+  if ((normalizedText.includes("double") || normalizedText.includes("twice")) && normalizedText.includes("token")) {
+    return {
+      actionType: "Multiply Tokens",
+      target: "Tokens Only",
+      value: 2,
+      requiresTargetSelection: false,
+      counterTargetEntity: "creature",
+      sourcePermanentId: sourcePermanent.id,
+    };
+  }
+
+  const temporaryBuff = extractTemporaryBuffFromText(actionText);
+  if (temporaryBuff) {
+    const targetProfile = inferSagaGenericTargetProfile(normalizedText, sourcePermanent);
+    return {
+      actionType: "Apply Temporary Buff",
+      target: targetProfile.target,
+      value: 0,
+      buffPower: temporaryBuff.power,
+      buffToughness: temporaryBuff.toughness,
+      buffDuration: temporaryBuff.duration,
+      requiresTargetSelection: targetProfile.requiresTargetSelection,
+      counterTargetEntity: targetProfile.counterTargetEntity,
+      sourcePermanentId: sourcePermanent.id,
+    };
+  }
+
+  return null;
+}
+
+function inferSagaCounterTargetProfile(normalizedText, sourcePermanent) {
+  if (
+    normalizedText.includes("on it") ||
+    normalizedText.includes("on itself") ||
+    normalizedText.includes("this saga") ||
+    normalizedText.includes("this permanent")
+  ) {
+    return {
+      target: "Self",
+      requiresTargetSelection: false,
+      counterTargetEntity: sourcePermanent.isCreature ? "creature" : "permanent",
+    };
+  }
+
+  if (
+    normalizedText.includes("target creature") ||
+    normalizedText.includes("another target creature") ||
+    normalizedText.includes("up to one target creature")
+  ) {
+    return {
+      target: "Selected",
+      requiresTargetSelection: true,
+      counterTargetEntity: "creature",
+    };
+  }
+
+  if (
+    normalizedText.includes("target permanent") ||
+    normalizedText.includes("another target permanent") ||
+    normalizedText.includes("up to one target permanent")
+  ) {
+    return {
+      target: "Selected",
+      requiresTargetSelection: true,
+      counterTargetEntity: "permanent",
+    };
+  }
+
+  if (
+    normalizedText.includes("each permanent") ||
+    normalizedText.includes("permanents you control") ||
+    normalizedText.includes("each noncreature permanent")
+  ) {
+    return {
+      target: "All",
+      requiresTargetSelection: false,
+      counterTargetEntity: "permanent",
+    };
+  }
+
+  return {
+    target: "All Creatures",
+    requiresTargetSelection: false,
+    counterTargetEntity: "creature",
+  };
+}
+
+function inferSagaGenericTargetProfile(normalizedText, sourcePermanent) {
+  if (
+    normalizedText.includes("on it") ||
+    normalizedText.includes("on itself") ||
+    normalizedText.includes("this saga") ||
+    normalizedText.includes("this permanent")
+  ) {
+    return {
+      target: "Self",
+      requiresTargetSelection: false,
+      counterTargetEntity: sourcePermanent.isCreature ? "creature" : "permanent",
+    };
+  }
+
+  if (
+    normalizedText.includes("target creature") ||
+    normalizedText.includes("another target creature") ||
+    normalizedText.includes("up to one target creature")
+  ) {
+    return {
+      target: "Selected",
+      requiresTargetSelection: true,
+      counterTargetEntity: "creature",
+    };
+  }
+
+  if (
+    normalizedText.includes("target permanent") ||
+    normalizedText.includes("another target permanent") ||
+    normalizedText.includes("up to one target permanent")
+  ) {
+    return {
+      target: "Selected",
+      requiresTargetSelection: true,
+      counterTargetEntity: "permanent",
+    };
+  }
+
+  if (
+    normalizedText.includes("each permanent") ||
+    normalizedText.includes("permanents you control") ||
+    normalizedText.includes("all permanents")
+  ) {
+    return {
+      target: "All",
+      requiresTargetSelection: false,
+      counterTargetEntity: "permanent",
+    };
+  }
+
+  return {
+    target: "All Creatures",
+    requiresTargetSelection: false,
+    counterTargetEntity: "creature",
+  };
+}
+
+function shouldSacrificeSagaAfterChapter(boardState, sagaId, finalChapter) {
+  if (!Number.isInteger(finalChapter) || finalChapter <= 0) {
+    return false;
+  }
+
+  const sagaPermanent = boardState.permanents.find((permanent) => permanent.id === sagaId);
+  if (!sagaPermanent || !isSagaPermanent(sagaPermanent)) {
+    return false;
+  }
+
+  const loreCount = normalizeCount(getPermanentCounterValue(sagaPermanent, "Lore"));
+  return loreCount >= finalChapter;
 }
 
 function executeEnterBattlefieldAutomation(boardState, sourcePermanentId, instancesAdded = 1) {
@@ -4642,6 +5276,14 @@ function matchesAutomationEventSource(rule, context = {}, eventPermanent = null,
     return Boolean(eventPermanent.isCreature) && eventPermanent.id !== sourcePermanentId;
   }
 
+  if (scope === "any-enchantment") {
+    return hasTypeLine(eventPermanent.typeLine || "", "Enchantment");
+  }
+
+  if (scope === "another-enchantment") {
+    return hasTypeLine(eventPermanent.typeLine || "", "Enchantment") && eventPermanent.id !== sourcePermanentId;
+  }
+
   if (scope === "any-permanent") {
     return true;
   }
@@ -4665,6 +5307,14 @@ function inferLegacyEventSourceScope(rule, boardState) {
 
   const referenceText = getPermanentReferenceText(sourcePermanent);
   if (rule.eventType === "ETB") {
+    if (
+      referenceText.includes("whenever another enchantment enters") ||
+      referenceText.includes("whenever an enchantment enters") ||
+      referenceText.includes("whenever one or more enchantments enter")
+    ) {
+      return referenceText.includes("another enchantment enters") ? "another-enchantment" : "any-enchantment";
+    }
+
     if (
       referenceText.includes("whenever another creature enters") ||
       referenceText.includes("whenever a creature enters") ||

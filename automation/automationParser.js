@@ -374,6 +374,14 @@ function inferEventSourceScope(normalizedText, eventType, cardName = "") {
 
   if (eventType === "ETB") {
     if (
+      text.includes("whenever another enchantment enters") ||
+      text.includes("whenever an enchantment enters") ||
+      text.includes("whenever one or more enchantments enter")
+    ) {
+      return text.includes("another enchantment enters") ? "another-enchantment" : "any-enchantment";
+    }
+
+    if (
       text.includes("whenever another creature enters") ||
       text.includes("whenever a creature enters") ||
       text.includes("whenever one or more creatures enter")
