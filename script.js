@@ -1,3 +1,4 @@
+import * as BoardStateUpgrades from "./src/boardstate-upgrades/boardstateUpgrades.js";
 import { DEFAULT_FACE_DOWN_LABEL, MULTIPLAYER_VIEW_MODES } from "./multiplayer/connectionTypes.js";
 import { createMultiplayerService } from "./multiplayer/multiplayerService.js";
 import { createPublicPlayerSnapshot, createViewerBoardState } from "./multiplayer/playerSnapshot.js";
