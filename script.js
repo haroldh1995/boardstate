@@ -11,6 +11,22 @@ import {
 import { buildAutomationSuggestions, extractEffectMetadata } from "./automation/automationParser.js";
 import { AUTOMATION_RULES_NOTE, getRulesReferenceEntries, summarizeRulesSources } from "./automation/rulesReferenceService.js";
 import { fetchCardRulings } from "./automation/scryfallRulingsService.js";
+import {
+  createDefaultCompanionState,
+  normalizeCompanionState,
+  createHistoryEntry,
+  recordHistoryAction,
+  pushUndoSnapshot,
+  popUndoSnapshot,
+  createLifeRollbackBuffer,
+  hasActiveLifeRollback,
+} from "./Core/GameStateEngine.js";
+import { applyFloatingManaDelta, clearFloatingManaForPhase, getFloatingManaTotal } from "./Services/FloatingManaService.js";
+import { searchCounterTypes, updateRecentCounterSearches } from "./Services/CounterCatalogService.js";
+import { queueTriggerReminders } from "./Services/TriggerReminderService.js";
+import { calculateCombatPreview } from "./Services/CombatCalculatorService.js";
+import { SETTINGS_TOGGLE_FIELDS } from "./Pages/SettingsManualPage.js";
+import { MANUAL_SECTIONS } from "./Views/ManualContentView.js";
 
 const STORAGE_KEY = "commander-life-counter-state";
 const MAX_COMMANDER_DAMAGE_TRACKERS = 7;
@@ -45,6 +61,8 @@ const TRIGGER_TARGETS = [
 const PAGE_ORDER = ["tracker", "board-state"];
 const MAX_AUTOMATION_LOG_ENTRIES = 14;
 const MAX_AUTOMATION_CHAIN_DEPTH = 40;
+const BOARD_LONG_PRESS_MS = 430;
+const BOARD_SWIPE_REMOVE_THRESHOLD = 72;
 let automationChainDepth = 0;
 
 const PLAYER_COUNTER_DEFS = [
@@ -102,6 +120,7 @@ const PLAYER_COUNTER_DEFS = [
  * @property {boolean} autoRulesEnabled
  * @property {boolean} hasResolvedEtbTriggers
  * @property {boolean} isTapped
+ * @property {boolean} summoningSickness
  * @property {boolean} isAttacking
  * @property {boolean} isBlocking
  * @property {string} notes
@@ -237,6 +256,7 @@ const multiplayerHubDialog = document.querySelector("#multiplayerHubDialog");
 const automationRulesDialog = document.querySelector("#automationRulesDialog");
 const cardDetailDialog = document.querySelector("#cardDetailDialog");
 const genericTokenDialog = document.querySelector("#genericTokenDialog");
+const settingsManualDialog = document.querySelector("#settingsManualDialog");
 
 const renameAction = document.querySelector("#renameAction");
 const nameSettingsForm = document.querySelector("#nameSettingsForm");
@@ -248,6 +268,7 @@ const resetAllAction = document.querySelector("#resetAllAction");
 const openBoardStateAction = document.querySelector("#openBoardStateAction");
 const openCounterTrayAction = document.querySelector("#openCounterTrayAction");
 const openDamageTrayAction = document.querySelector("#openDamageTrayAction");
+const openSettingsManualAction = document.querySelector("#openSettingsManualAction");
 const connectWifiAction = document.querySelector("#connectWifiAction");
 const connectBluetoothAction = document.querySelector("#connectBluetoothAction");
 const connectSimulatedAction = document.querySelector("#connectSimulatedAction");
@@ -262,6 +283,7 @@ const boardOptionsButton = document.querySelector("#boardOptionsButton");
 const boardOptionsMultiplayerButton = document.querySelector("#boardOptionsMultiplayerButton");
 const boardOptionsTotalsButton = document.querySelector("#boardOptionsTotalsButton");
 const boardOptionsAutomationToggleButton = document.querySelector("#boardOptionsAutomationToggleButton");
+const boardOptionsSettingsManualButton = document.querySelector("#boardOptionsSettingsManualButton");
 const boardOptionsExpandButton = document.querySelector("#boardOptionsExpandButton");
 const boardOptionsCollapseButton = document.querySelector("#boardOptionsCollapseButton");
 const boardOptionsClearSelectionButton = document.querySelector("#boardOptionsClearSelectionButton");
@@ -303,6 +325,17 @@ const collapseAllButton = document.querySelector("#collapseAllButton");
 const boardStateControls = document.querySelector("#boardStateControls");
 const boardControlsExtra = document.querySelector("#boardControlsExtra");
 const boardStateEffectsSection = document.querySelector("#boardStateEffectsSection");
+const floatingManaPanel = document.querySelector("#floatingManaPanel");
+const floatingManaTotalValue = document.querySelector("#floatingManaTotalValue");
+const floatingManaGrid = document.querySelector("#floatingManaGrid");
+const floatingManaOutputs = {
+  W: document.querySelector("#floatingManaWValue"),
+  U: document.querySelector("#floatingManaUValue"),
+  B: document.querySelector("#floatingManaBValue"),
+  R: document.querySelector("#floatingManaRValue"),
+  G: document.querySelector("#floatingManaGValue"),
+  C: document.querySelector("#floatingManaCValue"),
+};
 const battlefieldSection = document.querySelector(".board-state-battlefield");
 const effectStrip = document.querySelector("#effectStrip");
 const battlefieldGrid = document.querySelector("#battlefieldGrid");
@@ -349,6 +382,11 @@ const counterTypeForm = document.querySelector("#counterTypeForm");
 const counterTypeRecentList = document.querySelector("#counterTypeRecentList");
 const counterTypeInput = document.querySelector("#counterTypeInput");
 const cancelCounterTypeButton = document.querySelector("#cancelCounterTypeButton");
+const settingsToggleList = document.querySelector("#settingsToggleList");
+const manualSectionsList = document.querySelector("#manualSectionsList");
+const actionHistoryList = document.querySelector("#actionHistoryList");
+const globalUndoAction = document.querySelector("#globalUndoAction");
+const lifeRollbackAction = document.querySelector("#lifeRollbackAction");
 const tokenNameInput = document.querySelector("#tokenNameInput");
 const tokenManaCostInput = document.querySelector("#tokenManaCostInput");
 const tokenPowerInput = document.querySelector("#tokenPowerInput");
@@ -362,6 +400,11 @@ const quickToast = document.querySelector("#quickToast");
 let quickToastHideTimer = 0;
 let quickToastResetTimer = 0;
 let automationDialogTimer = 0;
+let boardGestureState = null;
+let suppressedTileClick = {
+  permanentId: "",
+  expiresAt: 0,
+};
 
 document.querySelectorAll("[data-field][data-delta]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -385,6 +428,7 @@ openBoardStateAction.addEventListener("click", () => {
 });
 openCounterTrayAction.addEventListener("click", () => swapDialog(optionsDialog, counterSheetDialog));
 openDamageTrayAction.addEventListener("click", () => swapDialog(optionsDialog, damageSheetDialog));
+openSettingsManualAction?.addEventListener("click", () => swapDialog(optionsDialog, settingsManualDialog));
 connectWifiAction.addEventListener("click", handleWifiConnectionPreview);
 connectBluetoothAction.addEventListener("click", handleBluetoothConnectionPreview);
 connectSimulatedAction.addEventListener("click", startSimulatedLocalConnection);
@@ -392,6 +436,7 @@ viewConnectedPlayersAction.addEventListener("click", () => swapDialog(optionsDia
 boardOptionsMultiplayerButton.addEventListener("click", () => swapDialog(boardOptionsDialog, multiplayerHubDialog));
 boardOptionsTotalsButton.addEventListener("click", toggleBoardTotalsVisibility);
 boardOptionsAutomationToggleButton.addEventListener("click", toggleAutomationGlobally);
+boardOptionsSettingsManualButton?.addEventListener("click", () => swapDialog(boardOptionsDialog, settingsManualDialog));
 boardOptionsExpandButton.addEventListener("click", () => setAllPermanentsExpanded(true));
 boardOptionsCollapseButton.addEventListener("click", () => setAllPermanentsExpanded(false));
 boardOptionsClearSelectionButton.addEventListener("click", clearPermanentSelection);
@@ -438,7 +483,11 @@ attackAllButton.addEventListener("click", () => beginCombatSimulation("all"));
 confirmCombatButton?.addEventListener("click", confirmCombatSimulation);
 clearAttackersButton.addEventListener("click", clearCombatAttackers);
 clearSelectionButton.addEventListener("click", clearPermanentSelection);
+globalUndoAction?.addEventListener("click", undoLastCompanionAction);
+lifeRollbackAction?.addEventListener("click", rollbackLifeWithinBuffer);
+floatingManaGrid?.addEventListener("click", handleFloatingManaClick);
 counterTypeForm?.addEventListener("submit", handleCounterTypeSubmit);
+counterTypeInput?.addEventListener("input", renderCounterTypeDialog);
 cancelCounterTypeButton?.addEventListener("click", handleCounterTypeCancel);
 counterTypeDialog?.addEventListener("close", handleCounterTypeDialogClose);
 document.addEventListener("click", handleDocumentSearchClick);
@@ -464,9 +513,22 @@ closeGenericTokenDialogButton?.addEventListener("click", () => genericTokenDialo
 cardDetailDialog?.addEventListener("close", clearExpandedCardState);
 
 [effectStrip, battlefieldGrid].forEach((container) => {
+  container.addEventListener("pointerdown", handleBoardGestureStart, { passive: true });
+  container.addEventListener("pointermove", handleBoardGestureMove, { passive: true });
+  container.addEventListener("pointerup", handleBoardGestureEnd);
+  container.addEventListener("pointercancel", handleBoardGestureCancel);
+  container.addEventListener("pointerleave", handleBoardGestureCancel);
   container.addEventListener("click", (event) => {
     const actionButton = event.target.closest("[data-board-action][data-permanent-id]");
     if (!actionButton) {
+      return;
+    }
+
+    if (
+      actionButton.dataset.boardAction === "toggle-select" &&
+      actionButton.dataset.permanentId === suppressedTileClick.permanentId &&
+      Date.now() <= suppressedTileClick.expiresAt
+    ) {
       return;
     }
 
@@ -474,7 +536,7 @@ cardDetailDialog?.addEventListener("close", clearExpandedCardState);
   });
 });
 
-[optionsDialog, nameSettingsDialog, counterSheetDialog, damageSheetDialog, connectedPlayersDialog, connectedPlayerViewDialog, boardOptionsDialog, bulkRemoveDialog, multiplayerHubDialog, automationRulesDialog, cardDetailDialog, genericTokenDialog, battlefieldCounterDialog, counterTypeDialog].forEach((dialog) => {
+[optionsDialog, nameSettingsDialog, counterSheetDialog, damageSheetDialog, connectedPlayersDialog, connectedPlayerViewDialog, boardOptionsDialog, bulkRemoveDialog, multiplayerHubDialog, automationRulesDialog, cardDetailDialog, genericTokenDialog, battlefieldCounterDialog, counterTypeDialog, settingsManualDialog].forEach((dialog) => {
   dialog.addEventListener("click", (event) => {
     if (event.target === dialog) {
       dialog.close();
@@ -522,6 +584,7 @@ function createDefaultState() {
     mana: 0,
     playerCounters: createDefaultPlayerCounters(),
     commanderDamageTrackers: [createCommanderDamageTracker()],
+    companion: createDefaultCompanionState(),
     boardState: createDefaultBoardState(),
     multiplayer: createDefaultMultiplayerState(),
   };
@@ -667,6 +730,7 @@ function createPermanent(source = {}) {
     autoRulesEnabled: Boolean(source.autoRulesEnabled),
     hasResolvedEtbTriggers: Boolean(source.hasResolvedEtbTriggers),
     isTapped: Boolean(source.isTapped),
+    summoningSickness: Boolean(source.summoningSickness),
     isAttacking: Boolean(source.isAttacking),
     isBlocking: Boolean(source.isBlocking),
     notes: typeof source.notes === "string" ? source.notes.trim() : "",
@@ -771,6 +835,7 @@ function normalizeState(source = {}) {
       return accumulator;
     }, {}),
     commanderDamageTrackers: normalizeCommanderDamageTrackers(source.commanderDamageTrackers),
+    companion: normalizeCompanionState(source.companion),
     boardState: normalizeBoardState(source.boardState),
     multiplayer: normalizeMultiplayerState(source.multiplayer),
   };
@@ -1219,10 +1284,12 @@ function persistState() {
 }
 
 function render() {
+  cleanupExpiredLifeRollback();
   syncLocalPublicSnapshot();
   renderTrackerPage();
   renderBoardStatePage();
   renderMultiplayerUi();
+  renderSettingsManualDialog();
 }
 
 function renderTrackerPage() {
@@ -1393,6 +1460,125 @@ function renderBoardStatePage() {
   renderAutomationRules();
   renderCombatSimulation();
   renderCardDetailOverlay();
+  renderFloatingManaPanel();
+}
+
+function renderFloatingManaPanel() {
+  if (!floatingManaPanel || !floatingManaTotalValue) {
+    return;
+  }
+
+  const floatingMana = state.companion?.floatingMana || {};
+  const totalMana = getFloatingManaTotal(floatingMana);
+  floatingManaPanel.hidden = totalMana === 0;
+  floatingManaTotalValue.textContent = String(totalMana);
+  Object.entries(floatingManaOutputs).forEach(([color, output]) => {
+    if (!output) {
+      return;
+    }
+
+    output.textContent = String(Number(floatingMana[color]) || 0);
+  });
+}
+
+function renderSettingsManualDialog() {
+  renderSettingsToggleList();
+  renderManualSections();
+  renderCompanionHistory();
+  renderLifeRollbackControl();
+}
+
+function renderSettingsToggleList() {
+  if (!settingsToggleList) {
+    return;
+  }
+
+  settingsToggleList.innerHTML = SETTINGS_TOGGLE_FIELDS.map(renderSettingsToggleRow).join("");
+  settingsToggleList.querySelectorAll("[data-setting-toggle]").forEach((input) => {
+    input.addEventListener("change", () => {
+      updateCompanionSetting(input.dataset.settingToggle, input.checked);
+    });
+  });
+}
+
+function renderSettingsToggleRow(toggleField) {
+  const checked = Boolean(state.companion?.settings?.[toggleField.id]);
+  return `
+    <label class="toggle-row" for="setting_${toggleField.id}">
+      <span>${escapeHtml(toggleField.label)}</span>
+      <input
+        class="toggle-input"
+        id="setting_${toggleField.id}"
+        data-setting-toggle="${escapeHtml(toggleField.id)}"
+        type="checkbox"
+        ${checked ? "checked" : ""}
+      />
+    </label>
+    <p class="sheet-helper-text">${escapeHtml(toggleField.description)}</p>
+  `;
+}
+
+function renderManualSections() {
+  if (!manualSectionsList) {
+    return;
+  }
+
+  manualSectionsList.innerHTML = MANUAL_SECTIONS.map((section) => {
+    return `
+      <article class="settings-manual-card">
+        <h3>${escapeHtml(section.title)}</h3>
+        <ul>
+          ${(Array.isArray(section.points) ? section.points : [])
+            .map((point) => `<li>${escapeHtml(point)}</li>`)
+            .join("")}
+        </ul>
+      </article>
+    `;
+  }).join("");
+}
+
+function renderCompanionHistory() {
+  if (!actionHistoryList) {
+    return;
+  }
+
+  const reminderEntries = Array.isArray(state.companion?.triggerQueue)
+    ? state.companion.triggerQueue.map((entry) => ({
+        summary: entry.summary,
+        timestamp: entry.timestamp,
+      }))
+    : [];
+  const historyEntries = Array.isArray(state.companion?.history)
+    ? [...state.companion.history.slice(-16), ...reminderEntries].slice(-20).reverse()
+    : reminderEntries.slice(-20).reverse();
+  if (historyEntries.length === 0) {
+    actionHistoryList.innerHTML = '<p class="sheet-empty">No actions logged yet.</p>';
+    return;
+  }
+
+  actionHistoryList.innerHTML = historyEntries
+    .map((entry) => {
+      return `
+        <article class="settings-history-item">
+          <strong>${escapeHtml(entry.summary || "Action")}</strong>
+          <span>${escapeHtml(new Date(Number(entry.timestamp) || Date.now()).toLocaleTimeString())}</span>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderLifeRollbackControl() {
+  if (!lifeRollbackAction) {
+    return;
+  }
+
+  const rollback = state.companion?.lifeRollback;
+  const active = hasActiveLifeRollback(rollback);
+  lifeRollbackAction.hidden = !active;
+  if (active) {
+    lifeRollbackAction.textContent = `Rollback Life (${rollback.previousLife})`;
+  }
 }
 
 function setupBoardStateLayout() {
@@ -2258,6 +2444,10 @@ function renderBoardTile(permanent, variant) {
   const oracleText = permanent.oracleText || "No oracle text available.";
   const tokenLabel = permanent.isToken ? `<span class="board-tile-tag">TOKEN</span>` : "";
   const tappedLabel = permanent.isTapped ? `<span class="board-tile-tag is-tapped">TAPPED</span>` : "";
+  const summoningLabel =
+    permanent.isCreature && permanent.summoningSickness
+      ? `<span class="board-tile-tag is-summoning">SUMMONING</span>`
+      : "";
   const quantityLabel =
     permanent.quantity > 1 ? `<span class="board-tile-quantity">x${permanent.quantity}</span>` : "";
   const compactPt = permanent.isNonCreature ? "" : `${currentPower}/${currentToughness}`;
@@ -2311,6 +2501,7 @@ function renderBoardTile(permanent, variant) {
             ${quantityLabel}
             ${tokenLabel}
             ${tappedLabel}
+            ${summoningLabel}
           </div>
         </div>
       </button>
@@ -2327,6 +2518,7 @@ function renderBoardTile(permanent, variant) {
           <span class="board-tile-detail">Quantity: ${permanent.quantity}</span>
           <span class="board-tile-detail">Token: ${permanent.isToken ? "Yes" : "No"}</span>
           <span class="board-tile-detail">Tapped: ${permanent.isTapped ? "Yes" : "No"}</span>
+          <span class="board-tile-detail">Summoning Sickness: ${permanent.summoningSickness ? "Yes" : "No"}</span>
           <span class="board-tile-detail">+1/+1 Counters: ${permanent.plusOneCounters}</span>
           <span class="board-tile-detail">-1/-1 Counters: ${normalizeCount(permanent.minusOneCounters)}</span>
           <span class="board-tile-detail">All Counters: ${escapeHtml(getPermanentCounterSummary(permanent))}</span>
@@ -2488,11 +2680,211 @@ function renderPublicBoardTile(permanent, variant, allPermanents = [permanent]) 
   `;
 }
 
+function createCompanionUndoSnapshot() {
+  return {
+    life: state.life,
+    tax: state.tax,
+    mana: state.mana,
+    playerCounters: structuredClone(state.playerCounters),
+    commanderDamageTrackers: structuredClone(state.commanderDamageTrackers),
+    boardState: normalizeBoardStateSnapshot(state.boardState),
+    floatingMana: structuredClone(state.companion?.floatingMana || {}),
+  };
+}
+
+function registerCompanionAction({ type, summary, payload = {}, includeUndo = true }) {
+  const historyEntry = createHistoryEntry({
+    type,
+    summary,
+    payload,
+  });
+
+  let nextCompanion = recordHistoryAction(state.companion, historyEntry);
+  if (includeUndo) {
+    nextCompanion = pushUndoSnapshot(nextCompanion, {
+      reason: summary,
+      snapshot: createCompanionUndoSnapshot(),
+    });
+  }
+
+  state = {
+    ...state,
+    companion: nextCompanion,
+  };
+}
+
+function undoLastCompanionAction() {
+  const { companionState, undoEntry } = popUndoSnapshot(state.companion);
+  if (!undoEntry?.snapshot) {
+    showQuickToast("No undo snapshot available.");
+    return;
+  }
+
+  const snapshot = undoEntry.snapshot;
+  const restoredCompanion = recordHistoryAction(
+    {
+      ...companionState,
+      lifeRollback: null,
+    },
+    createHistoryEntry({
+      type: "undo",
+      summary: `Undo: ${undoEntry.reason || "Action"}`,
+      payload: { reason: undoEntry.reason || "" },
+    })
+  );
+
+  state = {
+    ...state,
+    life: normalizeCount(snapshot.life, state.life),
+    tax: normalizeCount(snapshot.tax, state.tax),
+    mana: normalizeCount(snapshot.mana, state.mana),
+    playerCounters: structuredClone(snapshot.playerCounters || state.playerCounters),
+    commanderDamageTrackers: structuredClone(snapshot.commanderDamageTrackers || state.commanderDamageTrackers),
+    boardState: normalizeBoardStateSnapshot(snapshot.boardState || state.boardState),
+    companion: {
+      ...restoredCompanion,
+      floatingMana: structuredClone(snapshot.floatingMana || state.companion?.floatingMana || {}),
+    },
+  };
+
+  persistState();
+  render();
+  showQuickToast("Undid last action.");
+}
+
+function rollbackLifeWithinBuffer() {
+  const rollback = state.companion?.lifeRollback;
+  if (!hasActiveLifeRollback(rollback)) {
+    showQuickToast("Life rollback window expired.");
+    return;
+  }
+
+  const previousLife = normalizeCount(rollback.previousLife, state.life);
+  registerCompanionAction({
+    type: "life-rollback",
+    summary: `Rolled life back to ${previousLife}`,
+    payload: {
+      from: state.life,
+      to: previousLife,
+    },
+  });
+
+  state = {
+    ...state,
+    life: previousLife,
+    companion: {
+      ...state.companion,
+      lifeRollback: null,
+    },
+  };
+
+  persistState();
+  render();
+  showQuickToast("Life rolled back.");
+}
+
+function cleanupExpiredLifeRollback() {
+  const rollback = state.companion?.lifeRollback;
+  if (!rollback) {
+    return;
+  }
+
+  if (hasActiveLifeRollback(rollback)) {
+    return;
+  }
+
+  state = {
+    ...state,
+    companion: {
+      ...state.companion,
+      lifeRollback: null,
+    },
+  };
+}
+
+function updateCompanionSetting(settingKey, enabled) {
+  if (!settingKey) {
+    return;
+  }
+
+  state = {
+    ...state,
+    companion: {
+      ...state.companion,
+      settings: {
+        ...state.companion.settings,
+        [settingKey]: Boolean(enabled),
+      },
+    },
+  };
+  registerCompanionAction({
+    type: "setting",
+    summary: `${settingKey} ${enabled ? "enabled" : "disabled"}`,
+    payload: { settingKey, enabled: Boolean(enabled) },
+    includeUndo: false,
+  });
+  persistState();
+  render();
+}
+
+function handleFloatingManaClick(event) {
+  const button = event.target.closest("[data-floating-mana-color][data-delta]");
+  if (!button) {
+    return;
+  }
+
+  const color = String(button.dataset.floatingManaColor || "").toUpperCase();
+  const delta = Number(button.dataset.delta);
+  if (!Number.isFinite(delta)) {
+    return;
+  }
+
+  const previousValue = Number(state.companion?.floatingMana?.[color]) || 0;
+  const nextFloatingMana = applyFloatingManaDelta(state.companion?.floatingMana, color, delta);
+  const nextValue = Number(nextFloatingMana[color]) || 0;
+  if (previousValue === nextValue) {
+    return;
+  }
+
+  registerCompanionAction({
+    type: "mana",
+    summary: `Floating mana ${color} ${delta > 0 ? "+" : ""}${delta}`,
+    payload: { color, from: previousValue, to: nextValue },
+  });
+
+  state = {
+    ...state,
+    companion: {
+      ...state.companion,
+      floatingMana: nextFloatingMana,
+    },
+  };
+
+  persistState();
+  render();
+}
+
 function updateScalarField(field, delta) {
   const nextValue = normalizeCount(state[field] + delta);
+  const previousValue = state[field];
+  registerCompanionAction({
+    type: field === "life" ? "life" : "scalar",
+    summary: `${field} ${delta > 0 ? "+" : ""}${delta}`,
+    payload: { field, from: previousValue, to: nextValue },
+  });
   state = {
     ...state,
     [field]: nextValue,
+    companion:
+      field === "life"
+        ? {
+            ...state.companion,
+            lifeRollback: createLifeRollbackBuffer({
+              previousLife: previousValue,
+              nextLife: nextValue,
+            }),
+          }
+        : state.companion,
   };
   persistState();
   render();
@@ -2756,6 +3148,117 @@ function handleDocumentSearchClick(event) {
   renderBoardSearch();
 }
 
+function handleBoardGestureStart(event) {
+  const tileButton = event.target.closest("[data-board-action='toggle-select'][data-permanent-id]");
+  if (!tileButton || !(tileButton instanceof HTMLElement)) {
+    return;
+  }
+
+  const permanentId = tileButton.dataset.permanentId || "";
+  if (!permanentId) {
+    return;
+  }
+
+  const pointerType = event.pointerType || "mouse";
+  if (pointerType === "mouse" && event.button !== 0) {
+    return;
+  }
+
+  clearBoardGestureTimer();
+  const startX = Number(event.clientX) || 0;
+  const startY = Number(event.clientY) || 0;
+  boardGestureState = {
+    permanentId,
+    pointerId: event.pointerId,
+    startX,
+    startY,
+    lastX: startX,
+    lastY: startY,
+    longPressTriggered: false,
+    hasMoved: false,
+    timer: window.setTimeout(() => {
+      if (!boardGestureState || boardGestureState.permanentId !== permanentId) {
+        return;
+      }
+
+      boardGestureState.longPressTriggered = true;
+      suppressTileClickFor(permanentId, 500);
+      openCardDetailOverlay(permanentId);
+    }, BOARD_LONG_PRESS_MS),
+  };
+}
+
+function handleBoardGestureMove(event) {
+  if (!boardGestureState || event.pointerId !== boardGestureState.pointerId) {
+    return;
+  }
+
+  const nextX = Number(event.clientX) || 0;
+  const nextY = Number(event.clientY) || 0;
+  boardGestureState.lastX = nextX;
+  boardGestureState.lastY = nextY;
+  const deltaX = Math.abs(nextX - boardGestureState.startX);
+  const deltaY = Math.abs(nextY - boardGestureState.startY);
+  if (deltaX > 8 || deltaY > 8) {
+    boardGestureState.hasMoved = true;
+    clearBoardGestureTimer();
+  }
+}
+
+function handleBoardGestureEnd(event) {
+  if (!boardGestureState || event.pointerId !== boardGestureState.pointerId) {
+    return;
+  }
+
+  const { permanentId, startX, startY, longPressTriggered } = boardGestureState;
+  const endX = Number(event.clientX) || boardGestureState.lastX;
+  const endY = Number(event.clientY) || boardGestureState.lastY;
+  clearBoardGestureTimer();
+
+  const deltaX = endX - startX;
+  const deltaY = endY - startY;
+  const isHorizontalSwipe =
+    Math.abs(deltaX) >= BOARD_SWIPE_REMOVE_THRESHOLD && Math.abs(deltaX) > Math.abs(deltaY) * 1.15;
+
+  if (longPressTriggered) {
+    suppressTileClickFor(permanentId, 450);
+  } else if (isHorizontalSwipe) {
+    suppressTileClickFor(permanentId, 550);
+    applyPermanentRemoval(permanentId, "destroy");
+  }
+
+  boardGestureState = null;
+}
+
+function handleBoardGestureCancel(event) {
+  if (!boardGestureState) {
+    return;
+  }
+
+  if (event && Number.isFinite(event.pointerId) && event.pointerId !== boardGestureState.pointerId) {
+    return;
+  }
+
+  clearBoardGestureTimer();
+  boardGestureState = null;
+}
+
+function clearBoardGestureTimer() {
+  if (!boardGestureState || !boardGestureState.timer) {
+    return;
+  }
+
+  window.clearTimeout(boardGestureState.timer);
+  boardGestureState.timer = 0;
+}
+
+function suppressTileClickFor(permanentId, durationMs) {
+  suppressedTileClick = {
+    permanentId: String(permanentId || ""),
+    expiresAt: Date.now() + Math.max(0, Number(durationMs) || 0),
+  };
+}
+
 function isBoardSearchActive() {
   return Boolean(
     boardUi.searchQuery ||
@@ -2953,7 +3456,20 @@ function renderCounterTypeDialog() {
   }
 
   const recentTypes = normalizeRecentCounterTypes(state.boardState.recentCounterTypes);
-  counterTypeRecentList.innerHTML = recentTypes
+  const recentSearches = Array.isArray(state.companion?.recentCounterSearches)
+    ? state.companion.recentCounterSearches
+    : [];
+  const pendingCounterType = boardUi.pendingCounterSelection?.counterType || recentTypes[0] || "+1/+1";
+  const shouldHydrateInput = !counterTypeDialog?.open || document.activeElement !== counterTypeInput;
+  if (shouldHydrateInput || !counterTypeInput.value.trim()) {
+    counterTypeInput.value = pendingCounterType;
+  }
+
+  const suggestions = searchCounterTypes(counterTypeInput.value || pendingCounterType, [
+    ...recentTypes,
+    ...recentSearches,
+  ]).slice(0, 8);
+  counterTypeRecentList.innerHTML = suggestions
     .map((counterType) => {
       return `
         <button class="sheet-action" type="button" data-counter-type-option="${escapeHtml(counterType)}">
@@ -2962,9 +3478,6 @@ function renderCounterTypeDialog() {
       `;
     })
     .join("");
-
-  const pendingCounterType = boardUi.pendingCounterSelection?.counterType || recentTypes[0] || "+1/+1";
-  counterTypeInput.value = pendingCounterType;
 
   counterTypeRecentList
     .querySelectorAll("[data-counter-type-option]")
@@ -3012,6 +3525,16 @@ function handleCounterTypeSubmit(event) {
   }
 
   const nextRecentCounterTypes = getNextRecentCounterTypes(state.boardState.recentCounterTypes, counterType);
+  registerCompanionAction({
+    type: "counter",
+    summary: `Applied ${counterType} counter${outcome.appliedAmount === 1 ? "" : "s"} to ${outcome.appliedCount} permanent${outcome.appliedCount === 1 ? "" : "s"}`,
+    payload: {
+      counterType,
+      targets: outcome.appliedCount,
+      amount: outcome.appliedAmount,
+      targetMode: pendingSelection.targetMode,
+    },
+  });
   state = {
     ...state,
     boardState: {
@@ -3023,6 +3546,10 @@ function handleCounterTypeSubmit(event) {
           isSelected: false,
         })
       ),
+    },
+    companion: {
+      ...state.companion,
+      recentCounterSearches: updateRecentCounterSearches(state.companion?.recentCounterSearches, counterType),
     },
   };
 
@@ -3155,15 +3682,26 @@ function updatePlayerCounter(counterId, delta) {
   if (!counterState) {
     return;
   }
+  const previousValue = counterState.value;
+  const nextValue = normalizeCount(counterState.value + delta);
 
+  registerCompanionAction({
+    type: "counter",
+    summary: `${counterId} ${delta > 0 ? "+" : ""}${delta}`,
+    payload: { counterId, from: previousValue, to: nextValue },
+  });
   state = {
     ...state,
     playerCounters: {
       ...state.playerCounters,
       [counterId]: {
         ...counterState,
-        value: normalizeCount(counterState.value + delta),
+        value: nextValue,
       },
+    },
+    companion: {
+      ...state.companion,
+      recentCounterSearches: updateRecentCounterSearches(state.companion?.recentCounterSearches, counterId),
     },
   };
 
@@ -3221,6 +3759,13 @@ function updateCommanderDamageValue(index, delta) {
   if (!tracker) {
     return;
   }
+  const previousValue = tracker.value;
+  const nextValue = normalizeCount(tracker.value + delta);
+  registerCompanionAction({
+    type: "damage",
+    summary: `${tracker.label} damage ${delta > 0 ? "+" : ""}${delta}`,
+    payload: { label: tracker.label, from: previousValue, to: nextValue },
+  });
 
   state = {
     ...state,
@@ -3231,7 +3776,7 @@ function updateCommanderDamageValue(index, delta) {
 
       return {
         ...entry,
-        value: normalizeCount(entry.value + delta),
+        value: nextValue,
       };
     }),
   };
@@ -3317,9 +3862,18 @@ function handleNameSettingsSubmit(event) {
 }
 
 function resetLife() {
+  registerCompanionAction({
+    type: "life",
+    summary: "Life reset to 40",
+    payload: { from: state.life, to: defaultState.life },
+  });
   state = {
     ...state,
     life: defaultState.life,
+    companion: {
+      ...state.companion,
+      lifeRollback: null,
+    },
   };
 
   persistState();
@@ -3328,6 +3882,11 @@ function resetLife() {
 }
 
 function resetAll() {
+  registerCompanionAction({
+    type: "reset",
+    summary: "Tracker values reset",
+    payload: {},
+  });
   state = {
     ...state,
     life: defaultState.life,
@@ -3344,6 +3903,18 @@ function resetAll() {
       ...tracker,
       value: 0,
     })),
+    companion: {
+      ...state.companion,
+      floatingMana: {
+        W: 0,
+        U: 0,
+        B: 0,
+        R: 0,
+        G: 0,
+        C: 0,
+      },
+      lifeRollback: null,
+    },
   };
 
   persistState();
@@ -3352,6 +3923,11 @@ function resetAll() {
 }
 
 function resetBoardState() {
+  registerCompanionAction({
+    type: "reset",
+    summary: "Board state reset",
+    payload: {},
+  });
   state = {
     ...state,
     boardState: createDefaultBoardState(),
@@ -3531,6 +4107,7 @@ function closeAllDialogs() {
     genericTokenDialog,
     battlefieldCounterDialog,
     counterTypeDialog,
+    settingsManualDialog,
   ].forEach((dialog) => {
     if (dialog.open) {
       dialog.close();
@@ -3687,9 +4264,32 @@ function advanceBoardPhase() {
     advanceSagas: nextPhase === "Main",
   }).boardState;
 
+  const nextFloatingMana = clearFloatingManaForPhase(state.companion?.floatingMana, nextPhase, {
+    manaAutoClearEnabled: state.companion?.settings?.manaAutoClearEnabled !== false,
+  });
+  const triggerQueue =
+    state.companion?.settings?.triggerRemindersEnabled === false
+      ? state.companion?.triggerQueue || []
+      : queueTriggerReminders({
+          phase: nextPhase,
+          permanents: nextBoardState.permanents,
+          automationRules: nextBoardState.automationRules,
+        }).slice(0, 20);
+
+  registerCompanionAction({
+    type: "phase",
+    summary: `Advanced phase to ${nextPhase}`,
+    payload: { from: currentPhase, to: nextPhase },
+  });
+
   state = {
     ...state,
     boardState: nextBoardState,
+    companion: {
+      ...state.companion,
+      floatingMana: nextFloatingMana,
+      triggerQueue,
+    },
   };
 
   persistState();
@@ -3752,12 +4352,22 @@ function promptAndAddPermanent({ isToken, isNonCreature }) {
     addsCounters: false,
     isExpanded: false,
     isSelected: false,
+    summoningSickness: !isNonCreature,
   });
 
   state = {
     ...state,
     boardState: addOrStackPermanent(state.boardState, permanent),
   };
+  registerCompanionAction({
+    type: isToken ? "token" : "permanent",
+    summary: `Added ${permanent.name} to battlefield`,
+    payload: {
+      name: permanent.name,
+      isToken: Boolean(isToken),
+      isNonCreature: Boolean(isNonCreature),
+    },
+  });
 
   persistState();
   render();
@@ -3818,6 +4428,14 @@ function promptAndAddEffect() {
     ...state,
     boardState: addOrStackPermanent(state.boardState, effect),
   };
+  registerCompanionAction({
+    type: "permanent",
+    summary: `Added non-creature permanent ${effect.name}`,
+    payload: {
+      name: effect.name,
+      typeLine: effect.typeLine,
+    },
+  });
 
   persistState();
   render();
@@ -4142,6 +4760,7 @@ function mapScryfallCardToPermanent(card, rulings = []) {
     staticBuffExcludesSelf: effectMetadata.staticBuffExcludesSelf,
     isExpanded: false,
     isSelected: false,
+    summoningSickness: preview.isCreature,
   });
 }
 
@@ -4240,6 +4859,7 @@ function importScryfallToken(card, rulings = []) {
     staticBuffExcludesSelf: effectMetadata.staticBuffExcludesSelf,
     isExpanded: false,
     isSelected: false,
+    summoningSickness: preview.isCreature,
   });
 }
 
@@ -4998,6 +5618,16 @@ function handleGenericTokenSubmit(event) {
     ...state,
     boardState: addOrStackPermanent(state.boardState, token),
   };
+  registerCompanionAction({
+    type: "token",
+    summary: `Created ${token.quantity} ${token.name} token${token.quantity === 1 ? "" : "s"}`,
+    payload: {
+      name: token.name,
+      quantity: token.quantity,
+      power: token.power,
+      toughness: token.toughness,
+    },
+  });
   boardUi = {
     ...boardUi,
     searchMessage: `Created ${token.quantity} ${token.name} token${token.quantity === 1 ? "" : "s"} on the battlefield.`,
@@ -5020,6 +5650,7 @@ function createGenericToken(source = {}) {
   const notes = typeof source.notes === "string" ? source.notes.trim() : "";
   const tokenQuantity = applyTokenModifiers(normalizeCount(source.quantity, 1), state.boardState.permanents);
 
+  const isCreatureToken = /\bcreature\b/i.test(typeText);
   return createPermanent({
     name: normalizedName,
     manaCost,
@@ -5031,16 +5662,17 @@ function createGenericToken(source = {}) {
     toughness: source.toughness,
     quantity: tokenQuantity,
     isToken: true,
-    isNonCreature: false,
+    isNonCreature: !isCreatureToken,
     isLegendary: false,
     isArtifact: /artifact/i.test(typeText),
-    isCreature: true,
+    isCreature: isCreatureToken,
     plusOneCounters: 0,
     doublesTokens: false,
     createsTokens: false,
     addsCounters: false,
     isExpanded: false,
     isSelected: false,
+    summoningSickness: isCreatureToken,
     notes,
   });
 }
@@ -5815,7 +6447,16 @@ function applyTokenModifiers(quantity, permanents) {
 }
 
 function addOrStackPermanentDetailed(boardState, permanent) {
-  const nextPermanent = createPermanent(permanent);
+  const shouldDefaultSummoningSickness =
+    permanent?.summoningSickness === undefined &&
+    (permanent?.isCreature === true || (permanent?.isCreature !== false && !permanent?.isNonCreature));
+  const nextPermanent = createPermanent({
+    ...permanent,
+    summoningSickness:
+      permanent?.summoningSickness === undefined
+        ? shouldDefaultSummoningSickness
+        : Boolean(permanent?.summoningSickness),
+  });
 
   if (nextPermanent.isNonCreature) {
     return {
@@ -5847,6 +6488,7 @@ function addOrStackPermanentDetailed(boardState, permanent) {
   }
 
   const existingPermanent = boardState.permanents[existingIndex];
+  const nextSummoningState = Boolean(existingPermanent.summoningSickness || nextPermanent.summoningSickness);
   return {
     boardState: {
       ...boardState,
@@ -5858,6 +6500,7 @@ function addOrStackPermanentDetailed(boardState, permanent) {
         return createPermanent({
           ...entry,
           quantity: entry.quantity + nextPermanent.quantity,
+          summoningSickness: nextSummoningState,
         });
       }),
     },
@@ -5942,6 +6585,15 @@ function applyPermanentRemoval(permanentId, removalType) {
   if (!removalOutcome.changed) {
     return;
   }
+  registerCompanionAction({
+    type: "remove",
+    summary: `${removalType}: ${removalOutcome.removedPermanent?.name || "Permanent"}`,
+    payload: {
+      permanentId,
+      removalType,
+      name: removalOutcome.removedPermanent?.name || "",
+    },
+  });
 
   boardUi = {
     ...boardUi,
@@ -6334,6 +6986,12 @@ function beginCombatSimulation(mode) {
       : getAllCreatureIds(state.boardState.permanents);
 
   if (attackerIds.length === 0) {
+    registerCompanionAction({
+      type: "combat",
+      summary: `Combat prep (${mode}) found no legal attackers`,
+      payload: { mode },
+      includeUndo: false,
+    });
     state = {
       ...state,
       boardState: {
@@ -6351,6 +7009,16 @@ function beginCombatSimulation(mode) {
     return;
   }
 
+  const attackerPreview = calculateCombatPreview({
+    attackers: state.boardState.permanents.filter((permanent) => attackerIds.includes(permanent.id)),
+    blockers: [],
+  });
+  registerCompanionAction({
+    type: "combat",
+    summary: `Combat prep (${mode}) ${attackerPreview.attackerTotal.power}/${attackerPreview.attackerTotal.toughness}`,
+    payload: { mode, attackerIds, preview: attackerPreview },
+  });
+
   state = {
     ...state,
     boardState: {
@@ -6363,6 +7031,7 @@ function beginCombatSimulation(mode) {
       },
     },
   };
+
   persistState();
   render();
 }
@@ -6374,6 +7043,12 @@ function confirmCombatSimulation() {
   });
 
   if (preparedAttackerIds.length === 0) {
+    registerCompanionAction({
+      type: "combat",
+      summary: "Combat confirm failed (no legal attackers)",
+      payload: {},
+      includeUndo: false,
+    });
     state = {
       ...state,
       boardState: {
@@ -6408,6 +7083,16 @@ function confirmCombatSimulation() {
   }
 
   const automationSummary = automationResult.messages.join(" ");
+  registerCompanionAction({
+    type: "combat",
+    summary: `Combat confirmed with ${preparedAttackerIds.length} attacker${preparedAttackerIds.length === 1 ? "" : "s"}`,
+    payload: {
+      attackers: preparedAttackerIds,
+      tapped: tapResult.tappedCount,
+      vigilant: tapResult.exemptCount,
+      automationSummary,
+    },
+  });
 
   state = {
     ...state,
@@ -6429,6 +7114,11 @@ function confirmCombatSimulation() {
 }
 
 function clearCombatAttackers() {
+  registerCompanionAction({
+    type: "combat",
+    summary: "Cleared combat attackers",
+    payload: {},
+  });
   const clearedBoardState = clearCombatEngagementFlags(state.boardState);
   state = {
     ...state,
@@ -6442,6 +7132,14 @@ function clearCombatAttackers() {
 }
 
 function setPermanentTappedState(permanentId, isTapped) {
+  const permanent = state.boardState.permanents.find((entry) => entry.id === permanentId);
+  if (permanent && permanent.isTapped !== isTapped) {
+    registerCompanionAction({
+      type: "tap",
+      summary: `${isTapped ? "Tapped" : "Untapped"} ${permanent.name}`,
+      payload: { permanentId, isTapped },
+    });
+  }
   boardUi = {
     ...boardUi,
     activeMenuPermanentId: "",
@@ -6514,7 +7212,15 @@ function getSelectedPermanentIds(permanents) {
 }
 
 function canPermanentAttack(permanent) {
-  return Boolean(permanent && permanent.isCreature && !permanent.isTapped);
+  if (!permanent || !permanent.isCreature || permanent.isTapped) {
+    return false;
+  }
+
+  if (!permanent.summoningSickness) {
+    return true;
+  }
+
+  return hasSummoningSicknessExemption(permanent);
 }
 
 function getSelectedCreatureIds(permanents) {
@@ -6540,6 +7246,11 @@ function getPermanentReferenceText(permanent) {
 function hasAttackTapExemption(permanent) {
   const referenceText = getPermanentReferenceText(permanent);
   return referenceText.includes("vigilance") || (referenceText.includes("doesn't tap") && referenceText.includes("attack"));
+}
+
+function hasSummoningSicknessExemption(permanent) {
+  const referenceText = getPermanentReferenceText(permanent);
+  return referenceText.includes("haste") || referenceText.includes("can attack as though it had haste");
 }
 
 function tapAttackersForCombat(boardState, attackerIds) {
@@ -6597,10 +7308,11 @@ function untapAllPermanents(boardState) {
   return {
     ...boardState,
     permanents: boardState.permanents.map((permanent) =>
-      permanent.isTapped
+      permanent.isTapped || permanent.summoningSickness
         ? createPermanent({
             ...permanent,
             isTapped: false,
+            summoningSickness: false,
           })
         : createPermanent(permanent)
     ),

@@ -171,6 +171,62 @@
                   <button class="nav-text-button board-state-header-button" id="nextPhaseButton" type="button">Next Phase</button>
                 </div>
               </header>
+              <section class="floating-mana-panel board-state-card" id="floatingManaPanel" hidden>
+                <div class="floating-mana-header">
+                  <span class="floating-mana-title">Floating Mana</span>
+                  <output class="floating-mana-total" id="floatingManaTotalValue">0</output>
+                </div>
+                <div class="floating-mana-grid" id="floatingManaGrid">
+                  <article class="floating-mana-chip" data-mana-color="W">
+                    <span class="floating-mana-label">W</span>
+                    <div class="floating-mana-stepper">
+                      <button class="step-button" type="button" data-floating-mana-color="W" data-delta="-1">-</button>
+                      <output id="floatingManaWValue">0</output>
+                      <button class="step-button" type="button" data-floating-mana-color="W" data-delta="1">+</button>
+                    </div>
+                  </article>
+                  <article class="floating-mana-chip" data-mana-color="U">
+                    <span class="floating-mana-label">U</span>
+                    <div class="floating-mana-stepper">
+                      <button class="step-button" type="button" data-floating-mana-color="U" data-delta="-1">-</button>
+                      <output id="floatingManaUValue">0</output>
+                      <button class="step-button" type="button" data-floating-mana-color="U" data-delta="1">+</button>
+                    </div>
+                  </article>
+                  <article class="floating-mana-chip" data-mana-color="B">
+                    <span class="floating-mana-label">B</span>
+                    <div class="floating-mana-stepper">
+                      <button class="step-button" type="button" data-floating-mana-color="B" data-delta="-1">-</button>
+                      <output id="floatingManaBValue">0</output>
+                      <button class="step-button" type="button" data-floating-mana-color="B" data-delta="1">+</button>
+                    </div>
+                  </article>
+                  <article class="floating-mana-chip" data-mana-color="R">
+                    <span class="floating-mana-label">R</span>
+                    <div class="floating-mana-stepper">
+                      <button class="step-button" type="button" data-floating-mana-color="R" data-delta="-1">-</button>
+                      <output id="floatingManaRValue">0</output>
+                      <button class="step-button" type="button" data-floating-mana-color="R" data-delta="1">+</button>
+                    </div>
+                  </article>
+                  <article class="floating-mana-chip" data-mana-color="G">
+                    <span class="floating-mana-label">G</span>
+                    <div class="floating-mana-stepper">
+                      <button class="step-button" type="button" data-floating-mana-color="G" data-delta="-1">-</button>
+                      <output id="floatingManaGValue">0</output>
+                      <button class="step-button" type="button" data-floating-mana-color="G" data-delta="1">+</button>
+                    </div>
+                  </article>
+                  <article class="floating-mana-chip" data-mana-color="C">
+                    <span class="floating-mana-label">C</span>
+                    <div class="floating-mana-stepper">
+                      <button class="step-button" type="button" data-floating-mana-color="C" data-delta="-1">-</button>
+                      <output id="floatingManaCValue">0</output>
+                      <button class="step-button" type="button" data-floating-mana-color="C" data-delta="1">+</button>
+                    </div>
+                  </article>
+                </div>
+              </section>
 
               <section class="board-state-search board-state-card" aria-label="Card search">
                 <form class="board-search-form" id="boardSearchForm">
@@ -374,6 +430,7 @@
           <button class="sheet-action" id="openBoardStateAction" type="button">Open Board State</button>
           <button class="sheet-action" id="openCounterTrayAction" type="button">Open Counter Tray</button>
           <button class="sheet-action" id="openDamageTrayAction" type="button">Open Damage Tray</button>
+          <button class="sheet-action" id="openSettingsManualAction" type="button">Settings + Manual</button>
           <button class="sheet-action" id="renameAction" type="button">Edit Player Names</button>
           <button class="sheet-action" id="resetLifeAction" type="button">Reset Life to 40</button>
           <button class="sheet-action" id="resetAllAction" type="button">Reset All Counters</button>
@@ -478,6 +535,7 @@
           <button class="sheet-action" id="boardOptionsMultiplayerButton" type="button">Local Multiplayer / Connected Players</button>
           <button class="sheet-action" id="boardOptionsTotalsButton" type="button">Toggle Total Bar Overlay</button>
           <button class="sheet-action" id="boardOptionsAutomationToggleButton" type="button">Automation Enabled</button>
+          <button class="sheet-action" id="boardOptionsSettingsManualButton" type="button">Settings + Manual</button>
           <button class="sheet-action" id="boardOptionsExpandButton" type="button">Expand All</button>
           <button class="sheet-action" id="boardOptionsCollapseButton" type="button">Collapse All</button>
           <button class="sheet-action" id="boardOptionsClearSelectionButton" type="button">Clear Selection</button>
@@ -681,6 +739,38 @@
         <div class="sheet-footer">
           <button class="sheet-secondary" id="closeGenericTokenDialogButton" type="button">Close</button>
           <button class="sheet-action" type="submit">Create Token</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="options-dialog" id="settingsManualDialog">
+      <form method="dialog" class="options-sheet tracker-sheet settings-manual-sheet">
+        <div class="options-header">
+          <p class="options-kicker">Companion</p>
+          <h1>Settings + Manual</h1>
+        </div>
+        <section class="settings-manual-section">
+          <div class="options-group-copy">
+            <h2>Gameplay Settings</h2>
+          </div>
+          <div class="toggle-list" id="settingsToggleList"></div>
+        </section>
+        <section class="settings-manual-section">
+          <div class="options-group-copy">
+            <h2>Quick Manual</h2>
+          </div>
+          <div class="settings-manual-list" id="manualSectionsList"></div>
+        </section>
+        <section class="settings-manual-section">
+          <div class="options-group-copy">
+            <h2>Action History</h2>
+          </div>
+          <div class="settings-history-list" id="actionHistoryList"></div>
+        </section>
+        <div class="sheet-footer">
+          <button class="sheet-secondary" id="globalUndoAction" type="button">Undo Last</button>
+          <button class="sheet-secondary" id="lifeRollbackAction" type="button" hidden>Rollback Life</button>
+          <button class="sheet-close" type="submit">Close</button>
         </div>
       </form>
     </dialog>

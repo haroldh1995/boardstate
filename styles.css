@@ -1878,6 +1878,141 @@ button {
   padding: 2px 8px;
 }
 
+.floating-mana-panel {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+.floating-mana-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.floating-mana-title {
+  font-family: "Teko", sans-serif;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.floating-mana-total {
+  font-family: "Teko", sans-serif;
+  font-size: 0.96rem;
+  line-height: 1;
+}
+
+.floating-mana-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.floating-mana-chip {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 4px 5px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.floating-mana-label {
+  font-family: "Teko", sans-serif;
+  font-size: 0.76rem;
+  line-height: 1;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.floating-mana-stepper {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 18px;
+  gap: 4px;
+  align-items: center;
+}
+
+.floating-mana-stepper output {
+  text-align: center;
+  font-family: "Teko", sans-serif;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.settings-manual-sheet {
+  max-height: min(90svh, 760px);
+  overflow: auto;
+}
+
+.settings-manual-section {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.settings-manual-list {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-manual-card {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 7px 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.settings-manual-card h3 {
+  margin: 0;
+  font-family: "Teko", sans-serif;
+  font-size: 0.94rem;
+  line-height: 1;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.settings-manual-card ul {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 2px;
+}
+
+.settings-manual-card li {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.settings-history-list {
+  display: grid;
+  gap: 5px;
+  max-height: 160px;
+  overflow: auto;
+}
+
+.settings-history-item {
+  display: grid;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 7px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.settings-history-item strong {
+  font-size: 0.82rem;
+}
+
+.settings-history-item span {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
 .board-state-battlefield .battlefield-grid {
   margin-top: 0;
   padding-bottom: 4px;
@@ -2423,6 +2558,12 @@ button {
   border-color: rgba(243, 200, 128, 0.34);
   background: rgba(255, 220, 158, 0.08);
   color: rgba(255, 234, 196, 0.92);
+}
+
+.board-tile-tag.is-summoning {
+  border-color: rgba(126, 163, 255, 0.36);
+  background: rgba(115, 173, 255, 0.1);
+  color: rgba(208, 229, 255, 0.96);
 }
 
 .board-tile-body {
