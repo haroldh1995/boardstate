@@ -289,6 +289,7 @@ const leaderboardBoard = document.querySelector("#leaderboardBoard");
 const statsSummaryGrid = document.querySelector("#statsSummaryGrid");
 const commanderInsightsList = document.querySelector("#commanderInsightsList");
 const archiveSearchInput = document.querySelector("#archiveSearchInput");
+const commanderDeckList = document.querySelector("#commanderDeckList");
 const archiveList = document.querySelector("#archiveList");
 const leaderboardGrid = document.querySelector("#leaderboardGrid");
 
@@ -2017,17 +2018,18 @@ function renderArchivePage() {
     archiveSearchInput.value = archiveSearchQuery;
   }
 
+  renderCommanderDeckArchiveSection();
+
   const games = getFilteredArchiveGames();
-  const commanderDeckMarkup = renderCommanderDeckArchiveSummary();
   if (games.length === 0) {
     const emptyMessage = archiveSearchQuery
       ? "No archived games match that search."
       : "No archived games yet. End a game with Reset to save it here.";
-    archiveList.innerHTML = `${commanderDeckMarkup}<p class="sheet-empty">${escapeHtml(emptyMessage)}</p>`;
+    archiveList.innerHTML = `<p class="sheet-empty">${escapeHtml(emptyMessage)}</p>`;
     return;
   }
 
-  archiveList.innerHTML = commanderDeckMarkup + games
+  archiveList.innerHTML = games
     .map((game) => {
       const totals = game.totals || {};
       const endedAt = new Date(normalizeTimestamp(game.endedAt));
@@ -2065,30 +2067,58 @@ function renderArchivePage() {
     .join("");
 }
 
-function renderCommanderDeckArchiveSummary() {
-  const deck = getActiveCommanderDeckArchive();
-  if (!deck || deck.cards.length === 0) {
-    return "";
+function renderCommanderDeckArchiveSection() {
+  if (!commanderDeckList) {
+    return;
   }
-  const validation = validateCommanderDeckArchive(deck);
+
+  const decks = Object.values(state.archive?.commanderDecks || {}).filter((deck) => deck && deck.commanderName);
+  if (decks.length === 0) {
+    commanderDeckList.innerHTML = `
+      <p class="sheet-empty">No commander decks yet. Search Scryfall, set a commander, then use Add Deck on cards you want saved to that commander.</p>
+    `;
+    return;
+  }
+
+  commanderDeckList.innerHTML = decks
+    .sort((left, right) => normalizeLabel(left.commanderName, "").localeCompare(normalizeLabel(right.commanderName, "")))
+    .map(renderCommanderDeckArchiveCard)
+    .join("");
+}
+
+function renderCommanderDeckArchiveCard(deck) {
+  const normalizedDeck = {
+    commanderName: normalizeLabel(deck.commanderName, "Commander"),
+    cards: Array.isArray(deck.cards) ? deck.cards : [],
+    usedCards: deck.usedCards || {},
+    games: Array.isArray(deck.games) ? deck.games : [],
+  };
+  const validation = validateCommanderDeckArchive(normalizedDeck);
+  const usedCount = Object.values(normalizedDeck.usedCards || {}).reduce(
+    (total, entry) => total + normalizeCount(entry?.count, 0),
+    0
+  );
 
   return `
     <article class="utility-log-item">
       <div class="utility-log-item-header">
-        <strong>${escapeHtml(deck.commanderName)} Deck Archive</strong>
-        <span>${deck.cards.length} unique • ${validation.invalidCards.length} flagged</span>
+        <strong>${escapeHtml(normalizedDeck.commanderName)}</strong>
+        <span>${normalizedDeck.cards.length} deck • ${usedCount} used • ${validation.invalidCards.length} flagged</span>
       </div>
       <p class="utility-log-item-summary">Curated cards explicitly added from Scryfall. Tokens, basic lands, temporary copies, and stolen permanents are excluded.</p>
       <div class="utility-log-item-meta">
         <span>Types: ${escapeHtml(validation.typeBreakdownText)}</span>
         <span>Mana curve: ${escapeHtml(validation.manaCurveText)}</span>
         <span>Keywords: ${escapeHtml(validation.keywordText)}</span>
+        <span>Games: ${normalizedDeck.games.length}</span>
       </div>
       <div class="utility-log-item-actions">
-        ${deck.cards
+        ${normalizedDeck.cards.length > 0
+          ? normalizedDeck.cards
           .slice(0, 12)
           .map((card) => `<span>${escapeHtml(card.name)}</span>`)
-          .join("")}
+          .join("")
+          : "<span>No deck cards added yet.</span>"}
       </div>
     </article>
   `;

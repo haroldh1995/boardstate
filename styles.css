@@ -2151,6 +2151,7 @@ button {
 }
 
 #archiveList,
+#commanderDeckList,
 #commanderInsightsList {
   display: grid;
   gap: 8px;
