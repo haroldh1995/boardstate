@@ -20,7 +20,7 @@
   <body>
     <main class="app-shell">
       <div class="page-frame" id="pageFrame">
-        <button class="page-arrow page-arrow-left" id="trackerPageButton" type="button" aria-label="Go to Tracker page">
+        <button class="page-arrow page-arrow-left" id="trackerPageButton" type="button" aria-label="Previous page">
           <span aria-hidden="true">‹</span>
         </button>
         <div class="page-viewport" id="pageViewport" aria-live="polite">
@@ -166,6 +166,11 @@
                   <div class="board-phase-pill">
                     <span class="board-phase-caption">Current Phase</span>
                     <output id="boardPhaseValue" aria-live="polite">Upkeep</output>
+                  </div>
+                  <div class="board-timer-strip" aria-label="Turn timer">
+                    <span>Turn <output id="turnNumberValue">1</output></span>
+                    <span>Turn <output id="turnTimerValue">0s</output></span>
+                    <span>Phase <output id="phaseTimerValue">0s</output></span>
                   </div>
                   <button class="nav-text-button board-state-header-button" id="nextPhaseButton" type="button">Next Phase</button>
                 </div>
@@ -361,8 +366,48 @@
               </footer>
             </div>
           </section>
+
+          <section class="board utility-board" id="statsBoard" aria-label="Stats page" aria-hidden="true" inert>
+            <div class="utility-layout">
+              <header class="utility-header board-state-card">
+                <h1>Stats</h1>
+                <p>Commander analytics and gameplay trends</p>
+              </header>
+              <section class="utility-grid board-state-card" id="statsSummaryGrid"></section>
+              <section class="utility-log board-state-card">
+                <div class="board-section-heading"><h2>Commander Insights</h2></div>
+                <div id="commanderInsightsList"></div>
+              </section>
+            </div>
+          </section>
+
+          <section class="board utility-board" id="archiveBoard" aria-label="Archive page" aria-hidden="true" inert>
+            <div class="utility-layout">
+              <header class="utility-header board-state-card">
+                <h1>Archive</h1>
+                <p>Completed games and replay-ready summaries</p>
+              </header>
+              <section class="utility-log board-state-card">
+                <div class="board-section-heading"><h2>Saved Games</h2></div>
+                <div class="archive-search-row">
+                  <input class="sheet-text-input" id="archiveSearchInput" type="search" placeholder="Search commander, phase, notes..." />
+                </div>
+                <div id="archiveList"></div>
+              </section>
+            </div>
+          </section>
+
+          <section class="board utility-board" id="leaderboardBoard" aria-label="Leaderboards page" aria-hidden="true" inert>
+            <div class="utility-layout">
+              <header class="utility-header board-state-card">
+                <h1>Leaderboards</h1>
+                <p>Personal records and local ranking history</p>
+              </header>
+              <section class="utility-grid board-state-card" id="leaderboardGrid"></section>
+            </div>
+          </section>
         </div>
-        <button class="page-arrow page-arrow-right" id="boardStatePageButton" type="button" aria-label="Go to Board State page">
+        <button class="page-arrow page-arrow-right" id="boardStatePageButton" type="button" aria-label="Next page">
           <span aria-hidden="true">›</span>
         </button>
       </div>
@@ -757,6 +802,8 @@
         </div>
         <p class="sheet-helper-text">Active token doublers will be applied automatically when this token is created.</p>
         <div class="sheet-footer">
+          <button class="sheet-secondary" id="removeAllTokensButton" type="button">Remove All Tokens</button>
+          <button class="sheet-secondary" id="removeCustomTokensButton" type="button">Remove Custom Amount</button>
           <button class="sheet-secondary" id="closeGenericTokenDialogButton" type="button">Close</button>
           <button class="sheet-action" type="submit">Create Token</button>
         </div>

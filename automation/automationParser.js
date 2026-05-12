@@ -161,15 +161,19 @@ export function buildAutomationSuggestions(permanent = {}) {
 function appendActionSuggestions(suggestions, permanent, rulings, normalizedText, context) {
   if (normalizedText.includes("create") && normalizedText.includes("token")) {
     const tokenSpec = extractTokenSpec(normalizedText);
+    const tokenEntryProfile = extractTokenEntryProfile(normalizedText);
     suggestions.push(createSuggestion(permanent, {
       ...context,
       actionType: "Create Tokens",
       targetType: "Board",
       value: extractCountFromText(normalizedText),
+      valueMode: extractValueModeFromText(normalizedText),
       tokenName: tokenSpec.name,
       tokenPower: tokenSpec.power,
       tokenToughness: tokenSpec.toughness,
       tokenManaCost: "",
+      tokenTapped: tokenEntryProfile.tapped,
+      tokenAttacking: tokenEntryProfile.attacking,
       reasonSummary: `${context.reasonPrefix} It creates tokens that can be automated on the battlefield.`,
       evidenceSummary: "Oracle text explicitly creates creature tokens.",
       rulingKeywords: ["token", "create"],
@@ -257,6 +261,9 @@ function createSuggestion(permanent, partialRule, rulings = permanent.rulings ||
     tokenPower: Number.isFinite(Number(partialRule.tokenPower)) ? Number(partialRule.tokenPower) : 0,
     tokenToughness: Number.isFinite(Number(partialRule.tokenToughness)) ? Number(partialRule.tokenToughness) : 0,
     tokenManaCost: partialRule.tokenManaCost || "",
+    tokenTapped: Boolean(partialRule.tokenTapped),
+    tokenAttacking: Boolean(partialRule.tokenAttacking),
+    valueMode: normalizeValueMode(partialRule.valueMode),
     counterType: partialRule.counterType || "",
     counterTargetEntity: partialRule.counterTargetEntity === "permanent" ? "permanent" : partialRule.counterTargetEntity === "creature" ? "creature" : "",
     buffPower: Number.isFinite(Number(partialRule.buffPower)) ? Number(partialRule.buffPower) : 0,
@@ -341,7 +348,10 @@ function detectAttackTrigger(normalizedText, cardName) {
     return "";
   }
 
-  if (/whenever one or more [a-z0-9,\- ]*creatures?[a-z0-9,\- ]* attack/.test(normalizedText)) {
+  if (
+    /whenever one or more [a-z0-9,\- ]*creatures?[a-z0-9,\- ]* attack/.test(normalizedText) ||
+    /whenever you attack with one or more [a-z0-9,\- ]*creatures?/.test(normalizedText)
+  ) {
     return "attack-group";
   }
 
@@ -384,9 +394,20 @@ function inferEventSourceScope(normalizedText, eventType, cardName = "") {
     if (
       text.includes("whenever another creature enters") ||
       text.includes("whenever a creature enters") ||
-      text.includes("whenever one or more creatures enter")
+      text.includes("whenever a creature token enters") ||
+      text.includes("whenever one or more creatures enter") ||
+      text.includes("whenever one or more creature tokens enter") ||
+      text.includes("whenever creature tokens enter")
     ) {
       return text.includes("another creature enters") ? "another-creature" : "any-creature";
+    }
+
+    if (
+      text.includes("whenever another token enters") ||
+      text.includes("whenever a token enters") ||
+      text.includes("whenever one or more tokens enter")
+    ) {
+      return text.includes("another token enters") ? "another-token" : "any-token";
     }
 
     if (text.includes("whenever another permanent enters") || text.includes("whenever a permanent enters")) {
@@ -456,6 +477,58 @@ function inferCounterTargetProfile(normalizedText, cardName = "") {
     normalizedText.includes("each permanent")
   ) {
     return { targetType: "All", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
+  }
+
+  if (
+    normalizedText.includes("each creature token") ||
+    normalizedText.includes("creature tokens you control") ||
+    normalizedText.includes("each token creature")
+  ) {
+    return { targetType: "All Creature Tokens", counterTargetEntity: "creature", requiresTargetSelection: false, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("each token") || normalizedText.includes("tokens you control")) {
+    return { targetType: "Tokens Only", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("each artifact") || normalizedText.includes("artifacts you control")) {
+    return { targetType: "All Artifacts", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("each enchantment") || normalizedText.includes("enchantments you control")) {
+    return { targetType: "All Enchantments", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("each planeswalker") || normalizedText.includes("planeswalkers you control")) {
+    return { targetType: "All Planeswalkers", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("each nonbasic land") || normalizedText.includes("nonbasic lands you control")) {
+    return { targetType: "All Nonbasic Lands", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("each land") || normalizedText.includes("lands you control")) {
+    return { targetType: "All Lands", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("each aura") || normalizedText.includes("auras you control")) {
+    return { targetType: "All Auras", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("each vehicle") || normalizedText.includes("vehicles you control")) {
+    return { targetType: "All Vehicles", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("each spacecraft") || normalizedText.includes("spacecraft you control")) {
+    return { targetType: "All Spacecraft", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("each mount") || normalizedText.includes("mounts you control")) {
+    return { targetType: "All Mounts", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
+  }
+
+  if (normalizedText.includes("each planet") || normalizedText.includes("planets you control")) {
+    return { targetType: "All Planets", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
   }
 
   if (
@@ -816,6 +889,30 @@ function extractTokenSpec(normalizedText) {
     toughness: ptMatch ? Number(ptMatch[2]) || 1 : 1,
     name: typeMatch ? `${capitalize(typeMatch[1])} Token` : "Token",
   };
+}
+
+function extractTokenEntryProfile(normalizedText) {
+  const text = normalizeText(normalizedText).toLowerCase();
+  return {
+    tapped: /\btapped\b/.test(text),
+    attacking: /\battacking\b/.test(text),
+  };
+}
+
+function extractValueModeFromText(normalizedText) {
+  const text = normalizeText(normalizedText).toLowerCase();
+  if (/\bwhere x is\b/.test(text) && text.includes("+1/+1 counter")) {
+    return "source-plus-one-counters";
+  }
+  if (/\bwhere x is\b/.test(text) && text.includes("counter")) {
+    return "source-counters";
+  }
+  return "fixed";
+}
+
+function normalizeValueMode(value) {
+  const normalized = normalizeText(value);
+  return ["fixed", "source-plus-one-counters", "source-counters"].includes(normalized) ? normalized : "fixed";
 }
 
 function extractCountFromText(normalizedText) {

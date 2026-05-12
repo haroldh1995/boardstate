@@ -1440,6 +1440,30 @@ button {
   line-height: 1;
 }
 
+.board-timer-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  align-items: center;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--muted);
+  font-family: "Teko", sans-serif;
+  font-size: 0.82rem;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.board-timer-strip output {
+  color: var(--text);
+  font-family: "Aldrich", "Teko", sans-serif;
+  font-size: 0.78rem;
+}
+
 .board-state-header-button {
   min-height: 16px;
   padding-top: 3px;
@@ -1966,6 +1990,189 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.utility-board {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto;
+  align-content: start;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.utility-board > * {
+  transform: none;
+}
+
+.utility-layout {
+  width: 100%;
+  min-height: 100%;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.utility-header,
+.utility-grid,
+.utility-log {
+  padding: 12px;
+}
+
+.utility-header {
+  display: grid;
+  gap: 4px;
+}
+
+.utility-header h1 {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 1.16rem;
+}
+
+.utility-header p {
+  margin: 0;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+  font-size: 0.95rem;
+}
+
+.utility-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.utility-stat-card,
+.utility-leaderboard-card,
+.utility-log-item,
+.utility-insight-row {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.022);
+}
+
+.utility-stat-card {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+}
+
+.utility-stat-label,
+.utility-stat-meta,
+.utility-leaderboard-label,
+.utility-leaderboard-rank,
+.utility-log-item-meta,
+.utility-log-item-header span,
+.utility-log-item-actions span,
+.utility-insight-row span {
+  color: var(--muted);
+}
+
+.utility-stat-label,
+.utility-leaderboard-label,
+.utility-leaderboard-rank {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.78rem;
+}
+
+.utility-stat-value,
+.utility-leaderboard-value,
+.utility-log-item-header strong,
+.utility-insight-row strong {
+  font-size: 1.22rem;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+.utility-stat-meta {
+  font-family: "Teko", sans-serif;
+  font-size: 0.95rem;
+  line-height: 1.05;
+}
+
+.utility-log {
+  display: grid;
+  gap: 10px;
+}
+
+#archiveList,
+#commanderInsightsList {
+  display: grid;
+  gap: 8px;
+}
+
+.archive-search-row {
+  display: grid;
+}
+
+.utility-log-item {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.utility-log-item-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.utility-log-item-header span {
+  font-family: "Teko", sans-serif;
+  font-size: 0.96rem;
+  line-height: 1.05;
+  text-align: right;
+}
+
+.utility-log-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-family: "Teko", sans-serif;
+  font-size: 0.96rem;
+  line-height: 1.05;
+}
+
+.utility-log-item-summary {
+  margin: 0;
+  color: var(--text);
+  letter-spacing: 0.03em;
+  font-size: 1rem;
+}
+
+.utility-log-item-actions {
+  display: grid;
+  gap: 4px;
+}
+
+.utility-log-item-actions span {
+  font-family: "Teko", sans-serif;
+  font-size: 0.92rem;
+  line-height: 1.05;
+}
+
+.utility-insight-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+}
+
+.utility-insight-row span {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.78rem;
+}
+
+.utility-leaderboard-card {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
 }
 
 .trigger-reminder-chip {
@@ -2760,7 +2967,8 @@ button {
   }
 
   .board-control-grid,
-  .battlefield-grid {
+  .battlefield-grid,
+  .utility-grid {
     grid-template-columns: 1fr;
   }
 

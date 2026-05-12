@@ -74,8 +74,23 @@ const TOKEN_TEMPLATE_LIBRARY = [
   "Phyrexian",
   "Elemental",
 ];
+const BASIC_LAND_NAMES = new Set(["plains", "island", "swamp", "mountain", "forest", "wastes"]);
 const TRIGGER_TARGETS = [
   "All",
+  "All Creatures",
+  "All Creature Tokens",
+  "All Permanents",
+  "All Artifacts",
+  "All Enchantments",
+  "All Planeswalkers",
+  "All Lands",
+  "All Nonbasic Lands",
+  "All Auras",
+  "All Vehicles",
+  "All Spacecraft",
+  "All Mounts",
+  "All Planets",
+  "All Tokens",
   "Tokens Only",
   "Non-Tokens Only",
   "Legendary Only",
@@ -84,7 +99,14 @@ const TRIGGER_TARGETS = [
   "Artifact Creature Only",
   "Selected",
 ];
-const PAGE_ORDER = ["tracker", "board-state"];
+const PAGE_ORDER = ["tracker", "board-state", "stats", "archive", "leaderboards"];
+const PAGE_HASH_MAP = {
+  tracker: "#tracker",
+  "board-state": "#board-state",
+  stats: "#stats",
+  archive: "#archive",
+  leaderboards: "#leaderboards",
+};
 const MAX_AUTOMATION_LOG_ENTRIES = 14;
 const MAX_AUTOMATION_CHAIN_DEPTH = 40;
 const BOARD_LONG_PRESS_MS = 430;
@@ -166,6 +188,9 @@ const PLAYER_COUNTER_DEFS = [
  * @property {string} tokenManaCost
  * @property {number} tokenPower
  * @property {number} tokenToughness
+ * @property {boolean} tokenTapped
+ * @property {boolean} tokenAttacking
+ * @property {string} valueMode
  * @property {string} counterType
  * @property {"creature" | "permanent"} counterTargetEntity
  */
@@ -186,6 +211,9 @@ const PLAYER_COUNTER_DEFS = [
  * @property {string} tokenManaCost
  * @property {number} tokenPower
  * @property {number} tokenToughness
+ * @property {boolean} tokenTapped
+ * @property {boolean} tokenAttacking
+ * @property {string} valueMode
  * @property {string} counterType
  * @property {"creature" | "permanent"} counterTargetEntity
  * @property {number} buffPower
@@ -250,6 +278,14 @@ const trackerPageButton = document.querySelector("#trackerPageButton");
 const boardStatePageButton = document.querySelector("#boardStatePageButton");
 const trackerBoard = document.querySelector("#trackerBoard");
 const boardStateBoard = document.querySelector("#boardStateBoard");
+const statsBoard = document.querySelector("#statsBoard");
+const archiveBoard = document.querySelector("#archiveBoard");
+const leaderboardBoard = document.querySelector("#leaderboardBoard");
+const statsSummaryGrid = document.querySelector("#statsSummaryGrid");
+const commanderInsightsList = document.querySelector("#commanderInsightsList");
+const archiveSearchInput = document.querySelector("#archiveSearchInput");
+const archiveList = document.querySelector("#archiveList");
+const leaderboardGrid = document.querySelector("#leaderboardGrid");
 
 const outputs = {
   playerName: document.querySelector("#playerName"),
@@ -262,6 +298,9 @@ const outputs = {
   activeCounterCountLabel: document.querySelector("#activeCounterCountLabel"),
   damageTrackerCountOptionValue: document.querySelector("#damageTrackerCountOptionValue"),
   boardPhaseValue: document.querySelector("#boardPhaseValue"),
+  turnNumberValue: document.querySelector("#turnNumberValue"),
+  turnTimerValue: document.querySelector("#turnTimerValue"),
+  phaseTimerValue: document.querySelector("#phaseTimerValue"),
   boardTotalScope: document.querySelector("#boardTotalScope"),
   boardTotalValue: document.querySelector("#boardTotalValue"),
 };
@@ -426,16 +465,20 @@ const tokenTemplateSearchInput = document.querySelector("#tokenTemplateSearchInp
 const tokenTemplateList = document.querySelector("#tokenTemplateList");
 const copySelectedPermanentTokenButton = document.querySelector("#copySelectedPermanentTokenButton");
 const closeGenericTokenDialogButton = document.querySelector("#closeGenericTokenDialogButton");
+const removeAllTokensButton = document.querySelector("#removeAllTokensButton");
+const removeCustomTokensButton = document.querySelector("#removeCustomTokensButton");
 const quickToast = document.querySelector("#quickToast");
 
 let quickToastHideTimer = 0;
 let quickToastResetTimer = 0;
 let automationDialogTimer = 0;
+let archiveSearchQuery = "";
 let boardGestureState = null;
 let suppressedTileClick = {
   permanentId: "",
   expiresAt: 0,
 };
+let timerRenderInterval = 0;
 
 document.querySelectorAll("[data-field][data-delta]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -486,8 +529,9 @@ connectedPlayerBackButton.addEventListener("click", () => swapDialog(connectedPl
 automationAddTriggerButton.addEventListener("click", promptAndAddTrigger);
 automationToggleAllButton?.addEventListener("click", toggleAutomationGlobally);
 automationUndoButton?.addEventListener("click", undoLastAutomationResult);
-trackerPageButton.addEventListener("click", () => showTrackerPage());
-boardStatePageButton.addEventListener("click", () => showBoardStatePage());
+trackerPageButton.addEventListener("click", showPreviousPage);
+boardStatePageButton.addEventListener("click", showNextPage);
+archiveSearchInput?.addEventListener("input", handleArchiveSearchInput);
 
 nextPhaseButton.addEventListener("click", advanceBoardPhase);
 boardSearchForm.addEventListener("submit", handleBoardSearchSubmit);
@@ -544,6 +588,8 @@ closeGenericTokenDialogButton?.addEventListener("click", () => genericTokenDialo
 tokenTemplateSearchInput?.addEventListener("input", renderTokenTemplateList);
 tokenTemplateList?.addEventListener("click", handleTokenTemplateClick);
 copySelectedPermanentTokenButton?.addEventListener("click", handleCopySelectedPermanentToken);
+removeAllTokensButton?.addEventListener("click", removeAllTokensFromBoard);
+removeCustomTokensButton?.addEventListener("click", promptRemoveCustomTokenAmount);
 cardDetailDialog?.addEventListener("close", clearExpandedCardState);
 
 [effectStrip, battlefieldGrid].forEach((container) => {
@@ -605,6 +651,7 @@ window.addEventListener("hashchange", syncPageWithHash);
 
 setupBoardStateLayout();
 render();
+startTimerRendering();
 syncPageWithHash();
 window.requestAnimationFrame(() => {
   syncPageViewport({ behavior: "auto" });
@@ -621,6 +668,8 @@ function createDefaultState() {
     companion: createDefaultCompanionState(),
     boardState: createDefaultBoardState(),
     multiplayer: createDefaultMultiplayerState(),
+    archive: createDefaultArchiveState(),
+    runtime: createDefaultRuntimeState(),
   };
 }
 
@@ -652,7 +701,30 @@ function createDefaultCombatState() {
 
 function createDefaultMultiplayerState() {
   return {
+    sessionCode: "",
+    isSessionActive: false,
+    connectionMode: "standalone",
     connectedPlayers: [],
+  };
+}
+
+function createDefaultArchiveState() {
+  return {
+    games: [],
+    commanderDecks: {},
+  };
+}
+
+function createDefaultRuntimeState() {
+  const now = Date.now();
+  return {
+    gameStartedAt: now,
+    turnStartedAt: now,
+    phaseStartedAt: now,
+    turnNumber: 1,
+    phaseDurations: {},
+    turnDurations: [],
+    combatDurationMs: 0,
   };
 }
 
@@ -792,6 +864,9 @@ function createTrigger(source = {}) {
     tokenManaCost: typeof source.tokenManaCost === "string" ? source.tokenManaCost.trim() : "",
     tokenPower: normalizeSignedCount(source.tokenPower),
     tokenToughness: normalizeSignedCount(source.tokenToughness),
+    tokenTapped: Boolean(source.tokenTapped),
+    tokenAttacking: Boolean(source.tokenAttacking),
+    valueMode: normalizeValueMode(source.valueMode),
     counterType: normalizeCounterType(source.counterType || (actionType === "Add +1/+1 Counters" ? "+1/+1" : "")),
     counterTargetEntity: normalizeCounterTargetEntity(source.counterTargetEntity),
   };
@@ -817,6 +892,9 @@ function createAutomationRule(source = {}) {
     tokenManaCost: typeof source.tokenManaCost === "string" ? source.tokenManaCost.trim() : "",
     tokenPower: normalizeSignedCount(source.tokenPower),
     tokenToughness: normalizeSignedCount(source.tokenToughness),
+    tokenTapped: Boolean(source.tokenTapped),
+    tokenAttacking: Boolean(source.tokenAttacking),
+    valueMode: normalizeValueMode(source.valueMode),
     counterType: normalizeCounterType(source.counterType),
     counterTargetEntity: normalizeCounterTargetEntity(source.counterTargetEntity),
     buffPower: normalizeSignedCount(source.buffPower),
@@ -872,6 +950,8 @@ function normalizeState(source = {}) {
     companion: normalizeCompanionState(source.companion),
     boardState: normalizeBoardState(source.boardState),
     multiplayer: normalizeMultiplayerState(source.multiplayer),
+    archive: normalizeArchiveState(source.archive),
+    runtime: normalizeRuntimeState(source.runtime),
   };
 }
 
@@ -927,9 +1007,177 @@ function normalizeCombatState(combatState = {}) {
 
 function normalizeMultiplayerState(multiplayer = {}) {
   return {
+    sessionCode: normalizeSessionCode(multiplayer.sessionCode),
+    isSessionActive: Boolean(multiplayer.isSessionActive),
+    connectionMode: normalizeLabel(multiplayer.connectionMode, "standalone"),
     connectedPlayers: Array.isArray(multiplayer.connectedPlayers)
       ? multiplayer.connectedPlayers.map((player) => createConnectedPlayer(player))
       : [],
+  };
+}
+
+function normalizeArchiveState(archiveState = {}) {
+  const games = Array.isArray(archiveState.games)
+    ? archiveState.games
+        .map((game) => ({
+          id: normalizeLabel(game?.id, createId()),
+          endedAt: normalizeTimestamp(game?.endedAt),
+          durationMs: Math.max(0, Number(game?.durationMs) || 0),
+          commanderName: normalizeLabel(game?.commanderName, "Commander"),
+          lifeEnd: normalizeCount(game?.lifeEnd, 0),
+          winner: normalizeLabel(game?.winner, "Unknown"),
+          totals: {
+            power: normalizeCount(game?.totals?.power, 0),
+            toughness: normalizeCount(game?.totals?.toughness, 0),
+            damage: normalizeCount(game?.totals?.damage, 0),
+            prevented: normalizeCount(game?.totals?.prevented, 0),
+            triggers: normalizeCount(game?.totals?.triggers, 0),
+            tokens: normalizeCount(game?.totals?.tokens, 0),
+            counters: normalizeCount(game?.totals?.counters, 0),
+            manaPeak: normalizeCount(game?.totals?.manaPeak, 0),
+            boardPeak: normalizeCount(game?.totals?.boardPeak, 0),
+          },
+          notes: normalizeLabel(game?.notes, ""),
+          recentActions: Array.isArray(game?.recentActions)
+            ? game.recentActions
+                .map((entry) => normalizeLabel(entry, ""))
+                .filter(Boolean)
+                .slice(0, 8)
+            : [],
+          eventLog: Array.isArray(game?.eventLog)
+            ? game.eventLog
+                .map((entry) => ({
+                  type: normalizeLabel(entry?.type, "event"),
+                  summary: normalizeLabel(entry?.summary, "Action"),
+                  timestamp: normalizeTimestamp(entry?.timestamp),
+                  payload: entry?.payload && typeof entry.payload === "object" ? entry.payload : {},
+                }))
+                .slice(-300)
+            : [],
+          turnDurations: Array.isArray(game?.turnDurations)
+            ? game.turnDurations.map((value) => Math.max(0, Number(value) || 0)).slice(-100)
+            : [],
+          phaseDurations:
+            game?.phaseDurations && typeof game.phaseDurations === "object"
+              ? Object.entries(game.phaseDurations).reduce((accumulator, [phase, value]) => {
+                  accumulator[normalizePhase(phase)] = Math.max(0, Number(value) || 0);
+                  return accumulator;
+                }, {})
+              : {},
+        }))
+        .slice(0, 200)
+    : [];
+  return {
+    games,
+    commanderDecks: normalizeCommanderDeckArchives(archiveState.commanderDecks),
+  };
+}
+
+function normalizeCommanderDeckArchives(commanderDecks = {}) {
+  if (!commanderDecks || typeof commanderDecks !== "object") {
+    return {};
+  }
+
+  return Object.entries(commanderDecks).reduce((accumulator, [rawKey, deck]) => {
+    const commanderName = normalizeLabel(deck?.commanderName, normalizeLabel(rawKey, "Commander"));
+    const commanderKey = getCommanderDeckKey(commanderName);
+    const seenCards = new Set();
+    const cards = Array.isArray(deck?.cards)
+      ? deck.cards
+          .map((card) => normalizeCommanderDeckCard(card))
+          .filter((card) => {
+            if (!card.name || seenCards.has(card.key)) {
+              return false;
+            }
+            seenCards.add(card.key);
+            return true;
+          })
+          .slice(0, 150)
+      : [];
+    const usedCards = normalizeCommanderUsedCards(deck?.usedCards);
+
+    accumulator[commanderKey] = {
+      commanderName,
+      cards,
+      usedCards,
+      games: Array.isArray(deck?.games) ? deck.games.slice(-100) : [],
+    };
+    return accumulator;
+  }, {});
+}
+
+function normalizeCommanderDeckCard(card = {}) {
+  const name = normalizeLabel(card.name, "Card");
+  const manaCost = normalizeLabel(card.manaCost || card.mana_cost, "");
+  const typeLine = normalizeLabel(card.typeLine || card.type_line, "");
+  const oracleText = normalizeLabel(card.oracleText || card.oracle_text, "");
+  const scryfallId = normalizeLabel(card.scryfallId || card.id, "");
+  const imageUrl =
+    normalizeLabel(card.imageUrl || card.cardImageUrl || card.image_uris?.normal || card.image_uris?.large, "");
+  const key = getCommanderCardKey({
+    scryfallId,
+    name,
+    manaCost,
+    typeLine,
+  });
+
+  return {
+    key,
+    scryfallId,
+    name,
+    manaCost,
+    typeLine,
+    oracleText,
+    imageUrl,
+    cardImageUrl: normalizeLabel(card.cardImageUrl || imageUrl, ""),
+    legalities: normalizeLegalities(card.legalities),
+    addedAt: normalizeTimestamp(card.addedAt),
+    lastUsedAt: normalizeTimestamp(card.lastUsedAt || card.addedAt),
+    usageCount: normalizeCount(card.usageCount, 0),
+  };
+}
+
+function normalizeCommanderUsedCards(usedCards = {}) {
+  if (!usedCards || typeof usedCards !== "object") {
+    return {};
+  }
+
+  return Object.entries(usedCards).reduce((accumulator, [rawKey, entry]) => {
+    const key = normalizeLabel(rawKey, "");
+    if (!key) {
+      return accumulator;
+    }
+
+    accumulator[key] = {
+      name: normalizeLabel(entry?.name, "Card"),
+      count: normalizeCount(entry?.count, 0),
+      lastUsedAt: normalizeTimestamp(entry?.lastUsedAt),
+    };
+    return accumulator;
+  }, {});
+}
+
+function normalizeRuntimeState(runtimeState = {}) {
+  const now = Date.now();
+  const gameStartedAt = normalizeTimestamp(runtimeState.gameStartedAt);
+  const phaseDurations =
+    runtimeState.phaseDurations && typeof runtimeState.phaseDurations === "object"
+      ? Object.entries(runtimeState.phaseDurations).reduce((accumulator, [phase, value]) => {
+          accumulator[normalizePhase(phase)] = Math.max(0, Number(value) || 0);
+          return accumulator;
+        }, {})
+      : {};
+
+  return {
+    gameStartedAt,
+    turnStartedAt: normalizeTimestamp(runtimeState.turnStartedAt || gameStartedAt || now),
+    phaseStartedAt: normalizeTimestamp(runtimeState.phaseStartedAt || gameStartedAt || now),
+    turnNumber: Math.max(1, normalizeCount(runtimeState.turnNumber, 1)),
+    phaseDurations,
+    turnDurations: Array.isArray(runtimeState.turnDurations)
+      ? runtimeState.turnDurations.map((value) => Math.max(0, Number(value) || 0)).slice(-100)
+      : [],
+    combatDurationMs: Math.max(0, Number(runtimeState.combatDurationMs) || 0),
   };
 }
 
@@ -1155,6 +1403,15 @@ function normalizeCombatMode(value) {
   return "none";
 }
 
+function normalizeSessionCode(value) {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 4);
+  return digits.length === 4 ? digits : "";
+}
+
+function createSessionCode() {
+  return String(Math.floor(1000 + Math.random() * 9000));
+}
+
 function normalizeTimestamp(value) {
   const nextValue = Number(value);
   return Number.isFinite(nextValue) ? nextValue : Date.now();
@@ -1222,6 +1479,8 @@ function normalizeAutomationEventSourceScope(value) {
     "self",
     "any-creature",
     "another-creature",
+    "any-token",
+    "another-token",
     "any-enchantment",
     "another-enchantment",
     "any-permanent",
@@ -1237,6 +1496,11 @@ function normalizeAutomationBuffDuration(value) {
 
   const normalized = value.trim().toLowerCase();
   return normalized === "until-end-of-combat" ? "until-end-of-combat" : "until-end-of-turn";
+}
+
+function normalizeValueMode(value) {
+  const normalized = normalizeLabel(value, "");
+  return ["fixed", "source-plus-one-counters", "source-counters"].includes(normalized) ? normalized : "fixed";
 }
 
 function normalizePermanentCounters(value) {
@@ -1306,10 +1570,11 @@ function persistState() {
     const enchantmentResult = runEnchantmentEngine(state.boardState, {
       phase: currentPhase,
     });
-    if (enchantmentResult.changed) {
+    const sbaResult = runStateBasedActions(enchantmentResult.boardState || state.boardState);
+    if (enchantmentResult.changed || sbaResult.changed) {
       state = {
         ...state,
-        boardState: enchantmentResult.boardState,
+        boardState: sbaResult.boardState,
       };
     }
   }
@@ -1322,6 +1587,9 @@ function render() {
   syncLocalPublicSnapshot();
   renderTrackerPage();
   renderBoardStatePage();
+  renderStatsPage();
+  renderArchivePage();
+  renderLeaderboardsPage();
   renderMultiplayerUi();
   renderSettingsManualDialog();
 }
@@ -1496,6 +1764,601 @@ function renderBoardStatePage() {
   renderCombatSimulation();
   renderCardDetailOverlay();
   renderFloatingManaPanel();
+  renderTimerPanel();
+}
+
+function startTimerRendering() {
+  if (timerRenderInterval) {
+    window.clearInterval(timerRenderInterval);
+  }
+  renderTimerPanel();
+  timerRenderInterval = window.setInterval(renderTimerPanel, 1000);
+}
+
+function renderTimerPanel() {
+  if (!outputs.turnNumberValue || !outputs.turnTimerValue || !outputs.phaseTimerValue) {
+    return;
+  }
+
+  const now = Date.now();
+  outputs.turnNumberValue.textContent = String(Math.max(1, normalizeCount(state.runtime?.turnNumber, 1)));
+  outputs.turnTimerValue.textContent = formatDurationCompact(now - normalizeTimestamp(state.runtime?.turnStartedAt));
+  outputs.phaseTimerValue.textContent = formatDurationCompact(now - normalizeTimestamp(state.runtime?.phaseStartedAt));
+}
+
+function renderStatsPage() {
+  if (!statsSummaryGrid || !commanderInsightsList) {
+    return;
+  }
+
+  const analytics = buildAnalyticsSnapshot();
+  const summaryCards = [
+    {
+      label: "Games Played",
+      value: analytics.gamesPlayed,
+      meta: `Avg ${formatDurationCompact(analytics.averageGameDurationMs)} per game`,
+    },
+    {
+      label: "Actions / Game",
+      value: analytics.actionsPerGame,
+      meta: `${analytics.totalActions} actions logged`,
+    },
+    {
+      label: "Favorite Colors",
+      value: analytics.favoriteColors || "N/A",
+      meta: "From active board mana symbols",
+    },
+    {
+      label: "Most Used Mechanic",
+      value: analytics.favoriteMechanic || "N/A",
+      meta: "Based on action history",
+    },
+    {
+      label: "Largest Attack",
+      value: analytics.largestSingleAttack,
+      meta: `Combat damage tracked: ${analytics.totalCombatDamage}`,
+    },
+    {
+      label: "Damage Prevented",
+      value: analytics.damagePrevented,
+      meta: `${analytics.attackersPerGame} attackers / ${analytics.blockersPerGame} blockers per game`,
+    },
+    {
+      label: "Largest Token Swarm",
+      value: analytics.largestTokenSwarm,
+      meta: `${analytics.mostGeneratedToken || "No token leader yet"}`,
+    },
+    {
+      label: "Counter Leader",
+      value: analytics.mostUsedCounterType || "N/A",
+      meta: `Largest stack ${analytics.largestCounterStack}`,
+    },
+    {
+      label: "Mana Peak",
+      value: analytics.manaPeak,
+      meta: `${analytics.manaGenerated} generated / ${analytics.manaSpent} spent`,
+    },
+    {
+      label: "Mana Wasted",
+      value: analytics.manaWasted,
+      meta: `${analytics.colorUsageDistribution || "No color usage yet"}`,
+    },
+    {
+      label: "Trigger Load",
+      value: analytics.triggerFrequency,
+      meta: `${analytics.autoTriggerCount} auto, ${analytics.missedTriggerCount} missed`,
+    },
+    {
+      label: "Turn Timing",
+      value: formatDurationCompact(analytics.averageTurnTimeMs),
+      meta: `Longest ${formatDurationCompact(analytics.longestTurnMs)} | Shortest ${formatDurationCompact(analytics.shortestTurnMs)}`,
+    },
+    {
+      label: "Life Range",
+      value: `${analytics.lowestSurvivalLife} - ${analytics.highestLifeTotal}`,
+      meta: `Gained ${analytics.lifeGained}, lost ${analytics.lifeLost}, swing ${analytics.biggestLifeSwing}`,
+    },
+    {
+      label: "Commander Damage",
+      value: analytics.highestCommanderDamage,
+      meta: "Highest tracked commander damage",
+    },
+  ];
+
+  statsSummaryGrid.innerHTML = summaryCards
+    .map(
+      (card) => `
+        <article class="utility-stat-card">
+          <span class="utility-stat-label">${escapeHtml(String(card.label))}</span>
+          <strong class="utility-stat-value">${escapeHtml(String(card.value))}</strong>
+          <span class="utility-stat-meta">${escapeHtml(String(card.meta))}</span>
+        </article>
+      `
+    )
+    .join("");
+
+  const commanderInsights = [
+    ["Games Played", analytics.commanderGamesPlayed],
+    ["Wins / Losses", `${analytics.commanderWins}/${analytics.commanderLosses}`],
+    ["Average Game Length", formatDurationCompact(analytics.commanderAverageGameLengthMs)],
+    ["Biggest Combat Step", analytics.biggestCombatStep],
+    ["Favorite Mechanics", analytics.favoriteMechanicsList || "N/A"],
+    ["Most Common Finisher", analytics.commonFinisher || "N/A"],
+    ["Average Turn Time", formatDurationCompact(analytics.averageTurnTimeMs)],
+    ["Longest Turn", formatDurationCompact(analytics.longestTurnMs)],
+    ["Counter Usage / Game", analytics.countersPerGame],
+    ["Token Leader", analytics.mostGeneratedToken || "N/A"],
+  ];
+
+  commanderInsightsList.innerHTML = commanderInsights
+    .map(
+      ([label, value]) => `
+        <article class="utility-insight-row">
+          <span>${escapeHtml(String(label))}</span>
+          <strong>${escapeHtml(String(value))}</strong>
+        </article>
+      `
+    )
+    .join("");
+}
+
+function renderArchivePage() {
+  if (!archiveList) {
+    return;
+  }
+  if (archiveSearchInput && archiveSearchInput.value !== archiveSearchQuery) {
+    archiveSearchInput.value = archiveSearchQuery;
+  }
+
+  const games = getFilteredArchiveGames();
+  const commanderDeckMarkup = renderCommanderDeckArchiveSummary();
+  if (games.length === 0) {
+    const emptyMessage = archiveSearchQuery
+      ? "No archived games match that search."
+      : "No archived games yet. End a game with Reset to save it here.";
+    archiveList.innerHTML = `${commanderDeckMarkup}<p class="sheet-empty">${escapeHtml(emptyMessage)}</p>`;
+    return;
+  }
+
+  archiveList.innerHTML = commanderDeckMarkup + games
+    .map((game) => {
+      const totals = game.totals || {};
+      const endedAt = new Date(normalizeTimestamp(game.endedAt));
+      const summaryLine = [
+        `P/T ${normalizeCount(totals.power, 0)}/${normalizeCount(totals.toughness, 0)}`,
+        `Damage ${normalizeCount(totals.damage, 0)}`,
+        `Triggers ${normalizeCount(totals.triggers, 0)}`,
+        `Turns ${Array.isArray(game.turnDurations) ? game.turnDurations.length : 0}`,
+        `Log ${Array.isArray(game.eventLog) ? game.eventLog.length : 0}`,
+      ].join(" | ");
+      const recentActions = Array.isArray(game.recentActions) ? game.recentActions : [];
+
+      return `
+        <article class="utility-log-item">
+          <div class="utility-log-item-header">
+            <strong>${escapeHtml(game.commanderName || "Commander")}</strong>
+            <span>${escapeHtml(endedAt.toLocaleString())}</span>
+          </div>
+          <div class="utility-log-item-meta">
+            <span>${escapeHtml(formatDurationCompact(game.durationMs))}</span>
+            <span>${escapeHtml(game.winner || "Unknown")}</span>
+            <span>Life ${normalizeCount(game.lifeEnd, 0)}</span>
+          </div>
+          <p class="utility-log-item-summary">${escapeHtml(summaryLine)}</p>
+          ${
+            recentActions.length > 0
+              ? `<div class="utility-log-item-actions">${recentActions
+                  .map((entry) => `<span>${escapeHtml(entry)}</span>`)
+                  .join("")}</div>`
+              : ""
+          }
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderCommanderDeckArchiveSummary() {
+  const deck = getActiveCommanderDeckArchive();
+  if (!deck || deck.cards.length === 0) {
+    return "";
+  }
+
+  return `
+    <article class="utility-log-item">
+      <div class="utility-log-item-header">
+        <strong>${escapeHtml(deck.commanderName)} Deck Archive</strong>
+        <span>${deck.cards.length} unique</span>
+      </div>
+      <p class="utility-log-item-summary">Curated cards explicitly added from Scryfall. Tokens, basic lands, temporary copies, and stolen permanents are excluded.</p>
+      <div class="utility-log-item-actions">
+        ${deck.cards
+          .slice(0, 12)
+          .map((card) => `<span>${escapeHtml(card.name)}</span>`)
+          .join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderLeaderboardsPage() {
+  if (!leaderboardGrid) {
+    return;
+  }
+
+  const analytics = buildAnalyticsSnapshot();
+  const leaderboards = [
+    ["Biggest Combat Damage", analytics.biggestCombatDamage],
+    ["Highest Life Total", analytics.highestLifeTotal],
+    ["Largest Token Army", analytics.largestTokenSwarm],
+    ["Largest Mana Pool", analytics.manaPeak],
+    ["Longest Game", formatDurationCompact(analytics.longestGameMs)],
+    ["Most Triggers", analytics.mostTriggersInGame],
+    ["Biggest Board State", analytics.biggestBoardState],
+    ["Highest Commander Damage", analytics.highestCommanderDamage],
+  ];
+
+  leaderboardGrid.innerHTML = leaderboards
+    .map(
+      ([label, value], index) => `
+        <article class="utility-leaderboard-card">
+          <span class="utility-leaderboard-rank">#${index + 1}</span>
+          <span class="utility-leaderboard-label">${escapeHtml(String(label))}</span>
+          <strong class="utility-leaderboard-value">${escapeHtml(String(value))}</strong>
+        </article>
+      `
+    )
+    .join("");
+}
+
+function handleArchiveSearchInput(event) {
+  archiveSearchQuery = normalizeLabel(event?.target?.value, "");
+  renderArchivePage();
+}
+
+function getFilteredArchiveGames() {
+  const games = Array.isArray(state.archive?.games) ? [...state.archive.games] : [];
+  const normalizedQuery = archiveSearchQuery.toLowerCase();
+  if (!normalizedQuery) {
+    return games.sort((left, right) => normalizeTimestamp(right.endedAt) - normalizeTimestamp(left.endedAt));
+  }
+
+  return games
+    .filter((game) => {
+      const haystack = [
+        game.commanderName,
+        game.winner,
+        game.notes,
+        ...(Array.isArray(game.recentActions) ? game.recentActions : []),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(normalizedQuery);
+    })
+    .sort((left, right) => normalizeTimestamp(right.endedAt) - normalizeTimestamp(left.endedAt));
+}
+
+function buildAnalyticsSnapshot() {
+  const archiveGames = Array.isArray(state.archive?.games) ? state.archive.games : [];
+  const history = Array.isArray(state.companion?.history) ? state.companion.history : [];
+  const boardPermanents = Array.isArray(state.boardState?.permanents) ? state.boardState.permanents : [];
+  const tokenPermanents = boardPermanents.filter((permanent) => permanent.isToken);
+  const currentTotals = calculateAbsoluteBoardTotals(boardPermanents, boardPermanents);
+
+  let lifeGained = 0;
+  let lifeLost = 0;
+  let biggestLifeSwing = 0;
+  let highestLifeTotal = normalizeCount(state.life, defaultState.life);
+  let lowestSurvivalLife = normalizeCount(state.life, defaultState.life);
+  let manaGenerated = 0;
+  let manaSpent = 0;
+  let manaPeakFromHistory = getFloatingManaTotal(state.companion?.floatingMana || {});
+  let largestSingleAttack = 0;
+  let totalCombatDamage = 0;
+  let damagePrevented = 0;
+  let attackersSelected = 0;
+  let blockersAssigned = 0;
+  let triggerCount = 0;
+  let autoTriggerCount = 0;
+  let missedTriggerCount = 0;
+  let tokenGeneratedCount = 0;
+  let counterAppliedCount = 0;
+  const tokenNames = new Map();
+  const actionTypeCounts = new Map();
+  const counterTypeCounts = new Map();
+  const colorUsageCounts = new Map();
+  const phaseTimes = [];
+  let previousPhaseTimestamp = 0;
+
+  history.forEach((entry) => {
+    const type = normalizeLabel(entry?.type, "event").toLowerCase();
+    const payload = entry?.payload || {};
+    const timestamp = normalizeTimestamp(entry?.timestamp);
+    actionTypeCounts.set(type, (actionTypeCounts.get(type) || 0) + 1);
+
+    if (type === "life" || type === "life-rollback") {
+      const from = normalizeCount(payload.from, state.life);
+      const to = normalizeCount(payload.to, state.life);
+      const delta = to - from;
+      if (delta > 0) {
+        lifeGained += delta;
+      } else if (delta < 0) {
+        lifeLost += Math.abs(delta);
+      }
+      biggestLifeSwing = Math.max(biggestLifeSwing, Math.abs(delta));
+      highestLifeTotal = Math.max(highestLifeTotal, from, to);
+      lowestSurvivalLife = Math.min(lowestSurvivalLife, from, to);
+    }
+
+    if (type === "mana") {
+      const from = normalizeCount(payload.from, 0);
+      const to = normalizeCount(payload.to, 0);
+      if (to > from) {
+        manaGenerated += to - from;
+      } else if (from > to) {
+        manaSpent += from - to;
+      }
+      manaPeakFromHistory = Math.max(manaPeakFromHistory, from, to);
+      const color = normalizeLabel(payload.color, "");
+      if (color) {
+        colorUsageCounts.set(color, (colorUsageCounts.get(color) || 0) + Math.abs(to - from));
+      }
+    }
+
+    if (type === "combat") {
+      const previewPower = normalizeCount(payload?.preview?.attackerTotal?.power, 0);
+      const previewToughness = normalizeCount(payload?.preview?.blockerTotal?.toughness, 0);
+      const attackerCount = Array.isArray(payload.attackers) ? payload.attackers.length : 0;
+      const blockerCount = Array.isArray(payload.blockers) ? payload.blockers.length : 0;
+      largestSingleAttack = Math.max(largestSingleAttack, previewPower);
+      totalCombatDamage += previewPower;
+      damagePrevented += previewToughness;
+      attackersSelected += attackerCount;
+      blockersAssigned += blockerCount;
+    }
+
+    if (type === "token") {
+      const quantity = Math.max(1, normalizeCount(payload.quantity, 1));
+      const tokenName = normalizeLabel(payload.name, "Token");
+      tokenGeneratedCount += quantity;
+      tokenNames.set(tokenName, (tokenNames.get(tokenName) || 0) + quantity);
+    }
+
+    if (type === "counter") {
+      const count = Math.max(1, normalizeCount(payload.appliedAmount, normalizeCount(payload.value, 1)));
+      const counterType = normalizeCounterType(payload.counterType || payload.counterId || "");
+      counterAppliedCount += count;
+      counterTypeCounts.set(counterType, (counterTypeCounts.get(counterType) || 0) + count);
+    }
+
+    if (type === "phase") {
+      triggerCount += 1;
+      if (previousPhaseTimestamp > 0) {
+        phaseTimes.push(Math.max(0, timestamp - previousPhaseTimestamp));
+      }
+      previousPhaseTimestamp = timestamp;
+    }
+
+    if (type === "trigger") {
+      triggerCount += 1;
+    }
+
+    if (normalizeLabel(entry?.summary, "").toLowerCase().includes("auto")) {
+      autoTriggerCount += 1;
+    }
+  });
+
+  autoTriggerCount += Array.isArray(state.boardState?.automationLog) ? state.boardState.automationLog.length : 0;
+  missedTriggerCount = Math.max(0, triggerCount - autoTriggerCount);
+
+  const archiveDurationValues = archiveGames.map((game) => Math.max(0, Number(game.durationMs) || 0));
+  const totalArchivedDuration = archiveDurationValues.reduce((sum, value) => sum + value, 0);
+  const averageGameDurationMs = archiveGames.length > 0 ? Math.round(totalArchivedDuration / archiveGames.length) : 0;
+  const longestGameMs = archiveDurationValues.reduce((max, value) => Math.max(max, value), 0);
+  const actionsPerGame = archiveGames.length > 0 ? Math.round(history.length / Math.max(1, archiveGames.length)) : history.length;
+
+  const archiveTotals = archiveGames.reduce(
+    (accumulator, game) => {
+      const totals = game.totals || {};
+      accumulator.biggestCombatDamage = Math.max(accumulator.biggestCombatDamage, normalizeCount(totals.damage, 0));
+      accumulator.damagePrevented += normalizeCount(totals.prevented, 0);
+      accumulator.mostTriggersInGame = Math.max(accumulator.mostTriggersInGame, normalizeCount(totals.triggers, 0));
+      accumulator.biggestBoardState = Math.max(accumulator.biggestBoardState, normalizeCount(totals.boardPeak, 0));
+      accumulator.manaPeak = Math.max(accumulator.manaPeak, normalizeCount(totals.manaPeak, 0));
+      accumulator.largestTokenSwarm = Math.max(accumulator.largestTokenSwarm, normalizeCount(totals.tokens, 0));
+      accumulator.counterTotal += normalizeCount(totals.counters, 0);
+      if (Array.isArray(game.turnDurations)) {
+        accumulator.turnDurations.push(...game.turnDurations);
+      }
+      if (normalizeLabel(game.winner, "").toLowerCase() === state.playerName.toLowerCase()) {
+        accumulator.commanderWins += 1;
+      } else if (game.winner) {
+        accumulator.commanderLosses += 1;
+      }
+      return accumulator;
+    },
+    {
+      biggestCombatDamage: 0,
+      damagePrevented: 0,
+      mostTriggersInGame: 0,
+      biggestBoardState: 0,
+      manaPeak: 0,
+      largestTokenSwarm: 0,
+      counterTotal: 0,
+      commanderWins: 0,
+      commanderLosses: 0,
+      turnDurations: [],
+    }
+  );
+
+  const currentManaPeak = Math.max(manaPeakFromHistory, getFloatingManaTotal(state.companion?.floatingMana || {}));
+  const runtime = normalizeRuntimeState(state.runtime);
+  const activeTurnElapsed = Math.max(0, Date.now() - normalizeTimestamp(runtime.turnStartedAt));
+  const allTurnDurations = [...archiveTotals.turnDurations, ...(runtime.turnDurations || []), activeTurnElapsed].filter(
+    (value) => value > 0
+  );
+  const phaseAverage = allTurnDurations.length
+    ? Math.round(allTurnDurations.reduce((sum, value) => sum + value, 0) / allTurnDurations.length)
+    : phaseTimes.length
+      ? Math.round(phaseTimes.reduce((sum, value) => sum + value, 0) / phaseTimes.length)
+      : 0;
+  const longestTurnMs = allTurnDurations.length
+    ? allTurnDurations.reduce((max, value) => Math.max(max, value), 0)
+    : phaseTimes.reduce((max, value) => Math.max(max, value), 0);
+  const shortestTurnMs = allTurnDurations.length
+    ? allTurnDurations.reduce((min, value) => Math.min(min, value), allTurnDurations[0])
+    : 0;
+  const largestTokenSwarm = Math.max(
+    archiveTotals.largestTokenSwarm,
+    tokenPermanents.reduce((max, permanent) => Math.max(max, normalizeCount(permanent.quantity, 1)), 0)
+  );
+  const mostGeneratedToken = getMapMaxKey(tokenNames);
+  const favoriteMechanic = getMapMaxKey(actionTypeCounts);
+  const favoriteMechanicsList = getTopMapKeys(actionTypeCounts, 3).join(", ");
+  const favoriteCounterType = getMapMaxKey(counterTypeCounts);
+  const currentCounterStacks = boardPermanents.flatMap((permanent) =>
+    Object.entries(normalizePermanentCounters(permanent.counters)).map(([type, count]) => ({
+      type,
+      count: normalizeCount(count, 0),
+    }))
+  );
+  const largestCounterStack = currentCounterStacks.reduce((max, entry) => Math.max(max, entry.count), 0);
+
+  const colorsInPlay = extractFavoriteColors(boardPermanents);
+  const colorUsageDistribution = getTopMapKeys(colorUsageCounts, 5).join("/") || colorsInPlay;
+  const sessionDurationMs = Math.max(0, Date.now() - normalizeTimestamp(state.runtime?.gameStartedAt));
+  const totalGames = archiveGames.length + (hasMeaningfulGameState() ? 1 : 0);
+  const countersPerGame = totalGames > 0 ? (counterAppliedCount + archiveTotals.counterTotal) / totalGames : 0;
+  const attackersPerGame = totalGames > 0 ? (attackersSelected / totalGames).toFixed(1) : "0.0";
+  const blockersPerGame = totalGames > 0 ? (blockersAssigned / totalGames).toFixed(1) : "0.0";
+  const highestCommanderDamage = (state.commanderDamageTrackers || []).reduce(
+    (max, tracker) => Math.max(max, normalizeCount(tracker.value, 0)),
+    0
+  );
+
+  return {
+    gamesPlayed: totalGames,
+    averageGameDurationMs,
+    actionsPerGame,
+    totalActions: history.length,
+    favoriteColors: colorsInPlay,
+    favoriteMechanic: favoriteMechanic ? toTitleCase(favoriteMechanic.replaceAll("-", " ")) : "",
+    favoriteMechanicsList: favoriteMechanicsList
+      ? favoriteMechanicsList.split(", ").map((entry) => toTitleCase(entry.replaceAll("-", " "))).join(", ")
+      : "",
+    lifeGained,
+    lifeLost,
+    biggestLifeSwing,
+    highestLifeTotal,
+    lowestSurvivalLife,
+    totalCombatDamage: Math.max(totalCombatDamage, archiveTotals.biggestCombatDamage),
+    biggestCombatDamage: Math.max(totalCombatDamage, archiveTotals.biggestCombatDamage),
+    damagePrevented: damagePrevented + archiveTotals.damagePrevented,
+    attackersPerGame,
+    blockersPerGame,
+    largestSingleAttack,
+    largestTokenSwarm,
+    mostGeneratedToken,
+    mostUsedCounterType: favoriteCounterType,
+    largestCounterStack,
+    manaPeak: Math.max(currentManaPeak, archiveTotals.manaPeak),
+    manaGenerated,
+    manaSpent,
+    manaWasted: Math.max(0, currentManaPeak - manaSpent),
+    colorUsageDistribution,
+    triggerFrequency: triggerCount,
+    autoTriggerCount,
+    missedTriggerCount,
+    commanderGamesPlayed: archiveGames.length,
+    commanderWins: archiveTotals.commanderWins,
+    commanderLosses: archiveTotals.commanderLosses,
+    commanderAverageGameLengthMs: averageGameDurationMs || sessionDurationMs,
+    commonFinisher: mostGeneratedToken || favoriteCounterType || "N/A",
+    biggestCombatStep: largestSingleAttack || currentTotals.power || 0,
+    countersPerGame: countersPerGame.toFixed(1),
+    averageTurnTimeMs: phaseAverage,
+    longestTurnMs,
+    shortestTurnMs,
+    longestGameMs,
+    mostTriggersInGame: Math.max(triggerCount, archiveTotals.mostTriggersInGame),
+    biggestBoardState: Math.max(boardPermanents.length, archiveTotals.biggestBoardState),
+    highestCommanderDamage,
+  };
+}
+
+function extractFavoriteColors(permanents) {
+  const colorCounts = new Map([
+    ["W", 0],
+    ["U", 0],
+    ["B", 0],
+    ["R", 0],
+    ["G", 0],
+    ["C", 0],
+  ]);
+
+  permanents.forEach((permanent) => {
+    const manaCost = String(permanent?.manaCost || "");
+    const localSeen = new Set();
+    const symbols = manaCost.match(/[WUBRGC]/gi) || [];
+    symbols.forEach((symbol) => {
+      const color = symbol.toUpperCase();
+      if (!colorCounts.has(color) || localSeen.has(color)) {
+        return;
+      }
+      localSeen.add(color);
+      colorCounts.set(color, (colorCounts.get(color) || 0) + 1);
+    });
+  });
+
+  const topColors = [...colorCounts.entries()]
+    .filter(([, count]) => count > 0)
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 3)
+    .map(([color]) => color);
+  return topColors.join("/") || "";
+}
+
+function getMapMaxKey(map) {
+  let maxKey = "";
+  let maxValue = -Infinity;
+  map.forEach((value, key) => {
+    if (value > maxValue) {
+      maxValue = value;
+      maxKey = key;
+    }
+  });
+  return maxKey;
+}
+
+function getTopMapKeys(map, count = 3) {
+  return [...map.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, count)
+    .map(([key]) => key);
+}
+
+function toTitleCase(value) {
+  return String(value || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+    .join(" ");
+}
+
+function formatDurationCompact(durationMs) {
+  const safeDuration = Math.max(0, Number(durationMs) || 0);
+  const totalSeconds = Math.round(safeDuration / 1000);
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) {
+    return `${minutes}m ${seconds}s`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return `${hours}h ${remainingMinutes}m`;
 }
 
 function renderFloatingManaPanel() {
@@ -1729,7 +2592,7 @@ function renderMultiplayerUi() {
   viewConnectedPlayersAction.hidden = connectedPlayers.length === 0;
   viewConnectedPlayersAction.textContent =
     connectedPlayers.length > 0
-      ? `View Connected Players (${connectedPlayers.length})`
+      ? `View Connected Players ${state.multiplayer.sessionCode || "----"} (${connectedPlayers.length})`
       : "View Connected Players";
 
   renderConnectedPlayersList(connectedPlayers);
@@ -1977,7 +2840,9 @@ function renderBoardOptionsMenu() {
   boardOptionsTotalsButton.textContent = boardUi.totalsVisible ? "Hide Total Bar Overlay" : "Show Total Bar Overlay";
   boardOptionsAutomationToggleButton.textContent = state.boardState.automationEnabled ? "Automation Enabled" : "Automation Disabled";
   boardOptionsMultiplayerButton.textContent =
-    connectedPlayers.length > 0 ? `Connected Players (${connectedPlayers.length})` : "Local Multiplayer";
+    connectedPlayers.length > 0
+      ? `Connected ${state.multiplayer.sessionCode || "----"} (${connectedPlayers.length})`
+      : "Local Multiplayer";
   boardViewConnectedPlayersAction.hidden = connectedPlayers.length === 0;
   boardMultiplayerFeedback.hidden = !boardUi.boardMultiplayerMessage;
   boardMultiplayerFeedback.textContent = boardUi.boardMultiplayerMessage;
@@ -2156,7 +3021,8 @@ function renderAutomationEvidence(evidence = []) {
 function getAutomationRuleSummary(rule) {
   const triggerLabel = getAutomationTriggerLabel(rule);
   if (rule.actionType === "Create Tokens") {
-    return `${triggerLabel}: Create ${rule.value} ${rule.tokenPower}/${rule.tokenToughness} ${rule.tokenName || "Token"} Token${rule.value === 1 ? "" : "s"}`;
+    const entryLabel = rule.tokenAttacking ? " tapped and attacking" : rule.tokenTapped ? " tapped" : "";
+    return `${triggerLabel}: Create ${rule.value} ${rule.tokenPower}/${rule.tokenToughness} ${rule.tokenName || "Token"} Token${rule.value === 1 ? "" : "s"}${entryLabel}`;
   }
 
   if (rule.actionType === "Multiply Tokens" || rule.actionType === "Modify Token Amount") {
@@ -2471,8 +3337,11 @@ function renderBoardSearch() {
 function renderBoardSearchResult(card, index) {
   const preview = getCardPreview(card);
   const isSupported = isSupportedPermanent(card);
+  const isDeckEligible = isCommanderDeckEligibleCard(card);
   const supportLabel = isSupported ? getSupportDestinationLabel(preview) : "Not supported yet";
   const isSelected = boardUi.selectedSearchResultIndex === index;
+  const deck = getActiveCommanderDeckArchive();
+  const isInCommanderDeck = hasCommanderDeckCard(card, deck);
 
   return `
     <article class="board-search-result ${isSelected ? "is-selected" : ""}">
@@ -2494,6 +3363,14 @@ function renderBoardSearchResult(card, index) {
           ${!isSupported ? "disabled" : ""}
         >
           ${isSupported ? "Add" : "Not Yet"}
+        </button>
+        <button
+          class="board-search-result-button"
+          type="button"
+          data-search-deck-index="${index}"
+          ${!isDeckEligible || isInCommanderDeck ? "disabled" : ""}
+        >
+          ${isInCommanderDeck ? "In Deck" : "Add Deck"}
         </button>
       </div>
     </article>
@@ -3097,13 +3974,15 @@ function handleAutomationManualTriggersClick(event) {
 }
 
 function handleBoardSearchInput(event) {
+  const searchQuery = event.target.value;
+  const commanderSuggestions = getCommanderDeckSearchCards(searchQuery);
   boardUi = {
     ...boardUi,
-    searchQuery: event.target.value,
+    searchQuery,
     searchStatus: "idle",
-    searchResults: [],
+    searchResults: commanderSuggestions,
     selectedSearchResultIndex: -1,
-    searchMessage: "",
+    searchMessage: commanderSuggestions.length > 0 ? "Commander deck suggestions ready. Tap Search for more Scryfall results." : "",
     searchMessageTone: "neutral",
     searchRequestId: boardUi.searchRequestId + 1,
   };
@@ -3164,6 +4043,12 @@ async function handleBoardSearchSubmit(event) {
 }
 
 function handleBoardSearchResultClick(event) {
+  const deckButton = event.target.closest("[data-search-deck-index]");
+  if (deckButton) {
+    addSearchResultToCommanderDeck(Number(deckButton.dataset.searchDeckIndex));
+    return;
+  }
+
   const selectButton = event.target.closest("[data-search-result-index]");
   if (!selectButton) {
     return;
@@ -3189,6 +4074,23 @@ function handleCardResultSelect(resultIndex) {
   });
   renderBoardSearch();
   void addSelectedCardToBattlefield(card);
+}
+
+function addSearchResultToCommanderDeck(resultIndex) {
+  const card = boardUi.searchResults[resultIndex];
+  if (!card) {
+    return;
+  }
+
+  const result = addCardToCommanderDeckArchive(card, getActiveCommanderName());
+  boardUi = {
+    ...boardUi,
+    searchMessage: result.message,
+    searchMessageTone: result.ok ? "success" : "neutral",
+  };
+  persistState();
+  render();
+  showQuickToast(result.message);
 }
 
 function handleCancelBoardSearch() {
@@ -3958,6 +4860,7 @@ function resetLife() {
 }
 
 function resetAll() {
+  state = archiveCurrentGameIfNeeded("Reset tracker values");
   registerCompanionAction({
     type: "reset",
     summary: "Tracker values reset",
@@ -3999,6 +4902,7 @@ function resetAll() {
 }
 
 function resetBoardState() {
+  state = archiveCurrentGameIfNeeded("Reset board state");
   registerCompanionAction({
     type: "reset",
     summary: "Board state reset",
@@ -4023,6 +4927,107 @@ function resetBoardState() {
   persistState();
   render();
   closeAllDialogs();
+}
+
+function archiveCurrentGameIfNeeded(reason = "") {
+  if (!hasMeaningfulGameState()) {
+    return state;
+  }
+
+  const nextGame = createArchiveGameEntry(reason);
+  const nextArchive = recordCommanderGameInArchive(
+    {
+      ...state.archive,
+      games: [nextGame, ...(state.archive?.games || [])].slice(0, 200),
+    },
+    nextGame
+  );
+  return {
+    ...state,
+    archive: nextArchive,
+    runtime: {
+      gameStartedAt: Date.now(),
+    },
+  };
+}
+
+function hasMeaningfulGameState() {
+  const hasBoard = Array.isArray(state.boardState?.permanents) && state.boardState.permanents.length > 0;
+  const hasHistory = Array.isArray(state.companion?.history) && state.companion.history.length > 2;
+  const hasLifeChanges = normalizeCount(state.life, defaultState.life) !== normalizeCount(defaultState.life);
+  const hasCounters = Object.values(state.playerCounters || {}).some((entry) => normalizeCount(entry?.value, 0) > 0);
+  const hasCommanderDamage = (state.commanderDamageTrackers || []).some((entry) => normalizeCount(entry?.value, 0) > 0);
+  const hasFloatingMana = getFloatingManaTotal(state.companion?.floatingMana || {}) > 0;
+  return hasBoard || hasHistory || hasLifeChanges || hasCounters || hasCommanderDamage || hasFloatingMana;
+}
+
+function createArchiveGameEntry(reason = "") {
+  const now = Date.now();
+  const permanents = Array.isArray(state.boardState?.permanents) ? state.boardState.permanents : [];
+  const boardTotals = calculateAbsoluteBoardTotals(permanents, permanents);
+  const history = Array.isArray(state.companion?.history) ? state.companion.history : [];
+  const runtime = normalizeRuntimeState(state.runtime);
+  const currentPhase = PHASES[normalizePhaseIndex(state.boardState?.currentPhaseIndex)];
+  const currentPhaseElapsed = Math.max(0, now - normalizeTimestamp(runtime.phaseStartedAt));
+  const phaseDurations = {
+    ...(runtime.phaseDurations || {}),
+    [currentPhase]: Math.max(0, Number(runtime.phaseDurations?.[currentPhase]) || 0) + currentPhaseElapsed,
+  };
+  const currentTurnElapsed = Math.max(0, now - normalizeTimestamp(runtime.turnStartedAt));
+  const combatDamage = history
+    .filter((entry) => normalizeLabel(entry?.type, "").toLowerCase() === "combat")
+    .reduce((total, entry) => total + normalizeCount(entry?.payload?.preview?.attackerTotal?.power, 0), 0);
+  const tokenTotal = history
+    .filter((entry) => normalizeLabel(entry?.type, "").toLowerCase() === "token")
+    .reduce((total, entry) => total + Math.max(1, normalizeCount(entry?.payload?.quantity, 1)), 0);
+  const counterTotal = history
+    .filter((entry) => normalizeLabel(entry?.type, "").toLowerCase() === "counter")
+    .reduce((total, entry) => total + Math.max(1, normalizeCount(entry?.payload?.appliedAmount, 1)), 0);
+  const triggerTotal = normalizeCount(state.boardState?.automationLog?.length, 0);
+  const manaPeak = Math.max(
+    getFloatingManaTotal(state.companion?.floatingMana || {}),
+    history
+      .filter((entry) => normalizeLabel(entry?.type, "").toLowerCase() === "mana")
+      .reduce(
+        (peak, entry) =>
+          Math.max(peak, normalizeCount(entry?.payload?.from, 0), normalizeCount(entry?.payload?.to, 0)),
+        0
+      )
+  );
+
+  return {
+    id: createId(),
+    endedAt: now,
+    durationMs: Math.max(0, now - normalizeTimestamp(state.runtime?.gameStartedAt)),
+    commanderName: state.playerName,
+    lifeEnd: normalizeCount(state.life, 0),
+    winner: normalizeCount(state.life, 0) > 0 ? state.playerName : "Unknown",
+    totals: {
+      power: normalizeCount(boardTotals.power, 0),
+      toughness: normalizeCount(boardTotals.toughness, 0),
+      damage: normalizeCount(combatDamage, 0),
+      prevented: 0,
+      triggers: normalizeCount(triggerTotal, 0),
+      tokens: normalizeCount(tokenTotal, 0),
+      counters: normalizeCount(counterTotal, 0),
+      manaPeak: normalizeCount(manaPeak, 0),
+      boardPeak: normalizeCount(permanents.length, 0),
+    },
+    notes: normalizeLabel(reason, ""),
+    recentActions: history
+      .slice(-8)
+      .reverse()
+      .map((entry) => normalizeLabel(entry?.summary, ""))
+      .filter(Boolean),
+    eventLog: history.slice(-300).map((entry) => ({
+      type: normalizeLabel(entry?.type, "event"),
+      summary: normalizeLabel(entry?.summary, "Action"),
+      timestamp: normalizeTimestamp(entry?.timestamp),
+      payload: entry?.payload && typeof entry.payload === "object" ? entry.payload : {},
+    })),
+    turnDurations: [...(runtime.turnDurations || []), currentTurnElapsed].slice(-100),
+    phaseDurations,
+  };
 }
 
 function clearPermanentSelection() {
@@ -4075,12 +5080,15 @@ function startSimulatedLocalConnection() {
     ...state,
     multiplayer: {
       ...state.multiplayer,
+      sessionCode: state.multiplayer.sessionCode || createSessionCode(),
+      isSessionActive: true,
+      connectionMode: "simulated",
       connectedPlayers,
     },
   };
   multiplayerUi = {
     ...multiplayerUi,
-    feedbackMessage: `Simulated local table ready with ${connectedPlayers.length} connected player${connectedPlayers.length === 1 ? "" : "s"}.`,
+    feedbackMessage: `Simulated local table ${state.multiplayer.sessionCode} ready with ${connectedPlayers.length} connected player${connectedPlayers.length === 1 ? "" : "s"}.`,
     feedbackTone: "success",
     activePlayerId: connectedPlayers[0]?.id || "",
     activeViewMode: "tracker",
@@ -4093,7 +5101,7 @@ function startSimulatedLocalConnection() {
 function startBoardSimulatedLocalConnection() {
   startSimulatedLocalConnection();
   setBoardMultiplayerFeedback(
-    `Simulated local table ready with ${state.multiplayer.connectedPlayers.length} connected player${state.multiplayer.connectedPlayers.length === 1 ? "" : "s"}.`,
+    `Simulated local table ${state.multiplayer.sessionCode || "0000"} ready with ${state.multiplayer.connectedPlayers.length} connected player${state.multiplayer.connectedPlayers.length === 1 ? "" : "s"}.`,
     "success"
   );
 }
@@ -4199,6 +5207,28 @@ function showBoardStatePage(options = {}) {
   showPage("board-state", options);
 }
 
+function showStatsPage(options = {}) {
+  showPage("stats", options);
+}
+
+function showArchivePage(options = {}) {
+  showPage("archive", options);
+}
+
+function showLeaderboardsPage(options = {}) {
+  showPage("leaderboards", options);
+}
+
+function showPreviousPage() {
+  const nextIndex = Math.max(0, getPageIndex(currentPage) - 1);
+  showPage(PAGE_ORDER[nextIndex]);
+}
+
+function showNextPage() {
+  const nextIndex = Math.min(PAGE_ORDER.length - 1, getPageIndex(currentPage) + 1);
+  showPage(PAGE_ORDER[nextIndex]);
+}
+
 function showPage(pageName, options = {}) {
   const { syncHash = true, behavior = "smooth" } = options;
   const normalizedPage = PAGE_ORDER.includes(pageName) ? pageName : "tracker";
@@ -4214,12 +5244,26 @@ function showPage(pageName, options = {}) {
 
 function updatePagePresentation() {
   pageFrame.dataset.page = currentPage;
-  trackerBoard.toggleAttribute("inert", currentPage !== "tracker");
-  boardStateBoard.toggleAttribute("inert", currentPage !== "board-state");
-  trackerBoard.setAttribute("aria-hidden", String(currentPage !== "tracker"));
-  boardStateBoard.setAttribute("aria-hidden", String(currentPage !== "board-state"));
-  trackerPageButton.disabled = currentPage === "tracker";
-  boardStatePageButton.disabled = currentPage === "board-state";
+  const pageElements = [
+    ["tracker", trackerBoard],
+    ["board-state", boardStateBoard],
+    ["stats", statsBoard],
+    ["archive", archiveBoard],
+    ["leaderboards", leaderboardBoard],
+  ];
+  pageElements.forEach(([pageKey, element]) => {
+    if (!element) {
+      return;
+    }
+
+    const isActive = currentPage === pageKey;
+    element.toggleAttribute("inert", !isActive);
+    element.setAttribute("aria-hidden", String(!isActive));
+  });
+
+  const currentIndex = getPageIndex(currentPage);
+  trackerPageButton.disabled = currentIndex === 0;
+  boardStatePageButton.disabled = currentIndex === PAGE_ORDER.length - 1;
 }
 
 function syncPageViewport(options = {}) {
@@ -4279,7 +5323,7 @@ function getPageIndex(pageName) {
 }
 
 function syncHashToPage(pageName) {
-  const nextHash = pageName === "board-state" ? "#board-state" : "#tracker";
+  const nextHash = PAGE_HASH_MAP[pageName] || PAGE_HASH_MAP.tracker;
 
   if (window.location.hash !== nextHash) {
     window.history.replaceState(null, "", nextHash);
@@ -4312,6 +5356,10 @@ function advanceBoardPhase() {
   const currentPhase = PHASES[state.boardState.currentPhaseIndex];
   const nextPhaseIndex = (state.boardState.currentPhaseIndex + 1) % PHASES.length;
   const nextPhase = PHASES[nextPhaseIndex];
+  const now = Date.now();
+  const phaseElapsed = Math.max(0, now - normalizeTimestamp(state.runtime?.phaseStartedAt));
+  const turnElapsed = Math.max(0, now - normalizeTimestamp(state.runtime?.turnStartedAt));
+  const nextRuntime = buildNextRuntimeForPhaseChange(currentPhase, nextPhase, phaseElapsed, turnElapsed, now);
   const selectedIds = getSelectedPermanentIds(state.boardState.permanents);
   let phaseBaseBoardState =
     nextPhase === "Upkeep" ? untapAllPermanents(state.boardState) : normalizeBoardStateSnapshot(state.boardState);
@@ -4359,7 +5407,9 @@ function advanceBoardPhase() {
 
   state = {
     ...state,
+    runtime: nextRuntime,
     boardState: nextBoardState,
+    multiplayer: advanceSimulatedMultiplayerPhase(state.multiplayer, nextPhase),
     companion: {
       ...state.companion,
       floatingMana: nextFloatingMana,
@@ -4369,6 +5419,53 @@ function advanceBoardPhase() {
 
   persistState();
   render();
+}
+
+function advanceSimulatedMultiplayerPhase(multiplayerState, nextPhase) {
+  const connectedPlayers = Array.isArray(multiplayerState?.connectedPlayers) ? multiplayerState.connectedPlayers : [];
+  if (connectedPlayers.length === 0) {
+    return multiplayerState;
+  }
+
+  return {
+    ...multiplayerState,
+    connectedPlayers: connectedPlayers.map((player) =>
+      createConnectedPlayer({
+        ...player,
+        lastUpdated: Date.now(),
+        publicBoardState: {
+          ...player.publicBoardState,
+          currentPhase: nextPhase,
+        },
+      })
+    ),
+  };
+}
+
+function buildNextRuntimeForPhaseChange(currentPhase, nextPhase, phaseElapsed, turnElapsed, timestamp) {
+  const previousRuntime = normalizeRuntimeState(state.runtime);
+  const currentPhaseLabel = normalizePhase(currentPhase);
+  const previousDurations = previousRuntime.phaseDurations || {};
+  const phaseDurations = {
+    ...previousDurations,
+    [currentPhaseLabel]: Math.max(0, Number(previousDurations[currentPhaseLabel]) || 0) + phaseElapsed,
+  };
+  const completedTurn = nextPhase === PHASES[0] && currentPhase !== nextPhase;
+
+  return {
+    ...previousRuntime,
+    phaseDurations,
+    combatDurationMs:
+      currentPhase === "Combat"
+        ? Math.max(0, Number(previousRuntime.combatDurationMs) || 0) + phaseElapsed
+        : previousRuntime.combatDurationMs,
+    phaseStartedAt: timestamp,
+    turnStartedAt: completedTurn ? timestamp : previousRuntime.turnStartedAt,
+    turnNumber: completedTurn ? previousRuntime.turnNumber + 1 : previousRuntime.turnNumber,
+    turnDurations: completedTurn
+      ? [...(previousRuntime.turnDurations || []), turnElapsed].slice(-100)
+      : previousRuntime.turnDurations || [],
+  };
 }
 
 function promptAndAddPermanent({ isToken, isNonCreature }) {
@@ -4638,6 +5735,7 @@ function promptPermanentFlags({ isCreature }) {
 
 async function searchCards(query) {
   const normalizedQuery = query.trim();
+  const commanderDeckMatches = getCommanderDeckSearchCards(normalizedQuery);
   const [cards, tokenCards, basicLandCards] = await Promise.all([
     searchCardsByQuery(buildScryfallSearchQuery(normalizedQuery), {
       unique: "cards",
@@ -4663,7 +5761,7 @@ async function searchCards(query) {
     }),
   ]);
 
-  const mergedResults = mergeScryfallResults(cards, tokenCards, basicLandCards);
+  const mergedResults = mergeScryfallResults(commanderDeckMatches, cards, tokenCards, basicLandCards);
   return prioritizeSearchMatches(mergedResults, normalizedQuery).slice(0, SEARCH_RESULT_LIMIT);
 }
 
@@ -4744,7 +5842,7 @@ async function searchCardsByQuery(searchQuery, options = {}) {
 function mergeScryfallResults(...resultSets) {
   const seenIds = new Set();
   return resultSets.flat().filter((card) => {
-    const cardId = String(card?.id || "");
+    const cardId = getCommanderCardKey(card);
     if (!cardId || seenIds.has(cardId)) {
       return false;
     }
@@ -4761,17 +5859,19 @@ function getCardPreview(card) {
 function extractScryfallCardData(card) {
   const cardFace = getPrimaryCardFace(card);
   const typeLine = normalizeLabel(
-    cardFace?.type_line || card.type_line,
-    typeof card.type_line === "string" ? card.type_line : ""
+    cardFace?.type_line || card.type_line || card.typeLine,
+    typeof card.type_line === "string" ? card.type_line : typeof card.typeLine === "string" ? card.typeLine : ""
   );
   const oracleText = normalizeLabel(
-    cardFace?.oracle_text || card.oracle_text,
-    typeof card.oracle_text === "string" ? card.oracle_text : ""
+    cardFace?.oracle_text || card.oracle_text || card.oracleText,
+    typeof card.oracle_text === "string" ? card.oracle_text : typeof card.oracleText === "string" ? card.oracleText : ""
   );
   const manaCost = typeof cardFace?.mana_cost === "string" && cardFace.mana_cost.trim()
     ? cardFace.mana_cost.trim()
     : typeof card.mana_cost === "string"
       ? card.mana_cost.trim()
+      : typeof card.manaCost === "string"
+        ? card.manaCost.trim()
       : "";
   const name = normalizeLabel(cardFace?.name || card.name, "Card");
   const power = normalizeSignedCount(cardFace?.power ?? card.power, 0);
@@ -4818,6 +5918,8 @@ function getCardImageUrl(card, cardFace = getPrimaryCardFace(card)) {
     cardFace?.image_uris?.normal ||
     cardFace?.image_uris?.large ||
     cardFace?.image_uris?.small ||
+    card.cardImageUrl ||
+    card.imageUrl ||
     ""
   );
 }
@@ -4831,6 +5933,196 @@ function isPermanentTypeLine(typeLine) {
   return ["Artifact", "Creature", "Enchantment", "Land", "Planeswalker", "Battle"].some((type) =>
     hasTypeLine(typeLine, type)
   );
+}
+
+function getActiveCommanderName() {
+  return normalizeLabel(state.playerName, "Commander");
+}
+
+function getCommanderDeckKey(commanderName = "") {
+  return normalizeLabel(commanderName, "Commander").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "commander";
+}
+
+function getActiveCommanderDeckArchive() {
+  const commanderName = getActiveCommanderName();
+  const commanderKey = getCommanderDeckKey(commanderName);
+  const deck = state.archive?.commanderDecks?.[commanderKey];
+  return deck || {
+    commanderName,
+    cards: [],
+    usedCards: {},
+    games: [],
+  };
+}
+
+function getCommanderCardKey(card = {}) {
+  const scryfallId = normalizeLabel(card.scryfallId || card.id, "");
+  if (scryfallId && !scryfallId.startsWith("commander-card-")) {
+    return scryfallId;
+  }
+
+  const name = normalizeLabel(card.name, "card").toLowerCase();
+  const manaCost = normalizeLabel(card.manaCost || card.mana_cost, "").toLowerCase();
+  const typeLine = normalizeLabel(card.typeLine || card.type_line, "").toLowerCase();
+  return [name, manaCost, typeLine].join("|");
+}
+
+function isBasicLandCard(card = {}) {
+  const preview = getCardPreview(card);
+  const normalizedName = preview.name.toLowerCase();
+  return (hasTypeLine(preview.typeLine, "Basic") && hasTypeLine(preview.typeLine, "Land")) || BASIC_LAND_NAMES.has(normalizedName);
+}
+
+function isCommanderDeckEligibleCard(card = {}) {
+  const preview = getCardPreview(card);
+  if (preview.isToken || isBasicLandCard(card)) {
+    return false;
+  }
+
+  const typeLine = preview.typeLine || "";
+  if (hasTypeLine(typeLine, "Land")) {
+    return !hasTypeLine(typeLine, "Basic");
+  }
+
+  return ["Creature", "Artifact", "Enchantment", "Planeswalker", "Instant", "Sorcery"].some((type) =>
+    hasTypeLine(typeLine, type)
+  );
+}
+
+function hasCommanderDeckCard(card, deck = getActiveCommanderDeckArchive()) {
+  const cardKey = getCommanderCardKey(card);
+  return Array.isArray(deck?.cards) && deck.cards.some((entry) => entry.key === cardKey || getCommanderCardKey(entry) === cardKey);
+}
+
+function addCardToCommanderDeckArchive(card, commanderName = getActiveCommanderName()) {
+  if (!isCommanderDeckEligibleCard(card)) {
+    return { ok: false, message: "That card cannot be added to the commander deck archive." };
+  }
+
+  const commanderKey = getCommanderDeckKey(commanderName);
+  const archive = normalizeArchiveState(state.archive);
+  const existingDeck = archive.commanderDecks[commanderKey] || {
+    commanderName,
+    cards: [],
+    usedCards: {},
+    games: [],
+  };
+  if (hasCommanderDeckCard(card, existingDeck)) {
+    state = {
+      ...state,
+      archive,
+    };
+    return { ok: false, message: `${getCardPreview(card).name} is already in ${commanderName}'s deck archive.` };
+  }
+
+  const nextCard = createCommanderDeckCardFromSearchResult(card);
+  state = {
+    ...state,
+    archive: {
+      ...archive,
+      commanderDecks: {
+        ...archive.commanderDecks,
+        [commanderKey]: {
+          ...existingDeck,
+          commanderName,
+          cards: [...existingDeck.cards, nextCard],
+        },
+      },
+    },
+  };
+
+  return { ok: true, message: `Added ${nextCard.name} to ${commanderName}'s deck archive.` };
+}
+
+function createCommanderDeckCardFromSearchResult(card) {
+  const preview = getCardPreview(card);
+  return normalizeCommanderDeckCard({
+    scryfallId: typeof card?.id === "string" ? card.id : "",
+    name: preview.name,
+    manaCost: preview.manaCost,
+    typeLine: preview.typeLine,
+    oracleText: preview.oracleText,
+    imageUrl: preview.imageUrl,
+    cardImageUrl: preview.cardImageUrl,
+    legalities: card?.legalities || {},
+    addedAt: Date.now(),
+    lastUsedAt: Date.now(),
+    usageCount: 0,
+  });
+}
+
+function recordCommanderCardUsageInArchive(archiveState, card, commanderName = getActiveCommanderName()) {
+  if (!card || getCardPreview(card).isToken || isBasicLandCard(card)) {
+    return normalizeArchiveState(archiveState);
+  }
+
+  const archive = normalizeArchiveState(archiveState);
+  const commanderKey = getCommanderDeckKey(commanderName);
+  const existingDeck = archive.commanderDecks[commanderKey] || {
+    commanderName,
+    cards: [],
+    usedCards: {},
+    games: [],
+  };
+  const cardKey = getCommanderCardKey(card);
+  const preview = getCardPreview(card);
+  const usedEntry = existingDeck.usedCards[cardKey] || {
+    name: preview.name,
+    count: 0,
+    lastUsedAt: Date.now(),
+  };
+
+  return {
+    ...archive,
+    commanderDecks: {
+      ...archive.commanderDecks,
+      [commanderKey]: {
+        ...existingDeck,
+        commanderName,
+        usedCards: {
+          ...existingDeck.usedCards,
+          [cardKey]: {
+            ...usedEntry,
+            name: preview.name,
+            count: normalizeCount(usedEntry.count, 0) + 1,
+            lastUsedAt: Date.now(),
+          },
+        },
+      },
+    },
+  };
+}
+
+function recordCommanderGameInArchive(archiveState, game) {
+  const archive = normalizeArchiveState(archiveState);
+  const commanderName = normalizeLabel(game?.commanderName, getActiveCommanderName());
+  const commanderKey = getCommanderDeckKey(commanderName);
+  const existingDeck = archive.commanderDecks[commanderKey] || {
+    commanderName,
+    cards: [],
+    usedCards: {},
+    games: [],
+  };
+
+  return {
+    ...archive,
+    commanderDecks: {
+      ...archive.commanderDecks,
+      [commanderKey]: {
+        ...existingDeck,
+        commanderName,
+        games: [
+          {
+            id: normalizeLabel(game?.id, createId()),
+            endedAt: normalizeTimestamp(game?.endedAt),
+            durationMs: Math.max(0, Number(game?.durationMs) || 0),
+            lifeEnd: normalizeCount(game?.lifeEnd, 0),
+          },
+          ...(existingDeck.games || []),
+        ].slice(0, 100),
+      },
+    },
+  };
 }
 
 function hasTypeLine(typeLine, typeName) {
@@ -4906,10 +6198,12 @@ async function addSelectedCardToBattlefield(selectedCard = null) {
       ? importScryfallToken(card, rulings)
       : mapScryfallCardToPermanent(card, rulings);
     const nextBoardState = addImportedPermanentToBoardState(state.boardState, permanent);
+    const nextArchive = recordCommanderCardUsageInArchive(state.archive, card, getActiveCommanderName());
 
     state = {
       ...state,
       boardState: nextBoardState,
+      archive: nextArchive,
     };
     boardUi = {
       ...boardUi,
@@ -5462,14 +6756,18 @@ function buildSagaChapterTrigger(sourcePermanent, actionText) {
 
   if (normalizedText.includes("create") && normalizedText.includes("token")) {
     const tokenSpec = extractTokenSpec(actionText);
+    const tokenEntryProfile = extractTokenEntryProfile(actionText);
     return {
       actionType: "Create Tokens",
       target: "All",
       value: extractCountFromText(actionText),
+      valueMode: extractValueModeFromText(actionText),
       tokenName: tokenSpec.name,
       tokenPower: tokenSpec.power,
       tokenToughness: tokenSpec.toughness,
       tokenManaCost: "",
+      tokenTapped: tokenEntryProfile.tapped,
+      tokenAttacking: tokenEntryProfile.attacking,
       counterType: "",
       requiresTargetSelection: false,
       counterTargetEntity: "creature",
@@ -5715,6 +7013,44 @@ function openGenericTokenDialog() {
   });
 }
 
+function getCommanderDeckSearchCards(query = "") {
+  const normalizedQuery = normalizeLabel(query, "").toLowerCase();
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  const deck = getActiveCommanderDeckArchive();
+  const deckCards = Array.isArray(deck?.cards) ? deck.cards : [];
+  const usedCards = deck?.usedCards && typeof deck.usedCards === "object" ? Object.values(deck.usedCards) : [];
+  const deckMatches = deckCards
+    .filter((card) => {
+      const haystack = [card.name, card.typeLine, card.oracleText].join(" ").toLowerCase();
+      return haystack.includes(normalizedQuery);
+    })
+    .map((card) => commanderArchiveCardToSearchCard(card, true));
+  const usageMatches = usedCards
+    .filter((card) => normalizeLabel(card?.name, "").toLowerCase().includes(normalizedQuery))
+    .map((card) => commanderArchiveCardToSearchCard(card, false));
+
+  return [...deckMatches, ...usageMatches].slice(0, SEARCH_RESULT_LIMIT);
+}
+
+function commanderArchiveCardToSearchCard(card, isDeckCard) {
+  return {
+    id: card.scryfallId || getCommanderCardKey(card),
+    name: normalizeLabel(card.name, "Card"),
+    mana_cost: normalizeLabel(card.manaCost || card.mana_cost, ""),
+    type_line: normalizeLabel(card.typeLine || card.type_line, ""),
+    oracle_text: normalizeLabel(card.oracleText || card.oracle_text, ""),
+    image_uris: {
+      normal: normalizeLabel(card.imageUrl || card.cardImageUrl || "", ""),
+    },
+    legalities: normalizeLegalities(card.legalities),
+    isCommanderDeckCard: Boolean(isDeckCard),
+    commanderUsageCount: normalizeCount(card.usageCount || card.count, 0),
+  };
+}
+
 function prioritizeSearchMatches(cards, query) {
   const normalizedQuery = normalizeLabel(query, "").toLowerCase();
   if (!normalizedQuery) {
@@ -5722,13 +7058,16 @@ function prioritizeSearchMatches(cards, query) {
   }
 
   const ranked = cards.map((card) => {
-    const name = normalizeLabel(card?.name, "").toLowerCase();
-    const typeLine = normalizeLabel(card?.type_line, "").toLowerCase();
+    const preview = getCardPreview(card);
+    const name = normalizeLabel(preview.name, "").toLowerCase();
+    const typeLine = normalizeLabel(preview.typeLine, "").toLowerCase();
     const isToken = typeLine.includes("token");
     const isBasicLand = typeLine.includes("basic") && typeLine.includes("land");
     const exactName = name === normalizedQuery;
     const startsWith = !exactName && name.startsWith(normalizedQuery);
     let score = 0;
+    if (card?.isCommanderDeckCard) score += 2000;
+    if (normalizeCount(card?.commanderUsageCount, 0) > 0) score += 250 + normalizeCount(card.commanderUsageCount, 0);
     if (exactName) score += 1000;
     if (startsWith) score += 500;
     if (isBasicLand) score += 120;
@@ -5924,6 +7263,140 @@ function handleGenericTokenSubmit(event) {
   genericTokenDialog.close();
 }
 
+function removeAllTokensFromBoard() {
+  const tokenStacks = state.boardState.permanents.filter((permanent) => permanent.isToken);
+  if (tokenStacks.length === 0) {
+    showQuickToast("No tokens to remove.");
+    return;
+  }
+
+  const removedQuantity = tokenStacks.reduce((total, permanent) => total + normalizeCount(permanent.quantity, 1), 0);
+  registerCompanionAction({
+    type: "token",
+    summary: `Removed all tokens (${removedQuantity})`,
+    payload: {
+      quantity: removedQuantity,
+      tokenStacks: tokenStacks.map((permanent) => ({
+        id: permanent.id,
+        name: permanent.name,
+        quantity: permanent.quantity,
+      })),
+    },
+  });
+
+  state = {
+    ...state,
+    boardState: removeTokenStacksFromBoardState(state.boardState, new Set(tokenStacks.map((permanent) => permanent.id))),
+  };
+
+  persistState();
+  render();
+  genericTokenDialog?.close();
+  showQuickToast(`Removed ${removedQuantity} token${removedQuantity === 1 ? "" : "s"}.`);
+}
+
+function promptRemoveCustomTokenAmount() {
+  const tokenStacks = state.boardState.permanents.filter((permanent) => permanent.isToken);
+  if (tokenStacks.length === 0) {
+    showQuickToast("No tokens to remove.");
+    return;
+  }
+
+  const tokenOptions = tokenStacks
+    .map((permanent, index) => `${index + 1}. ${permanent.name} x${permanent.quantity}`)
+    .join("\n");
+  const tokenChoice = window.prompt(`Remove from which token stack?\n\n${tokenOptions}`, "1");
+  if (tokenChoice === null) {
+    return;
+  }
+
+  const tokenIndex = Number(tokenChoice) - 1;
+  if (!Number.isInteger(tokenIndex) || tokenIndex < 0 || tokenIndex >= tokenStacks.length) {
+    showQuickToast("Token selection canceled.");
+    return;
+  }
+
+  const selectedToken = tokenStacks[tokenIndex];
+  const amountPrompt = window.prompt(`How many ${selectedToken.name} tokens should be removed?`, "1");
+  if (amountPrompt === null) {
+    return;
+  }
+
+  const requestedAmount = normalizeCount(amountPrompt, 0);
+  if (requestedAmount <= 0) {
+    showQuickToast("Enter a token amount greater than 0.");
+    return;
+  }
+
+  const removedQuantity = Math.min(requestedAmount, normalizeCount(selectedToken.quantity, 1));
+  registerCompanionAction({
+    type: "token",
+    summary: `Removed ${removedQuantity} ${selectedToken.name} token${removedQuantity === 1 ? "" : "s"}`,
+    payload: {
+      id: selectedToken.id,
+      name: selectedToken.name,
+      quantity: removedQuantity,
+    },
+  });
+
+  state = {
+    ...state,
+    boardState: removeTokenQuantityFromBoardState(state.boardState, selectedToken.id, removedQuantity),
+  };
+
+  persistState();
+  render();
+  genericTokenDialog?.close();
+  showQuickToast(`Removed ${removedQuantity} ${selectedToken.name}.`);
+}
+
+function removeTokenStacksFromBoardState(boardState, tokenIds) {
+  return {
+    ...boardState,
+    permanents: boardState.permanents.filter((permanent) => !tokenIds.has(permanent.id)),
+    automationRules: boardState.automationRules.filter((rule) => !tokenIds.has(rule.sourcePermanentId)),
+    automationSuggestions: boardState.automationSuggestions.filter((rule) => !tokenIds.has(rule.sourcePermanentId)),
+    combatState: {
+      ...boardState.combatState,
+      attackerIds: boardState.combatState.attackerIds.filter((id) => !tokenIds.has(id)),
+    },
+  };
+}
+
+function removeTokenQuantityFromBoardState(boardState, tokenId, quantity) {
+  const tokenIdsToRemove = new Set();
+  const removedQuantity = Math.max(0, normalizeCount(quantity, 0));
+  const nextPermanents = boardState.permanents.flatMap((permanent) => {
+    if (permanent.id !== tokenId || !permanent.isToken) {
+      return [permanent];
+    }
+
+    const nextQuantity = normalizeCount(permanent.quantity, 1) - removedQuantity;
+    if (nextQuantity <= 0) {
+      tokenIdsToRemove.add(permanent.id);
+      return [];
+    }
+
+    return [
+      createPermanent({
+        ...permanent,
+        quantity: nextQuantity,
+      }),
+    ];
+  });
+
+  return {
+    ...boardState,
+    permanents: nextPermanents,
+    automationRules: boardState.automationRules.filter((rule) => !tokenIdsToRemove.has(rule.sourcePermanentId)),
+    automationSuggestions: boardState.automationSuggestions.filter((rule) => !tokenIdsToRemove.has(rule.sourcePermanentId)),
+    combatState: {
+      ...boardState.combatState,
+      attackerIds: boardState.combatState.attackerIds.filter((id) => !tokenIdsToRemove.has(id)),
+    },
+  };
+}
+
 function createGenericToken(source = {}) {
   const normalizedName = normalizeLabel(source.name, "");
   if (!normalizedName) {
@@ -6061,6 +7534,9 @@ function getAutomationRuleKey(rule) {
     rule.tokenName,
     rule.tokenPower,
     rule.tokenToughness,
+    rule.tokenTapped ? "tapped" : "untapped",
+    rule.tokenAttacking ? "attacking" : "notattacking",
+    rule.valueMode,
     rule.counterType,
     rule.buffPower,
     rule.buffToughness,
@@ -6173,7 +7649,33 @@ function collectMatchingAutomationRules(boardState, context = {}) {
     }
 
     return false;
-  });
+  }).sort(compareAutomationRuleOrder);
+}
+
+function compareAutomationRuleOrder(left, right) {
+  const sourceCompare = String(left.sourcePermanentId || "").localeCompare(String(right.sourcePermanentId || ""));
+  if (sourceCompare !== 0) {
+    return sourceCompare;
+  }
+
+  return getAutomationActionPriority(left.actionType) - getAutomationActionPriority(right.actionType);
+}
+
+function getAutomationActionPriority(actionType) {
+  const normalizedAction = normalizeAutomationAction(actionType);
+  if (normalizedAction === "Add +1/+1 Counters" || normalizedAction === "Add Counters") {
+    return 10;
+  }
+  if (normalizedAction === "Create Tokens") {
+    return 20;
+  }
+  if (normalizedAction === "Multiply Tokens") {
+    return 30;
+  }
+  if (normalizedAction === "Apply Temporary Buff") {
+    return 40;
+  }
+  return 50;
 }
 
 function matchesAutomationEventSource(rule, context = {}, eventPermanent = null, boardState = null) {
@@ -6195,6 +7697,14 @@ function matchesAutomationEventSource(rule, context = {}, eventPermanent = null,
 
   if (scope === "another-creature") {
     return Boolean(eventPermanent.isCreature) && eventPermanent.id !== sourcePermanentId;
+  }
+
+  if (scope === "any-token") {
+    return Boolean(eventPermanent.isToken);
+  }
+
+  if (scope === "another-token") {
+    return Boolean(eventPermanent.isToken) && eventPermanent.id !== sourcePermanentId;
   }
 
   if (scope === "any-enchantment") {
@@ -6239,9 +7749,19 @@ function inferLegacyEventSourceScope(rule, boardState) {
     if (
       referenceText.includes("whenever another creature enters") ||
       referenceText.includes("whenever a creature enters") ||
-      referenceText.includes("whenever one or more creatures enter")
+      referenceText.includes("whenever a creature token enters") ||
+      referenceText.includes("whenever one or more creatures enter") ||
+      referenceText.includes("whenever one or more creature tokens enter") ||
+      referenceText.includes("whenever creature tokens enter")
     ) {
       return referenceText.includes("another creature enters") ? "another-creature" : "any-creature";
+    }
+    if (
+      referenceText.includes("whenever another token enters") ||
+      referenceText.includes("whenever a token enters") ||
+      referenceText.includes("whenever one or more tokens enter")
+    ) {
+      return referenceText.includes("another token enters") ? "another-token" : "any-token";
     }
     if (referenceText.includes("whenever another permanent enters") || referenceText.includes("whenever a permanent enters")) {
       return referenceText.includes("another permanent enters") ? "another-permanent" : "any-permanent";
@@ -6435,15 +7955,19 @@ function executeTrigger(trigger, boardState, context = {}) {
 
   switch (trigger.actionType) {
     case "Create Tokens": {
-      if (!trigger.tokenName || trigger.value <= 0) {
+      const resolvedTokenCount = resolveTriggeredValue(trigger, boardState, sourcePermanent);
+      if (!trigger.tokenName || resolvedTokenCount <= 0) {
         return { boardState, changed: false, message: "", modifierSummary: "" };
       }
 
-      const tokenResult = applyTokenModifiersDetailed(trigger.value, boardState.permanents);
+      const tokenResult = applyTokenModifiersDetailed(resolvedTokenCount, boardState.permanents);
+      const fallbackEntryProfile = extractTokenEntryProfile(getPermanentReferenceText(sourcePermanent));
+      const tokenAttacking = Boolean(trigger.tokenAttacking || fallbackEntryProfile.attacking);
+      const tokenTapped = Boolean(trigger.tokenTapped || tokenAttacking || fallbackEntryProfile.tapped);
       const tokenPermanent = createPermanent({
         name: trigger.tokenName,
         manaCost: trigger.tokenManaCost,
-        typeLine: "Token Creature",
+        typeLine: tokenAttacking ? "Token Creature Attacking" : "Token Creature",
         oracleText: "",
         imageUrl: "",
         cardImageUrl: "",
@@ -6468,6 +7992,9 @@ function executeTrigger(trigger, boardState, context = {}) {
         staticBuffRules: [],
         isExpanded: false,
         isSelected: false,
+        isTapped: tokenTapped,
+        isAttacking: tokenAttacking,
+        summoningSickness: true,
       });
       const addResult = addOrStackPermanentDetailed(boardState, tokenPermanent);
       const etbResolvedBoardState = executeEnterBattlefieldAutomation(
@@ -6475,11 +8002,15 @@ function executeTrigger(trigger, boardState, context = {}) {
         addResult.permanentId,
         addResult.instancesAdded
       );
+      const combatAwareBoardState =
+        tokenAttacking && addResult.permanentId
+          ? addCombatAttackerId(etbResolvedBoardState, addResult.permanentId)
+          : etbResolvedBoardState;
 
       return {
-        boardState: etbResolvedBoardState,
+        boardState: combatAwareBoardState,
         changed: true,
-        message: `${sourcePermanent?.name || "Automation"} created ${tokenResult.value} ${trigger.tokenName} token${tokenResult.value === 1 ? "" : "s"}.`,
+        message: `${sourcePermanent?.name || "Automation"} created ${tokenResult.value} ${trigger.tokenName} token${tokenResult.value === 1 ? "" : "s"}${tokenAttacking ? " tapped and attacking" : tokenTapped ? " tapped" : ""}.`,
         modifierSummary: summarizeModifierList(tokenResult.modifiers, "No token modifiers applied."),
       };
     }
@@ -7056,16 +8587,41 @@ function matchesPermanentTarget(permanent, target, selectedIds, context = {}) {
       return permanent.id === context.sourcePermanentId;
     case "All Creatures":
       return permanent.isCreature;
+    case "All Creature Tokens":
+      return permanent.isCreature && permanent.isToken;
     case "All Attackers":
       return permanent.isCreature && attackerIds.has(permanent.id);
+    case "All Permanents":
+      return true;
     case "Board":
       return normalizeCounterTargetEntity(context.counterTargetEntity) === "permanent" ? true : permanent.isCreature;
     case "Attached Permanent":
       return permanent.id === context.attachedToId;
+    case "All Tokens":
     case "Tokens Only":
       return permanent.isToken;
     case "Non-Tokens Only":
       return !permanent.isToken;
+    case "All Artifacts":
+      return permanent.isArtifact;
+    case "All Enchantments":
+      return hasTypeLine(permanent.typeLine || "", "Enchantment");
+    case "All Planeswalkers":
+      return hasTypeLine(permanent.typeLine || "", "Planeswalker");
+    case "All Lands":
+      return hasTypeLine(permanent.typeLine || "", "Land");
+    case "All Nonbasic Lands":
+      return hasTypeLine(permanent.typeLine || "", "Land") && !hasTypeLine(permanent.typeLine || "", "Basic");
+    case "All Auras":
+      return hasTypeLine(permanent.typeLine || "", "Aura");
+    case "All Vehicles":
+      return hasTypeLine(permanent.typeLine || "", "Vehicle");
+    case "All Spacecraft":
+      return hasTypeLine(permanent.typeLine || "", "Spacecraft");
+    case "All Mounts":
+      return hasTypeLine(permanent.typeLine || "", "Mount");
+    case "All Planets":
+      return hasTypeLine(permanent.typeLine || "", "Planet");
     case "Legendary Only":
       return permanent.isLegendary;
     case "Non-Legendary Only":
@@ -7187,7 +8743,27 @@ function getPermanentStackKey(permanent) {
     permanent.isArtifact ? "artifact" : "nonartifact",
     permanent.isCreature ? "creatureflag" : "noncreatureflag",
     permanent.isFaceDown ? "facedown" : "faceup",
+    permanent.isTapped ? "tapped" : "untapped",
+    permanent.isAttacking ? "attacking" : "notattacking",
   ].join("|");
+}
+
+function addCombatAttackerId(boardState, permanentId) {
+  if (!permanentId) {
+    return boardState;
+  }
+
+  const currentCombatState = normalizeCombatState(boardState.combatState);
+  return {
+    ...boardState,
+    combatState: {
+      ...currentCombatState,
+      attackerIds: Array.from(new Set([...(currentCombatState.attackerIds || []), permanentId])),
+      mode: currentCombatState.mode === "none" ? "selected" : currentCombatState.mode,
+      summary: currentCombatState.summary || "A token entered tapped and attacking.",
+      confirmed: currentCombatState.confirmed,
+    },
+  };
 }
 
 function bindBoardInteractionTargets(container) {
@@ -7386,6 +8962,7 @@ function confirmCombatSimulation() {
 
   const tapResult = tapAttackersForCombat(state.boardState, preparedAttackerIds);
   const automationResult = executeCombatTriggers(tapResult.boardState, preparedAttackerIds);
+  const multiplayerCombatResult = resolveCombatAgainstActiveOpponent(automationResult.boardState);
   const tapSummaryParts = [];
 
   if (tapResult.tappedCount > 0) {
@@ -7400,20 +8977,23 @@ function confirmCombatSimulation() {
     );
   }
 
-  const automationSummary = automationResult.messages.join(" ");
+  const automationSummary = [...automationResult.messages, multiplayerCombatResult.message].filter(Boolean).join(" ");
   registerCompanionAction({
     type: "combat",
     summary: `Combat confirmed with ${preparedAttackerIds.length} attacker${preparedAttackerIds.length === 1 ? "" : "s"}`,
     payload: {
       attackers: preparedAttackerIds,
+      blockers: multiplayerCombatResult.blockerIds,
       tapped: tapResult.tappedCount,
       vigilant: tapResult.exemptCount,
       automationSummary,
+      preview: multiplayerCombatResult.preview,
     },
   });
 
   state = {
     ...state,
+    multiplayer: multiplayerCombatResult.multiplayer || state.multiplayer,
     boardState: {
       ...automationResult.boardState,
       combatState: {
@@ -7447,6 +9027,80 @@ function clearCombatAttackers() {
   };
   persistState();
   render();
+}
+
+function resolveCombatAgainstActiveOpponent(boardState) {
+  const opponent = getActiveViewedOpponent();
+  if (!opponent?.publicBoardState) {
+    return {
+      multiplayer: state.multiplayer,
+      message: "",
+      blockerIds: [],
+      preview: null,
+    };
+  }
+
+  const viewerBoardState = createViewerBoardState(opponent.publicBoardState, opponent.permissions);
+  const attackerIds = normalizeCombatState(boardState.combatState).attackerIds || [];
+  const attackers = boardState.permanents.filter((permanent) => attackerIds.includes(permanent.id) && permanent.isCreature);
+  const blockers = viewerBoardState.permanents.filter((permanent) => permanent.isCreature);
+  const attackerTotals = calculateAbsoluteBoardTotals(attackers, boardState.permanents);
+  const blockerTotals = calculateAbsoluteBoardTotals(blockers, viewerBoardState.permanents);
+  const trampleOverflow = estimateTrampleCombatDamage(attackers, blockerTotals.toughness, boardState.permanents);
+  const estimatedDamage =
+    blockers.length > 0
+      ? Math.max(0, attackerTotals.power - blockerTotals.toughness, trampleOverflow)
+      : Math.max(0, attackerTotals.power);
+
+  if (estimatedDamage <= 0) {
+    return {
+      multiplayer: state.multiplayer,
+      message: `${opponent.displayName} prevented the simulated combat damage.`,
+      blockerIds: blockers.map((permanent) => permanent.id),
+      preview: {
+        attackerTotal: attackerTotals,
+        blockerTotal: blockerTotals,
+        netPressure: attackerTotals.power - blockerTotals.toughness,
+      },
+    };
+  }
+
+  const nextConnectedPlayers = state.multiplayer.connectedPlayers.map((player) => {
+    if (player.id !== opponent.id) {
+      return player;
+    }
+
+    return createConnectedPlayer({
+      ...player,
+      lastUpdated: Date.now(),
+      publicTrackerState: {
+        ...player.publicTrackerState,
+        life: Math.max(0, normalizeCount(player.publicTrackerState.life, 0) - estimatedDamage),
+      },
+    });
+  });
+
+  return {
+    multiplayer: {
+      ...state.multiplayer,
+      connectedPlayers: nextConnectedPlayers,
+    },
+    message: `Simulated ${estimatedDamage} combat damage to ${opponent.displayName}.`,
+    blockerIds: blockers.map((permanent) => permanent.id),
+    preview: {
+      attackerTotal: attackerTotals,
+      blockerTotal: blockerTotals,
+      netPressure: attackerTotals.power - blockerTotals.toughness,
+      estimatedDamage,
+    },
+  };
+}
+
+function estimateTrampleCombatDamage(attackers, blockerToughness, sourcePermanents = state.boardState.permanents) {
+  const tramplePower = attackers
+    .filter((permanent) => getPermanentReferenceText(permanent).includes("trample"))
+    .reduce((sum, permanent) => sum + getPermanentCurrentPower(permanent, sourcePermanents) * normalizeCount(permanent.quantity, 1), 0);
+  return Math.max(0, tramplePower - normalizeCount(blockerToughness, 0));
 }
 
 function setPermanentTappedState(permanentId, isTapped) {
@@ -7694,6 +9348,45 @@ function clearCombatEngagementFlags(boardState) {
           })
         : createPermanent(permanent)
     ),
+  };
+}
+
+function runStateBasedActions(boardState) {
+  const permanents = Array.isArray(boardState?.permanents) ? boardState.permanents : [];
+  const removedIds = new Set(
+    permanents
+      .filter((permanent) => permanent.isCreature && calculatePermanentPowerToughness(permanent, permanents).toughness <= 0)
+      .map((permanent) => permanent.id)
+  );
+
+  if (removedIds.size === 0) {
+    return {
+      boardState,
+      changed: false,
+    };
+  }
+
+  const combatState = normalizeCombatState(boardState.combatState);
+  return {
+    changed: true,
+    boardState: {
+      ...boardState,
+      permanents: permanents
+        .filter((permanent) => !removedIds.has(permanent.id))
+        .map((permanent) =>
+          createPermanent({
+            ...permanent,
+            attachedToId: removedIds.has(permanent.attachedToId) ? "" : permanent.attachedToId,
+            isSelected: false,
+          })
+        ),
+      automationRules: boardState.automationRules.filter((rule) => !removedIds.has(rule.sourcePermanentId)),
+      automationSuggestions: boardState.automationSuggestions.filter((rule) => !removedIds.has(rule.sourcePermanentId)),
+      combatState: {
+        ...combatState,
+        attackerIds: combatState.attackerIds.filter((id) => !removedIds.has(id)),
+      },
+    },
   };
 }
 
@@ -8108,14 +9801,18 @@ function parseCombatAutomationRules(permanent) {
 
   if (referenceText.includes("create") && referenceText.includes("token")) {
     const tokenSpec = extractTokenSpec(oracleText || referenceText);
+    const tokenEntryProfile = extractTokenEntryProfile(oracleText || referenceText);
     rules.push({
       actionType: "Create Tokens",
       triggerType,
       value: extractCountFromText(oracleText || referenceText),
+      valueMode: extractValueModeFromText(oracleText || referenceText),
       tokenName: tokenSpec.name,
       tokenPower: tokenSpec.power,
       tokenToughness: tokenSpec.toughness,
       tokenManaCost: "",
+      tokenTapped: tokenEntryProfile.tapped,
+      tokenAttacking: tokenEntryProfile.attacking,
     });
   }
 
@@ -8173,7 +9870,10 @@ function detectCombatTriggerType(referenceText, sourceName = "") {
     return "";
   }
 
-  if (/whenever one or more [a-z0-9 ]*creatures?[a-z0-9 ]* attack/.test(normalizedText)) {
+  if (
+    /whenever one or more [a-z0-9,\- ]*creatures?[a-z0-9,\- ]* attack/.test(normalizedText) ||
+    /whenever you attack with one or more [a-z0-9,\- ]*creatures?/.test(normalizedText)
+  ) {
     return "attack-group";
   }
 
@@ -8231,17 +9931,22 @@ function applyCombatAutomationRule(boardState, sourcePermanent, rule, attackerId
       actionType: "Create Tokens",
       target: "All",
       value: rule.value,
+      valueMode: rule.valueMode,
       tokenName: rule.tokenName,
       tokenManaCost: rule.tokenManaCost,
       tokenPower: rule.tokenPower,
       tokenToughness: rule.tokenToughness,
+      tokenTapped: Boolean(rule.tokenTapped),
+      tokenAttacking: Boolean(rule.tokenAttacking),
     });
 
-    return {
-      boardState: executeTrigger(trigger, boardState, {
+    const result = executeTrigger(trigger, boardState, {
         selectedIds: attackerIds,
-      }).boardState,
-      message: `${sourcePermanent.name} created ${rule.value} token${rule.value === 1 ? "" : "s"}.`,
+      });
+
+    return {
+      boardState: result.boardState,
+      message: result.message || `${sourcePermanent.name} created ${rule.value} token${rule.value === 1 ? "" : "s"}.`,
     };
   }
 
@@ -8634,6 +10339,45 @@ function extractTokenSpec(oracleText) {
   };
 }
 
+function extractTokenEntryProfile(oracleText) {
+  const normalizedText = normalizeLabel(oracleText, "").toLowerCase();
+  return {
+    tapped: /\btapped\b/.test(normalizedText),
+    attacking: /\battacking\b/.test(normalizedText),
+  };
+}
+
+function extractValueModeFromText(oracleText) {
+  const normalizedText = normalizeLabel(oracleText, "").toLowerCase();
+  if (/\bwhere x is\b/.test(normalizedText) && normalizedText.includes("+1/+1 counter")) {
+    return "source-plus-one-counters";
+  }
+  if (/\bwhere x is\b/.test(normalizedText) && normalizedText.includes("counter")) {
+    return "source-counters";
+  }
+  return "fixed";
+}
+
+function resolveTriggeredValue(trigger, boardState, sourcePermanent = null) {
+  const valueMode = normalizeValueMode(trigger.valueMode);
+  if (valueMode === "source-plus-one-counters") {
+    const source =
+      sourcePermanent ||
+      boardState.permanents.find((permanent) => permanent.id === (trigger.sourcePermanentId || trigger.sourcePermanentId));
+    return Math.max(0, normalizeCount(source?.plusOneCounters, 0));
+  }
+  if (valueMode === "source-counters") {
+    const source =
+      sourcePermanent ||
+      boardState.permanents.find((permanent) => permanent.id === (trigger.sourcePermanentId || trigger.sourcePermanentId));
+    return Object.values(normalizePermanentCounters(source?.counters)).reduce(
+      (sum, count) => sum + normalizeCount(count, 0),
+      0
+    );
+  }
+  return normalizeCount(trigger.value, 0);
+}
+
 function extractCountFromText(text) {
   const normalizedText = String(text || "").toLowerCase();
   const digitMatch = normalizedText.match(/\b(\d+)\b/);
@@ -8858,10 +10602,15 @@ function escapeHtml(value) {
 
 function syncPageWithHash() {
   const params = new URLSearchParams(window.location.search);
-  if (window.location.hash === "#board-state" || params.get("page") === "board-state") {
-    showBoardStatePage({ syncHash: false, behavior: "auto" });
-    return;
-  }
-
-  showTrackerPage({ syncHash: false, behavior: "auto" });
+  const hashValue = window.location.hash;
+  const legacyHashMap = {
+    "#boardstate": "board-state",
+    "#leaderboard": "leaderboards",
+  };
+  const hashPage =
+    legacyHashMap[hashValue] || Object.entries(PAGE_HASH_MAP).find(([, hash]) => hash === hashValue)?.[0];
+  const queryPage = normalizeLabel(params.get("page"), "").toLowerCase();
+  const normalizedQueryPage = PAGE_ORDER.includes(queryPage) ? queryPage : "";
+  const targetPage = hashPage || normalizedQueryPage || "tracker";
+  showPage(targetPage, { syncHash: false, behavior: "auto" });
 }
