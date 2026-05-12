@@ -4632,12 +4632,34 @@ function promptPermanentFlags({ isCreature }) {
 }
 
 async function searchCards(query) {
-  const [cards, tokenCards] = await Promise.all([
-    searchCardsByQuery(buildScryfallSearchQuery(query)),
-    searchCardsByQuery(buildScryfallTokenQuery(query)),
+  const normalizedQuery = query.trim();
+  const [cards, tokenCards, basicLandCards] = await Promise.all([
+    searchCardsByQuery(buildScryfallSearchQuery(normalizedQuery), {
+      unique: "cards",
+      order: "name",
+      includeExtras: true,
+      includeVariations: true,
+      includeMultilingual: true,
+    }),
+    searchCardsByQuery(buildScryfallTokenQuery(normalizedQuery), {
+      unique: "cards",
+      order: "name",
+      includeExtras: true,
+      includeVariations: true,
+      includeMultilingual: true,
+    }),
+    searchCardsByQuery(buildScryfallBasicLandQuery(normalizedQuery), {
+      unique: "prints",
+      order: "released",
+      includeExtras: true,
+      includeVariations: true,
+      includeMultilingual: true,
+      direction: "desc",
+    }),
   ]);
 
-  return mergeScryfallResults(cards, tokenCards).slice(0, SEARCH_RESULT_LIMIT);
+  const mergedResults = mergeScryfallResults(cards, tokenCards, basicLandCards);
+  return prioritizeSearchMatches(mergedResults, normalizedQuery).slice(0, SEARCH_RESULT_LIMIT);
 }
 
 function buildScryfallSearchQuery(query) {
@@ -4660,16 +4682,32 @@ function buildScryfallTokenQuery(query) {
   return looksLikeSearchSyntax ? `t:token (${trimmedQuery})` : `t:token "${trimmedQuery}"`;
 }
 
-async function searchCardsByQuery(searchQuery) {
+function buildScryfallBasicLandQuery(query) {
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) {
+    return "";
+  }
+
+  const looksLikeSearchSyntax = /[:!"()]/.test(trimmedQuery);
+  return looksLikeSearchSyntax ? `t:basic (${trimmedQuery})` : `t:basic "${trimmedQuery}"`;
+}
+
+async function searchCardsByQuery(searchQuery, options = {}) {
   if (!searchQuery) {
     return [];
   }
 
   const params = new URLSearchParams({
     q: searchQuery,
-    unique: "cards",
-    order: "edhrec",
+    unique: options.unique || "cards",
+    order: options.order || "name",
+    include_extras: options.includeExtras === false ? "false" : "true",
+    include_multilingual: options.includeMultilingual ? "true" : "false",
+    include_variations: options.includeVariations ? "true" : "false",
   });
+  if (options.direction) {
+    params.set("dir", options.direction);
+  }
   const response = await fetch(`${SCRYFALL_SEARCH_URL}?${params.toString()}`, {
     headers: {
       Accept: "application/json;q=0.9,*/*;q=0.8",
@@ -5670,6 +5708,31 @@ function openGenericTokenDialog() {
   window.requestAnimationFrame(() => {
     tokenNameInput?.focus();
   });
+}
+
+function prioritizeSearchMatches(cards, query) {
+  const normalizedQuery = normalizeLabel(query, "").toLowerCase();
+  if (!normalizedQuery) {
+    return cards;
+  }
+
+  const ranked = cards.map((card) => {
+    const name = normalizeLabel(card?.name, "").toLowerCase();
+    const typeLine = normalizeLabel(card?.type_line, "").toLowerCase();
+    const isToken = typeLine.includes("token");
+    const isBasicLand = typeLine.includes("basic") && typeLine.includes("land");
+    const exactName = name === normalizedQuery;
+    const startsWith = !exactName && name.startsWith(normalizedQuery);
+    let score = 0;
+    if (exactName) score += 1000;
+    if (startsWith) score += 500;
+    if (isBasicLand) score += 120;
+    if (isToken) score += 110;
+    return { card, score };
+  });
+
+  ranked.sort((a, b) => b.score - a.score);
+  return ranked.map((entry) => entry.card);
 }
 
 function renderTokenTemplateList() {
