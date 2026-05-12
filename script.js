@@ -47,6 +47,33 @@ const SCRYFALL_SEARCH_URL = "https://api.scryfall.com/cards/search";
 const SEARCH_RESULT_LIMIT = 10;
 const DEFAULT_RECENT_COUNTER_TYPES = ["+1/+1", "-1/-1", "Loyalty", "Charge", "Shield", "Oil", "Stun", "Time", "Quest"];
 const MAX_RECENT_COUNTER_TYPES = 12;
+const MAX_RECENT_TOKEN_SEARCHES = 5;
+const TOKEN_TEMPLATE_LIBRARY = [
+  "Treasure",
+  "Food",
+  "Clue",
+  "Blood",
+  "Map",
+  "Powerstone",
+  "Soldier",
+  "Zombie",
+  "Goblin",
+  "Elf",
+  "Human",
+  "Spirit",
+  "Angel",
+  "Dragon",
+  "Beast",
+  "Bird",
+  "Saproling",
+  "Vampire",
+  "Knight",
+  "Merfolk",
+  "Faerie",
+  "Construct",
+  "Phyrexian",
+  "Elemental",
+];
 const TRIGGER_TARGETS = [
   "All",
   "Tokens Only",
@@ -386,6 +413,8 @@ const manualSectionsList = document.querySelector("#manualSectionsList");
 const actionHistoryList = document.querySelector("#actionHistoryList");
 const globalUndoAction = document.querySelector("#globalUndoAction");
 const lifeRollbackAction = document.querySelector("#lifeRollbackAction");
+const triggerReminderStrip = document.querySelector("#triggerReminderStrip");
+const triggerReminderList = document.querySelector("#triggerReminderList");
 const tokenNameInput = document.querySelector("#tokenNameInput");
 const tokenManaCostInput = document.querySelector("#tokenManaCostInput");
 const tokenPowerInput = document.querySelector("#tokenPowerInput");
@@ -393,6 +422,9 @@ const tokenToughnessInput = document.querySelector("#tokenToughnessInput");
 const tokenQuantityInput = document.querySelector("#tokenQuantityInput");
 const tokenTypeInput = document.querySelector("#tokenTypeInput");
 const tokenNotesInput = document.querySelector("#tokenNotesInput");
+const tokenTemplateSearchInput = document.querySelector("#tokenTemplateSearchInput");
+const tokenTemplateList = document.querySelector("#tokenTemplateList");
+const copySelectedPermanentTokenButton = document.querySelector("#copySelectedPermanentTokenButton");
 const closeGenericTokenDialogButton = document.querySelector("#closeGenericTokenDialogButton");
 const quickToast = document.querySelector("#quickToast");
 
@@ -509,6 +541,9 @@ automationSuggestionsList?.addEventListener("click", handleAutomationSuggestions
 automationManualList?.addEventListener("click", handleAutomationManualTriggersClick);
 genericTokenForm?.addEventListener("submit", handleGenericTokenSubmit);
 closeGenericTokenDialogButton?.addEventListener("click", () => genericTokenDialog.close());
+tokenTemplateSearchInput?.addEventListener("input", renderTokenTemplateList);
+tokenTemplateList?.addEventListener("click", handleTokenTemplateClick);
+copySelectedPermanentTokenButton?.addEventListener("click", handleCopySelectedPermanentToken);
 cardDetailDialog?.addEventListener("close", clearExpandedCardState);
 
 [effectStrip, battlefieldGrid].forEach((container) => {
@@ -1449,6 +1484,7 @@ function renderBoardStatePage() {
     battlefieldSection.dataset.hasEffects = String(effects.length > 0);
     battlefieldSection.dataset.hasCreatures = String(battlefield.length > 0);
   }
+  renderTriggerReminders();
   renderBattlefieldActionButtons();
   renderBoardSearch();
   renderBoardControls(boardState.controlsExpanded);
@@ -1478,6 +1514,30 @@ function renderFloatingManaPanel() {
 
     output.textContent = String(Number(floatingMana[color]) || 0);
   });
+}
+
+function renderTriggerReminders() {
+  if (!triggerReminderStrip || !triggerReminderList) {
+    return;
+  }
+
+  const currentPhase = PHASES[state.boardState.currentPhaseIndex];
+  const reminders = queueTriggerReminders({
+    phase: currentPhase,
+    permanents: state.boardState.permanents,
+    automationRules: state.boardState.automationRules,
+  }).slice(0, 6);
+  triggerReminderStrip.hidden = reminders.length === 0;
+  if (reminders.length === 0) {
+    triggerReminderList.innerHTML = "";
+    return;
+  }
+
+  triggerReminderList.innerHTML = reminders
+    .map((entry) => {
+      return `<span class="trigger-reminder-chip" data-deterministic="${entry.deterministic ? "true" : "false"}">${escapeHtml(truncateText(entry.summary || "Trigger reminder", 48))}</span>`;
+    })
+    .join("");
 }
 
 function renderSettingsManualDialog() {
@@ -3631,6 +3691,18 @@ function getNextRecentCounterTypes(existingTypes, newType) {
   return [normalizedNewType, ...existingNormalized].slice(0, MAX_RECENT_COUNTER_TYPES);
 }
 
+function updateRecentTokenSearches(existingSearches, tokenName) {
+  const normalizedToken = normalizeLabel(tokenName, "");
+  if (!normalizedToken) {
+    return Array.isArray(existingSearches) ? existingSearches.slice(0, MAX_RECENT_TOKEN_SEARCHES) : [];
+  }
+
+  const nextSearches = [normalizedToken, ...(Array.isArray(existingSearches) ? existingSearches : [])]
+    .map((entry) => normalizeLabel(entry, ""))
+    .filter(Boolean);
+  return Array.from(new Set(nextSearches)).slice(0, MAX_RECENT_TOKEN_SEARCHES);
+}
+
 function applyCounterToPermanentTargets(boardState, targetIds, counterType, value) {
   const uniqueTargetIds = Array.from(new Set(targetIds));
   if (uniqueTargetIds.length === 0) {
@@ -4265,15 +4337,14 @@ function advanceBoardPhase() {
 
   const nextFloatingMana = clearFloatingManaForPhase(state.companion?.floatingMana, nextPhase, {
     manaAutoClearEnabled: state.companion?.settings?.manaAutoClearEnabled !== false,
+    previousPhaseLabel: currentPhase,
+    persistThroughPhaseChange: hasPersistentFloatingManaEffects(nextBoardState.permanents),
   });
-  const triggerQueue =
-    state.companion?.settings?.triggerRemindersEnabled === false
-      ? state.companion?.triggerQueue || []
-      : queueTriggerReminders({
-          phase: nextPhase,
-          permanents: nextBoardState.permanents,
-          automationRules: nextBoardState.automationRules,
-        }).slice(0, 20);
+  const triggerQueue = queueTriggerReminders({
+    phase: nextPhase,
+    permanents: nextBoardState.permanents,
+    automationRules: nextBoardState.automationRules,
+  }).slice(0, 20);
 
   registerCompanionAction({
     type: "phase",
@@ -5576,6 +5647,9 @@ function promptCreateGenericToken() {
 
 function openGenericTokenDialog() {
   genericTokenForm?.reset();
+  if (tokenTemplateSearchInput) {
+    tokenTemplateSearchInput.value = "";
+  }
   if (tokenPowerInput) {
     tokenPowerInput.value = "1";
   }
@@ -5591,9 +5665,149 @@ function openGenericTokenDialog() {
   if (tokenNotesInput) {
     tokenNotesInput.value = "";
   }
+  renderTokenTemplateList();
   showDialog(genericTokenDialog);
   window.requestAnimationFrame(() => {
     tokenNameInput?.focus();
+  });
+}
+
+function renderTokenTemplateList() {
+  if (!tokenTemplateList) {
+    return;
+  }
+
+  const searchValue = tokenTemplateSearchInput?.value || "";
+  const templates = getTokenTemplateSuggestions(searchValue);
+  tokenTemplateList.innerHTML = templates
+    .map((template) => `<button class="token-template-chip" type="button" data-token-template="${escapeHtml(template)}">${escapeHtml(template)}</button>`)
+    .join("");
+
+  if (copySelectedPermanentTokenButton) {
+    const hasSelected = state.boardState.permanents.some((permanent) => permanent.isSelected);
+    copySelectedPermanentTokenButton.disabled = !hasSelected;
+    copySelectedPermanentTokenButton.textContent = hasSelected
+      ? "Copy Selected Permanent"
+      : "Copy Selected Permanent (Select one first)";
+  }
+}
+
+function getTokenTemplateSuggestions(query = "") {
+  const recent = Array.isArray(state.companion?.recentTokenSearches) ? state.companion.recentTokenSearches : [];
+  const pool = Array.from(new Set([...recent, ...TOKEN_TEMPLATE_LIBRARY]));
+  const normalizedQuery = normalizeLabel(query, "").toLowerCase();
+  if (!normalizedQuery) {
+    return pool.slice(0, 10);
+  }
+
+  return pool.filter((entry) => entry.toLowerCase().includes(normalizedQuery)).slice(0, 10);
+}
+
+function handleTokenTemplateClick(event) {
+  const button = event.target.closest("[data-token-template]");
+  if (!button) {
+    return;
+  }
+
+  const templateName = normalizeLabel(button.dataset.tokenTemplate, "");
+  if (!templateName) {
+    return;
+  }
+
+  applyTokenTemplate(templateName);
+  if (tokenTemplateSearchInput) {
+    tokenTemplateSearchInput.value = templateName;
+  }
+  renderTokenTemplateList();
+}
+
+function applyTokenTemplate(templateName) {
+  const normalizedTemplate = normalizeLabel(templateName, "");
+  if (!normalizedTemplate) {
+    return;
+  }
+
+  const lowerTemplate = normalizedTemplate.toLowerCase();
+  if (tokenNameInput) {
+    tokenNameInput.value = normalizedTemplate;
+  }
+  if (tokenTypeInput) {
+    tokenTypeInput.value = getTokenTemplateTypeLine(normalizedTemplate);
+  }
+  if (tokenPowerInput && tokenToughnessInput) {
+    if (["treasure", "food", "clue", "blood", "map", "powerstone"].includes(lowerTemplate)) {
+      tokenPowerInput.value = "0";
+      tokenToughnessInput.value = "0";
+    } else {
+      tokenPowerInput.value = "1";
+      tokenToughnessInput.value = "1";
+    }
+  }
+}
+
+function getTokenTemplateTypeLine(templateName) {
+  const lowerTemplate = normalizeLabel(templateName, "").toLowerCase();
+  if (["treasure", "food", "clue", "blood", "map", "powerstone"].includes(lowerTemplate)) {
+    return "Artifact Token";
+  }
+
+  return `Token Creature — ${templateName}`;
+}
+
+function handleCopySelectedPermanentToken() {
+  const selectedPermanent = state.boardState.permanents.find((permanent) => permanent.isSelected);
+  if (!selectedPermanent) {
+    showQuickToast("Select a permanent first, then open token creator.");
+    return;
+  }
+
+  const copiedToken = createCopyTokenFromPermanent(selectedPermanent);
+  state = {
+    ...state,
+    boardState: addOrStackPermanent(state.boardState, copiedToken),
+    companion: {
+      ...state.companion,
+      recentTokenSearches: updateRecentTokenSearches(state.companion?.recentTokenSearches, copiedToken.name),
+    },
+  };
+  registerCompanionAction({
+    type: "token",
+    summary: `Created copy token of ${selectedPermanent.name}`,
+    payload: { sourcePermanentId: selectedPermanent.id, name: copiedToken.name },
+  });
+
+  persistState();
+  render();
+  genericTokenDialog?.close();
+  showQuickToast(`Copied ${selectedPermanent.name}.`);
+}
+
+function createCopyTokenFromPermanent(sourcePermanent) {
+  return createPermanent({
+    name: `Copy of ${sourcePermanent.name}`,
+    manaCost: sourcePermanent.manaCost,
+    typeLine: sourcePermanent.typeLine || getFallbackTypeLine(sourcePermanent),
+    oracleText: sourcePermanent.oracleText,
+    imageUrl: sourcePermanent.imageUrl || sourcePermanent.cardImageUrl || "",
+    cardImageUrl: sourcePermanent.cardImageUrl || sourcePermanent.imageUrl || "",
+    power: sourcePermanent.power,
+    toughness: sourcePermanent.toughness,
+    quantity: 1,
+    isToken: true,
+    isNonCreature: Boolean(sourcePermanent.isNonCreature),
+    isLegendary: false,
+    isArtifact: Boolean(sourcePermanent.isArtifact),
+    isCreature: Boolean(sourcePermanent.isCreature),
+    plusOneCounters: 0,
+    minusOneCounters: 0,
+    counters: {},
+    doublesTokens: false,
+    createsTokens: false,
+    addsCounters: false,
+    isExpanded: false,
+    isSelected: false,
+    summoningSickness: Boolean(sourcePermanent.isCreature),
+    notes: "Copy token (base characteristics only).",
   });
 }
 
@@ -5616,6 +5830,10 @@ function handleGenericTokenSubmit(event) {
   state = {
     ...state,
     boardState: addOrStackPermanent(state.boardState, token),
+    companion: {
+      ...state.companion,
+      recentTokenSearches: updateRecentTokenSearches(state.companion?.recentTokenSearches, token.name),
+    },
   };
   registerCompanionAction({
     type: "token",
@@ -5799,11 +6017,14 @@ function executeActiveAutomationRules(boardState, context = {}) {
   rules.forEach((rule) => {
     const executionCount = getAutomationExecutionCount(rule, nextBoardState, context);
     for (let index = 0; index < executionCount; index += 1) {
-      const confirmationStatus = shouldConfirmAutomationRule(rule)
+      const autoByAdhd = isDeterministicAdhdAutomationRule(rule, context);
+      const confirmationStatus = shouldConfirmAutomationRule(rule, context)
         ? confirmAutomationRule(rule)
           ? "Confirmed"
           : "Skipped"
-        : "Auto";
+        : autoByAdhd
+          ? "Auto (ADHD)"
+          : "Auto";
 
       if (confirmationStatus === "Skipped") {
         logEntries.push(
@@ -6041,8 +6262,38 @@ function executeAutomationRule(rule, boardState, context = {}) {
   });
 }
 
-function shouldConfirmAutomationRule(rule) {
+function shouldConfirmAutomationRule(rule, context = {}) {
+  const companionSettings = state.companion?.settings || {};
+  const adhdModeEnabled = Boolean(companionSettings.adhdMode);
+  const autoResolveDeterministic = companionSettings.autoResolveDeterministic !== false;
+  if (adhdModeEnabled && autoResolveDeterministic && isDeterministicAdhdAutomationRule(rule, context)) {
+    return false;
+  }
+
   return rule.askBeforeRun || rule.confidence !== "High";
+}
+
+function isDeterministicAdhdAutomationRule(rule, context = {}) {
+  if (!rule || rule.confidence !== "High" || rule.askBeforeRun || rule.requiresTargetSelection) {
+    return false;
+  }
+
+  const actionType = normalizeAutomationAction(rule.actionType);
+  if (!["Create Tokens", "Multiply Tokens", "Add +1/+1 Counters", "Add Counters"].includes(actionType)) {
+    return false;
+  }
+
+  const targetType = normalizeAutomationTarget(rule.targetType);
+  if (targetType === "Selected" || targetType.includes("Target")) {
+    return false;
+  }
+
+  const eventType = normalizeLabel(context.eventType, "");
+  if (!["ETB", "Phase", "Attack", "OnDeath", "OnSacrifice", "OnExile"].includes(eventType)) {
+    return false;
+  }
+
+  return true;
 }
 
 function confirmAutomationRule(rule) {
@@ -7250,6 +7501,17 @@ function hasAttackTapExemption(permanent) {
 function hasSummoningSicknessExemption(permanent) {
   const referenceText = getPermanentReferenceText(permanent);
   return referenceText.includes("haste") || referenceText.includes("can attack as though it had haste");
+}
+
+function hasPersistentFloatingManaEffects(permanents = []) {
+  return permanents.some((permanent) => {
+    const text = getPermanentReferenceText(permanent);
+    return (
+      text.includes("mana doesn't empty") ||
+      text.includes("mana doesn't empty as steps and phases end") ||
+      text.includes("this mana doesn't empty")
+    );
+  });
 }
 
 function tapAttackersForCombat(boardState, attackerIds) {

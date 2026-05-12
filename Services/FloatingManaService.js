@@ -18,8 +18,13 @@ export function clearFloatingManaForPhase(floatingMana, phaseLabel, options = {}
     return normalized;
   }
 
+  if (options.persistThroughPhaseChange) {
+    return normalized;
+  }
+
+  const previousPhase = normalizePhaseKey(options.previousPhaseLabel || "");
   const normalizedPhase = normalizePhaseKey(phaseLabel);
-  if (normalizedPhase === "main1" || normalizedPhase === "combat" || normalizedPhase === "main2") {
+  if (!normalizedPhase || previousPhase === normalizedPhase) {
     return normalized;
   }
 

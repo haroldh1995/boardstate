@@ -169,6 +169,10 @@
                   </div>
                   <button class="nav-text-button board-state-header-button" id="nextPhaseButton" type="button">Next Phase</button>
                 </div>
+                <div class="trigger-reminder-strip" id="triggerReminderStrip" hidden>
+                  <span class="trigger-reminder-label">Triggers</span>
+                  <div class="trigger-reminder-list" id="triggerReminderList"></div>
+                </div>
               </header>
               <section class="floating-mana-panel board-state-card" id="floatingManaPanel" hidden>
                 <div class="floating-mana-header">
@@ -701,6 +705,23 @@
           <h1>Create Generic Token</h1>
         </div>
         <div class="sheet-field-grid">
+          <label class="sheet-field" for="tokenTemplateSearchInput">
+            <span class="sheet-field-label">Token Search</span>
+            <input
+              class="sheet-text-input"
+              id="tokenTemplateSearchInput"
+              name="tokenTemplateSearch"
+              type="search"
+              maxlength="40"
+              placeholder="Treasure, Soldier, Zombie, Food..."
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </label>
+          <div class="token-template-list" id="tokenTemplateList"></div>
+          <button class="sheet-secondary token-copy-button" id="copySelectedPermanentTokenButton" type="button">
+            Copy Selected Permanent
+          </button>
           <label class="sheet-field" for="tokenNameInput">
             <span class="sheet-field-label">Token Name</span>
             <input class="sheet-text-input" id="tokenNameInput" name="tokenName" type="text" maxlength="40" required />

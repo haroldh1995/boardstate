@@ -13,6 +13,7 @@ export function createDefaultCompanionState() {
     undoStack: [],
     lifeRollback: null,
     recentCounterSearches: [],
+    recentTokenSearches: [],
     triggerQueue: [],
     floatingMana: createEmptyFloatingMana(),
   };
@@ -62,6 +63,12 @@ export function normalizeCompanionState(source = {}) {
     lifeRollback: normalizeLifeRollback(source?.lifeRollback),
     recentCounterSearches: Array.isArray(source?.recentCounterSearches)
       ? source.recentCounterSearches
+          .map((value) => normalizeText(value))
+          .filter(Boolean)
+          .slice(0, 5)
+      : [],
+    recentTokenSearches: Array.isArray(source?.recentTokenSearches)
+      ? source.recentTokenSearches
           .map((value) => normalizeText(value))
           .filter(Boolean)
           .slice(0, 5)
