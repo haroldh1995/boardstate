@@ -1884,6 +1884,10 @@ button {
   padding: 8px 10px;
 }
 
+.floating-mana-panel[data-empty="true"] {
+  opacity: 0.86;
+}
+
 .floating-mana-header {
   display: flex;
   align-items: center;

@@ -341,7 +341,7 @@ const boardSearchResults = document.querySelector("#boardSearchResults");
 const addSelectedCardButton = document.querySelector("#addSelectedCardButton");
 const manualAddButton = document.querySelector("#manualAddButton");
 const addCreatureButton = document.querySelector("#addCreatureButton");
-const addTokenButton = document.querySelector("#addTokenButton");
+const addTokenButton = document.querySelector("#legacyAddTokenButton") || document.querySelector("#addTokenButton");
 const addEffectButton = document.querySelector("#addEffectButton");
 const addTriggerButton = document.querySelector("#addTriggerButton");
 const toggleBoardControlsButton = document.querySelector("#toggleBoardControlsButton");
@@ -1505,7 +1505,8 @@ function renderFloatingManaPanel() {
 
   const floatingMana = state.companion?.floatingMana || {};
   const totalMana = getFloatingManaTotal(floatingMana);
-  floatingManaPanel.hidden = totalMana === 0;
+  floatingManaPanel.hidden = false;
+  floatingManaPanel.dataset.empty = totalMana === 0 ? "true" : "false";
   floatingManaTotalValue.textContent = String(totalMana);
   Object.entries(floatingManaOutputs).forEach(([color, output]) => {
     if (!output) {
@@ -1661,7 +1662,7 @@ function setupBoardStateLayout() {
     return;
   }
 
-  [removeAllBattlefieldButton, battlefieldAddCounterButton, confirmCounterSelectionButton, toggleBoardTotalsButton]
+  [removeAllBattlefieldButton, addTokenButton, battlefieldAddCounterButton, confirmCounterSelectionButton, toggleBoardTotalsButton]
     .filter(Boolean)
     .forEach((button) => {
     button.classList.remove("board-control-button", "board-control-button-wide");
@@ -1679,6 +1680,10 @@ function setupBoardStateLayout() {
   }
 
   actionGroup.append(removeAllBattlefieldButton);
+  if (addTokenButton) {
+    addTokenButton.textContent = "Token";
+    actionGroup.append(addTokenButton);
+  }
   if (battlefieldAddCounterButton) {
     actionGroup.append(battlefieldAddCounterButton);
   }
