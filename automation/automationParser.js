@@ -515,6 +515,10 @@ function inferCounterTargetProfile(normalizedText, cardName = "") {
     return { targetType: "All Auras", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
   }
 
+  if (normalizedText.includes("each equipment") || normalizedText.includes("equipment you control")) {
+    return { targetType: "All Equipment", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
+  }
+
   if (normalizedText.includes("each vehicle") || normalizedText.includes("vehicles you control")) {
     return { targetType: "All Vehicles", counterTargetEntity: "permanent", requiresTargetSelection: false, optionalTarget: false };
   }

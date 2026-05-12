@@ -2268,6 +2268,12 @@ button {
   background: rgba(72, 159, 98, 0.2);
 }
 
+.trigger-reminder-chip[data-manual="true"] {
+  border-color: rgba(255, 126, 205, 0.58);
+  background: rgba(223, 67, 159, 0.2);
+  color: rgba(255, 237, 249, 0.98);
+}
+
 .settings-manual-sheet {
   max-height: min(90svh, 760px);
   overflow: auto;
@@ -2456,6 +2462,11 @@ button {
   transform: rotate(-1.5deg);
 }
 
+.effect-dock-chip.has-manual-effect-pending {
+  border-color: rgba(255, 126, 205, 0.62);
+  box-shadow: 0 0 0 1px rgba(255, 126, 205, 0.18), 0 0 16px rgba(223, 67, 159, 0.18);
+}
+
 .effect-dock-main {
   display: flex;
   align-items: center;
@@ -2505,6 +2516,13 @@ button {
   line-height: 1;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+}
+
+.effect-dock-state.is-manual-effect,
+.board-tile-tag.is-manual-effect {
+  border-color: rgba(255, 126, 205, 0.48);
+  background: rgba(223, 67, 159, 0.14);
+  color: rgba(255, 237, 249, 0.95);
 }
 
 .effect-dock-actions {
@@ -2795,6 +2813,11 @@ button {
 .board-tile.is-attacking {
   border-color: rgba(255, 176, 116, 0.4);
   box-shadow: 0 0 0 1px rgba(255, 176, 116, 0.14), 0 0 16px rgba(255, 176, 116, 0.08);
+}
+
+.board-tile.has-manual-effect-pending {
+  border-color: rgba(255, 126, 205, 0.64);
+  box-shadow: 0 0 0 1px rgba(255, 126, 205, 0.2), 0 0 20px rgba(223, 67, 159, 0.18);
 }
 
 .board-tile.is-tapped {

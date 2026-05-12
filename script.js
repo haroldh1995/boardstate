@@ -86,6 +86,7 @@ const TRIGGER_TARGETS = [
   "All Lands",
   "All Nonbasic Lands",
   "All Auras",
+  "All Equipment",
   "All Vehicles",
   "All Spacecraft",
   "All Mounts",
@@ -112,6 +113,14 @@ const MAX_AUTOMATION_CHAIN_DEPTH = 40;
 const BOARD_LONG_PRESS_MS = 430;
 const BOARD_SWIPE_REMOVE_THRESHOLD = 72;
 let automationChainDepth = 0;
+const MANUAL_EFFECT_STATES = ["", "pending", "conditions-met", "effect-used", "resolved", "skipped"];
+const MANUAL_EFFECT_LABELS = {
+  pending: "Pending",
+  "conditions-met": "Conditions Met",
+  "effect-used": "Effect Used",
+  resolved: "Resolved",
+  skipped: "Skipped",
+};
 
 const PLAYER_COUNTER_DEFS = [
   { id: "poison", label: "Poison" },
@@ -171,6 +180,9 @@ const PLAYER_COUNTER_DEFS = [
  * @property {boolean} summoningSickness
  * @property {boolean} isAttacking
  * @property {boolean} isBlocking
+ * @property {string} manualEffectState
+ * @property {string} manualEffectNote
+ * @property {number} manualEffectUpdatedAt
  * @property {string} notes
  * @property {string} attachedToId
  * @property {string} attachmentKind
@@ -903,10 +915,45 @@ function createPermanent(source = {}) {
     summoningSickness: Boolean(source.summoningSickness),
     isAttacking: Boolean(source.isAttacking),
     isBlocking: Boolean(source.isBlocking),
+    manualEffectState: normalizeManualEffectState(source.manualEffectState),
+    manualEffectNote: normalizeLabel(source.manualEffectNote, ""),
+    manualEffectUpdatedAt: normalizeCount(source.manualEffectUpdatedAt, 0),
     notes: typeof source.notes === "string" ? source.notes.trim() : "",
     attachedToId: typeof source.attachedToId === "string" ? source.attachedToId.trim() : "",
     attachmentKind: typeof source.attachmentKind === "string" ? source.attachmentKind.trim() : "",
   };
+}
+
+function normalizeManualEffectState(value) {
+  const normalized = normalizeLabel(value, "").toLowerCase();
+  return MANUAL_EFFECT_STATES.includes(normalized) ? normalized : "";
+}
+
+function getManualEffectLabel(permanent) {
+  const stateValue = normalizeManualEffectState(permanent?.manualEffectState);
+  return stateValue ? MANUAL_EFFECT_LABELS[stateValue] || "Effect" : "";
+}
+
+function shouldShowManualEffectGlow(permanent) {
+  return ["pending", "conditions-met", "effect-used"].includes(normalizeManualEffectState(permanent?.manualEffectState));
+}
+
+function getManualEffectMenuItems(permanent) {
+  const ownRulesText = [permanent?.oracleText, permanent?.notes, ...(Array.isArray(permanent?.rulings) ? permanent.rulings.map((entry) => entry.comment) : [])]
+    .filter(Boolean)
+    .join(" ");
+  const hasTrackableText = Boolean(ownRulesText) || getRulesForPermanent(permanent?.id || "").length > 0 || getSuggestionsForPermanent(permanent?.id || "").length > 0;
+  if (!hasTrackableText) {
+    return "";
+  }
+
+  return `
+    <button class="board-tile-menu-action" type="button" data-board-action="manual-effect-pending" data-permanent-id="${permanent.id}">Pending Effect</button>
+    <button class="board-tile-menu-action" type="button" data-board-action="manual-effect-conditions-met" data-permanent-id="${permanent.id}">Conditions Met</button>
+    <button class="board-tile-menu-action" type="button" data-board-action="manual-effect-used" data-permanent-id="${permanent.id}">Effect Used</button>
+    <button class="board-tile-menu-action" type="button" data-board-action="manual-effect-resolved" data-permanent-id="${permanent.id}">Resolved</button>
+    <button class="board-tile-menu-action" type="button" data-board-action="manual-effect-skipped" data-permanent-id="${permanent.id}">Skipped</button>
+  `;
 }
 
 /**
@@ -2777,18 +2824,30 @@ function renderTriggerReminders() {
     phase: currentPhase,
     permanents: state.boardState.permanents,
     automationRules: state.boardState.automationRules,
-  }).slice(0, 6);
-  triggerReminderStrip.hidden = reminders.length === 0;
-  if (reminders.length === 0) {
+  });
+  const manualReminders = getManualEffectReminders(state.boardState.permanents);
+  const visibleReminders = [...manualReminders, ...reminders].slice(0, 6);
+  triggerReminderStrip.hidden = visibleReminders.length === 0;
+  if (visibleReminders.length === 0) {
     triggerReminderList.innerHTML = "";
     return;
   }
 
-  triggerReminderList.innerHTML = reminders
+  triggerReminderList.innerHTML = visibleReminders
     .map((entry) => {
-      return `<span class="trigger-reminder-chip" data-deterministic="${entry.deterministic ? "true" : "false"}">${escapeHtml(truncateText(entry.summary || "Trigger reminder", 48))}</span>`;
+      return `<span class="trigger-reminder-chip" data-deterministic="${entry.deterministic ? "true" : "false"}" data-manual="${entry.manual ? "true" : "false"}">${escapeHtml(truncateText(entry.summary || "Trigger reminder", 48))}</span>`;
     })
     .join("");
+}
+
+function getManualEffectReminders(permanents = []) {
+  return permanents
+    .filter((permanent) => shouldShowManualEffectGlow(permanent))
+    .map((permanent) => ({
+      summary: `${getManualEffectLabel(permanent)}: ${permanent.name}`,
+      deterministic: false,
+      manual: true,
+    }));
 }
 
 function renderSettingsManualDialog() {
@@ -3576,6 +3635,7 @@ function renderCardDetailOverlay() {
       <span class="card-detail-line"><strong>Quantity:</strong> ${permanent.quantity}</span>
       <span class="card-detail-line"><strong>Tapped:</strong> ${permanent.isTapped ? "Yes" : "No"}</span>
       <span class="card-detail-line"><strong>Commander:</strong> ${permanent.isCommander ? "Yes" : "No"}</span>
+      <span class="card-detail-line"><strong>Effect Status:</strong> ${escapeHtml(getManualEffectLabel(permanent) || "None")}</span>
       ${permanent.isPlaneswalker ? `<span class="card-detail-line"><strong>Loyalty:</strong> ${getPermanentCounterValue(permanent, "Loyalty")}</span>` : ""}
       <span class="card-detail-line"><strong>+1/+1 Counters:</strong> ${permanent.plusOneCounters}</span>
       <span class="card-detail-line"><strong>-1/-1 Counters:</strong> ${normalizeCount(permanent.minusOneCounters)}</span>
@@ -3766,7 +3826,7 @@ function renderBoardSearchResult(card, index) {
           data-search-result-index="${index}"
           ${!isSupported ? "disabled" : ""}
         >
-          ${isSupported ? "Add" : "Not Yet"}
+          ${isInstantOrSorceryTypeLine(preview.typeLine) ? "Cast" : isSupported ? "Add" : "Not Yet"}
         </button>
         <button
           class="board-search-result-button"
@@ -3808,6 +3868,8 @@ function renderBoardTile(permanent, variant) {
   const tokenLabel = permanent.isToken ? `<span class="board-tile-tag">TOKEN</span>` : "";
   const commanderLabel = permanent.isCommander ? `<span class="board-tile-tag">CMD</span>` : "";
   const ownerLabel = permanent.ownerScope === "opponent" ? `<span class="board-tile-tag">TRACKED</span>` : "";
+  const manualEffectLabel = getManualEffectLabel(permanent);
+  const manualEffectTag = manualEffectLabel ? `<span class="board-tile-tag is-manual-effect">${escapeHtml(manualEffectLabel)}</span>` : "";
   const loyaltyLabel = permanent.isPlaneswalker
     ? `<span class="board-tile-tag">Loyalty ${getPermanentCounterValue(permanent, "Loyalty")}</span>`
     : "";
@@ -3853,6 +3915,7 @@ function renderBoardTile(permanent, variant) {
     permanent.isSelected ? "is-selected" : "",
     state.boardState.combatState.attackerIds.includes(permanent.id) ? "is-attacking" : "",
     permanent.isTapped ? "is-tapped" : "",
+    shouldShowManualEffectGlow(permanent) ? "has-manual-effect-pending" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -3870,6 +3933,7 @@ function renderBoardTile(permanent, variant) {
             ${commanderLabel}
             ${tokenLabel}
             ${ownerLabel}
+            ${manualEffectTag}
             ${loyaltyLabel}
             ${tappedLabel}
             ${summoningLabel}
@@ -3890,6 +3954,7 @@ function renderBoardTile(permanent, variant) {
           <span class="board-tile-detail">Token: ${permanent.isToken ? "Yes" : "No"}</span>
           <span class="board-tile-detail">Tapped: ${permanent.isTapped ? "Yes" : "No"}</span>
           <span class="board-tile-detail">Summoning Sickness: ${permanent.summoningSickness ? "Yes" : "No"}</span>
+          <span class="board-tile-detail">Manual Effect State: ${escapeHtml(manualEffectLabel || "None")}</span>
           <span class="board-tile-detail">+1/+1 Counters: ${permanent.plusOneCounters}</span>
           <span class="board-tile-detail">-1/-1 Counters: ${normalizeCount(permanent.minusOneCounters)}</span>
           <span class="board-tile-detail">All Counters: ${escapeHtml(getPermanentCounterSummary(permanent))}</span>
@@ -3931,6 +3996,7 @@ function renderBoardTile(permanent, variant) {
               ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="loyalty-minus" data-permanent-id="${permanent.id}">- Loyalty</button>` : ""}
               ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="loyalty-activate" data-permanent-id="${permanent.id}">Use Loyalty</button>` : ""}
               ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="planeswalker-damage" data-permanent-id="${permanent.id}">Damage</button>` : ""}
+              ${getManualEffectMenuItems(permanent)}
               ${canPermanentBeCommanderCandidate(permanent) ? `<button class="board-tile-menu-action" type="button" data-board-action="set-as-commander" data-permanent-id="${permanent.id}">Set Commander</button>` : ""}
               <button class="board-tile-menu-action" type="button" data-board-action="destroy" data-permanent-id="${permanent.id}">Destroy</button>
               <button class="board-tile-menu-action" type="button" data-board-action="exile" data-permanent-id="${permanent.id}">Exile</button>
@@ -3948,14 +4014,16 @@ function renderBoardTile(permanent, variant) {
 function renderEffectDockChip(permanent) {
   const manaCost = permanent.manaCost || "No mana cost";
   const isMenuOpen = boardUi.activeMenuPermanentId === permanent.id;
+  const manualEffectLabel = getManualEffectLabel(permanent);
 
   return `
-    <article class="effect-dock-chip ${permanent.isSelected ? "is-selected" : ""} ${permanent.isTapped ? "is-tapped" : ""}">
+    <article class="effect-dock-chip ${permanent.isSelected ? "is-selected" : ""} ${permanent.isTapped ? "is-tapped" : ""} ${shouldShowManualEffectGlow(permanent) ? "has-manual-effect-pending" : ""}">
       <button class="effect-dock-main" type="button" data-board-action="toggle-select" data-permanent-id="${permanent.id}">
         <span class="effect-dock-name">${escapeHtml(permanent.name)}</span>
         <span class="effect-dock-mana">${escapeHtml(manaCost)}</span>
         ${permanent.isCommander ? '<span class="effect-dock-state">CMD</span>' : ""}
         ${permanent.ownerScope === "opponent" ? '<span class="effect-dock-state">Tracked</span>' : ""}
+        ${manualEffectLabel ? `<span class="effect-dock-state is-manual-effect">${escapeHtml(manualEffectLabel)}</span>` : ""}
         ${permanent.isPlaneswalker ? `<span class="effect-dock-state">Loyalty ${getPermanentCounterValue(permanent, "Loyalty")}</span>` : ""}
         ${permanent.isTapped ? '<span class="effect-dock-state">Tapped</span>' : ""}
       </button>
@@ -3983,6 +4051,7 @@ function renderEffectDockChip(permanent) {
               ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="loyalty-minus" data-permanent-id="${permanent.id}">- Loyalty</button>` : ""}
               ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="loyalty-activate" data-permanent-id="${permanent.id}">Use Loyalty</button>` : ""}
               ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="planeswalker-damage" data-permanent-id="${permanent.id}">Damage</button>` : ""}
+              ${getManualEffectMenuItems(permanent)}
               ${canPermanentBeCommanderCandidate(permanent) ? `<button class="board-tile-menu-action" type="button" data-board-action="set-as-commander" data-permanent-id="${permanent.id}">Set Commander</button>` : ""}
               <button class="board-tile-menu-action" type="button" data-board-action="remove" data-permanent-id="${permanent.id}">Remove</button>
               <button class="board-tile-menu-action" type="button" data-board-action="destroy" data-permanent-id="${permanent.id}">Destroy</button>
@@ -6571,6 +6640,8 @@ function extractScryfallCardData(card) {
   const isCreature = hasTypeLine(typeLine, "Creature");
   const isArtifact = hasTypeLine(typeLine, "Artifact");
   const isPlaneswalker = hasTypeLine(typeLine, "Planeswalker");
+  const isInstant = hasTypeLine(typeLine, "Instant");
+  const isSorcery = hasTypeLine(typeLine, "Sorcery");
   const isLegendary = hasTypeLine(typeLine, "Legendary");
   const isToken = hasTypeLine(typeLine, "Token") || String(card?.layout || "").toLowerCase() === "token";
   const colorIdentity = Array.isArray(card?.color_identity)
@@ -6590,6 +6661,8 @@ function extractScryfallCardData(card) {
     isCreature,
     isArtifact,
     isPlaneswalker,
+    isInstant,
+    isSorcery,
     isLegendary,
     isToken,
     colorIdentity,
@@ -6625,13 +6698,17 @@ function getCardImageUrl(card, cardFace = getPrimaryCardFace(card)) {
 
 function isSupportedPermanent(card) {
   const preview = extractScryfallCardData(card);
-  return isPermanentTypeLine(preview.typeLine);
+  return isPermanentTypeLine(preview.typeLine) || isInstantOrSorceryTypeLine(preview.typeLine);
 }
 
 function isPermanentTypeLine(typeLine) {
   return ["Artifact", "Creature", "Enchantment", "Land", "Planeswalker", "Battle"].some((type) =>
     hasTypeLine(typeLine, type)
   );
+}
+
+function isInstantOrSorceryTypeLine(typeLine) {
+  return hasTypeLine(typeLine, "Instant") || hasTypeLine(typeLine, "Sorcery");
 }
 
 function getActiveCommanderName() {
@@ -7125,7 +7202,7 @@ async function addSelectedCardToBattlefield(selectedCard = null, options = {}) {
   if (!isSupportedPermanent(card)) {
     boardUi = {
       ...boardUi,
-      searchMessage: "Instants and sorceries are not supported yet.",
+      searchMessage: "That card type is not supported yet.",
       searchMessageTone: "neutral",
     };
     renderBoardSearch();
@@ -7137,6 +7214,12 @@ async function addSelectedCardToBattlefield(selectedCard = null, options = {}) {
 
   try {
     const rulings = await fetchCardRulings(card);
+    const preview = getCardPreview(card);
+    if (isInstantOrSorceryTypeLine(preview.typeLine)) {
+      resolveScryfallSpell(card, rulings, options);
+      return;
+    }
+
     const importedPermanent = getCardPreview(card).isToken
       ? importScryfallToken(card, rulings)
       : mapScryfallCardToPermanent(card, rulings);
@@ -7184,6 +7267,274 @@ async function addSelectedCardToBattlefield(selectedCard = null, options = {}) {
     };
     renderBoardSearch();
   }
+}
+
+function resolveScryfallSpell(card, rulings = [], options = {}) {
+  const preview = getCardPreview(card);
+  const sourceCard = createPermanent({
+    scryfallId: typeof card?.id === "string" ? card.id : "",
+    name: preview.name,
+    manaCost: preview.manaCost,
+    typeLine: preview.typeLine,
+    oracleText: preview.oracleText,
+    imageUrl: preview.imageUrl,
+    cardImageUrl: preview.cardImageUrl,
+    rulingsUri: typeof card?.rulings_uri === "string" ? card.rulings_uri : "",
+    rulings,
+    legalities: card?.legalities || {},
+    colorIdentity: preview.colorIdentity,
+    isNonCreature: true,
+    isCreature: false,
+    ownerScope: options.ownerScope || "local",
+    isOpponentOwned: Boolean(options.isOpponentOwned),
+  });
+  const spellRules = buildSpellAutomationTriggers(sourceCard);
+  const directEffect = extractDirectSpellEffect(preview.oracleText);
+  let nextBoardState = state.boardState;
+  const messages = [];
+  let pendingManual = false;
+
+  spellRules.forEach((rule) => {
+    if (spellRequiresManualConfirmation(preview.oracleText) && !rule.requiresTargetSelection) {
+      const shouldResolve = window.confirm(
+        `${preview.name}\n\n${getAutomationRuleSummary(createAutomationRule(rule))}\n\nThis spell text includes a choice or optional condition. Resolve this supported part now?`
+      );
+      if (!shouldResolve) {
+        pendingManual = true;
+        messages.push(`${preview.name} effect left pending.`);
+        return;
+      }
+    }
+
+    const result = executeTrigger(rule, nextBoardState, {
+      phase: PHASES[normalizePhaseIndex(nextBoardState.currentPhaseIndex)],
+      selectedIds: getSelectedPermanentIds(nextBoardState.permanents),
+      sourcePermanent: sourceCard,
+      sourcePermanentId: sourceCard.id,
+      eventType: "SpellCast",
+    });
+
+    if (result.changed) {
+      nextBoardState = result.boardState;
+      messages.push(result.message || getAutomationRuleSummary(createAutomationRule(rule)));
+      return;
+    }
+
+    if (rule.requiresTargetSelection || rule.optionalTarget || spellRequiresManualConfirmation(preview.oracleText)) {
+      pendingManual = true;
+    }
+  });
+
+  const nextLife = Math.max(0, state.life + directEffect.lifeDelta);
+  if (directEffect.lifeDelta !== 0) {
+    messages.push(`${directEffect.lifeDelta > 0 ? "Gained" : "Lost"} ${Math.abs(directEffect.lifeDelta)} life.`);
+  }
+  if (directEffect.drawCount > 0) {
+    messages.push(`Tracked draw ${directEffect.drawCount} card${directEffect.drawCount === 1 ? "" : "s"}.`);
+  }
+  if (directEffect.damageSummary) {
+    messages.push(directEffect.damageSummary);
+  }
+
+  if (spellRules.length === 0 && directEffect.lifeDelta === 0 && directEffect.drawCount === 0 && !directEffect.damageSummary) {
+    pendingManual = true;
+    messages.push("Manual resolution required.");
+  }
+
+  registerCompanionAction({
+    type: "spell",
+    summary: `${options.autoArchive === false ? "Tracked" : "Cast"} ${preview.name}`,
+    payload: {
+      cardName: preview.name,
+      typeLine: preview.typeLine,
+      manual: pendingManual,
+      messages,
+    },
+  });
+
+  const nextArchive =
+    options.autoArchive === false
+      ? normalizeArchiveState(state.archive)
+      : recordCommanderCardUsageInArchive(state.archive, card, getActiveCommanderName(), {
+          autoAddToDeck: true,
+          ownerScope: "local",
+          deckKey: getActiveCommanderDeckKey(),
+        });
+
+  state = {
+    ...state,
+    life: nextLife,
+    boardState: {
+      ...nextBoardState,
+      automationLog: [
+        createAutomationLogEntry({
+          id: createId(),
+          timestamp: Date.now(),
+          sourceCardName: preview.name,
+          actionSummary: messages.join(" ") || "Spell tracked for manual resolution.",
+          modifierSummary: pendingManual ? "Manual choice or target may still be required." : "Spell automation resolved supported deterministic text.",
+          confirmationStatus: pendingManual ? "Pending" : "Resolved",
+          detailSummary: "Instant/sorcery card resolved through the gameplay assistant.",
+        }),
+        ...nextBoardState.automationLog,
+      ].slice(0, MAX_AUTOMATION_LOG_ENTRIES),
+    },
+    archive: nextArchive,
+  };
+
+  persistState();
+  render();
+  showQuickToast(`${pendingManual ? "Tracked" : "Resolved"} ${preview.name}`);
+}
+
+function buildSpellAutomationTriggers(sourceCard) {
+  const referenceText = getPermanentReferenceText(sourceCard);
+  if (!referenceText) {
+    return [];
+  }
+
+  const rules = [];
+  if (referenceText.includes("create") && referenceText.includes("token")) {
+    const tokenSpec = extractTokenSpec(referenceText);
+    const tokenEntryProfile = extractTokenEntryProfile(referenceText);
+    rules.push({
+      actionType: "Create Tokens",
+      sourceCardName: sourceCard.name,
+      targetType: "Board",
+      value: extractCountFromText(referenceText),
+      valueMode: extractValueModeFromText(referenceText),
+      tokenName: tokenSpec.name,
+      tokenPower: tokenSpec.power,
+      tokenToughness: tokenSpec.toughness,
+      tokenManaCost: "",
+      tokenTapped: tokenEntryProfile.tapped,
+      tokenAttacking: tokenEntryProfile.attacking,
+      confidence: spellRequiresManualConfirmation(referenceText) ? "Medium" : "High",
+    });
+  }
+
+  if (hasSpellCounterPlacementLanguage(referenceText)) {
+    const counterType = extractCounterTypeFromText(referenceText);
+    const targetMode = extractCounterTargetMode(referenceText, sourceCard.name);
+    const targetType = mapCounterTargetModeToAutomationTarget(targetMode);
+    rules.push({
+      actionType: counterType === "+1/+1" ? "Add +1/+1 Counters" : "Add Counters",
+      sourceCardName: sourceCard.name,
+      targetType,
+      targetMode,
+      value: extractCounterCountFromText(referenceText),
+      counterType,
+      counterTargetEntity: inferCounterTargetEntityFromMode(targetMode, referenceText, sourceCard),
+      requiresTargetSelection: targetType === "Selected",
+      optionalTarget: referenceText.includes("up to one target"),
+      confidence: targetType === "Selected" ? "Medium" : "High",
+    });
+  }
+
+  const temporaryBuff = extractTemporaryBuffFromText(referenceText);
+  if (temporaryBuff) {
+    const targetMode = extractCounterTargetMode(referenceText, sourceCard.name);
+    const targetType = mapCounterTargetModeToAutomationTarget(targetMode);
+    rules.push({
+      actionType: "Apply Temporary Buff",
+      sourceCardName: sourceCard.name,
+      targetType,
+      targetMode,
+      value: 0,
+      counterTargetEntity: inferCounterTargetEntityFromMode(targetMode, referenceText, sourceCard),
+      requiresTargetSelection: targetType === "Selected",
+      optionalTarget: referenceText.includes("up to one target"),
+      buffPower: temporaryBuff.power,
+      buffToughness: temporaryBuff.toughness,
+      buffDuration: temporaryBuff.duration,
+      confidence: targetType === "Selected" ? "Medium" : "High",
+    });
+  }
+
+  return rules;
+}
+
+function mapCounterTargetModeToAutomationTarget(targetMode) {
+  switch (targetMode) {
+    case "all-attackers":
+      return "All Attackers";
+    case "all-creatures":
+      return "All Creatures";
+    case "all-creature-tokens":
+      return "All Creature Tokens";
+    case "all-permanents":
+      return "All Permanents";
+    case "all-artifacts":
+      return "All Artifacts";
+    case "all-enchantments":
+      return "All Enchantments";
+    case "all-planeswalkers":
+      return "All Planeswalkers";
+    case "all-lands":
+      return "All Lands";
+    case "all-nonbasic-lands":
+      return "All Nonbasic Lands";
+    case "all-auras":
+      return "All Auras";
+    case "all-equipment":
+      return "All Equipment";
+    case "all-vehicles":
+      return "All Vehicles";
+    case "all-spacecraft":
+      return "All Spacecraft";
+    case "all-mounts":
+      return "All Mounts";
+    case "all-planets":
+      return "All Planets";
+    case "all-tokens":
+      return "All Tokens";
+    case "attached":
+      return "Attached Permanent";
+    case "self":
+      return "Self";
+    case "manual-other-creature":
+    case "manual-creature":
+    case "manual-other-permanent":
+    case "manual-permanent":
+      return "Selected";
+    case "board":
+    default:
+      return "Board";
+  }
+}
+
+function hasSpellCounterPlacementLanguage(referenceText) {
+  const text = normalizeLabel(referenceText, "").toLowerCase();
+  if (!text.includes("counter")) {
+    return false;
+  }
+
+  return (
+    /\bput\b|\bputs\b|\badd\b|\badds\b|\bdistribute\b|\bdistributes\b|\bmove\b|\bmoves\b/.test(text) ||
+    /\bwith\b.+\bcounters?\b.+\bon\b/.test(text)
+  );
+}
+
+function spellRequiresManualConfirmation(referenceText) {
+  const text = normalizeLabel(referenceText, "").toLowerCase();
+  return /\bchoose\b|\btarget\b|\bmay\b|\bup to\b|\bunless\b|\bdivide\b|\bdistribute\b/.test(text);
+}
+
+function extractDirectSpellEffect(referenceText) {
+  const text = normalizeLabel(referenceText, "").toLowerCase();
+  const gainMatch = text.match(/\byou gain\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/);
+  const loseMatch = text.match(/\byou lose\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/);
+  const drawMatch = text.match(/\bdraw\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\b/);
+  const eachOpponentDamageMatch = text.match(/\bdeals?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+damage to each opponent\b/);
+  return {
+    lifeDelta:
+      (gainMatch?.[1] ? parseCountToken(gainMatch[1]) : 0) -
+      (loseMatch?.[1] ? parseCountToken(loseMatch[1]) : 0),
+    drawCount: drawMatch?.[1] ? parseCountToken(drawMatch[1]) : 0,
+    damageSummary: eachOpponentDamageMatch?.[1]
+      ? `Tracked ${parseCountToken(eachOpponentDamageMatch[1])} damage to each opponent.`
+      : "",
+  };
 }
 
 function importScryfallToken(card, rulings = []) {
@@ -8392,6 +8743,10 @@ function createGenericToken(source = {}) {
 }
 
 function getSupportDestinationLabel(permanent) {
+  if (permanent.isInstant || permanent.isSorcery || isInstantOrSorceryTypeLine(permanent.typeLine || "")) {
+    return "Spell / Resolve";
+  }
+
   return permanent.isNonCreature ? "Non-Creature Permanents" : "Battlefield";
 }
 
@@ -8433,6 +8788,9 @@ function attachAutomationSuggestions(boardState, sourcePermanentId, sourceCardNa
     pendingCandidates
   );
   const linkedRuleIds = [...activeMerge.ruleIds, ...pendingMerge.ruleIds];
+  const hasManualWork =
+    pendingMerge.ruleIds.length > 0 ||
+    activeCandidates.some((rule) => rule.askBeforeRun || rule.requiresTargetSelection || rule.confidence !== "High");
 
   return {
     ...boardState,
@@ -8447,6 +8805,9 @@ function attachAutomationSuggestions(boardState, sourcePermanentId, sourceCardNa
         ...permanent,
         automationRules: Array.from(new Set([...(permanent.automationRules || []), ...linkedRuleIds])),
         autoRulesEnabled: activeMerge.ruleIds.length > 0,
+        manualEffectState: hasManualWork ? "pending" : permanent.manualEffectState,
+        manualEffectNote: hasManualWork ? "Automation needs player confirmation." : permanent.manualEffectNote,
+        manualEffectUpdatedAt: hasManualWork ? Date.now() : permanent.manualEffectUpdatedAt,
       });
     }),
   };
@@ -8527,6 +8888,15 @@ function executeActiveAutomationRules(boardState, context = {}) {
           : "Auto";
 
       if (confirmationStatus === "Skipped") {
+        if (!undoSnapshot) {
+          undoSnapshot = cloneBoardStateForUndo(nextBoardState);
+        }
+        nextBoardState = setBoardStateManualEffectState(
+          nextBoardState,
+          rule.sourcePermanentId,
+          "skipped",
+          "Automation skipped by player confirmation."
+        );
         logEntries.push(
           createAutomationLogEntry({
             id: createId(),
@@ -8551,6 +8921,14 @@ function executeActiveAutomationRules(boardState, context = {}) {
       }
 
       nextBoardState = result.boardState;
+      if (confirmationStatus === "Confirmed") {
+        nextBoardState = setBoardStateManualEffectState(
+          nextBoardState,
+          rule.sourcePermanentId,
+          "resolved",
+          result.message || getAutomationRuleSummary(rule)
+        );
+      }
       logEntries.push(
         createAutomationLogEntry({
           id: createId(),
@@ -9587,6 +9965,8 @@ function matchesPermanentTarget(permanent, target, selectedIds, context = {}) {
       return hasTypeLine(permanent.typeLine || "", "Land") && !hasTypeLine(permanent.typeLine || "", "Basic");
     case "All Auras":
       return hasTypeLine(permanent.typeLine || "", "Aura");
+    case "All Equipment":
+      return hasTypeLine(permanent.typeLine || "", "Equipment");
     case "All Vehicles":
       return hasTypeLine(permanent.typeLine || "", "Vehicle");
     case "All Spacecraft":
@@ -9798,6 +10178,11 @@ function handleBoardAction(action, permanentId) {
     return;
   }
 
+  if (action.startsWith("manual-effect-")) {
+    setPermanentManualEffectState(permanentId, action.replace("manual-effect-", ""));
+    return;
+  }
+
   if (action === "set-as-commander") {
     setPermanentAsCommander(permanentId);
     return;
@@ -9811,6 +10196,77 @@ function handleBoardAction(action, permanentId) {
   if (action === "destroy" || action === "exile" || action === "sacrifice") {
     applyPermanentRemoval(permanentId, action);
   }
+}
+
+function setPermanentManualEffectState(permanentId, rawState) {
+  const manualState = normalizeManualEffectState(rawState);
+  const permanent = state.boardState.permanents.find((entry) => entry.id === permanentId);
+  if (!permanent) {
+    return;
+  }
+
+  const label = MANUAL_EFFECT_LABELS[manualState] || "Cleared";
+  const note = manualState ? `${label}: ${permanent.name}` : "";
+  state = {
+    ...state,
+    boardState: {
+      ...state.boardState,
+      permanents: state.boardState.permanents.map((entry) => {
+        if (entry.id !== permanentId) {
+          return entry;
+        }
+
+        return createPermanent({
+          ...entry,
+          manualEffectState: manualState,
+          manualEffectNote: note,
+          manualEffectUpdatedAt: Date.now(),
+        });
+      }),
+    },
+  };
+
+  registerCompanionAction({
+    type: "effect",
+    summary: manualState ? `${label}: ${permanent.name}` : `Cleared effect status: ${permanent.name}`,
+    payload: {
+      permanentId,
+      permanentName: permanent.name,
+      manualEffectState: manualState,
+    },
+    includeUndo: false,
+  });
+
+  boardUi = {
+    ...boardUi,
+    activeMenuPermanentId: "",
+  };
+  persistState();
+  render();
+  showQuickToast(manualState ? `${label}: ${permanent.name}` : `Effect cleared: ${permanent.name}`);
+}
+
+function setBoardStateManualEffectState(boardState, permanentId, rawState, note = "") {
+  const manualState = normalizeManualEffectState(rawState);
+  if (!boardState?.permanents?.some((permanent) => permanent.id === permanentId)) {
+    return boardState;
+  }
+
+  return {
+    ...boardState,
+    permanents: boardState.permanents.map((permanent) => {
+      if (permanent.id !== permanentId) {
+        return permanent;
+      }
+
+      return createPermanent({
+        ...permanent,
+        manualEffectState: manualState,
+        manualEffectNote: normalizeLabel(note, manualState ? getManualEffectLabel({ manualEffectState: manualState }) : ""),
+        manualEffectUpdatedAt: Date.now(),
+      });
+    }),
+  };
 }
 
 function togglePermanentSelection(permanentId) {
@@ -9897,7 +10353,9 @@ function beginCombatSimulation(mode) {
   }
 
   const attackerPreview = calculateCombatPreview({
-    attackers: state.boardState.permanents.filter((permanent) => attackerIds.includes(permanent.id)),
+    attackers: state.boardState.permanents
+      .filter((permanent) => attackerIds.includes(permanent.id))
+      .map((permanent) => createCombatPreviewPermanent(permanent, state.boardState.permanents)),
     blockers: [],
   });
   registerCompanionAction({
@@ -10373,6 +10831,16 @@ function canPermanentAttack(permanent) {
   return hasSummoningSicknessExemption(permanent);
 }
 
+function createCombatPreviewPermanent(permanent, permanents = state.boardState.permanents) {
+  const currentStats = calculatePermanentPowerToughness(permanent, permanents);
+  return {
+    ...permanent,
+    currentPower: currentStats.power,
+    currentToughness: currentStats.toughness,
+    oracleText: getPermanentReferenceText(permanent),
+  };
+}
+
 function getSelectedCreatureIds(permanents) {
   return permanents
     .filter((permanent) => permanent.isSelected && canPermanentAttack(permanent))
@@ -10389,8 +10857,68 @@ function getPermanentReferenceText(permanent) {
   const rulingsText = Array.isArray(permanent?.rulings)
     ? permanent.rulings.map((entry) => entry?.comment || "").join(" ")
     : "";
+  const attachedText =
+    permanent?.id && state?.boardState?.permanents
+      ? state.boardState.permanents
+          .filter((attachment) => attachment.attachedToId === permanent.id)
+          .map((attachment) => {
+            const attachmentRulings = Array.isArray(attachment.rulings)
+              ? attachment.rulings.map((entry) => entry?.comment || "").join(" ")
+              : "";
+            return [attachment.oracleText, attachment.notes, attachmentRulings].filter(Boolean).join(" ");
+          })
+          .join(" ")
+      : "";
+  const globalKeywordText = getGlobalKeywordReferenceText(permanent);
 
-  return [oracleText, notes, rulingsText].filter(Boolean).join(" ").toLowerCase();
+  return [oracleText, notes, rulingsText, attachedText, globalKeywordText].filter(Boolean).join(" ").toLowerCase();
+}
+
+function getGlobalKeywordReferenceText(permanent) {
+  if (!permanent?.isCreature || !state?.boardState?.permanents) {
+    return "";
+  }
+
+  return state.boardState.permanents
+    .filter((source) => source.id !== permanent.id && doesGlobalKeywordSourceApply(source, permanent))
+    .map((source) => source.oracleText || source.notes || "")
+    .filter(Boolean)
+    .join(" ");
+}
+
+function doesGlobalKeywordSourceApply(source, permanent) {
+  const text = normalizeLabel(source?.oracleText || source?.notes, "").toLowerCase();
+  if (!text) {
+    return false;
+  }
+
+  const mentionsKeywordGrant =
+    /\bcreatures? you control (?:have|gain|get)\b/.test(text) ||
+    /\battacking creatures? (?:you control )?(?:have|gain|get)\b/.test(text) ||
+    /\bcreature tokens? you control (?:have|gain|get)\b/.test(text) ||
+    /\bartifact creatures? you control (?:have|gain|get)\b/.test(text);
+
+  if (!mentionsKeywordGrant) {
+    return false;
+  }
+
+  if (text.includes("other creatures you control") && source.id === permanent.id) {
+    return false;
+  }
+
+  if (text.includes("attacking creature") && !permanent.isAttacking) {
+    return false;
+  }
+
+  if (text.includes("creature tokens you control") && !permanent.isToken) {
+    return false;
+  }
+
+  if (text.includes("artifact creatures you control") && !permanent.isArtifact) {
+    return false;
+  }
+
+  return true;
 }
 
 function getCardReferenceText(card) {
@@ -11265,8 +11793,34 @@ function resolveCounterAllocation(boardState, sourcePermanent, rule, attackerIds
       return permanents.filter((permanent) => attackerIdSet.has(permanent.id) && permanent.isCreature).map((permanent) => permanent.id);
     case "all-creatures":
       return creatureIds;
+    case "all-creature-tokens":
+      return permanents.filter((permanent) => permanent.isCreature && permanent.isToken).map((permanent) => permanent.id);
     case "all-permanents":
       return allPermanentIds;
+    case "all-tokens":
+      return permanents.filter((permanent) => permanent.isToken).map((permanent) => permanent.id);
+    case "all-artifacts":
+      return permanents.filter((permanent) => permanent.isArtifact).map((permanent) => permanent.id);
+    case "all-enchantments":
+      return permanents.filter((permanent) => hasTypeLine(permanent.typeLine || "", "Enchantment")).map((permanent) => permanent.id);
+    case "all-planeswalkers":
+      return permanents.filter((permanent) => hasTypeLine(permanent.typeLine || "", "Planeswalker")).map((permanent) => permanent.id);
+    case "all-lands":
+      return permanents.filter((permanent) => hasTypeLine(permanent.typeLine || "", "Land")).map((permanent) => permanent.id);
+    case "all-nonbasic-lands":
+      return permanents.filter((permanent) => hasTypeLine(permanent.typeLine || "", "Land") && !hasTypeLine(permanent.typeLine || "", "Basic")).map((permanent) => permanent.id);
+    case "all-auras":
+      return permanents.filter((permanent) => hasTypeLine(permanent.typeLine || "", "Aura")).map((permanent) => permanent.id);
+    case "all-equipment":
+      return permanents.filter((permanent) => hasTypeLine(permanent.typeLine || "", "Equipment")).map((permanent) => permanent.id);
+    case "all-vehicles":
+      return permanents.filter((permanent) => hasTypeLine(permanent.typeLine || "", "Vehicle")).map((permanent) => permanent.id);
+    case "all-spacecraft":
+      return permanents.filter((permanent) => hasTypeLine(permanent.typeLine || "", "Spacecraft")).map((permanent) => permanent.id);
+    case "all-mounts":
+      return permanents.filter((permanent) => hasTypeLine(permanent.typeLine || "", "Mount")).map((permanent) => permanent.id);
+    case "all-planets":
+      return permanents.filter((permanent) => hasTypeLine(permanent.typeLine || "", "Planet")).map((permanent) => permanent.id);
     case "board":
       return targetEntity === "permanent" ? allPermanentIds : creatureIds;
     case "attached":
@@ -11338,6 +11892,60 @@ function extractCounterTargetMode(oracleText, sourceName = "") {
   }
 
   if (
+    oracleText.includes("each creature token") ||
+    oracleText.includes("each token creature") ||
+    oracleText.includes("creature tokens you control") ||
+    oracleText.includes("each token") ||
+    oracleText.includes("tokens you control")
+  ) {
+    return oracleText.includes("creature token") ? "all-creature-tokens" : "all-tokens";
+  }
+
+  if (oracleText.includes("each artifact") || oracleText.includes("artifacts you control")) {
+    return "all-artifacts";
+  }
+
+  if (oracleText.includes("each enchantment") || oracleText.includes("enchantments you control")) {
+    return "all-enchantments";
+  }
+
+  if (oracleText.includes("each planeswalker") || oracleText.includes("planeswalkers you control")) {
+    return "all-planeswalkers";
+  }
+
+  if (oracleText.includes("each nonbasic land") || oracleText.includes("nonbasic lands you control")) {
+    return "all-nonbasic-lands";
+  }
+
+  if (oracleText.includes("each land") || oracleText.includes("lands you control")) {
+    return "all-lands";
+  }
+
+  if (oracleText.includes("each aura") || oracleText.includes("auras you control")) {
+    return "all-auras";
+  }
+
+  if (oracleText.includes("each equipment") || oracleText.includes("equipment you control")) {
+    return "all-equipment";
+  }
+
+  if (oracleText.includes("each vehicle") || oracleText.includes("vehicles you control")) {
+    return "all-vehicles";
+  }
+
+  if (oracleText.includes("each spacecraft") || oracleText.includes("spacecraft you control")) {
+    return "all-spacecraft";
+  }
+
+  if (oracleText.includes("each mount") || oracleText.includes("mounts you control")) {
+    return "all-mounts";
+  }
+
+  if (oracleText.includes("each planet") || oracleText.includes("planets you control")) {
+    return "all-planets";
+  }
+
+  if (
     oracleText.includes("each attacking creature") ||
     oracleText.includes("all attacking creatures") ||
     oracleText.includes("attacking creatures you control")
@@ -11397,6 +12005,26 @@ function extractCounterTargetMode(oracleText, sourceName = "") {
 }
 
 function inferCounterTargetEntityFromMode(targetMode, referenceText = "", permanent = null) {
+  if (
+    [
+      "all-artifacts",
+      "all-enchantments",
+      "all-planeswalkers",
+      "all-lands",
+      "all-nonbasic-lands",
+      "all-auras",
+      "all-equipment",
+      "all-vehicles",
+      "all-spacecraft",
+      "all-mounts",
+      "all-planets",
+      "all-tokens",
+      "all-permanents",
+    ].includes(targetMode)
+  ) {
+    return "permanent";
+  }
+
   if (targetMode.includes("permanent")) {
     return "permanent";
   }
@@ -11568,11 +12196,6 @@ function resolveTriggeredValue(trigger, boardState, sourcePermanent = null) {
 
 function extractCountFromText(text) {
   const normalizedText = String(text || "").toLowerCase();
-  const digitMatch = normalizedText.match(/\b(\d+)\b/);
-  if (digitMatch) {
-    return normalizeCount(digitMatch[1], 1);
-  }
-
   const wordCounts = {
     a: 1,
     an: 1,
@@ -11587,6 +12210,18 @@ function extractCountFromText(text) {
     nine: 9,
     ten: 10,
   };
+
+  const actionCountMatch = normalizedText.match(
+    /\b(?:create|creates|created|put|puts|add|adds|draw|gain|gains|lose|loses|deals?|make|makes)\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/
+  );
+  if (actionCountMatch?.[1]) {
+    return parseCountToken(actionCountMatch[1]);
+  }
+
+  const digitMatch = normalizedText.match(/\b(\d+)\b/);
+  if (digitMatch) {
+    return normalizeCount(digitMatch[1], 1);
+  }
 
   for (const [word, value] of Object.entries(wordCounts)) {
     if (new RegExp(`\\b${word}\\b`).test(normalizedText)) {

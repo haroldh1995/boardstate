@@ -1,8 +1,8 @@
 export function calculateCombatPreview({ attackers = [], blockers = [] }) {
   const attackerTotal = attackers.reduce(
     (accumulator, attacker) => {
-      accumulator.power += normalizeNumber(attacker?.power);
-      accumulator.toughness += normalizeNumber(attacker?.toughness);
+      accumulator.power += normalizeNumber(attacker?.currentPower ?? attacker?.power);
+      accumulator.toughness += normalizeNumber(attacker?.currentToughness ?? attacker?.toughness);
       return accumulator;
     },
     { power: 0, toughness: 0 }
@@ -10,8 +10,8 @@ export function calculateCombatPreview({ attackers = [], blockers = [] }) {
 
   const blockerTotal = blockers.reduce(
     (accumulator, blocker) => {
-      accumulator.power += normalizeNumber(blocker?.power);
-      accumulator.toughness += normalizeNumber(blocker?.toughness);
+      accumulator.power += normalizeNumber(blocker?.currentPower ?? blocker?.power);
+      accumulator.toughness += normalizeNumber(blocker?.currentToughness ?? blocker?.toughness);
       return accumulator;
     },
     { power: 0, toughness: 0 }
@@ -27,10 +27,10 @@ export function calculateCombatPreview({ attackers = [], blockers = [] }) {
 }
 
 export function estimateTrampleOverflow(attackers = [], blockers = []) {
-  const blockerToughness = blockers.reduce((sum, blocker) => sum + normalizeNumber(blocker?.toughness), 0);
+  const blockerToughness = blockers.reduce((sum, blocker) => sum + normalizeNumber(blocker?.currentToughness ?? blocker?.toughness), 0);
   const tramplePower = attackers
     .filter((attacker) => hasKeyword(attacker, "trample"))
-    .reduce((sum, attacker) => sum + normalizeNumber(attacker?.power), 0);
+    .reduce((sum, attacker) => sum + normalizeNumber(attacker?.currentPower ?? attacker?.power), 0);
   return Math.max(0, tramplePower - blockerToughness);
 }
 
