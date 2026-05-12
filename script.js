@@ -542,6 +542,7 @@ automationUndoButton?.addEventListener("click", undoLastAutomationResult);
 trackerPageButton.addEventListener("click", showPreviousPage);
 boardStatePageButton.addEventListener("click", showNextPage);
 archiveSearchInput?.addEventListener("input", handleArchiveSearchInput);
+commanderDeckList?.addEventListener("click", handleCommanderDeckArchiveClick);
 
 nextPhaseButton.addEventListener("click", advanceBoardPhase);
 boardSearchForm.addEventListener("submit", handleBoardSearchSubmit);
@@ -748,6 +749,8 @@ function createDefaultCommanderState() {
     imageUrl: "",
     cardImageUrl: "",
     colorIdentity: [],
+    deckKey: "",
+    deckLabel: "",
     power: 0,
     toughness: 0,
     loyalty: 0,
@@ -858,6 +861,9 @@ function createPermanent(source = {}) {
     isCommander: Boolean(source.isCommander),
     commanderOwnerName: normalizeLabel(source.commanderOwnerName, ""),
     commanderCastNumber: normalizeCount(source.commanderCastNumber, 0),
+    ownerScope: normalizeOwnerScope(source.ownerScope),
+    isOpponentOwned: Boolean(source.isOpponentOwned),
+    controlSource: normalizeLabel(source.controlSource, ""),
     loyaltyActivatedTurn: normalizeCount(source.loyaltyActivatedTurn, 0),
     plusOneCounters,
     minusOneCounters,
@@ -1033,6 +1039,8 @@ function normalizeCommanderState(source = {}) {
     imageUrl: normalizeLabel(source.imageUrl || source.cardImageUrl || "", base.imageUrl),
     cardImageUrl: normalizeLabel(source.cardImageUrl || source.imageUrl || "", base.cardImageUrl),
     colorIdentity,
+    deckKey: normalizeLabel(source.deckKey, ""),
+    deckLabel: normalizeLabel(source.deckLabel, ""),
     power: normalizeSignedCount(source.power, 0),
     toughness: normalizeSignedCount(source.toughness, 0),
     loyalty: normalizeSignedCount(source.loyalty ?? source.printedLoyalty, 0),
@@ -1121,6 +1129,7 @@ function normalizeArchiveState(archiveState = {}) {
           endedAt: normalizeTimestamp(game?.endedAt),
           durationMs: Math.max(0, Number(game?.durationMs) || 0),
           commanderName: normalizeLabel(game?.commanderName, "Commander"),
+          commanderDeckKey: normalizeLabel(game?.commanderDeckKey, ""),
           lifeEnd: normalizeCount(game?.lifeEnd, 0),
           winner: normalizeLabel(game?.winner, "Unknown"),
           totals: {
@@ -1177,7 +1186,7 @@ function normalizeCommanderDeckArchives(commanderDecks = {}) {
 
   return Object.entries(commanderDecks).reduce((accumulator, [rawKey, deck]) => {
     const commanderName = normalizeLabel(deck?.commanderName, normalizeLabel(rawKey, "Commander"));
-    const commanderKey = getCommanderDeckKey(commanderName);
+    const commanderKey = normalizeCommanderDeckArchiveKey(deck?.deckKey || rawKey, commanderName);
     const seenCards = new Set();
     const cards = Array.isArray(deck?.cards)
       ? deck.cards
@@ -1194,13 +1203,36 @@ function normalizeCommanderDeckArchives(commanderDecks = {}) {
     const usedCards = normalizeCommanderUsedCards(deck?.usedCards);
 
     accumulator[commanderKey] = {
+      deckKey: commanderKey,
       commanderName,
+      deckLabel: normalizeLabel(deck?.deckLabel, commanderName),
+      colorIdentity: Array.isArray(deck?.colorIdentity)
+        ? deck.colorIdentity.map((symbol) => String(symbol || "").trim().toUpperCase()).filter(Boolean)
+        : [],
       cards,
       usedCards,
       games: Array.isArray(deck?.games) ? deck.games.slice(-100) : [],
+      events: Array.isArray(deck?.events)
+        ? deck.events
+            .map((entry) => ({
+              id: normalizeLabel(entry?.id, createId()),
+              type: normalizeLabel(entry?.type, "update"),
+              cardName: normalizeLabel(entry?.cardName, ""),
+              at: normalizeTimestamp(entry?.at),
+            }))
+            .slice(-100)
+        : [],
     };
     return accumulator;
   }, {});
+}
+
+function normalizeCommanderDeckArchiveKey(rawKey, commanderName = "Commander") {
+  const key = normalizeLabel(rawKey, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return key || getCommanderDeckKey(commanderName);
 }
 
 function normalizeCommanderDeckCard(card = {}) {
@@ -1231,6 +1263,8 @@ function normalizeCommanderDeckCard(card = {}) {
     colorIdentity: Array.isArray(card.colorIdentity)
       ? card.colorIdentity.map((symbol) => String(symbol || "").trim().toUpperCase()).filter(Boolean)
       : [],
+    source: normalizeLabel(card.source, "manual"),
+    ownedByCommanderDeck: card.ownedByCommanderDeck !== false,
     addedAt: normalizeTimestamp(card.addedAt),
     lastUsedAt: normalizeTimestamp(card.lastUsedAt || card.addedAt),
     usageCount: normalizeCount(card.usageCount, 0),
@@ -1553,6 +1587,11 @@ function normalizeAutomationTarget(value) {
   }
 
   return normalizeLabel(value, "All");
+}
+
+function normalizeOwnerScope(value) {
+  const normalized = normalizeLabel(value, "local").toLowerCase();
+  return normalized === "opponent" || normalized === "stolen" ? "opponent" : "local";
 }
 
 function normalizeCounterTargetEntity(value) {
@@ -2072,7 +2111,9 @@ function renderCommanderDeckArchiveSection() {
     return;
   }
 
-  const decks = Object.values(state.archive?.commanderDecks || {}).filter((deck) => deck && deck.commanderName);
+  const decks = Object.values(state.archive?.commanderDecks || {}).filter(
+    (deck) => deck && deck.commanderName && !isLegacyPlaceholderCommanderDeck(deck)
+  );
   if (decks.length === 0) {
     commanderDeckList.innerHTML = `
       <p class="sheet-empty">No commander decks yet. Search Scryfall, set a commander, then use Add Deck on cards you want saved to that commander.</p>
@@ -2081,44 +2122,75 @@ function renderCommanderDeckArchiveSection() {
   }
 
   commanderDeckList.innerHTML = decks
-    .sort((left, right) => normalizeLabel(left.commanderName, "").localeCompare(normalizeLabel(right.commanderName, "")))
+    .sort((left, right) =>
+      `${normalizeLabel(left.commanderName, "")} ${normalizeLabel(left.deckLabel, "")}`.localeCompare(
+        `${normalizeLabel(right.commanderName, "")} ${normalizeLabel(right.deckLabel, "")}`
+      )
+    )
     .map(renderCommanderDeckArchiveCard)
     .join("");
 }
 
+function isLegacyPlaceholderCommanderDeck(deck) {
+  const commanderName = normalizeLabel(deck?.commanderName, "");
+  const colorIdentity = Array.isArray(deck?.colorIdentity) ? deck.colorIdentity : [];
+  return (commanderName === "Player 1" || commanderName === normalizeLabel(state.playerName, "")) && colorIdentity.length === 0;
+}
+
 function renderCommanderDeckArchiveCard(deck) {
   const normalizedDeck = {
+    deckKey: normalizeCommanderDeckArchiveKey(deck.deckKey, deck.commanderName),
     commanderName: normalizeLabel(deck.commanderName, "Commander"),
+    deckLabel: normalizeLabel(deck.deckLabel, deck.commanderName || "Commander Deck"),
+    colorIdentity: Array.isArray(deck.colorIdentity) ? deck.colorIdentity : [],
     cards: Array.isArray(deck.cards) ? deck.cards : [],
     usedCards: deck.usedCards || {},
     games: Array.isArray(deck.games) ? deck.games : [],
+    events: Array.isArray(deck.events) ? deck.events : [],
   };
   const validation = validateCommanderDeckArchive(normalizedDeck);
   const usedCount = Object.values(normalizedDeck.usedCards || {}).reduce(
     (total, entry) => total + normalizeCount(entry?.count, 0),
     0
   );
+  const mostUsedCards = Object.values(normalizedDeck.usedCards || {})
+    .sort((left, right) => normalizeCount(right?.count, 0) - normalizeCount(left?.count, 0))
+    .slice(0, 3)
+    .map((entry) => `${entry.name} x${normalizeCount(entry.count, 0)}`)
+    .join(", ");
 
   return `
     <article class="utility-log-item">
       <div class="utility-log-item-header">
-        <strong>${escapeHtml(normalizedDeck.commanderName)}</strong>
+        <strong>${escapeHtml(normalizedDeck.deckLabel)}</strong>
         <span>${normalizedDeck.cards.length} deck • ${usedCount} used • ${validation.invalidCards.length} flagged</span>
       </div>
-      <p class="utility-log-item-summary">Curated cards explicitly added from Scryfall. Tokens, basic lands, temporary copies, and stolen permanents are excluded.</p>
+      <p class="utility-log-item-summary">${escapeHtml(normalizedDeck.commanderName)} identity list. Only legal deck cards from Scryfall gameplay imports or manual deck imports are logged here; tokens, copies, stolen cards, basic lands, and temporary objects are excluded.</p>
       <div class="utility-log-item-meta">
+        <span>Identity: ${escapeHtml(normalizedDeck.colorIdentity.join("") || "Colorless")}</span>
         <span>Types: ${escapeHtml(validation.typeBreakdownText)}</span>
         <span>Mana curve: ${escapeHtml(validation.manaCurveText)}</span>
         <span>Keywords: ${escapeHtml(validation.keywordText)}</span>
         <span>Games: ${normalizedDeck.games.length}</span>
+        <span>Most used: ${escapeHtml(mostUsedCards || "No usage yet")}</span>
       </div>
       <div class="utility-log-item-actions">
         ${normalizedDeck.cards.length > 0
           ? normalizedDeck.cards
           .slice(0, 12)
-          .map((card) => `<span>${escapeHtml(card.name)}</span>`)
+          .map(
+            (card) => `
+              <span class="commander-deck-card-row">
+                ${escapeHtml(card.name)}
+                <button class="utility-inline-action" type="button" data-commander-deck-remove="${escapeHtml(normalizedDeck.deckKey)}" data-card-key="${escapeHtml(card.key)}">Remove</button>
+              </span>
+            `
+          )
           .join("")
           : "<span>No deck cards added yet.</span>"}
+      </div>
+      <div class="utility-log-item-actions">
+        <button class="sheet-action utility-inline-action" type="button" data-commander-deck-import="${escapeHtml(normalizedDeck.deckKey)}">Import to Deck</button>
       </div>
     </article>
   `;
@@ -2211,6 +2283,124 @@ function renderLeaderboardsPage() {
 function handleArchiveSearchInput(event) {
   archiveSearchQuery = normalizeLabel(event?.target?.value, "");
   renderArchivePage();
+}
+
+async function handleCommanderDeckArchiveClick(event) {
+  const importButton = event.target.closest("[data-commander-deck-import]");
+  if (importButton) {
+    await promptImportCardToCommanderDeck(importButton.dataset.commanderDeckImport || "");
+    return;
+  }
+
+  const removeButton = event.target.closest("[data-commander-deck-remove][data-card-key]");
+  if (removeButton) {
+    removeCardFromCommanderDeck(removeButton.dataset.commanderDeckRemove || "", removeButton.dataset.cardKey || "");
+  }
+}
+
+async function promptImportCardToCommanderDeck(deckKey) {
+  const deck = normalizeArchiveState(state.archive).commanderDecks[normalizeCommanderDeckArchiveKey(deckKey)];
+  if (!deck) {
+    showQuickToast("Commander deck not found.");
+    return;
+  }
+
+  const query = normalizeLabel(window.prompt(`Import to ${deck.deckLabel || deck.commanderName}`, ""), "");
+  if (!query) {
+    return;
+  }
+
+  try {
+    const results = await searchCards(query);
+    const firstEligible = results.find((card) => isCommanderDeckEligibleCard(card));
+    if (!firstEligible) {
+      showQuickToast("No deck-eligible Scryfall card found.");
+      return;
+    }
+
+    const result = addCardToCommanderDeckArchive(firstEligible, deck.commanderName, {
+      deckKey: deck.deckKey,
+      commander: {
+        name: deck.commanderName,
+        deckKey: deck.deckKey,
+        deckLabel: deck.deckLabel,
+        colorIdentity: deck.colorIdentity,
+      },
+      source: "manual",
+    });
+    if (result.ok) {
+      registerCompanionAction({
+        type: "deck",
+        summary: result.message,
+        payload: {
+          commanderName: deck.commanderName,
+          commanderDeckKey: deck.deckKey,
+          cardName: getCardPreview(firstEligible).name,
+        },
+      });
+    }
+    persistState();
+    render();
+    showQuickToast(result.message);
+  } catch (error) {
+    showQuickToast(error instanceof Error ? error.message : "Deck import failed.");
+  }
+}
+
+function removeCardFromCommanderDeck(deckKey, cardKey) {
+  const archive = normalizeArchiveState(state.archive);
+  const normalizedDeckKey = normalizeCommanderDeckArchiveKey(deckKey);
+  const deck = archive.commanderDecks[normalizedDeckKey];
+  if (!deck || !cardKey) {
+    return;
+  }
+
+  const removedCard = deck.cards.find((card) => card.key === cardKey);
+  if (!removedCard) {
+    return;
+  }
+
+  const confirmRemove = window.confirm(`Remove ${removedCard.name} from ${deck.deckLabel || deck.commanderName}?`);
+  if (!confirmRemove) {
+    return;
+  }
+
+  registerCompanionAction({
+    type: "deck",
+    summary: `Removed ${removedCard.name} from ${deck.deckLabel || deck.commanderName}`,
+    payload: {
+      commanderName: deck.commanderName,
+      commanderDeckKey: normalizedDeckKey,
+      cardName: removedCard.name,
+    },
+  });
+
+  state = {
+    ...state,
+    archive: {
+      ...archive,
+      commanderDecks: {
+        ...archive.commanderDecks,
+        [normalizedDeckKey]: {
+          ...deck,
+          cards: deck.cards.filter((card) => card.key !== cardKey),
+          events: [
+            ...(deck.events || []),
+            {
+              id: createId(),
+              type: "removed",
+              cardName: removedCard.name,
+              at: Date.now(),
+            },
+          ].slice(-100),
+        },
+      },
+    },
+  };
+
+  persistState();
+  render();
+  showQuickToast(`Removed ${removedCard.name}.`);
 }
 
 function getFilteredArchiveGames() {
@@ -3589,6 +3779,15 @@ function renderBoardSearchResult(card, index) {
         <button
           class="board-search-result-button"
           type="button"
+          title="Track an opponent-owned, stolen, copied, or temporary card without adding it to this commander deck."
+          data-search-track-index="${index}"
+          ${!isSupported ? "disabled" : ""}
+        >
+          Track Only
+        </button>
+        <button
+          class="board-search-result-button"
+          type="button"
           title="${escapeHtml(commanderLegality.reason)}"
           data-search-commander-index="${index}"
           ${!commanderLegality.ok ? "disabled" : ""}
@@ -3608,6 +3807,7 @@ function renderBoardTile(permanent, variant) {
   const oracleText = permanent.oracleText || "No oracle text available.";
   const tokenLabel = permanent.isToken ? `<span class="board-tile-tag">TOKEN</span>` : "";
   const commanderLabel = permanent.isCommander ? `<span class="board-tile-tag">CMD</span>` : "";
+  const ownerLabel = permanent.ownerScope === "opponent" ? `<span class="board-tile-tag">TRACKED</span>` : "";
   const loyaltyLabel = permanent.isPlaneswalker
     ? `<span class="board-tile-tag">Loyalty ${getPermanentCounterValue(permanent, "Loyalty")}</span>`
     : "";
@@ -3669,6 +3869,7 @@ function renderBoardTile(permanent, variant) {
             ${quantityLabel}
             ${commanderLabel}
             ${tokenLabel}
+            ${ownerLabel}
             ${loyaltyLabel}
             ${tappedLabel}
             ${summoningLabel}
@@ -3730,6 +3931,7 @@ function renderBoardTile(permanent, variant) {
               ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="loyalty-minus" data-permanent-id="${permanent.id}">- Loyalty</button>` : ""}
               ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="loyalty-activate" data-permanent-id="${permanent.id}">Use Loyalty</button>` : ""}
               ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="planeswalker-damage" data-permanent-id="${permanent.id}">Damage</button>` : ""}
+              ${canPermanentBeCommanderCandidate(permanent) ? `<button class="board-tile-menu-action" type="button" data-board-action="set-as-commander" data-permanent-id="${permanent.id}">Set Commander</button>` : ""}
               <button class="board-tile-menu-action" type="button" data-board-action="destroy" data-permanent-id="${permanent.id}">Destroy</button>
               <button class="board-tile-menu-action" type="button" data-board-action="exile" data-permanent-id="${permanent.id}">Exile</button>
               <button class="board-tile-menu-action" type="button" data-board-action="sacrifice" data-permanent-id="${permanent.id}">Sacrifice</button>
@@ -3753,6 +3955,7 @@ function renderEffectDockChip(permanent) {
         <span class="effect-dock-name">${escapeHtml(permanent.name)}</span>
         <span class="effect-dock-mana">${escapeHtml(manaCost)}</span>
         ${permanent.isCommander ? '<span class="effect-dock-state">CMD</span>' : ""}
+        ${permanent.ownerScope === "opponent" ? '<span class="effect-dock-state">Tracked</span>' : ""}
         ${permanent.isPlaneswalker ? `<span class="effect-dock-state">Loyalty ${getPermanentCounterValue(permanent, "Loyalty")}</span>` : ""}
         ${permanent.isTapped ? '<span class="effect-dock-state">Tapped</span>' : ""}
       </button>
@@ -3780,6 +3983,7 @@ function renderEffectDockChip(permanent) {
               ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="loyalty-minus" data-permanent-id="${permanent.id}">- Loyalty</button>` : ""}
               ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="loyalty-activate" data-permanent-id="${permanent.id}">Use Loyalty</button>` : ""}
               ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="planeswalker-damage" data-permanent-id="${permanent.id}">Damage</button>` : ""}
+              ${canPermanentBeCommanderCandidate(permanent) ? `<button class="board-tile-menu-action" type="button" data-board-action="set-as-commander" data-permanent-id="${permanent.id}">Set Commander</button>` : ""}
               <button class="board-tile-menu-action" type="button" data-board-action="remove" data-permanent-id="${permanent.id}">Remove</button>
               <button class="board-tile-menu-action" type="button" data-board-action="destroy" data-permanent-id="${permanent.id}">Destroy</button>
               <button class="board-tile-menu-action" type="button" data-board-action="exile" data-permanent-id="${permanent.id}">Exile</button>
@@ -3878,7 +4082,11 @@ function registerCompanionAction({ type, summary, payload = {}, includeUndo = tr
   const historyEntry = createHistoryEntry({
     type,
     summary,
-    payload,
+    payload: {
+      ...payload,
+      commanderName: payload.commanderName || getActiveCommanderName(),
+      commanderDeckKey: payload.commanderDeckKey || state.commander?.deckKey || "",
+    },
   });
 
   let nextCompanion = recordHistoryAction(state.companion, historyEntry);
@@ -4297,6 +4505,16 @@ function handleBoardSearchResultClick(event) {
     return;
   }
 
+  const trackButton = event.target.closest("[data-search-track-index]");
+  if (trackButton) {
+    handleCardResultSelect(Number(trackButton.dataset.searchTrackIndex), {
+      autoArchive: false,
+      ownerScope: "opponent",
+      isOpponentOwned: true,
+    });
+    return;
+  }
+
   const selectButton = event.target.closest("[data-search-result-index]");
   if (!selectButton) {
     return;
@@ -4305,7 +4523,7 @@ function handleBoardSearchResultClick(event) {
   handleCardResultSelect(Number(selectButton.dataset.searchResultIndex));
 }
 
-function handleCardResultSelect(resultIndex) {
+function handleCardResultSelect(resultIndex, options = {}) {
   const card = boardUi.searchResults[resultIndex];
   if (!card) {
     return;
@@ -4321,7 +4539,7 @@ function handleCardResultSelect(resultIndex) {
     clearMessage: true,
   });
   renderBoardSearch();
-  void addSelectedCardToBattlefield(card);
+  void addSelectedCardToBattlefield(card, options);
 }
 
 function addSearchResultToCommanderDeck(resultIndex) {
@@ -4331,6 +4549,16 @@ function addSearchResultToCommanderDeck(resultIndex) {
   }
 
   const result = addCardToCommanderDeckArchive(card, getActiveCommanderName());
+  if (result.ok) {
+    registerCompanionAction({
+      type: "deck",
+      summary: result.message,
+      payload: {
+        cardName: getCardPreview(card).name,
+        commanderDeckKey: getActiveCommanderDeckKey(),
+      },
+    });
+  }
   boardUi = {
     ...boardUi,
     searchMessage: result.message,
@@ -4354,25 +4582,77 @@ function setSearchResultAsCommander(resultIndex) {
   }
 
   const commander = createCommanderStateFromCard(card, legality);
+  const deckChoice = chooseCommanderDeckForCommander(commander);
+  const commanderWithDeck = normalizeCommanderState({
+    ...commander,
+    deckKey: deckChoice.deckKey,
+    deckLabel: deckChoice.deckLabel,
+  });
   registerCompanionAction({
     type: "commander",
-    summary: `Selected commander: ${commander.name}`,
+    summary: `Selected commander: ${commanderWithDeck.name}`,
     payload: {
-      commanderName: commander.name,
-      colorIdentity: commander.colorIdentity,
+      commanderName: commanderWithDeck.name,
+      commanderDeckKey: commanderWithDeck.deckKey,
+      colorIdentity: commanderWithDeck.colorIdentity,
     },
   });
 
   state = {
     ...state,
-    commander,
-    tax: commander.commanderTax,
+    commander: commanderWithDeck,
+    tax: commanderWithDeck.commanderTax,
+    archive: ensureCommanderDeckArchive(state.archive, commanderWithDeck),
   };
 
   resetSearchState();
   persistState();
   render();
-  showQuickToast(`Commander set: ${commander.name}`);
+  showQuickToast(`Commander set: ${commanderWithDeck.name}`);
+}
+
+function chooseCommanderDeckForCommander(commander) {
+  const archive = normalizeArchiveState(state.archive);
+  const matchingDecks = Object.values(archive.commanderDecks).filter(
+    (deck) => normalizeLabel(deck.commanderName, "").toLowerCase() === commander.name.toLowerCase()
+  );
+
+  if (matchingDecks.length > 0) {
+    const existingDeck = matchingDecks[0];
+    const useExisting = window.confirm(
+      `${commander.name} already has a commander deck archive.\n\nPress OK to use the same deck.\nPress Cancel to start a new deck list for this commander.`
+    );
+    if (useExisting) {
+      return {
+        deckKey: existingDeck.deckKey || getCommanderDeckKey(existingDeck.commanderName),
+        deckLabel: existingDeck.deckLabel || existingDeck.commanderName,
+      };
+    }
+  }
+
+  const deckLabel =
+    matchingDecks.length > 0
+      ? normalizeLabel(window.prompt("New deck label", `${commander.name} Deck ${matchingDecks.length + 1}`), `${commander.name} Deck ${matchingDecks.length + 1}`)
+      : commander.name;
+  return {
+    deckKey: createUniqueCommanderDeckKey(commander.name, archive.commanderDecks),
+    deckLabel,
+  };
+}
+
+function createUniqueCommanderDeckKey(commanderName, commanderDecks = state.archive?.commanderDecks || {}) {
+  const baseKey = getCommanderDeckKey(commanderName);
+  if (!commanderDecks[baseKey]) {
+    return baseKey;
+  }
+
+  let index = 2;
+  let candidate = `${baseKey}-${index}`;
+  while (commanderDecks[candidate]) {
+    index += 1;
+    candidate = `${baseKey}-${index}`;
+  }
+  return candidate;
 }
 
 function createCommanderStateFromCard(card, legality = getCommanderLegality(card)) {
@@ -5409,7 +5689,8 @@ function createArchiveGameEntry(reason = "") {
     id: createId(),
     endedAt: now,
     durationMs: Math.max(0, now - normalizeTimestamp(state.runtime?.gameStartedAt)),
-    commanderName: state.playerName,
+    commanderName: getActiveCommanderName(),
+    commanderDeckKey: state.commander?.deckKey || "",
     lifeEnd: normalizeCount(state.life, 0),
     winner: normalizeCount(state.life, 0) > 0 ? state.playerName : "Unknown",
     totals: {
@@ -6357,20 +6638,32 @@ function getActiveCommanderName() {
   return normalizeLabel(state.commander?.name, normalizeLabel(state.playerName, "Commander"));
 }
 
+function hasSelectedCommander() {
+  return Boolean(normalizeLabel(state.commander?.name, ""));
+}
+
 function getCommanderDeckKey(commanderName = "") {
   return normalizeLabel(commanderName, "Commander").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "commander";
 }
 
 function getActiveCommanderDeckArchive() {
   const commanderName = getActiveCommanderName();
-  const commanderKey = getCommanderDeckKey(commanderName);
+  const commanderKey = getActiveCommanderDeckKey();
   const deck = state.archive?.commanderDecks?.[commanderKey];
   return deck || {
+    deckKey: commanderKey,
     commanderName,
+    deckLabel: commanderName,
+    colorIdentity: Array.isArray(state.commander?.colorIdentity) ? state.commander.colorIdentity : [],
     cards: [],
     usedCards: {},
     games: [],
+    events: [],
   };
+}
+
+function getActiveCommanderDeckKey() {
+  return normalizeCommanderDeckArchiveKey(state.commander?.deckKey, getActiveCommanderName());
 }
 
 function getCommanderCardKey(card = {}) {
@@ -6434,6 +6727,60 @@ function getCommanderLegality(card = {}) {
   return { ok: false, reason: "Choose a legendary creature, legendary artifact, or planeswalker that says it can be your commander." };
 }
 
+function canPermanentBeCommanderCandidate(permanent) {
+  return Boolean(permanent && !permanent.isToken && getCommanderLegality(permanent).ok);
+}
+
+function setPermanentAsCommander(permanentId) {
+  const permanent = state.boardState.permanents.find((entry) => entry.id === permanentId);
+  if (!canPermanentBeCommanderCandidate(permanent)) {
+    showQuickToast("That permanent cannot be assigned as commander.");
+    return;
+  }
+
+  const commander = createCommanderStateFromCard(permanent, getCommanderLegality(permanent));
+  const deckChoice = chooseCommanderDeckForCommander(commander);
+  const commanderWithDeck = normalizeCommanderState({
+    ...commander,
+    deckKey: deckChoice.deckKey,
+    deckLabel: deckChoice.deckLabel,
+    zone: "battlefield",
+    castCount: 1,
+    commanderTax: 2,
+  });
+
+  registerCompanionAction({
+    type: "commander",
+    summary: `Assigned battlefield commander: ${commanderWithDeck.name}`,
+    payload: {
+      commanderName: commanderWithDeck.name,
+      commanderDeckKey: commanderWithDeck.deckKey,
+    },
+  });
+
+  state = {
+    ...state,
+    commander: commanderWithDeck,
+    tax: commanderWithDeck.commanderTax,
+    archive: ensureCommanderDeckArchive(state.archive, commanderWithDeck),
+    boardState: {
+      ...state.boardState,
+      permanents: state.boardState.permanents.map((entry) =>
+        createPermanent({
+          ...entry,
+          isCommander: entry.id === permanentId,
+          commanderOwnerName: entry.id === permanentId ? commanderWithDeck.name : "",
+          commanderCastNumber: entry.id === permanentId ? 1 : 0,
+        })
+      ),
+    },
+  };
+
+  persistState();
+  render();
+  showQuickToast(`Commander assigned: ${commanderWithDeck.name}`);
+}
+
 function getCardColorIdentity(card = {}) {
   const preview = getCardPreview(card);
   if (Array.isArray(preview.colorIdentity) && preview.colorIdentity.length > 0) {
@@ -6459,39 +6806,102 @@ function isCardWithinCommanderIdentity(card = {}, commander = state.commander) {
   return getCardColorIdentity(card).every((symbol) => commanderIdentity.includes(symbol));
 }
 
+function canAutoArchiveGameplayCard(card = {}, options = {}) {
+  if (options.ownerScope === "opponent" || options.isOpponentOwned || options.isCopy || options.isTemporary) {
+    return false;
+  }
+
+  return isCommanderDeckEligibleCard(card) && isCardWithinCommanderIdentity(card, options.commander || state.commander);
+}
+
 function hasCommanderDeckCard(card, deck = getActiveCommanderDeckArchive()) {
   const cardKey = getCommanderCardKey(card);
   return Array.isArray(deck?.cards) && deck.cards.some((entry) => entry.key === cardKey || getCommanderCardKey(entry) === cardKey);
 }
 
-function addCardToCommanderDeckArchive(card, commanderName = getActiveCommanderName()) {
-  if (!isCommanderDeckEligibleCard(card)) {
-    return { ok: false, message: "That card cannot be added to the commander deck archive." };
-  }
-
-  if (!isCardWithinCommanderIdentity(card)) {
-    return { ok: false, message: `${getCardPreview(card).name} is outside ${commanderName}'s color identity.` };
-  }
-
-  const commanderKey = getCommanderDeckKey(commanderName);
-  const archive = normalizeArchiveState(state.archive);
-  const existingDeck = archive.commanderDecks[commanderKey] || {
+function ensureCommanderDeckArchive(archiveState, commander = state.commander) {
+  const archive = normalizeArchiveState(archiveState);
+  const commanderName = normalizeLabel(commander?.name, getActiveCommanderName());
+  const deckKey = normalizeCommanderDeckArchiveKey(commander?.deckKey, commanderName);
+  const existingDeck = archive.commanderDecks[deckKey] || {
+    deckKey,
     commanderName,
+    deckLabel: normalizeLabel(commander?.deckLabel, commanderName),
+    colorIdentity: Array.isArray(commander?.colorIdentity) ? commander.colorIdentity : [],
     cards: [],
     usedCards: {},
     games: [],
+    events: [],
   };
-  if (hasCommanderDeckCard(card, existingDeck)) {
-    state = {
-      ...state,
-      archive,
-    };
-    return { ok: false, message: `${getCardPreview(card).name} is already in ${commanderName}'s deck archive.` };
+
+  return {
+    ...archive,
+    commanderDecks: {
+      ...archive.commanderDecks,
+      [deckKey]: {
+        ...existingDeck,
+        deckKey,
+        commanderName,
+        deckLabel: normalizeLabel(existingDeck.deckLabel, commander?.deckLabel || commanderName),
+        colorIdentity:
+          Array.isArray(existingDeck.colorIdentity) && existingDeck.colorIdentity.length > 0
+            ? existingDeck.colorIdentity
+            : Array.isArray(commander?.colorIdentity)
+              ? commander.colorIdentity
+              : [],
+      },
+    },
+  };
+}
+
+function addCardToCommanderDeckArchive(card, commanderName = getActiveCommanderName(), options = {}) {
+  if (!options.deckKey && !hasSelectedCommander()) {
+    return { ok: false, message: "Set a commander before adding cards to a commander deck archive." };
   }
 
-  const nextCard = createCommanderDeckCardFromSearchResult(card);
+  const result = addCardToCommanderDeckArchiveState(state.archive, card, commanderName, options);
   state = {
     ...state,
+    archive: result.archive,
+  };
+  return result;
+}
+
+function addCardToCommanderDeckArchiveState(archiveState, card, commanderName = getActiveCommanderName(), options = {}) {
+  if (!isCommanderDeckEligibleCard(card)) {
+    return { ok: false, archive: normalizeArchiveState(archiveState), message: "That card cannot be added to the commander deck archive." };
+  }
+
+  const commanderContext = options.commander || state.commander;
+  if (!isCardWithinCommanderIdentity(card, commanderContext)) {
+    return { ok: false, archive: normalizeArchiveState(archiveState), message: `${getCardPreview(card).name} is outside ${commanderName}'s color identity.` };
+  }
+
+  const archive = ensureCommanderDeckArchive(archiveState, {
+    ...commanderContext,
+    name: commanderName,
+    deckKey: options.deckKey || commanderContext?.deckKey,
+  });
+  const commanderKey = normalizeCommanderDeckArchiveKey(options.deckKey || commanderContext?.deckKey, commanderName);
+  const existingDeck = archive.commanderDecks[commanderKey] || {
+    deckKey: commanderKey,
+    commanderName,
+    deckLabel: commanderName,
+    colorIdentity: Array.isArray(commanderContext?.colorIdentity) ? commanderContext.colorIdentity : [],
+    cards: [],
+    usedCards: {},
+    games: [],
+    events: [],
+  };
+  if (hasCommanderDeckCard(card, existingDeck)) {
+    return { ok: false, archive, message: `${getCardPreview(card).name} is already in ${existingDeck.deckLabel || commanderName}'s deck archive.` };
+  }
+
+  const nextCard = createCommanderDeckCardFromSearchResult(card, {
+    source: options.source || "manual",
+  });
+  return {
+    ok: true,
     archive: {
       ...archive,
       commanderDecks: {
@@ -6499,16 +6909,25 @@ function addCardToCommanderDeckArchive(card, commanderName = getActiveCommanderN
         [commanderKey]: {
           ...existingDeck,
           commanderName,
+          deckKey: commanderKey,
           cards: [...existingDeck.cards, nextCard],
+          events: [
+            ...(existingDeck.events || []),
+            {
+              id: createId(),
+              type: "added",
+              cardName: nextCard.name,
+              at: Date.now(),
+            },
+          ].slice(-100),
         },
       },
     },
+    message: `Added ${nextCard.name} to ${existingDeck.deckLabel || commanderName}.`,
   };
-
-  return { ok: true, message: `Added ${nextCard.name} to ${commanderName}'s deck archive.` };
 }
 
-function createCommanderDeckCardFromSearchResult(card) {
+function createCommanderDeckCardFromSearchResult(card, options = {}) {
   const preview = getCardPreview(card);
   return normalizeCommanderDeckCard({
     scryfallId: typeof card?.id === "string" ? card.id : "",
@@ -6520,24 +6939,39 @@ function createCommanderDeckCardFromSearchResult(card) {
     cardImageUrl: preview.cardImageUrl,
     legalities: card?.legalities || {},
     colorIdentity: preview.colorIdentity,
+    source: options.source || "manual",
+    ownedByCommanderDeck: true,
     addedAt: Date.now(),
     lastUsedAt: Date.now(),
     usageCount: 0,
   });
 }
 
-function recordCommanderCardUsageInArchive(archiveState, card, commanderName = getActiveCommanderName()) {
+function recordCommanderCardUsageInArchive(archiveState, card, commanderName = getActiveCommanderName(), options = {}) {
+  if (!options.deckKey && !hasSelectedCommander()) {
+    return normalizeArchiveState(archiveState);
+  }
+
   if (!card || getCardPreview(card).isToken || isBasicLandCard(card)) {
     return normalizeArchiveState(archiveState);
   }
 
-  const archive = normalizeArchiveState(archiveState);
-  const commanderKey = getCommanderDeckKey(commanderName);
+  const commanderContext = options.commander || state.commander;
+  let archive = ensureCommanderDeckArchive(archiveState, {
+    ...commanderContext,
+    name: commanderName,
+    deckKey: options.deckKey || commanderContext?.deckKey,
+  });
+  const commanderKey = normalizeCommanderDeckArchiveKey(options.deckKey || commanderContext?.deckKey, commanderName);
   const existingDeck = archive.commanderDecks[commanderKey] || {
+    deckKey: commanderKey,
     commanderName,
+    deckLabel: commanderName,
+    colorIdentity: Array.isArray(commanderContext?.colorIdentity) ? commanderContext.colorIdentity : [],
     cards: [],
     usedCards: {},
     games: [],
+    events: [],
   };
   const cardKey = getCommanderCardKey(card);
   const preview = getCardPreview(card);
@@ -6546,16 +6980,33 @@ function recordCommanderCardUsageInArchive(archiveState, card, commanderName = g
     count: 0,
     lastUsedAt: Date.now(),
   };
+  const shouldAutoAddToDeck = options.autoAddToDeck !== false && canAutoArchiveGameplayCard(card, options);
+  const deckAddResult =
+    shouldAutoAddToDeck && !hasCommanderDeckCard(card, existingDeck)
+      ? addCardToCommanderDeckArchiveState(archive, card, commanderName, {
+          ...options,
+          deckKey: commanderKey,
+          commander: {
+            ...commanderContext,
+            name: commanderName,
+            deckKey: commanderKey,
+            colorIdentity: existingDeck.colorIdentity || commanderContext?.colorIdentity || [],
+          },
+          source: "gameplay",
+        })
+      : { archive };
+  archive = deckAddResult.archive || archive;
+  const updatedDeck = archive.commanderDecks[commanderKey] || existingDeck;
 
   return {
     ...archive,
     commanderDecks: {
       ...archive.commanderDecks,
       [commanderKey]: {
-        ...existingDeck,
+        ...updatedDeck,
         commanderName,
         usedCards: {
-          ...existingDeck.usedCards,
+          ...updatedDeck.usedCards,
           [cardKey]: {
             ...usedEntry,
             name: preview.name,
@@ -6569,14 +7020,26 @@ function recordCommanderCardUsageInArchive(archiveState, card, commanderName = g
 }
 
 function recordCommanderGameInArchive(archiveState, game) {
-  const archive = normalizeArchiveState(archiveState);
+  if (!game?.commanderDeckKey && !hasSelectedCommander()) {
+    return normalizeArchiveState(archiveState);
+  }
+
   const commanderName = normalizeLabel(game?.commanderName, getActiveCommanderName());
-  const commanderKey = getCommanderDeckKey(commanderName);
+  const commanderKey = normalizeCommanderDeckArchiveKey(game?.commanderDeckKey || state.commander?.deckKey, commanderName);
+  const archive = ensureCommanderDeckArchive(archiveState, {
+    ...state.commander,
+    name: commanderName,
+    deckKey: commanderKey,
+  });
   const existingDeck = archive.commanderDecks[commanderKey] || {
+    deckKey: commanderKey,
     commanderName,
+    deckLabel: commanderName,
+    colorIdentity: Array.isArray(state.commander?.colorIdentity) ? state.commander.colorIdentity : [],
     cards: [],
     usedCards: {},
     games: [],
+    events: [],
   };
 
   return {
@@ -6644,6 +7107,7 @@ function mapScryfallCardToPermanent(card, rulings = []) {
     staticBuffExcludesSelf: effectMetadata.staticBuffExcludesSelf,
     isExpanded: false,
     isSelected: false,
+    ownerScope: "local",
     summoningSickness: preview.isCreature,
   });
 }
@@ -6652,7 +7116,7 @@ function importScryfallResult(resultIndex) {
   handleCardResultSelect(resultIndex);
 }
 
-async function addSelectedCardToBattlefield(selectedCard = null) {
+async function addSelectedCardToBattlefield(selectedCard = null, options = {}) {
   const card = selectedCard || boardUi.searchResults[boardUi.selectedSearchResultIndex];
   if (!card) {
     return;
@@ -6673,11 +7137,24 @@ async function addSelectedCardToBattlefield(selectedCard = null) {
 
   try {
     const rulings = await fetchCardRulings(card);
-    const permanent = getCardPreview(card).isToken
+    const importedPermanent = getCardPreview(card).isToken
       ? importScryfallToken(card, rulings)
       : mapScryfallCardToPermanent(card, rulings);
+    const permanent = createPermanent({
+      ...importedPermanent,
+      ownerScope: options.ownerScope || "local",
+      isOpponentOwned: Boolean(options.isOpponentOwned),
+      controlSource: options.isOpponentOwned ? "tracked-opponent-card" : "",
+    });
     const nextBoardState = addImportedPermanentToBoardState(state.boardState, permanent);
-    const nextArchive = recordCommanderCardUsageInArchive(state.archive, card, getActiveCommanderName());
+    const nextArchive =
+      options.autoArchive === false
+        ? normalizeArchiveState(state.archive)
+        : recordCommanderCardUsageInArchive(state.archive, card, getActiveCommanderName(), {
+            autoAddToDeck: true,
+            ownerScope: "local",
+            deckKey: getActiveCommanderDeckKey(),
+          });
 
     state = {
       ...state,
@@ -6691,7 +7168,7 @@ async function addSelectedCardToBattlefield(selectedCard = null) {
 
     persistState();
     render();
-    showQuickToast(`Added ${permanent.name}`);
+    showQuickToast(`${options.autoArchive === false ? "Tracked" : "Added"} ${permanent.name}`);
 
     window.clearTimeout(automationDialogTimer);
     if (nextBoardState.automationSuggestions.length > 0) {
@@ -7494,7 +7971,7 @@ function openGenericTokenDialog() {
 
 function getCommanderDeckSearchCards(query = "") {
   const normalizedQuery = normalizeLabel(query, "").toLowerCase();
-  if (!normalizedQuery) {
+  if (!normalizedQuery || !hasSelectedCommander()) {
     return [];
   }
 
@@ -9318,6 +9795,11 @@ function handleBoardAction(action, permanentId) {
 
   if (action === "planeswalker-damage") {
     promptPlaneswalkerDamage(permanentId);
+    return;
+  }
+
+  if (action === "set-as-commander") {
+    setPermanentAsCommander(permanentId);
     return;
   }
 
