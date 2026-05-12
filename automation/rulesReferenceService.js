@@ -1,5 +1,14 @@
+import {
+  COMPACT_RULES_INDEX,
+  COMPREHENSIVE_RULES_ASSET_URL,
+  COMPREHENSIVE_RULES_SOURCE,
+  loadComprehensiveRulesText,
+  searchComprehensiveRulesText,
+} from "./comprehensiveRulesIndex.js";
+
 export const WIZARDS_RULES_URL = "https://magic.wizards.com/rules";
 export const COMMANDER_RULES_URL = "https://mtgcommander.net/index.php/rules/";
+export { COMPACT_RULES_INDEX, COMPREHENSIVE_RULES_SOURCE, loadComprehensiveRulesText, searchComprehensiveRulesText };
 
 export const AUTOMATION_RULES_NOTE =
   "Automation uses Scryfall card data/rulings and selected official rules references where available. Ambiguous effects require confirmation.";
@@ -20,8 +29,8 @@ export const RULES_SOURCE_PRIORITY = [
   {
     key: "comp-rules",
     label: "Wizards Comprehensive Rules",
-    summary: "Official rules reference for turn structure, combat, triggered abilities, replacement effects, tokens, and counters.",
-    url: WIZARDS_RULES_URL,
+    summary: "Bundled full Comprehensive Rules text plus a compact index for fast commander, planeswalker, combat, and layer lookups.",
+    url: COMPREHENSIVE_RULES_ASSET_URL,
   },
   {
     key: "commander",
@@ -90,7 +99,25 @@ export const RULES_REFERENCE_CATEGORIES = {
     key: "commander",
     label: "Commander Format",
     url: COMMANDER_RULES_URL,
-    summary: "Use for Commander-specific expectations, life totals, and local format assumptions.",
+    summary: `${COMPACT_RULES_INDEX.commander.map((entry) => entry.rule).join(", ")}: Use for commander designation, color identity, casting tax, and commander damage.`,
+  },
+  planeswalkers: {
+    key: "planeswalkers",
+    label: "Planeswalkers and Loyalty",
+    url: COMPREHENSIVE_RULES_ASSET_URL,
+    summary: `${COMPACT_RULES_INDEX.planeswalkers.map((entry) => entry.rule).join(", ")}: Use for loyalty counters, activation limits, damage, and zero-loyalty state actions.`,
+  },
+  layers: {
+    key: "layers",
+    label: "Layered Continuous Effects",
+    url: COMPREHENSIVE_RULES_ASSET_URL,
+    summary: `${COMPACT_RULES_INDEX.layers.map((entry) => entry.rule).join(", ")}: Use for modular power/toughness and static effect ordering.`,
+  },
+  stateBasedActions: {
+    key: "stateBasedActions",
+    label: "State-Based Actions",
+    url: COMPREHENSIVE_RULES_ASSET_URL,
+    summary: `${COMPACT_RULES_INDEX.stateBasedActions.map((entry) => entry.rule).join(", ")}: Use for automatic cleanup such as zero-toughness creatures and zero-loyalty planeswalkers.`,
   },
 };
 
@@ -117,6 +144,11 @@ export function getRulesReferenceEntries(ruleLike = {}) {
     keys.add("triggers");
   }
 
+  if (ruleLike.isPlaneswalker || ruleLike.counterType === "Loyalty" || ruleLike.actionType === "Loyalty") {
+    keys.add("planeswalkers");
+    keys.add("stateBasedActions");
+  }
+
   if (ruleLike.triggerType === "Static") {
     keys.add("replacement");
   }
@@ -130,6 +162,7 @@ export function getRulesReferenceEntries(ruleLike = {}) {
   }
 
   keys.add("commander");
+  keys.add("layers");
 
   return Array.from(keys)
     .map((key) => RULES_REFERENCE_CATEGORIES[key])

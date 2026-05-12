@@ -410,6 +410,10 @@
         <button class="page-arrow page-arrow-right" id="boardStatePageButton" type="button" aria-label="Next page">
           <span aria-hidden="true">›</span>
         </button>
+        <button class="commander-nav-badge" id="commanderNavBadge" type="button" aria-label="Commander actions">
+          <span id="commanderNavName">No Commander</span>
+          <small id="commanderNavMeta">Hold</small>
+        </button>
       </div>
     </main>
 
@@ -655,6 +659,20 @@
         <div class="sheet-footer">
           <button class="sheet-secondary" id="cancelCounterTypeButton" type="button">Cancel</button>
           <button class="sheet-action" id="confirmCounterTypeButton" type="submit">Confirm</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="options-dialog" id="commanderActionDialog">
+      <form method="dialog" class="options-sheet tracker-sheet">
+        <div class="options-header">
+          <p class="options-kicker">Commander Zone</p>
+          <h1 id="commanderActionTitle">Commander</h1>
+        </div>
+        <p class="bulk-remove-note" id="commanderActionNote">Long press the commander badge to cast your commander.</p>
+        <div class="options-actions bulk-remove-actions">
+          <button class="sheet-action" id="castCommanderButton" type="button">Cast Commander</button>
+          <button class="sheet-secondary" type="submit">Cancel</button>
         </div>
       </form>
     </dialog>

@@ -271,11 +271,16 @@ let state = loadState();
 let currentPage = "tracker";
 let pageScrollFrame = 0;
 let nameSettingsFocusIndex = -1;
+let commanderBadgePressTimer = 0;
+let commanderBadgeLongPressTriggered = false;
 
 const pageFrame = document.querySelector("#pageFrame");
 const pageViewport = document.querySelector("#pageViewport");
 const trackerPageButton = document.querySelector("#trackerPageButton");
 const boardStatePageButton = document.querySelector("#boardStatePageButton");
+const commanderNavBadge = document.querySelector("#commanderNavBadge");
+const commanderNavName = document.querySelector("#commanderNavName");
+const commanderNavMeta = document.querySelector("#commanderNavMeta");
 const trackerBoard = document.querySelector("#trackerBoard");
 const boardStateBoard = document.querySelector("#boardStateBoard");
 const statsBoard = document.querySelector("#statsBoard");
@@ -322,6 +327,10 @@ const automationRulesDialog = document.querySelector("#automationRulesDialog");
 const cardDetailDialog = document.querySelector("#cardDetailDialog");
 const genericTokenDialog = document.querySelector("#genericTokenDialog");
 const settingsManualDialog = document.querySelector("#settingsManualDialog");
+const commanderActionDialog = document.querySelector("#commanderActionDialog");
+const commanderActionTitle = document.querySelector("#commanderActionTitle");
+const commanderActionNote = document.querySelector("#commanderActionNote");
+const castCommanderButton = document.querySelector("#castCommanderButton");
 
 const renameAction = document.querySelector("#renameAction");
 const nameSettingsForm = document.querySelector("#nameSettingsForm");
@@ -591,6 +600,15 @@ copySelectedPermanentTokenButton?.addEventListener("click", handleCopySelectedPe
 removeAllTokensButton?.addEventListener("click", removeAllTokensFromBoard);
 removeCustomTokensButton?.addEventListener("click", promptRemoveCustomTokenAmount);
 cardDetailDialog?.addEventListener("close", clearExpandedCardState);
+castCommanderButton?.addEventListener("click", castCommanderFromCommandZone);
+commanderNavBadge?.addEventListener("pointerdown", handleCommanderBadgePointerDown);
+commanderNavBadge?.addEventListener("pointerup", handleCommanderBadgePointerEnd);
+commanderNavBadge?.addEventListener("pointercancel", handleCommanderBadgePointerEnd);
+commanderNavBadge?.addEventListener("pointerleave", handleCommanderBadgePointerEnd);
+commanderNavBadge?.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+});
 
 [effectStrip, battlefieldGrid].forEach((container) => {
   container.addEventListener("pointerdown", handleBoardGestureStart, { passive: true });
@@ -616,7 +634,10 @@ cardDetailDialog?.addEventListener("close", clearExpandedCardState);
   });
 });
 
-[optionsDialog, nameSettingsDialog, counterSheetDialog, damageSheetDialog, connectedPlayersDialog, connectedPlayerViewDialog, boardOptionsDialog, bulkRemoveDialog, multiplayerHubDialog, automationRulesDialog, cardDetailDialog, genericTokenDialog, battlefieldCounterDialog, counterTypeDialog, settingsManualDialog].forEach((dialog) => {
+[optionsDialog, nameSettingsDialog, counterSheetDialog, damageSheetDialog, connectedPlayersDialog, connectedPlayerViewDialog, boardOptionsDialog, bulkRemoveDialog, multiplayerHubDialog, automationRulesDialog, cardDetailDialog, genericTokenDialog, battlefieldCounterDialog, counterTypeDialog, commanderActionDialog, settingsManualDialog].forEach((dialog) => {
+  if (!dialog) {
+    return;
+  }
   dialog.addEventListener("click", (event) => {
     if (event.target === dialog) {
       dialog.close();
@@ -665,6 +686,7 @@ function createDefaultState() {
     mana: 0,
     playerCounters: createDefaultPlayerCounters(),
     commanderDamageTrackers: [createCommanderDamageTracker()],
+    commander: createDefaultCommanderState(),
     companion: createDefaultCompanionState(),
     boardState: createDefaultBoardState(),
     multiplayer: createDefaultMultiplayerState(),
@@ -715,6 +737,29 @@ function createDefaultArchiveState() {
   };
 }
 
+function createDefaultCommanderState() {
+  return {
+    name: "",
+    scryfallId: "",
+    manaCost: "",
+    typeLine: "",
+    oracleText: "",
+    imageUrl: "",
+    cardImageUrl: "",
+    colorIdentity: [],
+    power: 0,
+    toughness: 0,
+    loyalty: 0,
+    legalities: {},
+    zone: "none",
+    castCount: 0,
+    commanderTax: 0,
+    damageByOpponent: {},
+    isLegal: false,
+    legalityReason: "No commander selected.",
+  };
+}
+
 function createDefaultRuntimeState() {
   const now = Date.now();
   return {
@@ -754,6 +799,11 @@ function createPermanent(source = {}) {
   const isCreature = source.isCreature === undefined ? !isNonCreature : Boolean(source.isCreature);
   const fallbackEffectMetadata = getEffectMetadataFromText(source.oracleText || source.notes || "");
   const normalizedCounters = normalizePermanentCounters(source.counters);
+  const sourceTypeLine = typeof source.typeLine === "string" ? source.typeLine.trim() : "";
+  const isPlaneswalker = source.isPlaneswalker === undefined ? hasTypeLine(sourceTypeLine, "Planeswalker") : Boolean(source.isPlaneswalker);
+  const colorIdentity = Array.isArray(source.colorIdentity)
+    ? Array.from(new Set(source.colorIdentity.map((symbol) => String(symbol || "").trim().toUpperCase()).filter(Boolean)))
+    : [];
   const plusOneCounters = normalizeCount(source.plusOneCounters, normalizeCount(normalizedCounters["+1/+1"]));
   const minusOneCounters = normalizeCount(source.minusOneCounters, normalizeCount(normalizedCounters["-1/-1"]));
   const staticBuffRules = normalizeStaticBuffRules(source.staticBuffRules, {
@@ -793,14 +843,21 @@ function createPermanent(source = {}) {
           .filter((entry) => entry.comment)
       : [],
     legalities: normalizeLegalities(source.legalities),
+    colorIdentity,
     power: normalizeSignedCount(source.power),
     toughness: normalizeSignedCount(source.toughness),
+    printedLoyalty: normalizeSignedCount(source.printedLoyalty ?? source.loyalty, 0),
     quantity: Math.max(1, normalizeCount(source.quantity, 1)),
     isToken: Boolean(source.isToken),
     isNonCreature,
     isLegendary: Boolean(source.isLegendary),
     isArtifact: Boolean(source.isArtifact),
     isCreature,
+    isPlaneswalker,
+    isCommander: Boolean(source.isCommander),
+    commanderOwnerName: normalizeLabel(source.commanderOwnerName, ""),
+    commanderCastNumber: normalizeCount(source.commanderCastNumber, 0),
+    loyaltyActivatedTurn: normalizeCount(source.loyaltyActivatedTurn, 0),
     plusOneCounters,
     minusOneCounters,
     counters: normalizedCounters,
@@ -947,11 +1004,50 @@ function normalizeState(source = {}) {
       return accumulator;
     }, {}),
     commanderDamageTrackers: normalizeCommanderDamageTrackers(source.commanderDamageTrackers),
+    commander: normalizeCommanderState(source.commander),
     companion: normalizeCompanionState(source.companion),
     boardState: normalizeBoardState(source.boardState),
     multiplayer: normalizeMultiplayerState(source.multiplayer),
     archive: normalizeArchiveState(source.archive),
     runtime: normalizeRuntimeState(source.runtime),
+  };
+}
+
+function normalizeCommanderState(source = {}) {
+  const base = createDefaultCommanderState();
+  const colorIdentity = Array.isArray(source.colorIdentity)
+    ? Array.from(new Set(source.colorIdentity.map((symbol) => String(symbol || "").trim().toUpperCase()).filter(Boolean)))
+    : [];
+  const zone = ["none", "command", "battlefield", "library", "hand", "graveyard", "exile"].includes(source.zone)
+    ? source.zone
+    : base.zone;
+
+  return {
+    ...base,
+    name: normalizeLabel(source.name, base.name),
+    scryfallId: normalizeLabel(source.scryfallId || source.id, base.scryfallId),
+    manaCost: normalizeLabel(source.manaCost || source.mana_cost, base.manaCost),
+    typeLine: normalizeLabel(source.typeLine || source.type_line, base.typeLine),
+    oracleText: normalizeLabel(source.oracleText || source.oracle_text, base.oracleText),
+    imageUrl: normalizeLabel(source.imageUrl || source.cardImageUrl || "", base.imageUrl),
+    cardImageUrl: normalizeLabel(source.cardImageUrl || source.imageUrl || "", base.cardImageUrl),
+    colorIdentity,
+    power: normalizeSignedCount(source.power, 0),
+    toughness: normalizeSignedCount(source.toughness, 0),
+    loyalty: normalizeSignedCount(source.loyalty ?? source.printedLoyalty, 0),
+    legalities: normalizeLegalities(source.legalities),
+    zone,
+    castCount: normalizeCount(source.castCount, 0),
+    commanderTax: normalizeCount(source.commanderTax, 0),
+    damageByOpponent:
+      source.damageByOpponent && typeof source.damageByOpponent === "object"
+        ? Object.entries(source.damageByOpponent).reduce((accumulator, [opponentId, value]) => {
+            accumulator[opponentId] = normalizeCount(value, 0);
+            return accumulator;
+          }, {})
+        : {},
+    isLegal: Boolean(source.isLegal),
+    legalityReason: normalizeLabel(source.legalityReason, base.legalityReason),
   };
 }
 
@@ -1131,6 +1227,9 @@ function normalizeCommanderDeckCard(card = {}) {
     imageUrl,
     cardImageUrl: normalizeLabel(card.cardImageUrl || imageUrl, ""),
     legalities: normalizeLegalities(card.legalities),
+    colorIdentity: Array.isArray(card.colorIdentity)
+      ? card.colorIdentity.map((symbol) => String(symbol || "").trim().toUpperCase()).filter(Boolean)
+      : [],
     addedAt: normalizeTimestamp(card.addedAt),
     lastUsedAt: normalizeTimestamp(card.lastUsedAt || card.addedAt),
     usageCount: normalizeCount(card.usageCount, 0),
@@ -1572,8 +1671,15 @@ function persistState() {
     });
     const sbaResult = runStateBasedActions(enchantmentResult.boardState || state.boardState);
     if (enchantmentResult.changed || sbaResult.changed) {
+      const removedCommander = (state.boardState.permanents || []).find(
+        (permanent) =>
+          permanent.isCommander && !(sbaResult.boardState?.permanents || []).some((entry) => entry.id === permanent.id)
+      );
       state = {
         ...state,
+        commander: removedCommander
+          ? normalizeCommanderState({ ...state.commander, zone: "command" })
+          : state.commander,
         boardState: sbaResult.boardState,
       };
     }
@@ -1765,6 +1871,7 @@ function renderBoardStatePage() {
   renderCardDetailOverlay();
   renderFloatingManaPanel();
   renderTimerPanel();
+  renderCommanderBadge();
 }
 
 function startTimerRendering() {
@@ -1963,14 +2070,20 @@ function renderCommanderDeckArchiveSummary() {
   if (!deck || deck.cards.length === 0) {
     return "";
   }
+  const validation = validateCommanderDeckArchive(deck);
 
   return `
     <article class="utility-log-item">
       <div class="utility-log-item-header">
         <strong>${escapeHtml(deck.commanderName)} Deck Archive</strong>
-        <span>${deck.cards.length} unique</span>
+        <span>${deck.cards.length} unique • ${validation.invalidCards.length} flagged</span>
       </div>
       <p class="utility-log-item-summary">Curated cards explicitly added from Scryfall. Tokens, basic lands, temporary copies, and stolen permanents are excluded.</p>
+      <div class="utility-log-item-meta">
+        <span>Types: ${escapeHtml(validation.typeBreakdownText)}</span>
+        <span>Mana curve: ${escapeHtml(validation.manaCurveText)}</span>
+        <span>Keywords: ${escapeHtml(validation.keywordText)}</span>
+      </div>
       <div class="utility-log-item-actions">
         ${deck.cards
           .slice(0, 12)
@@ -1979,6 +2092,60 @@ function renderCommanderDeckArchiveSummary() {
       </div>
     </article>
   `;
+}
+
+function validateCommanderDeckArchive(deck = getActiveCommanderDeckArchive()) {
+  const cards = Array.isArray(deck?.cards) ? deck.cards : [];
+  const invalidCards = cards.filter((card) => !isCommanderDeckEligibleCard(card) || !isCardWithinCommanderIdentity(card));
+  const typeBreakdown = cards.reduce((accumulator, card) => {
+    const typeLine = card.typeLine || "";
+    const primaryType = ["Creature", "Artifact", "Enchantment", "Planeswalker", "Instant", "Sorcery", "Land"].find((type) =>
+      hasTypeLine(typeLine, type)
+    ) || "Other";
+    accumulator[primaryType] = normalizeCount(accumulator[primaryType], 0) + 1;
+    return accumulator;
+  }, {});
+  const manaCurve = cards.reduce((accumulator, card) => {
+    const manaValue = estimateManaValue(card.manaCost);
+    accumulator[manaValue] = normalizeCount(accumulator[manaValue], 0) + 1;
+    return accumulator;
+  }, {});
+  const keywordCounts = cards.reduce((accumulator, card) => {
+    ["flying", "trample", "haste", "vigilance", "lifelink", "deathtouch", "ward", "menace"].forEach((keyword) => {
+      if (getCardReferenceText(card).includes(keyword)) {
+        accumulator[keyword] = normalizeCount(accumulator[keyword], 0) + 1;
+      }
+    });
+    return accumulator;
+  }, {});
+
+  return {
+    invalidCards,
+    typeBreakdownText: formatCountMap(typeBreakdown, "No types"),
+    manaCurveText: formatCountMap(manaCurve, "No curve"),
+    keywordText: formatCountMap(keywordCounts, "No keywords"),
+  };
+}
+
+function estimateManaValue(manaCost = "") {
+  const symbols = String(manaCost || "").match(/\{[^}]+\}/g) || [];
+  return symbols.reduce((total, symbol) => {
+    const value = symbol.replace(/[{}]/g, "");
+    const numeric = Number(value);
+    return total + (Number.isFinite(numeric) ? numeric : 1);
+  }, 0);
+}
+
+function formatCountMap(countMap = {}, emptyLabel = "None") {
+  const entries = Object.entries(countMap);
+  if (entries.length === 0) {
+    return emptyLabel;
+  }
+  return entries
+    .sort(([left], [right]) => String(left).localeCompare(String(right)))
+    .slice(0, 6)
+    .map(([key, value]) => `${key}:${value}`)
+    .join(" ");
 }
 
 function renderLeaderboardsPage() {
@@ -3188,6 +3355,8 @@ function renderCardDetailOverlay() {
       <span class="card-detail-line"><strong>Current P/T:</strong> ${permanent.isCreature ? `${currentPower}/${currentToughness}` : "N/A"}</span>
       <span class="card-detail-line"><strong>Quantity:</strong> ${permanent.quantity}</span>
       <span class="card-detail-line"><strong>Tapped:</strong> ${permanent.isTapped ? "Yes" : "No"}</span>
+      <span class="card-detail-line"><strong>Commander:</strong> ${permanent.isCommander ? "Yes" : "No"}</span>
+      ${permanent.isPlaneswalker ? `<span class="card-detail-line"><strong>Loyalty:</strong> ${getPermanentCounterValue(permanent, "Loyalty")}</span>` : ""}
       <span class="card-detail-line"><strong>+1/+1 Counters:</strong> ${permanent.plusOneCounters}</span>
       <span class="card-detail-line"><strong>-1/-1 Counters:</strong> ${normalizeCount(permanent.minusOneCounters)}</span>
       <span class="card-detail-line"><strong>All Counters:</strong> ${escapeHtml(getPermanentCounterSummary(permanent))}</span>
@@ -3298,6 +3467,20 @@ function renderBoardTotals(totals, selectedCount) {
   toggleBoardTotalsButton.setAttribute("aria-expanded", boardUi.totalsVisible ? "true" : "false");
 }
 
+function renderCommanderBadge() {
+  if (!commanderNavBadge || !commanderNavName || !commanderNavMeta) {
+    return;
+  }
+
+  const commander = normalizeCommanderState(state.commander);
+  commanderNavName.textContent = commander.name || "No Commander";
+  commanderNavMeta.textContent = commander.name ? `Tax ${commander.commanderTax}` : "Hold";
+  commanderNavBadge.disabled = false;
+  commanderNavBadge.title = commander.name
+    ? `${commander.name} • ${commander.zone === "battlefield" ? "Battlefield" : "Command Zone"}`
+    : "Set a commander from Scryfall search first.";
+}
+
 function renderBattlefieldActionButtons() {
   if (!confirmCounterSelectionButton) {
     return;
@@ -3338,6 +3521,7 @@ function renderBoardSearchResult(card, index) {
   const preview = getCardPreview(card);
   const isSupported = isSupportedPermanent(card);
   const isDeckEligible = isCommanderDeckEligibleCard(card);
+  const commanderLegality = getCommanderLegality(card);
   const supportLabel = isSupported ? getSupportDestinationLabel(preview) : "Not supported yet";
   const isSelected = boardUi.selectedSearchResultIndex === index;
   const deck = getActiveCommanderDeckArchive();
@@ -3372,6 +3556,15 @@ function renderBoardSearchResult(card, index) {
         >
           ${isInCommanderDeck ? "In Deck" : "Add Deck"}
         </button>
+        <button
+          class="board-search-result-button"
+          type="button"
+          title="${escapeHtml(commanderLegality.reason)}"
+          data-search-commander-index="${index}"
+          ${!commanderLegality.ok ? "disabled" : ""}
+        >
+          Commander
+        </button>
       </div>
     </article>
   `;
@@ -3384,6 +3577,10 @@ function renderBoardTile(permanent, variant) {
   const typeLine = permanent.typeLine || getFallbackTypeLine(permanent);
   const oracleText = permanent.oracleText || "No oracle text available.";
   const tokenLabel = permanent.isToken ? `<span class="board-tile-tag">TOKEN</span>` : "";
+  const commanderLabel = permanent.isCommander ? `<span class="board-tile-tag">CMD</span>` : "";
+  const loyaltyLabel = permanent.isPlaneswalker
+    ? `<span class="board-tile-tag">Loyalty ${getPermanentCounterValue(permanent, "Loyalty")}</span>`
+    : "";
   const tappedLabel = permanent.isTapped ? `<span class="board-tile-tag is-tapped">TAPPED</span>` : "";
   const summoningLabel =
     permanent.isCreature && permanent.summoningSickness
@@ -3440,7 +3637,9 @@ function renderBoardTile(permanent, variant) {
           ${compactStatsMarkup}
           <div class="board-tile-tags">
             ${quantityLabel}
+            ${commanderLabel}
             ${tokenLabel}
+            ${loyaltyLabel}
             ${tappedLabel}
             ${summoningLabel}
           </div>
@@ -3463,6 +3662,7 @@ function renderBoardTile(permanent, variant) {
           <span class="board-tile-detail">+1/+1 Counters: ${permanent.plusOneCounters}</span>
           <span class="board-tile-detail">-1/-1 Counters: ${normalizeCount(permanent.minusOneCounters)}</span>
           <span class="board-tile-detail">All Counters: ${escapeHtml(getPermanentCounterSummary(permanent))}</span>
+          ${permanent.isPlaneswalker ? `<span class="board-tile-detail">Loyalty Activated This Turn: ${permanent.loyaltyActivatedTurn === state.runtime.turnNumber ? "Yes" : "No"}</span>` : ""}
           <span class="board-tile-detail">Doubles Tokens: ${permanent.doublesTokens ? "Yes" : "No"}</span>
           <span class="board-tile-detail">Creates Tokens: ${permanent.createsTokens ? "Yes" : "No"}</span>
           <span class="board-tile-detail">Adds Counters: ${permanent.addsCounters ? "Yes" : "No"}</span>
@@ -3496,6 +3696,10 @@ function renderBoardTile(permanent, variant) {
               ? `
             <div class="board-tile-menu">
               <button class="board-tile-menu-action" type="button" data-board-action="${permanent.isTapped ? "untap" : "tap"}" data-permanent-id="${permanent.id}">${permanent.isTapped ? "Untap" : "Tap"}</button>
+              ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="loyalty-plus" data-permanent-id="${permanent.id}">+ Loyalty</button>` : ""}
+              ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="loyalty-minus" data-permanent-id="${permanent.id}">- Loyalty</button>` : ""}
+              ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="loyalty-activate" data-permanent-id="${permanent.id}">Use Loyalty</button>` : ""}
+              ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="planeswalker-damage" data-permanent-id="${permanent.id}">Damage</button>` : ""}
               <button class="board-tile-menu-action" type="button" data-board-action="destroy" data-permanent-id="${permanent.id}">Destroy</button>
               <button class="board-tile-menu-action" type="button" data-board-action="exile" data-permanent-id="${permanent.id}">Exile</button>
               <button class="board-tile-menu-action" type="button" data-board-action="sacrifice" data-permanent-id="${permanent.id}">Sacrifice</button>
@@ -3518,6 +3722,8 @@ function renderEffectDockChip(permanent) {
       <button class="effect-dock-main" type="button" data-board-action="toggle-select" data-permanent-id="${permanent.id}">
         <span class="effect-dock-name">${escapeHtml(permanent.name)}</span>
         <span class="effect-dock-mana">${escapeHtml(manaCost)}</span>
+        ${permanent.isCommander ? '<span class="effect-dock-state">CMD</span>' : ""}
+        ${permanent.isPlaneswalker ? `<span class="effect-dock-state">Loyalty ${getPermanentCounterValue(permanent, "Loyalty")}</span>` : ""}
         ${permanent.isTapped ? '<span class="effect-dock-state">Tapped</span>' : ""}
       </button>
       <div class="effect-dock-actions">
@@ -3540,6 +3746,10 @@ function renderEffectDockChip(permanent) {
               ? `
             <div class="board-tile-menu">
               <button class="board-tile-menu-action" type="button" data-board-action="${permanent.isTapped ? "untap" : "tap"}" data-permanent-id="${permanent.id}">${permanent.isTapped ? "Untap" : "Tap"}</button>
+              ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="loyalty-plus" data-permanent-id="${permanent.id}">+ Loyalty</button>` : ""}
+              ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="loyalty-minus" data-permanent-id="${permanent.id}">- Loyalty</button>` : ""}
+              ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="loyalty-activate" data-permanent-id="${permanent.id}">Use Loyalty</button>` : ""}
+              ${permanent.isPlaneswalker ? `<button class="board-tile-menu-action" type="button" data-board-action="planeswalker-damage" data-permanent-id="${permanent.id}">Damage</button>` : ""}
               <button class="board-tile-menu-action" type="button" data-board-action="remove" data-permanent-id="${permanent.id}">Remove</button>
               <button class="board-tile-menu-action" type="button" data-board-action="destroy" data-permanent-id="${permanent.id}">Destroy</button>
               <button class="board-tile-menu-action" type="button" data-board-action="exile" data-permanent-id="${permanent.id}">Exile</button>
@@ -3628,6 +3838,7 @@ function createCompanionUndoSnapshot() {
     mana: state.mana,
     playerCounters: structuredClone(state.playerCounters),
     commanderDamageTrackers: structuredClone(state.commanderDamageTrackers),
+    commander: structuredClone(state.commander),
     boardState: normalizeBoardStateSnapshot(state.boardState),
     floatingMana: structuredClone(state.companion?.floatingMana || {}),
   };
@@ -3681,6 +3892,7 @@ function undoLastCompanionAction() {
     mana: normalizeCount(snapshot.mana, state.mana),
     playerCounters: structuredClone(snapshot.playerCounters || state.playerCounters),
     commanderDamageTrackers: structuredClone(snapshot.commanderDamageTrackers || state.commanderDamageTrackers),
+    commander: normalizeCommanderState(snapshot.commander || state.commander),
     boardState: normalizeBoardStateSnapshot(snapshot.boardState || state.boardState),
     companion: {
       ...restoredCompanion,
@@ -4043,6 +4255,12 @@ async function handleBoardSearchSubmit(event) {
 }
 
 function handleBoardSearchResultClick(event) {
+  const commanderButton = event.target.closest("[data-search-commander-index]");
+  if (commanderButton) {
+    setSearchResultAsCommander(Number(commanderButton.dataset.searchCommanderIndex));
+    return;
+  }
+
   const deckButton = event.target.closest("[data-search-deck-index]");
   if (deckButton) {
     addSearchResultToCommanderDeck(Number(deckButton.dataset.searchDeckIndex));
@@ -4093,9 +4311,171 @@ function addSearchResultToCommanderDeck(resultIndex) {
   showQuickToast(result.message);
 }
 
+function setSearchResultAsCommander(resultIndex) {
+  const card = boardUi.searchResults[resultIndex];
+  if (!card) {
+    return;
+  }
+
+  const legality = getCommanderLegality(card);
+  if (!legality.ok) {
+    showQuickToast(legality.reason);
+    return;
+  }
+
+  const commander = createCommanderStateFromCard(card, legality);
+  registerCompanionAction({
+    type: "commander",
+    summary: `Selected commander: ${commander.name}`,
+    payload: {
+      commanderName: commander.name,
+      colorIdentity: commander.colorIdentity,
+    },
+  });
+
+  state = {
+    ...state,
+    commander,
+    tax: commander.commanderTax,
+  };
+
+  resetSearchState();
+  persistState();
+  render();
+  showQuickToast(`Commander set: ${commander.name}`);
+}
+
+function createCommanderStateFromCard(card, legality = getCommanderLegality(card)) {
+  const preview = getCardPreview(card);
+  return normalizeCommanderState({
+    name: preview.name,
+    scryfallId: typeof card?.id === "string" ? card.id : "",
+    manaCost: preview.manaCost,
+    typeLine: preview.typeLine,
+    oracleText: preview.oracleText,
+    imageUrl: preview.imageUrl,
+    cardImageUrl: preview.cardImageUrl,
+    colorIdentity: getCardColorIdentity(card),
+    power: preview.power,
+    toughness: preview.toughness,
+    loyalty: preview.loyalty,
+    legalities: card?.legalities || {},
+    zone: "command",
+    castCount: 0,
+    commanderTax: 0,
+    damageByOpponent: {},
+    isLegal: legality.ok,
+    legalityReason: legality.reason,
+  });
+}
+
 function handleCancelBoardSearch() {
   resetSearchState();
   renderBoardSearch();
+}
+
+function handleCommanderBadgePointerDown(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  window.clearTimeout(commanderBadgePressTimer);
+  commanderBadgeLongPressTriggered = false;
+  commanderBadgePressTimer = window.setTimeout(() => {
+    commanderBadgeLongPressTriggered = true;
+    openCommanderActionDialog();
+  }, BOARD_LONG_PRESS_MS);
+}
+
+function handleCommanderBadgePointerEnd(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  window.clearTimeout(commanderBadgePressTimer);
+}
+
+function openCommanderActionDialog() {
+  const commander = normalizeCommanderState(state.commander);
+  if (commanderActionTitle) {
+    commanderActionTitle.textContent = commander.name || "No Commander Selected";
+  }
+  if (commanderActionNote) {
+    commanderActionNote.textContent = commander.name
+      ? `${commander.zone === "battlefield" ? "On battlefield" : "In command zone"} • current commander tax ${commander.commanderTax}.`
+      : "Search Scryfall and press Commander on a legal commander first.";
+  }
+  if (castCommanderButton) {
+    castCommanderButton.disabled = !commander.name || commander.zone === "battlefield";
+  }
+  showDialog(commanderActionDialog);
+}
+
+function castCommanderFromCommandZone() {
+  const commander = normalizeCommanderState(state.commander);
+  if (!commander.name) {
+    showQuickToast("Set a commander first.");
+    return;
+  }
+
+  const alreadyOnBattlefield = state.boardState.permanents.some((permanent) => permanent.isCommander && permanent.scryfallId === commander.scryfallId);
+  if (alreadyOnBattlefield) {
+    showQuickToast(`${commander.name} is already on the battlefield.`);
+    commanderActionDialog?.close();
+    return;
+  }
+
+  const currentTax = normalizeCount(commander.commanderTax, normalizeCount(commander.castCount, 0) * 2);
+  const nextCastCount = normalizeCount(commander.castCount, 0) + 1;
+  const commanderPermanent = createPermanent({
+    scryfallId: commander.scryfallId,
+    name: commander.name,
+    manaCost: commander.manaCost,
+    typeLine: commander.typeLine,
+    oracleText: commander.oracleText,
+    imageUrl: commander.imageUrl,
+    cardImageUrl: commander.cardImageUrl,
+    legalities: commander.legalities,
+    colorIdentity: commander.colorIdentity,
+    power: 0,
+    toughness: 0,
+    quantity: 1,
+    isToken: false,
+    isNonCreature: !hasTypeLine(commander.typeLine, "Creature"),
+    isLegendary: hasTypeLine(commander.typeLine, "Legendary"),
+    isArtifact: hasTypeLine(commander.typeLine, "Artifact"),
+    isCreature: hasTypeLine(commander.typeLine, "Creature"),
+    isPlaneswalker: hasTypeLine(commander.typeLine, "Planeswalker"),
+    printedLoyalty: commander.loyalty,
+    counters: hasTypeLine(commander.typeLine, "Planeswalker") && commander.loyalty > 0 ? { Loyalty: commander.loyalty } : {},
+    isCommander: true,
+    commanderOwnerName: commander.name,
+    commanderCastNumber: nextCastCount,
+    summoningSickness: hasTypeLine(commander.typeLine, "Creature"),
+  });
+
+  registerCompanionAction({
+    type: "commander",
+    summary: `Cast commander ${commander.name} (tax ${currentTax})`,
+    payload: {
+      commanderName: commander.name,
+      commanderTax: currentTax,
+      castCount: nextCastCount,
+    },
+  });
+
+  state = {
+    ...state,
+    tax: nextCastCount * 2,
+    commander: normalizeCommanderState({
+      ...commander,
+      zone: "battlefield",
+      castCount: nextCastCount,
+      commanderTax: nextCastCount * 2,
+    }),
+    boardState: addImportedPermanentToBoardState(state.boardState, commanderPermanent),
+  };
+
+  commanderActionDialog?.close();
+  persistState();
+  render();
+  showQuickToast(`Cast ${commander.name}. Next tax ${nextCastCount * 2}.`);
 }
 
 function handleDocumentSearchClick(event) {
@@ -5876,10 +6256,15 @@ function extractScryfallCardData(card) {
   const name = normalizeLabel(cardFace?.name || card.name, "Card");
   const power = normalizeSignedCount(cardFace?.power ?? card.power, 0);
   const toughness = normalizeSignedCount(cardFace?.toughness ?? card.toughness, 0);
+  const loyalty = normalizeSignedCount(cardFace?.loyalty ?? card.loyalty, 0);
   const isCreature = hasTypeLine(typeLine, "Creature");
   const isArtifact = hasTypeLine(typeLine, "Artifact");
+  const isPlaneswalker = hasTypeLine(typeLine, "Planeswalker");
   const isLegendary = hasTypeLine(typeLine, "Legendary");
   const isToken = hasTypeLine(typeLine, "Token") || String(card?.layout || "").toLowerCase() === "token";
+  const colorIdentity = Array.isArray(card?.color_identity)
+    ? card.color_identity.map((symbol) => String(symbol || "").trim().toUpperCase()).filter(Boolean)
+    : [];
 
   return {
     name,
@@ -5890,10 +6275,13 @@ function extractScryfallCardData(card) {
     cardImageUrl: getCardImageUrl(card, cardFace),
     power,
     toughness,
+    loyalty,
     isCreature,
     isArtifact,
+    isPlaneswalker,
     isLegendary,
     isToken,
+    colorIdentity,
     isNonCreature: !isCreature,
   };
 }
@@ -5936,7 +6324,7 @@ function isPermanentTypeLine(typeLine) {
 }
 
 function getActiveCommanderName() {
-  return normalizeLabel(state.playerName, "Commander");
+  return normalizeLabel(state.commander?.name, normalizeLabel(state.playerName, "Commander"));
 }
 
 function getCommanderDeckKey(commanderName = "") {
@@ -5989,6 +6377,58 @@ function isCommanderDeckEligibleCard(card = {}) {
   );
 }
 
+function getCommanderLegality(card = {}) {
+  const preview = getCardPreview(card);
+  const typeLine = preview.typeLine || "";
+  const oracleText = preview.oracleText || "";
+  const commanderLegality = normalizeLabel(card?.legalities?.commander, "unknown").toLowerCase();
+  const isBanned = commanderLegality === "banned";
+  const isLegendaryCreature = preview.isLegendary && preview.isCreature;
+  const isLegendaryArtifact = preview.isLegendary && preview.isArtifact;
+  const isPlaneswalkerCommander =
+    preview.isPlaneswalker && /\bcan be your commander\b/i.test(`${oracleText} ${typeLine}`);
+
+  if (isBanned) {
+    return { ok: false, reason: "Banned in Commander." };
+  }
+
+  if (isLegendaryCreature || isLegendaryArtifact || isPlaneswalkerCommander) {
+    return {
+      ok: true,
+      reason: isPlaneswalkerCommander
+        ? "Planeswalker card text allows it to be your commander."
+        : "Legendary permanent meets commander selection rules for this app.",
+    };
+  }
+
+  return { ok: false, reason: "Choose a legendary creature, legendary artifact, or planeswalker that says it can be your commander." };
+}
+
+function getCardColorIdentity(card = {}) {
+  const preview = getCardPreview(card);
+  if (Array.isArray(preview.colorIdentity) && preview.colorIdentity.length > 0) {
+    return Array.from(new Set(preview.colorIdentity));
+  }
+
+  const text = `${preview.manaCost || ""} ${preview.oracleText || ""}`;
+  const symbols = [];
+  if (/[{(]?W[})]?/i.test(text)) symbols.push("W");
+  if (/[{(]?U[})]?/i.test(text)) symbols.push("U");
+  if (/[{(]?B[})]?/i.test(text)) symbols.push("B");
+  if (/[{(]?R[})]?/i.test(text)) symbols.push("R");
+  if (/[{(]?G[})]?/i.test(text)) symbols.push("G");
+  return Array.from(new Set(symbols));
+}
+
+function isCardWithinCommanderIdentity(card = {}, commander = state.commander) {
+  const commanderIdentity = Array.isArray(commander?.colorIdentity) ? commander.colorIdentity : [];
+  if (!commander?.name || commanderIdentity.length === 0) {
+    return true;
+  }
+
+  return getCardColorIdentity(card).every((symbol) => commanderIdentity.includes(symbol));
+}
+
 function hasCommanderDeckCard(card, deck = getActiveCommanderDeckArchive()) {
   const cardKey = getCommanderCardKey(card);
   return Array.isArray(deck?.cards) && deck.cards.some((entry) => entry.key === cardKey || getCommanderCardKey(entry) === cardKey);
@@ -5997,6 +6437,10 @@ function hasCommanderDeckCard(card, deck = getActiveCommanderDeckArchive()) {
 function addCardToCommanderDeckArchive(card, commanderName = getActiveCommanderName()) {
   if (!isCommanderDeckEligibleCard(card)) {
     return { ok: false, message: "That card cannot be added to the commander deck archive." };
+  }
+
+  if (!isCardWithinCommanderIdentity(card)) {
+    return { ok: false, message: `${getCardPreview(card).name} is outside ${commanderName}'s color identity.` };
   }
 
   const commanderKey = getCommanderDeckKey(commanderName);
@@ -6045,6 +6489,7 @@ function createCommanderDeckCardFromSearchResult(card) {
     imageUrl: preview.imageUrl,
     cardImageUrl: preview.cardImageUrl,
     legalities: card?.legalities || {},
+    colorIdentity: preview.colorIdentity,
     addedAt: Date.now(),
     lastUsedAt: Date.now(),
     usageCount: 0,
@@ -6144,15 +6589,19 @@ function mapScryfallCardToPermanent(card, rulings = []) {
     rulingsUri: typeof card?.rulings_uri === "string" ? card.rulings_uri : "",
     rulings,
     legalities: card?.legalities || {},
+    colorIdentity: preview.colorIdentity,
     power: preview.power,
     toughness: preview.toughness,
+    printedLoyalty: preview.loyalty,
     quantity: 1,
     isToken: preview.isToken,
     isNonCreature: preview.isNonCreature,
     isLegendary: preview.isLegendary,
     isArtifact: preview.isArtifact,
     isCreature: preview.isCreature,
+    isPlaneswalker: preview.isPlaneswalker,
     plusOneCounters: 0,
+    counters: preview.isPlaneswalker && preview.loyalty > 0 ? { Loyalty: preview.loyalty } : {},
     doublesTokens: effectMetadata.doublesTokens,
     doublesCounters: effectMetadata.doublesCounters,
     counterModifierBonus: effectMetadata.counterModifierBonus,
@@ -8421,6 +8870,7 @@ function removePermanentInstance(permanentId) {
 
   state = {
     ...state,
+    commander: syncCommanderStateAfterPermanentRemoval(state.commander, removalResult.removedPermanent),
     boardState: removalResult.boardState,
   };
 
@@ -8451,11 +8901,24 @@ function applyPermanentRemoval(permanentId, removalType) {
 
   state = {
     ...state,
+    commander: syncCommanderStateAfterPermanentRemoval(state.commander, removalOutcome.removedPermanent),
     boardState: removalOutcome.boardState,
   };
 
   persistState();
   render();
+}
+
+function syncCommanderStateAfterPermanentRemoval(commanderState, removedPermanent) {
+  const commander = normalizeCommanderState(commanderState);
+  if (!removedPermanent?.isCommander) {
+    return commander;
+  }
+
+  return normalizeCommanderState({
+    ...commander,
+    zone: "command",
+  });
 }
 
 function applyPermanentRemovalToBoardState(boardState, permanentId, removalType) {
@@ -8523,6 +8986,9 @@ function destroyAllMatchingPermanents(destroyOption) {
 
   state = {
     ...state,
+    commander: targets.some((target) => target.isCommander)
+      ? normalizeCommanderState({ ...state.commander, zone: "command" })
+      : state.commander,
     boardState: nextBoardState,
   };
 
@@ -8810,6 +9276,21 @@ function handleBoardAction(action, permanentId) {
     return;
   }
 
+  if (action === "loyalty-plus" || action === "loyalty-minus") {
+    adjustPlaneswalkerLoyalty(permanentId, action === "loyalty-plus" ? 1 : -1);
+    return;
+  }
+
+  if (action === "loyalty-activate") {
+    activatePlaneswalkerLoyalty(permanentId);
+    return;
+  }
+
+  if (action === "planeswalker-damage") {
+    promptPlaneswalkerDamage(permanentId);
+    return;
+  }
+
   if (action === "remove") {
     removePermanentInstance(permanentId);
     return;
@@ -8994,6 +9475,7 @@ function confirmCombatSimulation() {
   state = {
     ...state,
     multiplayer: multiplayerCombatResult.multiplayer || state.multiplayer,
+    commander: multiplayerCombatResult.commander || state.commander,
     boardState: {
       ...automationResult.boardState,
       combatState: {
@@ -9051,6 +9533,7 @@ function resolveCombatAgainstActiveOpponent(boardState) {
     blockers.length > 0
       ? Math.max(0, attackerTotals.power - blockerTotals.toughness, trampleOverflow)
       : Math.max(0, attackerTotals.power);
+  const commanderDamage = estimateCommanderCombatDamage(attackers, blockers, blockerTotals.toughness, boardState.permanents, estimatedDamage);
 
   if (estimatedDamage <= 0) {
     return {
@@ -9076,24 +9559,89 @@ function resolveCombatAgainstActiveOpponent(boardState) {
       publicTrackerState: {
         ...player.publicTrackerState,
         life: Math.max(0, normalizeCount(player.publicTrackerState.life, 0) - estimatedDamage),
+        commanderDamage:
+          commanderDamage > 0
+            ? addPublicCommanderDamage(player.publicTrackerState.commanderDamage, getActiveCommanderName(), commanderDamage)
+            : player.publicTrackerState.commanderDamage,
       },
     });
   });
+  const nextCommander =
+    commanderDamage > 0
+      ? normalizeCommanderState({
+          ...state.commander,
+          damageByOpponent: {
+            ...(state.commander?.damageByOpponent || {}),
+            [opponent.id]: normalizeCount(state.commander?.damageByOpponent?.[opponent.id], 0) + commanderDamage,
+          },
+        })
+      : state.commander;
 
   return {
     multiplayer: {
       ...state.multiplayer,
       connectedPlayers: nextConnectedPlayers,
     },
-    message: `Simulated ${estimatedDamage} combat damage to ${opponent.displayName}.`,
+    commander: nextCommander,
+    message: `Simulated ${estimatedDamage} combat damage to ${opponent.displayName}.${commanderDamage > 0 ? ` Commander damage +${commanderDamage}.` : ""}`,
     blockerIds: blockers.map((permanent) => permanent.id),
     preview: {
       attackerTotal: attackerTotals,
       blockerTotal: blockerTotals,
       netPressure: attackerTotals.power - blockerTotals.toughness,
       estimatedDamage,
+      commanderDamage,
     },
   };
+}
+
+function estimateCommanderCombatDamage(attackers, blockers, blockerToughness, sourcePermanents, estimatedDamage) {
+  const commanderAttackers = attackers.filter((permanent) => permanent.isCommander);
+  if (commanderAttackers.length === 0 || estimatedDamage <= 0) {
+    return 0;
+  }
+
+  const commanderPower = commanderAttackers.reduce(
+    (total, permanent) => total + getPermanentCurrentPower(permanent, sourcePermanents) * normalizeCount(permanent.quantity, 1),
+    0
+  );
+  const trampleCommanderPower = commanderAttackers
+    .filter((permanent) => getPermanentReferenceText(permanent).includes("trample"))
+    .reduce((total, permanent) => total + getPermanentCurrentPower(permanent, sourcePermanents) * normalizeCount(permanent.quantity, 1), 0);
+
+  if (blockers.length === 0) {
+    return Math.min(commanderPower, estimatedDamage);
+  }
+
+  return Math.min(Math.max(0, trampleCommanderPower - normalizeCount(blockerToughness, 0)), estimatedDamage);
+}
+
+function addPublicCommanderDamage(entries = [], label, damage) {
+  const normalizedLabel = normalizeLabel(label, "Commander");
+  const damageAmount = normalizeCount(damage, 0);
+  const list = Array.isArray(entries) ? entries : [];
+  let updated = false;
+  const nextEntries = list.map((entry) => {
+    if (normalizeLabel(entry?.label, "") !== normalizedLabel) {
+      return entry;
+    }
+    updated = true;
+    return {
+      ...entry,
+      label: normalizedLabel,
+      value: normalizeCount(entry?.value, 0) + damageAmount,
+    };
+  });
+
+  return updated
+    ? nextEntries
+    : [
+        ...nextEntries,
+        {
+          label: normalizedLabel,
+          value: damageAmount,
+        },
+      ];
 }
 
 function estimateTrampleCombatDamage(attackers, blockerToughness, sourcePermanents = state.boardState.permanents) {
@@ -9120,6 +9668,124 @@ function setPermanentTappedState(permanentId, isTapped) {
     ...permanent,
     isTapped,
   }));
+}
+
+function adjustPlaneswalkerLoyalty(permanentId, delta) {
+  const permanent = state.boardState.permanents.find((entry) => entry.id === permanentId);
+  if (!permanent?.isPlaneswalker) {
+    return;
+  }
+
+  const currentLoyalty = getPermanentCounterValue(permanent, "Loyalty");
+  const nextLoyalty = Math.max(0, currentLoyalty + normalizeSignedCount(delta));
+  registerCompanionAction({
+    type: "planeswalker",
+    summary: `${permanent.name} loyalty ${nextLoyalty - currentLoyalty >= 0 ? "+" : ""}${nextLoyalty - currentLoyalty}`,
+    payload: { permanentId, from: currentLoyalty, to: nextLoyalty },
+  });
+  setPermanentCounterValue(permanentId, "Loyalty", nextLoyalty);
+}
+
+function activatePlaneswalkerLoyalty(permanentId) {
+  const permanent = state.boardState.permanents.find((entry) => entry.id === permanentId);
+  if (!permanent?.isPlaneswalker) {
+    return;
+  }
+
+  if (permanent.loyaltyActivatedTurn === state.runtime.turnNumber) {
+    showQuickToast(`${permanent.name} already used a loyalty ability this turn.`);
+    return;
+  }
+
+  const costPrompt = window.prompt("Loyalty ability cost (+1, 0, -2, etc.)", "+1");
+  if (costPrompt === null) {
+    return;
+  }
+
+  const delta = normalizeSignedCount(costPrompt, 0);
+  const currentLoyalty = getPermanentCounterValue(permanent, "Loyalty");
+  if (currentLoyalty + delta < 0) {
+    showQuickToast("Not enough loyalty counters.");
+    return;
+  }
+
+  registerCompanionAction({
+    type: "planeswalker",
+    summary: `${permanent.name} loyalty ability ${delta >= 0 ? "+" : ""}${delta}`,
+    payload: { permanentId, cost: delta, turnNumber: state.runtime.turnNumber },
+  });
+
+  state = {
+    ...state,
+    boardState: {
+      ...state.boardState,
+      permanents: state.boardState.permanents.map((entry) => {
+        if (entry.id !== permanentId) {
+          return createPermanent(entry);
+        }
+        const nextPermanent = setCounterOnPermanent(entry, "Loyalty", currentLoyalty + delta);
+        return createPermanent({
+          ...nextPermanent,
+          loyaltyActivatedTurn: state.runtime.turnNumber,
+        });
+      }),
+    },
+  };
+
+  persistState();
+  render();
+}
+
+function promptPlaneswalkerDamage(permanentId) {
+  const permanent = state.boardState.permanents.find((entry) => entry.id === permanentId);
+  if (!permanent?.isPlaneswalker) {
+    return;
+  }
+
+  const damagePrompt = window.prompt("Damage dealt to this planeswalker", "1");
+  if (damagePrompt === null) {
+    return;
+  }
+
+  const damage = normalizeCount(damagePrompt, 0);
+  if (damage <= 0) {
+    return;
+  }
+
+  adjustPlaneswalkerLoyalty(permanentId, -damage);
+}
+
+function setPermanentCounterValue(permanentId, counterType, value) {
+  state = {
+    ...state,
+    boardState: {
+      ...state.boardState,
+      permanents: state.boardState.permanents.map((permanent) =>
+        permanent.id === permanentId ? setCounterOnPermanent(permanent, counterType, value) : createPermanent(permanent)
+      ),
+    },
+  };
+
+  persistState();
+  render();
+}
+
+function setCounterOnPermanent(permanent, rawCounterType, value) {
+  const counterType = normalizeCounterType(rawCounterType);
+  const counters = normalizePermanentCounters(permanent.counters);
+  const nextValue = Math.max(0, normalizeCount(value, 0));
+  if (nextValue > 0) {
+    counters[counterType] = nextValue;
+  } else {
+    delete counters[counterType];
+  }
+
+  return createPermanent({
+    ...permanent,
+    counters,
+    plusOneCounters: counterType === "+1/+1" ? nextValue : permanent.plusOneCounters,
+    minusOneCounters: counterType === "-1/-1" ? nextValue : permanent.minusOneCounters,
+  });
 }
 
 function updatePermanent(permanentId, updater) {
@@ -9215,6 +9881,11 @@ function getPermanentReferenceText(permanent) {
   return [oracleText, notes, rulingsText].filter(Boolean).join(" ").toLowerCase();
 }
 
+function getCardReferenceText(card) {
+  const preview = getCardPreview(card);
+  return [preview.oracleText, card?.notes].filter(Boolean).join(" ").toLowerCase();
+}
+
 function hasAttackTapExemption(permanent) {
   const referenceText = getPermanentReferenceText(permanent);
   return referenceText.includes("vigilance") || (referenceText.includes("doesn't tap") && referenceText.includes("attack"));
@@ -9291,11 +9962,12 @@ function untapAllPermanents(boardState) {
   return {
     ...boardState,
     permanents: boardState.permanents.map((permanent) =>
-      permanent.isTapped || permanent.summoningSickness
+      permanent.isTapped || permanent.summoningSickness || permanent.loyaltyActivatedTurn
         ? createPermanent({
             ...permanent,
             isTapped: false,
             summoningSickness: false,
+            loyaltyActivatedTurn: 0,
           })
         : createPermanent(permanent)
     ),
@@ -9355,7 +10027,11 @@ function runStateBasedActions(boardState) {
   const permanents = Array.isArray(boardState?.permanents) ? boardState.permanents : [];
   const removedIds = new Set(
     permanents
-      .filter((permanent) => permanent.isCreature && calculatePermanentPowerToughness(permanent, permanents).toughness <= 0)
+      .filter(
+        (permanent) =>
+          (permanent.isCreature && calculatePermanentPowerToughness(permanent, permanents).toughness <= 0) ||
+          (permanent.isPlaneswalker && getPermanentCounterValue(permanent, "Loyalty") <= 0)
+      )
       .map((permanent) => permanent.id)
   );
 

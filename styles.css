@@ -115,6 +115,58 @@ button {
   cursor: default;
 }
 
+.commander-nav-badge {
+  position: absolute;
+  right: -6px;
+  top: calc(50% + 48px);
+  z-index: 5;
+  width: 66px;
+  min-height: 44px;
+  display: none;
+  place-items: center;
+  gap: 1px;
+  padding: 5px 6px;
+  border: 1px solid rgba(246, 239, 255, 0.1);
+  border-radius: 16px;
+  background: rgba(21, 14, 31, 0.26);
+  color: var(--text);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+  opacity: 0.8;
+  transform: translateY(-50%);
+  text-align: center;
+  touch-action: none;
+  user-select: none;
+}
+
+.page-frame[data-page="board-state"] .commander-nav-badge {
+  display: grid;
+}
+
+.commander-nav-badge span,
+.commander-nav-badge small {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.commander-nav-badge span {
+  font-size: 0.82rem;
+  letter-spacing: 0.05em;
+}
+
+.commander-nav-badge small {
+  color: var(--muted);
+  font-family: "Teko", sans-serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .board {
   width: 100%;
   box-sizing: border-box;
