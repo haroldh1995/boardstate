@@ -1,7 +1,7 @@
 import { createId, normalizeCount, normalizeName, normalizeSigned } from "./ids.js";
 
 export const PHASES = ["Beginning", "Main 1", "Combat", "Main 2", "Ending"];
-export const MANA_COLORS = ["W", "U", "B", "R", "G", "C"];
+export const MANA_COLORS = ["W", "U", "B", "R", "G", "C", "Generic"];
 export const CARD_ZONES = {
   BATTLEFIELD: "battlefield",
   COMMAND: "command",
@@ -21,12 +21,40 @@ export function createDefaultProfile() {
       confirmAmbiguousEffects: true,
       haptics: false,
       compactTiles: true,
+      pagePanels: {
+        lifeTrackerLife: true,
+        lifeTrackerMana: true,
+        lifeTrackerTools: true,
+        boardOpponent: true,
+        boardCombat: true,
+        boardTools: true,
+        advancedRulesHelpers: true,
+        archiveQuickAdd: true,
+        statsTimerWidgets: true,
+      },
+      multiplayer: {
+        mode: "offline",
+        connectedPlayers: [],
+        authorityMode: "confirm",
+        confirmAuthority: true,
+        bluetoothReady: false,
+        wifiReady: true,
+      },
+      battlefield: {
+        manaPinned: false,
+        expandedAll: false,
+      },
     },
     activeSession: createGameSession(),
     commanders: {},
     archives: [],
     leaderboards: createEmptyLeaderboards(),
     achievements: [],
+    statsSync: {
+      lastSyncedAt: 0,
+      publicSummary: {},
+      peers: [],
+    },
   };
 }
 
