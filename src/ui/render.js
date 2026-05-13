@@ -24,6 +24,7 @@ export function mountApp(root, store) {
   render(store.getState());
 
   function render(profile) {
+    document.body.dataset.composition = profile.settings?.appearance?.compositionMode || "auto";
     root.innerHTML = layout(profile, activePage, searchResults, searchMessage, {
       optionsOpen,
       statsOpen,
@@ -55,7 +56,7 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-setting-button]").forEach((button) => {
       button.addEventListener("click", () =>
-        store.dispatch({ type: "SET_SETTING", path: button.dataset.settingButton, value: button.dataset.value === "true" })
+        store.dispatch({ type: "SET_SETTING", path: button.dataset.settingButton, value: parseSettingValue(button.dataset.value) })
       );
     });
     container.querySelector("[data-add-counter-selected]")?.addEventListener("click", () =>
@@ -794,6 +795,9 @@ function renderGameOptions(profile) {
   const settings = getSettings(profile);
   const panels = getPagePanels(profile);
   const multiplayer = getMultiplayerSettings(profile);
+  const compositionMode = profile.settings?.appearance?.compositionMode || "auto";
+  const nextCompositionMode = compositionMode === "mobile" ? "widescreen" : "mobile";
+  const compositionLabel = compositionMode === "mobile" ? "Mobile vertical" : "Standard widescreen";
   return `
     <section class="overlay-backdrop">
       <div class="floating-overlay glass">
@@ -828,6 +832,10 @@ function renderGameOptions(profile) {
           </article>
           <article class="option-card">
             <h3>Page Customization</h3>
+            <p>Wallpaper composition: ${escapeHtml(compositionLabel)}</p>
+            <button class="wide" data-setting-button="appearance.compositionMode" data-value="${nextCompositionMode}">
+              Switch to ${nextCompositionMode === "mobile" ? "Mobile Vertical" : "Standard Widescreen"}
+            </button>
             ${renderToggle("Life total panel", "pagePanels.lifeTrackerLife", panels.lifeTrackerLife)}
             ${renderToggle("Floating mana panel", "pagePanels.lifeTrackerMana", panels.lifeTrackerMana)}
             ${renderToggle("Life/tools controls", "pagePanels.lifeTrackerTools", panels.lifeTrackerTools)}
@@ -998,6 +1006,16 @@ function formatDuration(ms) {
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
   return `${minutes}m ${String(remainder).padStart(2, "0")}s`;
+}
+
+function parseSettingValue(value) {
+  if (value === "true") {
+    return true;
+  }
+  if (value === "false") {
+    return false;
+  }
+  return value;
 }
 
 function formatLabel(value) {

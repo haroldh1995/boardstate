@@ -44,6 +44,9 @@ export function createDefaultProfile() {
         manaPinned: false,
         expandedAll: false,
       },
+      appearance: {
+        compositionMode: "auto",
+      },
     },
     activeSession: createGameSession(),
     commanders: {},

@@ -100,6 +100,7 @@ function normalizeProfile(profile) {
       pagePanels: { ...defaults.settings.pagePanels, ...(profile.settings?.pagePanels || {}) },
       multiplayer: { ...defaults.settings.multiplayer, ...(profile.settings?.multiplayer || {}) },
       battlefield: { ...defaults.settings.battlefield, ...(profile.settings?.battlefield || {}) },
+      appearance: { ...defaults.settings.appearance, ...(profile.settings?.appearance || {}) },
       recentCounterTypes: profile.settings?.recentCounterTypes || defaults.settings.recentCounterTypes || [],
     },
     activeSession: {
