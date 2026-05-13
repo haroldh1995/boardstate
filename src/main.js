@@ -1,4 +1,3 @@
-import "./styles.css";
 import { createStore } from "./state/store.js";
 import { mountApp } from "./ui/render.js";
 
