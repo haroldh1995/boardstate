@@ -1,14 +1,16 @@
 {
   "name": "boardstate",
-  "private": true,
   "version": "1.0.0",
-  "description": "BoardState is a mobile-first MTG Commander tracker and board-state companion app.",
+  "private": true,
+  "type": "module",
+  "description": "Local-first hybrid MTG battlefield companion rebuilt with layered gameplay systems.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test"
   },
   "devDependencies": {
-    "vite": "^5.4.14"
+    "vite": "^8.0.12"
   }
 }

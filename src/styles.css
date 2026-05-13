@@ -1,0 +1,360 @@
+:root {
+  --bg: #07040d;
+  --panel: rgba(22, 14, 32, 0.72);
+  --panel-strong: rgba(31, 20, 45, 0.86);
+  --line: rgba(255, 255, 255, 0.16);
+  --text: #f7efff;
+  --muted: rgba(247, 239, 255, 0.68);
+  --accent: #8fd3ff;
+  --gold: #f1c06b;
+  --pink: #ff7ecd;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100svh;
+  background:
+    radial-gradient(circle at 18% 10%, rgba(143, 211, 255, 0.18), transparent 34%),
+    radial-gradient(circle at 82% 22%, rgba(255, 126, 205, 0.14), transparent 36%),
+    linear-gradient(135deg, #06030b, #170d21 52%, #090612);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button,
+.file-pill {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  padding: 0.55rem 0.8rem;
+  min-height: 38px;
+}
+
+button.active,
+button:hover {
+  border-color: rgba(143, 211, 255, 0.56);
+  box-shadow: 0 0 18px rgba(143, 211, 255, 0.12);
+}
+
+input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text);
+  padding: 0.7rem 0.85rem;
+}
+
+.app-shell {
+  width: min(1440px, 100%);
+  margin: 0 auto;
+  padding: max(12px, env(safe-area-inset-top)) 12px 20px;
+}
+
+.glass {
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent), var(--panel);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
+}
+
+.app-header,
+.tab-bar,
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.app-header {
+  justify-content: space-between;
+  padding: 1rem;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(1.5rem, 4vw, 2.9rem);
+}
+
+h2 {
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.eyebrow {
+  color: var(--muted);
+  font-size: 0.76rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.tab-bar {
+  margin: 10px 0;
+  padding: 0.45rem;
+  overflow-x: auto;
+}
+
+.tab-bar button {
+  flex: 1 0 auto;
+  text-transform: capitalize;
+}
+
+.battlefield-page {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 300px;
+  gap: 12px;
+}
+
+.life-panel,
+.tools-panel,
+.arena,
+.utility-page,
+.pending-strip {
+  padding: 1rem;
+}
+
+.life-panel,
+.tools-panel {
+  display: grid;
+  gap: 0.8rem;
+  align-content: start;
+}
+
+.life-panel strong {
+  font-size: clamp(4rem, 10vw, 7rem);
+  line-height: 0.9;
+}
+
+.wide {
+  width: 100%;
+}
+
+.arena {
+  min-height: min(74svh, 820px);
+  display: grid;
+  grid-template-rows: minmax(130px, 1fr) auto minmax(180px, 1.4fr);
+  gap: 12px;
+}
+
+.opponent-zone,
+.combat-zone,
+.player-zone {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  padding: 0.8rem;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.combat-zone {
+  text-align: center;
+  background: linear-gradient(90deg, rgba(143, 211, 255, 0.08), rgba(241, 192, 107, 0.08), rgba(255, 126, 205, 0.08));
+}
+
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.65rem;
+}
+
+.tile-grid.readonly {
+  opacity: 0.74;
+}
+
+.battlefield-groups {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.65rem;
+}
+
+.battlefield-group {
+  display: grid;
+  gap: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 0.55rem;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.battlefield-group.tapped-zone {
+  background: rgba(143, 211, 255, 0.04);
+}
+
+.battlefield-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.battlefield-group-header strong,
+.quantity {
+  color: var(--gold);
+}
+
+.battlefield-group .tile-grid {
+  margin-top: 0;
+}
+
+.permanent {
+  min-height: 110px;
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.permanent > button {
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  display: grid;
+  gap: 0.25rem;
+  text-align: left;
+}
+
+.permanent span,
+.permanent em,
+.empty,
+.search-box p,
+.log-card span,
+.log-card p {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.permanent b {
+  color: var(--gold);
+}
+
+.permanent.tapped {
+  transform: rotate(-2deg);
+  opacity: 0.74;
+}
+
+.permanent.attacking {
+  border-color: rgba(241, 192, 107, 0.64);
+  box-shadow: 0 0 22px rgba(241, 192, 107, 0.15);
+}
+
+.permanent.pending,
+.pending-strip article {
+  border-color: rgba(255, 126, 205, 0.7);
+  box-shadow: 0 0 22px rgba(255, 126, 205, 0.15);
+}
+
+.mini button {
+  min-height: 28px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.78rem;
+}
+
+.mana-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.45rem;
+}
+
+.mana-grid button {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.search-box,
+.search-results,
+.utility-page,
+.pending-strip {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.search-results article,
+.log-card,
+.pending-strip article {
+  display: grid;
+  gap: 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 0.75rem;
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.deck-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.deck-list span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.25rem 0.55rem;
+  color: var(--muted);
+}
+
+.file-pill {
+  position: relative;
+  overflow: hidden;
+}
+
+.file-pill input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+}
+
+@media (max-width: 860px) {
+  .battlefield-page {
+    grid-template-columns: 1fr;
+  }
+
+  .arena {
+    min-height: auto;
+    grid-template-rows: auto auto auto;
+  }
+
+  .life-panel strong {
+    font-size: 5rem;
+  }
+}
+
+@media (orientation: landscape) and (min-width: 980px) {
+  .app-shell {
+    max-height: 100svh;
+  }
+
+  .battlefield-page {
+    height: calc(100svh - 132px);
+  }
+
+  .life-panel,
+  .tools-panel,
+  .arena {
+    overflow: auto;
+  }
+}
