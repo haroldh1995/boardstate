@@ -187,6 +187,11 @@ h2 {
   box-shadow: 0 0 24px rgba(241, 192, 107, 0.18);
 }
 
+.mobile-swipe-controls,
+.mobile-step {
+  display: none;
+}
+
 .battlefield-page {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr) 300px;
@@ -272,6 +277,11 @@ h2 {
 .counter-stepper__controls strong {
   color: var(--gold);
   font-size: 1.5rem;
+}
+
+.counter-stepper__controls strong[data-commander-value],
+.life-hero strong[data-life-gesture] {
+  cursor: pointer;
 }
 
 .battlefield-page.no-life {
@@ -697,6 +707,171 @@ h2 {
 
 .stats-sync-card {
   margin-top: 0.25rem;
+}
+
+@media (orientation: portrait) and (max-width: 1024px) and (pointer: coarse) {
+  body {
+    overscroll-behavior-x: contain;
+  }
+
+  body[data-page="life"] {
+    overscroll-behavior: contain;
+  }
+
+  .app-shell {
+    width: min(100%, 760px);
+    padding:
+      max(12px, env(safe-area-inset-top))
+      max(10px, env(safe-area-inset-right))
+      max(18px, env(safe-area-inset-bottom))
+      max(10px, env(safe-area-inset-left));
+  }
+
+  .mobile-swipe-controls {
+    display: grid;
+    grid-template-columns: 44px 1fr 44px auto;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 10px 0;
+    padding: 0.5rem 0.65rem;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .mobile-swipe-controls button {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    font-size: 1.35rem;
+  }
+
+  .mobile-swipe-controls span,
+  .mobile-swipe-controls small {
+    color: var(--gold);
+    font-size: 0.82rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .mobile-page-dots {
+    display: flex;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+  }
+
+  .mobile-page-dots i {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.26);
+  }
+
+  .mobile-page-dots i.active {
+    width: 16px;
+    background: var(--gold);
+  }
+
+  .mobile-step {
+    display: block;
+  }
+
+  button,
+  .file-pill,
+  input,
+  select {
+    min-height: 44px;
+  }
+
+  button,
+  .file-pill,
+  .counter-stepper,
+  .life-hero strong,
+  .mobile-swipe-controls,
+  .permanent {
+    -webkit-tap-highlight-color: rgba(143, 211, 255, 0.16);
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  img,
+  .tool-badge {
+    -webkit-user-drag: none;
+  }
+
+  button:active,
+  .counter-stepper__controls strong[data-commander-value]:active,
+  .life-hero strong[data-life-gesture]:active {
+    transform: scale(0.97);
+    border-color: rgba(241, 192, 107, 0.72);
+    box-shadow: 0 0 22px rgba(241, 192, 107, 0.16);
+  }
+
+  .life-tracker-page {
+    min-height: calc(100svh - 164px);
+    align-content: start;
+    touch-action: pan-x manipulation;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .life-hero {
+    min-height: min(52svh, 520px);
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  .life-hero strong {
+    min-width: 3ch;
+    font-variant-numeric: tabular-nums;
+    touch-action: manipulation;
+  }
+
+  .life-actions {
+    grid-template-columns: repeat(3, minmax(60px, 1fr));
+    width: min(320px, 100%);
+  }
+
+  .life-actions button,
+  .counter-stepper__controls button,
+  .mini button {
+    min-height: 50px;
+  }
+
+  .counter-stepper__controls {
+    grid-template-columns: 48px minmax(58px, 1fr) 48px;
+  }
+
+  .counter-stepper__controls strong {
+    min-width: 4ch;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .battlefield-page,
+  .utility-page,
+  .search-results,
+  .floating-overlay {
+    touch-action: pan-y;
+  }
+
+  .tab-bar,
+  .search-results,
+  .utility-page,
+  .arena {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .quick-adjust-panel {
+    position: fixed;
+    z-index: 86;
+    left: 50%;
+    bottom: max(14px, env(safe-area-inset-bottom));
+    width: min(380px, calc(100vw - 24px));
+    transform: translateX(-50%);
+    display: grid;
+    gap: 0.75rem;
+    padding: 0.9rem;
+    touch-action: manipulation;
+  }
 }
 
 @media (max-width: 860px) {

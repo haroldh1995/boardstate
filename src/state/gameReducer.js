@@ -45,6 +45,12 @@ export function reduceProfile(profile, event) {
     case "COMMANDER_DAMAGE_DELTA":
       nextProfile = withSession(baseProfile, updateCommanderDamage(baseProfile.activeSession, event.opponentId || "opponent", event.amount));
       break;
+    case "SET_COMMANDER_DAMAGE":
+      nextProfile = withSession(baseProfile, setCommanderDamage(baseProfile.activeSession, event.opponentId || "opponent", event.value));
+      break;
+    case "RESET_PLAYER_TRACKERS":
+      nextProfile = withSession(baseProfile, resetPlayerTrackers(baseProfile.activeSession));
+      break;
     case "SET_LIFE":
       nextProfile = withSession(baseProfile, { ...baseProfile.activeSession, life: normalizeCount(event.life, 40) });
       break;
@@ -283,6 +289,32 @@ function updateCommanderDamage(session, opponentId, amount = 1) {
         ...(session.commander.damageByOpponent || {}),
         [opponentId]: Math.max(0, current + Number(amount || 0)),
       },
+    },
+  };
+}
+
+function setCommanderDamage(session, opponentId, value = 0) {
+  return {
+    ...session,
+    commander: {
+      ...session.commander,
+      damageByOpponent: {
+        ...(session.commander.damageByOpponent || {}),
+        [opponentId]: normalizeCount(value),
+      },
+    },
+  };
+}
+
+function resetPlayerTrackers(session) {
+  return {
+    ...session,
+    life: 40,
+    playerCounters: {},
+    manaPool: createManaPool(),
+    commander: {
+      ...session.commander,
+      damageByOpponent: {},
     },
   };
 }

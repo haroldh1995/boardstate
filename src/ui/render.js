@@ -4,6 +4,12 @@ import { searchScryfall } from "../services/scryfallService.js";
 import { canBeCommander } from "../game/commanderSystem.js";
 import { PHASES } from "../state/schema.js";
 
+const PORTRAIT_TOUCH_QUERY = "(orientation: portrait) and (max-width: 1024px) and (pointer: coarse)";
+const SWIPE_DISTANCE_THRESHOLD = 72;
+const SWIPE_AXIS_DOMINANCE = 1.35;
+const LONG_PRESS_DELAY_MS = 420;
+const REPEAT_INTERVAL_MS = 110;
+
 export function mountApp(root, store) {
   const pageOrder = ["life", "battlefield", "profile", "archive", "decks", "leaderboards"];
   let activePage = pageOrder.includes(location.hash.replace("#", "")) ? location.hash.replace("#", "") : "life";
@@ -16,15 +22,21 @@ export function mountApp(root, store) {
   let toolMenuOpen = false;
   let floatingManaOpen = false;
   let activeToolPanel = "";
+  let quickPanelOpen = "";
   let toolBadgePosition = { x: 18, y: 520 };
   let toolBadgeDrag = null;
   let manaAutoCloseTimer = null;
+  let lifeGesture = null;
+  let commanderGesture = null;
+  let lifeZoomGuardsInstalled = false;
+  let lastLifeTouchEnd = 0;
 
   store.subscribe(render);
   render(store.getState());
 
   function render(profile) {
     document.body.dataset.composition = profile.settings?.appearance?.compositionMode || "auto";
+    document.body.dataset.page = activePage;
     root.innerHTML = layout(profile, activePage, searchResults, searchMessage, {
       optionsOpen,
       statsOpen,
@@ -32,10 +44,12 @@ export function mountApp(root, store) {
       toolMenuOpen,
       floatingManaOpen,
       activeToolPanel,
+      quickPanelOpen,
       toolBadgePosition,
     });
     bind(root, profile);
     scheduleManaAutoClose(profile);
+    installLifeZoomGuards();
   }
 
   function bind(container, profile) {
@@ -44,15 +58,23 @@ export function mountApp(root, store) {
         setActivePage(button.dataset.page);
       });
     });
+    container.querySelectorAll("[data-mobile-nav]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (!isPortraitTouchMode()) {
+          return;
+        }
+        movePage(button.dataset.mobileNav === "next" ? 1 : -1);
+      });
+    });
     container.querySelectorAll("[data-player-counter]").forEach((button) => {
-      button.addEventListener("click", () =>
-        store.dispatch({ type: "PLAYER_COUNTER_DELTA", counter: button.dataset.playerCounter, amount: Number(button.dataset.delta || 0) })
-      );
+      const action = () => ({ type: "PLAYER_COUNTER_DELTA", counter: button.dataset.playerCounter, amount: Number(button.dataset.delta || 0) });
+      bindTouchAction(button, action);
+      bindLongPressRepeat(button, action);
     });
     container.querySelectorAll("[data-commander-damage]").forEach((button) => {
-      button.addEventListener("click", () =>
-        store.dispatch({ type: "COMMANDER_DAMAGE_DELTA", opponentId: "opponent", amount: Number(button.dataset.delta || 0) })
-      );
+      const action = () => ({ type: "COMMANDER_DAMAGE_DELTA", opponentId: "opponent", amount: Number(button.dataset.delta || 0) });
+      bindTouchAction(button, action);
+      bindLongPressRepeat(button, action);
     });
     container.querySelectorAll("[data-setting-button]").forEach((button) => {
       button.addEventListener("click", () =>
@@ -131,27 +153,23 @@ export function mountApp(root, store) {
       });
     }
     container.querySelector("[data-app-shell]")?.addEventListener("pointerdown", (event) => {
-      if (event.target.closest("button, input, label, textarea, select, .overlay-backdrop")) {
+      if (!isPortraitTouchMode() || isSwipeBlockedTarget(event.target)) {
         return;
       }
       swipeStart = { x: event.clientX, y: event.clientY };
     });
     container.querySelector("[data-app-shell]")?.addEventListener("pointerup", (event) => {
-      if (!swipeStart || event.target.closest("button, input, label, textarea, select, .overlay-backdrop")) {
+      if (!isPortraitTouchMode() || !swipeStart || isSwipeBlockedTarget(event.target)) {
         swipeStart = null;
         return;
       }
       const deltaX = event.clientX - swipeStart.x;
       const deltaY = event.clientY - swipeStart.y;
       swipeStart = null;
-      if (Math.abs(deltaX) < 72 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) {
+      if (Math.abs(deltaX) < SWIPE_DISTANCE_THRESHOLD || Math.abs(deltaX) < Math.abs(deltaY) * SWIPE_AXIS_DOMINANCE) {
         return;
       }
-      const currentIndex = pageOrder.indexOf(activePage);
-      const nextIndex = deltaX < 0 ? Math.min(pageOrder.length - 1, currentIndex + 1) : Math.max(0, currentIndex - 1);
-      if (nextIndex !== currentIndex) {
-        setActivePage(pageOrder[nextIndex]);
-      }
+      movePage(deltaX < 0 ? 1 : -1);
     });
     container.querySelector("[data-game-options]")?.addEventListener("click", () => {
       optionsOpen = true;
@@ -234,8 +252,40 @@ export function mountApp(root, store) {
       });
     });
 
-    container.querySelector("[data-life-plus]")?.addEventListener("click", () => store.dispatch({ type: "LIFE_DELTA", amount: 1 }));
-    container.querySelector("[data-life-minus]")?.addEventListener("click", () => store.dispatch({ type: "LIFE_DELTA", amount: -1 }));
+    container.querySelectorAll("[data-life-delta]").forEach((button) => {
+      const action = () => ({ type: "LIFE_DELTA", amount: Number(button.dataset.lifeDelta || 0) });
+      bindTouchAction(button, action);
+      bindLongPressRepeat(button, action);
+    });
+    container.querySelector("[data-life-set]")?.addEventListener("click", () => {
+      const value = prompt("Set life total", String(profile.activeSession.life));
+      if (value !== null) {
+        dispatchWithFeedback({ type: "SET_LIFE", life: value }, true);
+      }
+    });
+    container.querySelector("[data-life-reset]")?.addEventListener("click", () => dispatchWithFeedback({ type: "RESET_PLAYER_TRACKERS" }, true));
+    container.querySelector("[data-close-quick-panel]")?.addEventListener("click", () => {
+      quickPanelOpen = "";
+      render(store.getState());
+    });
+    const lifeGestureTarget = container.querySelector("[data-life-gesture]");
+    if (lifeGestureTarget) {
+      bindLifeGesture(lifeGestureTarget);
+    }
+    const commanderValue = container.querySelector("[data-commander-value]");
+    if (commanderValue) {
+      bindCommanderDamageGesture(commanderValue);
+    }
+    container.querySelector("[data-commander-damage-set]")?.addEventListener("click", () => {
+      const current = profile.activeSession.commander.damageByOpponent?.opponent || 0;
+      const value = prompt("Set commander damage", String(current));
+      if (value !== null) {
+        dispatchWithFeedback({ type: "SET_COMMANDER_DAMAGE", opponentId: "opponent", value }, true);
+      }
+    });
+    container.querySelector("[data-commander-damage-reset]")?.addEventListener("click", () =>
+      dispatchWithFeedback({ type: "SET_COMMANDER_DAMAGE", opponentId: "opponent", value: 0 }, true)
+    );
     container.querySelector("[data-undo]")?.addEventListener("click", () => store.dispatch({ type: "UNDO" }));
     container.querySelector("[data-next-phase]")?.addEventListener("click", () => store.dispatch({ type: "ADVANCE_PHASE" }));
     container.querySelector("[data-archive-game]")?.addEventListener("click", () => store.dispatch({ type: "ARCHIVE_GAME", result: "completed" }));
@@ -349,7 +399,186 @@ export function mountApp(root, store) {
     history.replaceState(null, "", `#${activePage}`);
     optionsOpen = false;
     statsOpen = false;
+    quickPanelOpen = "";
     render(store.getState());
+  }
+
+  function movePage(direction) {
+    const currentIndex = pageOrder.indexOf(activePage);
+    const nextIndex = Math.max(0, Math.min(pageOrder.length - 1, currentIndex + direction));
+    if (nextIndex !== currentIndex) {
+      setActivePage(pageOrder[nextIndex]);
+    }
+  }
+
+  function bindTouchAction(button, actionFactory, strong = false) {
+    button.addEventListener("click", (event) => {
+      if (button.dataset.suppressClick === "true") {
+        event.preventDefault();
+        return;
+      }
+      dispatchWithFeedback(actionFactory(), strong);
+    });
+  }
+
+  function bindLongPressRepeat(button, actionFactory) {
+    let delayTimer = null;
+    let repeatTimer = null;
+    let repeated = false;
+    const stopRepeat = () => {
+      clearTimeout(delayTimer);
+      clearInterval(repeatTimer);
+      if (repeated) {
+        button.dataset.suppressClick = "true";
+        setTimeout(() => {
+          delete button.dataset.suppressClick;
+        }, 120);
+      }
+    };
+
+    button.addEventListener("pointerdown", (event) => {
+      if (!isPortraitTouchMode() || event.pointerType === "mouse") {
+        return;
+      }
+      repeated = false;
+      delayTimer = setTimeout(() => {
+        repeated = true;
+        dispatchWithFeedback(actionFactory());
+        repeatTimer = setInterval(() => dispatchWithFeedback(actionFactory()), REPEAT_INTERVAL_MS);
+      }, LONG_PRESS_DELAY_MS);
+    });
+    ["pointerup", "pointercancel", "pointerleave"].forEach((eventName) => button.addEventListener(eventName, stopRepeat));
+  }
+
+  function bindLifeGesture(target) {
+    // Life total gestures stay on the display only: tap top/right to gain, bottom/left to lose, hold for the quick panel.
+    target.addEventListener("pointerdown", (event) => {
+      if (!isPortraitTouchMode()) {
+        return;
+      }
+      lifeGesture = {
+        x: event.clientX,
+        y: event.clientY,
+        opened: false,
+        timer: setTimeout(() => {
+          lifeGesture.opened = true;
+          quickPanelOpen = "life";
+          vibrateFeedback(true);
+          render(store.getState());
+        }, LONG_PRESS_DELAY_MS),
+      };
+    });
+    target.addEventListener("pointerup", (event) => {
+      if (!lifeGesture || !isPortraitTouchMode()) {
+        lifeGesture = null;
+        return;
+      }
+      clearTimeout(lifeGesture.timer);
+      const gesture = lifeGesture;
+      lifeGesture = null;
+      if (gesture.opened || Math.abs(event.clientX - gesture.x) > 14 || Math.abs(event.clientY - gesture.y) > 14) {
+        return;
+      }
+      const bounds = target.getBoundingClientRect();
+      const addLife = event.clientX > bounds.left + bounds.width / 2 || event.clientY < bounds.top + bounds.height / 2;
+      dispatchWithFeedback({ type: "LIFE_DELTA", amount: addLife ? 1 : -1 });
+    });
+    target.addEventListener("pointercancel", () => {
+      clearTimeout(lifeGesture?.timer);
+      lifeGesture = null;
+    });
+  }
+
+  function bindCommanderDamageGesture(target) {
+    // Commander damage mirrors the life gesture pattern but defaults a tap to +1 damage.
+    target.addEventListener("pointerdown", (event) => {
+      if (!isPortraitTouchMode()) {
+        return;
+      }
+      commanderGesture = {
+        x: event.clientX,
+        y: event.clientY,
+        opened: false,
+        timer: setTimeout(() => {
+          commanderGesture.opened = true;
+          quickPanelOpen = "commander";
+          vibrateFeedback(true);
+          render(store.getState());
+        }, LONG_PRESS_DELAY_MS),
+      };
+    });
+    target.addEventListener("pointerup", (event) => {
+      if (!commanderGesture || !isPortraitTouchMode()) {
+        commanderGesture = null;
+        return;
+      }
+      clearTimeout(commanderGesture.timer);
+      const gesture = commanderGesture;
+      commanderGesture = null;
+      if (gesture.opened || Math.abs(event.clientX - gesture.x) > 14 || Math.abs(event.clientY - gesture.y) > 14) {
+        return;
+      }
+      dispatchWithFeedback({ type: "COMMANDER_DAMAGE_DELTA", opponentId: "opponent", amount: 1 });
+    });
+    target.addEventListener("pointercancel", () => {
+      clearTimeout(commanderGesture?.timer);
+      commanderGesture = null;
+    });
+  }
+
+  function dispatchWithFeedback(action, strong = false) {
+    store.dispatch(action);
+    vibrateFeedback(strong);
+  }
+
+  function vibrateFeedback(strong = false) {
+    if (!isPortraitTouchMode() || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches || !navigator.vibrate) {
+      return;
+    }
+    navigator.vibrate(strong ? 24 : 8);
+  }
+
+  function isSwipeBlockedTarget(target) {
+    return Boolean(target.closest("button, input, label, textarea, select, .overlay-backdrop, .scroll-safe, .counter-stepper, .tile-grid, .search-results, .floating-tool-panel, .floating-mana, [data-no-swipe]"));
+  }
+
+  function isPortraitTouchMode() {
+    return window.matchMedia?.(PORTRAIT_TOUCH_QUERY)?.matches || false;
+  }
+
+  function installLifeZoomGuards() {
+    if (lifeZoomGuardsInstalled) {
+      return;
+    }
+    lifeZoomGuardsInstalled = true;
+    document.addEventListener(
+      "touchmove",
+      (event) => {
+        if (activePage === "life" && isPortraitTouchMode() && event.touches.length > 1 && event.target.closest(".life-tracker-page")) {
+          event.preventDefault();
+        }
+      },
+      { passive: false }
+    );
+    document.addEventListener("gesturestart", (event) => {
+      if (activePage === "life" && isPortraitTouchMode() && event.target.closest(".life-tracker-page")) {
+        event.preventDefault();
+      }
+    });
+    document.addEventListener(
+      "touchend",
+      (event) => {
+        if (activePage !== "life" || !isPortraitTouchMode() || !event.target.closest(".life-tracker-page")) {
+          return;
+        }
+        const now = Date.now();
+        if (now - lastLifeTouchEnd < 300) {
+          event.preventDefault();
+        }
+        lastLifeTouchEnd = now;
+      },
+      { passive: false }
+    );
   }
 
   function scheduleManaAutoClose(profile) {
@@ -382,6 +611,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       <nav class="tab-bar glass">
         ${tabs.map((tab) => `<button class="${page === tab ? "active" : ""}" data-page="${tab}" aria-current="${page === tab ? "page" : "false"}">${formatPageLabel(tab)}</button>`).join("")}
       </nav>
+      ${renderMobileSwipeControls(tabs, page)}
       ${page === "life" ? renderLifeTracker(profile) : ""}
       ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage) : ""}
       ${page === "profile" ? renderProfile(profile) : ""}
@@ -389,6 +619,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       ${page === "decks" ? renderDecks(profile, searchResults, searchMessage) : ""}
       ${page === "leaderboards" ? renderLeaderboards(profile) : ""}
       ${page === "battlefield" ? renderBattlefieldToolBadge(profile, uiState.toolMenuOpen, uiState.floatingManaOpen, uiState.activeToolPanel, uiState.toolBadgePosition) : ""}
+      ${uiState.quickPanelOpen ? renderQuickAdjustmentPanel(profile, uiState.quickPanelOpen) : ""}
       ${uiState.optionsOpen ? renderGameOptions(profile) : ""}
       ${uiState.statsOpen ? renderStatsOverlay(profile, uiState.statsMode) : ""}
     </main>
@@ -411,8 +642,15 @@ function renderLifeTracker(profile) {
       ${panels.lifeTrackerLife ? `
       <aside class="life-panel life-hero glass">
         <span class="eyebrow">Life Total</span>
-        <strong>${session.life}</strong>
-        <div class="life-actions"><button data-life-minus>-</button><button data-life-plus>+</button></div>
+        <strong data-life-gesture title="Tap right/top to add life, left/bottom to subtract">${session.life}</strong>
+        <div class="life-actions">
+          <button class="mobile-step" data-life-delta="-10">-10</button>
+          <button class="mobile-step" data-life-delta="-5">-5</button>
+          <button data-life-delta="-1">-</button>
+          <button data-life-delta="1">+</button>
+          <button class="mobile-step" data-life-delta="5">+5</button>
+          <button class="mobile-step" data-life-delta="10">+10</button>
+        </div>
         ${panels.statsTimerWidgets ? `<p>Turn ${session.turn} / ${PHASES[session.phaseIndex]}</p>` : ""}
         <button class="wide" data-next-phase>Next Phase</button>
       </aside>
@@ -447,15 +685,65 @@ function renderLifeTracker(profile) {
   `;
 }
 
+function renderMobileSwipeControls(tabs, page) {
+  const currentIndex = tabs.indexOf(page);
+  return `
+    <section class="mobile-swipe-controls glass" aria-label="Mobile screen navigation">
+      <button data-mobile-nav="prev" aria-label="Previous screen">‹</button>
+      <div>
+        <span>${formatPageLabel(page)}</span>
+        <div class="mobile-page-dots" aria-hidden="true">
+          ${tabs.map((tab) => `<i class="${tab === page ? "active" : ""}"></i>`).join("")}
+        </div>
+      </div>
+      <button data-mobile-nav="next" aria-label="Next screen">›</button>
+      <small>${currentIndex + 1}/${tabs.length}</small>
+    </section>
+  `;
+}
+
+function renderQuickAdjustmentPanel(profile, panel) {
+  const session = profile.activeSession;
+  const isCommander = panel === "commander";
+  const title = isCommander ? "Commander Damage" : "Life Total";
+  const value = isCommander ? session.commander.damageByOpponent?.opponent || 0 : session.life;
+  const setButton = isCommander ? `<button data-commander-damage-set>Set manually</button>` : `<button data-life-set>Set life manually</button>`;
+  const resetButton = isCommander ? `<button data-commander-damage-reset>Reset</button>` : `<button data-life-reset>Reset this player</button>`;
+  const deltaButtons = [-10, -5, -1, 1, 5, 10]
+    .map((delta) =>
+      isCommander
+        ? `<button data-commander-damage data-delta="${delta}">${delta > 0 ? "+" : ""}${delta}</button>`
+        : `<button data-life-delta="${delta}">${delta > 0 ? "+" : ""}${delta}</button>`
+    )
+    .join("");
+  return `
+    <section class="quick-adjust-panel glass" data-no-swipe>
+      <div class="overlay-header compact">
+        <div>
+          <p class="eyebrow">Quick adjustment</p>
+          <h2>${title}: ${value}</h2>
+        </div>
+        <button data-close-quick-panel>Close</button>
+      </div>
+      <div class="button-grid">
+        ${deltaButtons}
+        ${setButton}
+        ${resetButton}
+      </div>
+    </section>
+  `;
+}
+
 function renderCounterControl(name, value, type) {
   const label = formatLabel(name);
   const dataAttribute = type === "commander" ? `data-commander-damage` : `data-player-counter="${escapeAttribute(name)}"`;
+  const valueAttribute = type === "commander" ? `data-commander-value title="Tap to add commander damage; long press for more"` : "";
   return `
     <div class="counter-stepper">
       <span>${escapeHtml(label)}</span>
       <div class="counter-stepper__controls">
         <button ${dataAttribute} data-delta="-1">-</button>
-        <strong>${value}</strong>
+        <strong ${valueAttribute}>${value}</strong>
         <button ${dataAttribute} data-delta="1">+</button>
       </div>
     </div>
