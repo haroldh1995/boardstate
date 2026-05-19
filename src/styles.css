@@ -266,7 +266,7 @@ h2 {
 
 .modifier-panel {
   position: fixed;
-  z-index: 74;
+  z-index: 140;
   left: 50%;
   bottom: max(18px, env(safe-area-inset-bottom));
   width: min(360px, calc(100vw - 28px));
@@ -276,6 +276,7 @@ h2 {
   padding: 0.9rem;
   overflow: auto;
   transform: translateX(-50%);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.64), 0 0 32px rgba(255, 126, 205, 0.16);
 }
 
 .modifier-option-grid {
@@ -304,6 +305,16 @@ h2 {
   border: 1px solid var(--line);
   border-radius: 14px;
   background: rgba(0, 0, 0, 0.16);
+}
+
+.modifier-actions {
+  align-items: stretch;
+}
+
+.modifier-actions .primary {
+  border-color: rgba(241, 192, 107, 0.8);
+  background: rgba(241, 192, 107, 0.18);
+  color: var(--gold);
 }
 
 .tracker-stack,

@@ -40,6 +40,7 @@ export function mountApp(root, store) {
   let modifierGesture = null;
   let modifierPanelOpen = false;
   let trackerModifier = cloneTrackerModifier(DEFAULT_TRACKER_MODIFIER);
+  let pendingTrackerModifier = cloneTrackerModifier(DEFAULT_TRACKER_MODIFIER);
   let lifeZoomGuardsInstalled = false;
   let lastLifeTouchEnd = 0;
 
@@ -60,6 +61,7 @@ export function mountApp(root, store) {
       toolBadgePosition,
       modifierPanelOpen,
       trackerModifier,
+      pendingTrackerModifier,
     });
     bind(root, profile);
     scheduleManaAutoClose(profile);
@@ -103,6 +105,7 @@ export function mountApp(root, store) {
       modifierBadge.addEventListener("pointerdown", (event) => {
         modifierGesture = {
           timer: setTimeout(() => {
+            pendingTrackerModifier = cloneTrackerModifier(trackerModifier);
             modifierPanelOpen = true;
             vibrateFeedback(true);
             render(store.getState());
@@ -120,8 +123,8 @@ export function mountApp(root, store) {
     container.querySelectorAll("[data-modifier-option]").forEach((button) => {
       button.addEventListener("click", () => {
         const [kind, rawValue] = button.dataset.modifierOption.split(":");
-        trackerModifier = {
-          ...trackerModifier,
+        pendingTrackerModifier = {
+          ...pendingTrackerModifier,
           kind,
           value: Number(rawValue),
         };
@@ -130,10 +133,10 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-modifier-scope]").forEach((input) => {
       input.addEventListener("change", () => {
-        trackerModifier = {
-          ...trackerModifier,
+        pendingTrackerModifier = {
+          ...pendingTrackerModifier,
           scopes: {
-            ...trackerModifier.scopes,
+            ...pendingTrackerModifier.scopes,
             [input.dataset.modifierScope]: input.checked,
           },
         };
@@ -141,10 +144,16 @@ export function mountApp(root, store) {
       });
     });
     container.querySelector("[data-clear-modifier]")?.addEventListener("click", () => {
-      trackerModifier = cloneTrackerModifier(DEFAULT_TRACKER_MODIFIER);
+      pendingTrackerModifier = cloneTrackerModifier(DEFAULT_TRACKER_MODIFIER);
       render(store.getState());
     });
-    container.querySelector("[data-close-modifier-panel]")?.addEventListener("click", () => {
+    container.querySelector("[data-confirm-modifier-panel]")?.addEventListener("click", () => {
+      trackerModifier = cloneTrackerModifier(pendingTrackerModifier);
+      modifierPanelOpen = false;
+      render(store.getState());
+    });
+    container.querySelector("[data-cancel-modifier-panel]")?.addEventListener("click", () => {
+      pendingTrackerModifier = cloneTrackerModifier(trackerModifier);
       modifierPanelOpen = false;
       render(store.getState());
     });
@@ -701,7 +710,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
         </nav>
         ${renderMobileSwipeControls(tabs, page)}
       </header>
-      ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier, uiState.modifierPanelOpen) : ""}
+      ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier) : ""}
       ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage) : ""}
       ${page === "profile" ? renderProfile(profile) : ""}
       ${page === "archive" ? renderArchive(profile) : ""}
@@ -709,13 +718,14 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       ${page === "leaderboards" ? renderLeaderboards(profile) : ""}
       ${page === "battlefield" ? renderBattlefieldToolBadge(profile, uiState.toolMenuOpen, uiState.floatingManaOpen, uiState.activeToolPanel, uiState.toolBadgePosition) : ""}
       ${uiState.quickPanelOpen ? renderQuickAdjustmentPanel(profile, uiState.quickPanelOpen) : ""}
+      ${uiState.modifierPanelOpen ? renderTrackerModifierPanel(uiState.pendingTrackerModifier) : ""}
       ${uiState.optionsOpen ? renderGameOptions(profile) : ""}
       ${uiState.statsOpen ? renderStatsOverlay(profile, uiState.statsMode) : ""}
     </main>
   `;
 }
 
-function renderLifeTracker(profile, trackerModifier, modifierPanelOpen) {
+function renderLifeTracker(profile, trackerModifier) {
   const session = profile.activeSession;
   const panels = getPagePanels(profile);
   const counters = {
@@ -740,7 +750,6 @@ function renderLifeTracker(profile, trackerModifier, modifierPanelOpen) {
           <button class="mobile-step" data-life-delta="10">+10</button>
         </div>
         ${renderTrackerModifierBadge(trackerModifier)}
-        ${modifierPanelOpen ? renderTrackerModifierPanel(trackerModifier) : ""}
       </aside>
       ` : ""}
       <section class="tracker-stack">
@@ -803,7 +812,7 @@ function renderTrackerModifierPanel(modifier) {
           <p class="eyebrow">Increment modifier</p>
           <h2>${escapeHtml(formatTrackerModifier(modifier))}</h2>
         </div>
-        <button data-close-modifier-panel>Close</button>
+        <button data-cancel-modifier-panel>Cancel</button>
       </div>
       <p>Pick a modifier, then choose which Life Tracker increment controls it affects.</p>
       <div class="modifier-option-grid">
@@ -818,7 +827,10 @@ function renderTrackerModifierPanel(modifier) {
           </label>
         `).join("")}
       </div>
-      <button class="wide" data-clear-modifier>Clear modifier</button>
+      <div class="row modifier-actions">
+        <button class="wide" data-clear-modifier>Clear modifier</button>
+        <button class="wide primary" data-confirm-modifier-panel>Confirm</button>
+      </div>
     </section>
   `;
 }
