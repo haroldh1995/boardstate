@@ -4,7 +4,7 @@ import { searchScryfall } from "../services/scryfallService.js";
 import { canBeCommander } from "../game/commanderSystem.js";
 import { PHASES } from "../state/schema.js";
 
-const PORTRAIT_TOUCH_QUERY = "(orientation: portrait) and (max-width: 1024px) and (pointer: coarse)";
+const PORTRAIT_TOUCH_QUERY = "(orientation: portrait) and (max-width: 1024px)";
 const SWIPE_DISTANCE_THRESHOLD = 72;
 const SWIPE_AXIS_DOMINANCE = 1.35;
 const LONG_PRESS_DELAY_MS = 420;
@@ -599,19 +599,20 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
   return `
     <main class="app-shell" data-app-shell>
       <header class="app-header glass">
-        <div>
-          <p class="eyebrow">Local-first MTG companion</p>
-          <h1>BoardState</h1>
+        <div class="app-header-top">
+          <div>
+            <h1>BoardState</h1>
+          </div>
+          <div class="header-actions">
+            <button class="pill" data-game-options>Game Options</button>
+            <button class="pill" data-undo>Undo</button>
+          </div>
         </div>
-        <div class="header-actions">
-          <button class="pill" data-game-options>Game Options</button>
-          <button class="pill" data-undo>Undo</button>
-        </div>
+        <nav class="tab-bar">
+          ${tabs.map((tab) => `<button class="${page === tab ? "active" : ""}" data-page="${tab}" aria-current="${page === tab ? "page" : "false"}">${formatPageLabel(tab)}</button>`).join("")}
+        </nav>
+        ${renderMobileSwipeControls(tabs, page)}
       </header>
-      <nav class="tab-bar glass">
-        ${tabs.map((tab) => `<button class="${page === tab ? "active" : ""}" data-page="${tab}" aria-current="${page === tab ? "page" : "false"}">${formatPageLabel(tab)}</button>`).join("")}
-      </nav>
-      ${renderMobileSwipeControls(tabs, page)}
       ${page === "life" ? renderLifeTracker(profile) : ""}
       ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage) : ""}
       ${page === "profile" ? renderProfile(profile) : ""}
@@ -656,20 +657,20 @@ function renderLifeTracker(profile) {
       </aside>
       ` : ""}
       <section class="tracker-stack">
-        <article class="tracker-card glass">
+        <article class="tracker-card player-counters-card glass">
           <p class="eyebrow">Player Counters</p>
           <h2>Resources</h2>
           <div class="counter-grid">
             ${Object.entries(counters).map(([counter, value]) => renderCounterControl(counter, value, "player")).join("")}
           </div>
         </article>
-        <article class="tracker-card glass">
+        <article class="tracker-card commander-damage-card glass">
           <p class="eyebrow">Commander Damage</p>
           <h2>One Opponent</h2>
           ${renderCounterControl("damage", commanderDamage, "commander")}
         </article>
-        <article class="tracker-card glass">
-          <h2>Player Controls</h2>
+        <article class="tracker-card mana-card glass">
+          <h2>Floating Mana</h2>
         ${panels.lifeTrackerMana ? `
         <div class="mana-grid">${Object.entries(session.manaPool).map(([color, value]) => `<button data-mana="${color}">${color}<span>${value}</span></button>`).join("")}</div>
         <button class="wide" data-clear-mana>Clear Mana</button>
@@ -739,7 +740,7 @@ function renderCounterControl(name, value, type) {
   const dataAttribute = type === "commander" ? `data-commander-damage` : `data-player-counter="${escapeAttribute(name)}"`;
   const valueAttribute = type === "commander" ? `data-commander-value title="Tap to add commander damage; long press for more"` : "";
   return `
-    <div class="counter-stepper">
+    <div class="counter-stepper counter-stepper--${escapeAttribute(type)}">
       <span>${escapeHtml(label)}</span>
       <div class="counter-stepper__controls">
         <button ${dataAttribute} data-delta="-1">-</button>

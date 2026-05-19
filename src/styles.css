@@ -128,6 +128,7 @@ select {
 }
 
 .app-header,
+.app-header-top,
 .tab-bar,
 .row {
   display: flex;
@@ -136,8 +137,13 @@ select {
 }
 
 .app-header {
-  justify-content: space-between;
+  display: grid;
   padding: 1rem;
+}
+
+.app-header-top {
+  justify-content: space-between;
+  padding: 0;
 }
 
 .header-actions {
@@ -171,7 +177,7 @@ h2 {
 }
 
 .tab-bar {
-  margin: 10px 0;
+  margin: 0;
   padding: 0.45rem;
   overflow-x: auto;
 }
@@ -709,7 +715,7 @@ h2 {
   margin-top: 0.25rem;
 }
 
-@media (orientation: portrait) and (max-width: 1024px) and (pointer: coarse) {
+@media (orientation: portrait) and (max-width: 1024px) {
   body {
     overscroll-behavior-x: contain;
   }
@@ -913,6 +919,264 @@ h2 {
 
   .overlay-backdrop {
     padding: 10px;
+  }
+}
+
+@media (orientation: portrait) and (max-width: 1024px) {
+  body[data-page="life"],
+  body[data-page="life"] #app {
+    min-height: 100svh;
+    overflow: hidden;
+  }
+
+  .life-tracker-page * {
+    min-width: 0;
+  }
+
+  body[data-page="life"] .app-shell {
+    height: 100svh;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
+  }
+
+  .app-header {
+    gap: 0.45rem;
+    padding: 0.7rem;
+    border-radius: 22px;
+  }
+
+  .app-header-top {
+    gap: 0.45rem;
+  }
+
+  .app-header h1 {
+    font-size: clamp(1.45rem, 8vw, 2.25rem);
+  }
+
+  .header-actions {
+    gap: 0.35rem;
+  }
+
+  .header-actions button {
+    min-height: 36px;
+    padding: 0.35rem 0.55rem;
+    font-size: 0.76rem;
+  }
+
+  .tab-bar {
+    margin: 0;
+    padding: 0.25rem;
+    gap: 0.35rem;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: hidden;
+  }
+
+  .tab-bar button {
+    min-height: 34px;
+    padding: 0.3rem 0.52rem;
+    font-size: 0.7rem;
+    white-space: nowrap;
+  }
+
+  .mobile-swipe-controls {
+    margin: 0;
+    padding: 0.35rem 0.45rem;
+  }
+
+  body[data-page="life"] .mobile-swipe-controls {
+    display: none;
+  }
+
+  .life-tracker-page {
+    height: 100%;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(88px, 0.9fr) minmax(138px, 1.22fr) minmax(88px, 0.9fr);
+    grid-template-rows: minmax(88px, 0.56fr) minmax(0, 1fr);
+    align-items: stretch;
+    gap: clamp(0.38rem, 1.65vw, 0.65rem);
+    overflow: hidden;
+  }
+
+  .life-tracker-page .tracker-stack {
+    display: contents;
+  }
+
+  .life-hero {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    min-height: 0;
+    height: 100%;
+    align-content: center;
+    padding: clamp(0.6rem, 2vw, 0.9rem);
+  }
+
+  .life-hero .eyebrow {
+    align-self: start;
+    max-width: 100%;
+    text-align: center;
+  }
+
+  .life-hero strong {
+    font-size: clamp(3.65rem, 19vw, 6rem);
+    letter-spacing: -0.08em;
+    line-height: 0.84;
+    max-width: 100%;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .life-actions {
+    grid-template-columns: repeat(2, minmax(46px, 1fr));
+    width: min(170px, 100%);
+    gap: 0.42rem;
+  }
+
+  .life-actions .mobile-step {
+    display: none;
+  }
+
+  .commander-damage-card {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    min-height: 0;
+    align-content: start;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .player-counters-card {
+    grid-column: 3;
+    grid-row: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .mana-card {
+    grid-column: 3;
+    grid-row: 2;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .mana-card .mana-grid {
+    grid-template-columns: 1fr;
+    max-height: min(34svh, 280px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 0.15rem;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+
+  .mana-card .mana-grid button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .mana-card .wide,
+  .mana-card [data-cast-commander],
+  .mana-card [data-archive-game] {
+    min-height: 38px;
+    padding: 0.35rem 0.55rem;
+    font-size: 0.78rem;
+  }
+
+  .tracker-card {
+    padding: clamp(0.42rem, 1.55vw, 0.7rem);
+    border-radius: 20px;
+    min-width: 0;
+  }
+
+  .tracker-card h2 {
+    font-size: clamp(0.58rem, 2.12vw, 0.78rem);
+    letter-spacing: 0.035em;
+    line-height: 1.08;
+    overflow-wrap: anywhere;
+    text-align: center;
+  }
+
+  .tracker-card .eyebrow {
+    font-size: clamp(0.54rem, 1.95vw, 0.68rem);
+    letter-spacing: 0.055em;
+    line-height: 1.08;
+    text-align: center;
+  }
+
+  .counter-grid {
+    grid-template-columns: 1fr;
+    gap: 0.34rem;
+  }
+
+  .counter-stepper {
+    padding: 0.34rem 0.28rem;
+    min-width: 0;
+    min-height: clamp(72px, 9.5svh, 96px);
+    align-content: center;
+    justify-items: stretch;
+    gap: 0.25rem;
+    border-radius: 14px;
+  }
+
+  .commander-damage-card .counter-stepper {
+    min-height: clamp(112px, 18svh, 168px);
+  }
+
+  .counter-stepper > span {
+    font-size: clamp(0.54rem, 1.95vw, 0.68rem);
+    letter-spacing: 0.045em;
+    line-height: 1.08;
+    text-align: center;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .commander-damage-card,
+  .player-counters-card,
+  .mana-card .mana-grid {
+    scrollbar-width: thin;
+  }
+
+  .counter-stepper__controls {
+    grid-template-columns: repeat(2, minmax(0, 32px));
+    justify-content: center;
+    gap: 0.24rem;
+  }
+
+  .counter-stepper__controls button {
+    width: 100%;
+    min-width: 0;
+    min-height: 36px;
+    padding: 0.12rem 0.08rem;
+    border-radius: 12px;
+    font-size: 1rem;
+  }
+
+  .counter-stepper__controls strong {
+    grid-column: 1 / -1;
+    order: -1;
+    justify-self: center;
+    width: 100%;
+    min-width: 0;
+    font-size: clamp(1.15rem, 5vw, 1.85rem);
+    line-height: 1;
+    letter-spacing: -0.035em;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .counter-stepper--commander .counter-stepper__controls {
+    grid-template-columns: repeat(2, minmax(0, 30px));
+  }
+
+  .counter-stepper--commander .counter-stepper__controls button {
+    min-height: 34px;
+  }
+
+  .counter-stepper--commander .counter-stepper__controls strong {
+    font-size: clamp(1.45rem, 7vw, 2.35rem);
   }
 }
 
