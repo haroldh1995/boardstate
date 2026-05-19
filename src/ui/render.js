@@ -10,11 +10,14 @@ const SWIPE_AXIS_DOMINANCE = 1.35;
 const LONG_PRESS_DELAY_MS = 420;
 const REPEAT_INTERVAL_MS = 110;
 const DEFAULT_TRACKER_MODIFIER = {
-  kind: "none",
+  kind: "delta",
   value: 1,
   scopes: {
-    life: false,
-    counters: false,
+    life: true,
+    poison: false,
+    energy: false,
+    experience: false,
+    tickets: false,
     commander: false,
   },
 };
@@ -86,7 +89,7 @@ export function mountApp(root, store) {
       const action = () => ({
         type: "PLAYER_COUNTER_DELTA",
         counter: button.dataset.playerCounter,
-        amount: modifyTrackerDelta(Number(button.dataset.delta || 0), "counters"),
+        amount: Number(button.dataset.delta || 0),
       });
       bindTouchAction(button, action);
       bindLongPressRepeat(button, action);
@@ -95,7 +98,7 @@ export function mountApp(root, store) {
       const action = () => ({
         type: "COMMANDER_DAMAGE_DELTA",
         opponentId: "opponent",
-        amount: modifyTrackerDelta(Number(button.dataset.delta || 0), "commander"),
+        amount: Number(button.dataset.delta || 0),
       });
       bindTouchAction(button, action);
       bindLongPressRepeat(button, action);
@@ -116,17 +119,19 @@ export function mountApp(root, store) {
       ["pointerup", "pointercancel", "pointerleave"].forEach((eventName) => {
         modifierBadge.addEventListener(eventName, () => {
           clearTimeout(modifierGesture?.timer);
+          if (eventName === "pointerup" && modifierGesture && !modifierPanelOpen) {
+            applyTrackerModifier();
+          }
           modifierGesture = null;
         });
       });
     }
     container.querySelectorAll("[data-modifier-option]").forEach((button) => {
       button.addEventListener("click", () => {
-        const [kind, rawValue] = button.dataset.modifierOption.split(":");
         pendingTrackerModifier = {
           ...pendingTrackerModifier,
-          kind,
-          value: Number(rawValue),
+          kind: "delta",
+          value: Number(button.dataset.modifierOption),
         };
         render(store.getState());
       });
@@ -148,6 +153,10 @@ export function mountApp(root, store) {
       render(store.getState());
     });
     container.querySelector("[data-confirm-modifier-panel]")?.addEventListener("click", () => {
+      const custom = Number(container.querySelector("[data-modifier-custom]")?.value);
+      if (Number.isFinite(custom) && custom !== 0) {
+        pendingTrackerModifier = { ...pendingTrackerModifier, kind: "delta", value: custom };
+      }
       trackerModifier = cloneTrackerModifier(pendingTrackerModifier);
       modifierPanelOpen = false;
       render(store.getState());
@@ -339,7 +348,7 @@ export function mountApp(root, store) {
     });
 
     container.querySelectorAll("[data-life-delta]").forEach((button) => {
-      const action = () => ({ type: "LIFE_DELTA", amount: modifyTrackerDelta(Number(button.dataset.lifeDelta || 0), "life") });
+      const action = () => ({ type: "LIFE_DELTA", amount: Number(button.dataset.lifeDelta || 0) });
       bindTouchAction(button, action);
       bindLongPressRepeat(button, action);
     });
@@ -567,7 +576,7 @@ export function mountApp(root, store) {
       }
       const bounds = target.getBoundingClientRect();
       const addLife = event.clientX > bounds.left + bounds.width / 2 || event.clientY < bounds.top + bounds.height / 2;
-      dispatchWithFeedback({ type: "LIFE_DELTA", amount: modifyTrackerDelta(addLife ? 1 : -1, "life") });
+      dispatchWithFeedback({ type: "LIFE_DELTA", amount: addLife ? 1 : -1 });
     });
     target.addEventListener("pointercancel", () => {
       clearTimeout(lifeGesture?.timer);
@@ -604,7 +613,7 @@ export function mountApp(root, store) {
       if (gesture.opened || Math.abs(event.clientX - gesture.x) > 14 || Math.abs(event.clientY - gesture.y) > 14) {
         return;
       }
-      dispatchWithFeedback({ type: "COMMANDER_DAMAGE_DELTA", opponentId: "opponent", amount: modifyTrackerDelta(1, "commander") });
+      dispatchWithFeedback({ type: "COMMANDER_DAMAGE_DELTA", opponentId: "opponent", amount: 1 });
     });
     target.addEventListener("pointercancel", () => {
       clearTimeout(commanderGesture?.timer);
@@ -617,15 +626,20 @@ export function mountApp(root, store) {
     vibrateFeedback(strong);
   }
 
-  function modifyTrackerDelta(delta, scope) {
-    if (!trackerModifier.scopes?.[scope] || trackerModifier.kind === "none") {
-      return delta;
+  function applyTrackerModifier() {
+    const amount = Number(trackerModifier.value) || 1;
+    const scopes = trackerModifier.scopes || {};
+    if (scopes.life) {
+      dispatchWithFeedback({ type: "LIFE_DELTA", amount });
     }
-    if (trackerModifier.kind === "multiply") {
-      return delta * trackerModifier.value;
+    ["poison", "energy", "experience", "tickets"].forEach((counter) => {
+      if (scopes[counter]) {
+        dispatchWithFeedback({ type: "PLAYER_COUNTER_DELTA", counter, amount });
+      }
+    });
+    if (scopes.commander) {
+      dispatchWithFeedback({ type: "COMMANDER_DAMAGE_DELTA", opponentId: "opponent", amount });
     }
-    const sign = Math.sign(delta) || 1;
-    return sign * (Math.abs(delta) + trackerModifier.value);
   }
 
   function vibrateFeedback(strong = false) {
@@ -798,11 +812,13 @@ function renderTrackerModifierBadge(modifier) {
 }
 
 function renderTrackerModifierPanel(modifier) {
-  const additiveOptions = [1, 2, 3];
-  const multiplierOptions = [2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const modifierOptions = [-10, -5, -1, 1, 5, 10];
   const scopes = [
     ["life", "Life total"],
-    ["counters", "Player counters"],
+    ["poison", "Poison"],
+    ["energy", "Energy"],
+    ["experience", "Experience"],
+    ["tickets", "Tickets"],
     ["commander", "Commander damage"],
   ];
   return `
@@ -814,11 +830,13 @@ function renderTrackerModifierPanel(modifier) {
         </div>
         <button data-cancel-modifier-panel>Cancel</button>
       </div>
-      <p>Pick a modifier, then choose which Life Tracker increment controls it affects.</p>
+      <p>Pick the modifier amount, then choose which Life Tracker increment badges it affects. Tap the Modifier button to apply it.</p>
       <div class="modifier-option-grid">
-        ${additiveOptions.map((value) => renderModifierOption("add", value, `+${value}`, modifier)).join("")}
-        ${multiplierOptions.map((value) => renderModifierOption("multiply", value, `x${value}`, modifier)).join("")}
+        ${modifierOptions.map((value) => renderModifierOption(value, `${value > 0 ? "+" : ""}${value}`, modifier)).join("")}
       </div>
+      <label class="modifier-custom-row">Custom/manual
+        <input type="number" inputmode="numeric" data-modifier-custom placeholder="Amount" />
+      </label>
       <div class="modifier-scope-grid">
         ${scopes.map(([scope, label]) => `
           <label>
@@ -835,9 +853,9 @@ function renderTrackerModifierPanel(modifier) {
   `;
 }
 
-function renderModifierOption(kind, value, label, modifier) {
-  const active = modifier.kind === kind && modifier.value === value;
-  return `<button class="${active ? "active" : ""}" data-modifier-option="${kind}:${value}">${label}</button>`;
+function renderModifierOption(value, label, modifier) {
+  const active = Number(modifier.value) === value;
+  return `<button class="${active ? "active" : ""}" data-modifier-option="${value}">${label}</button>`;
 }
 
 function renderQuickAdjustmentPanel(profile, panel) {
@@ -1032,6 +1050,7 @@ function renderBattlefieldToolBadge(profile, menuOpen, floatingManaOpen, activeT
         <button data-open-tool-panel="tokens">Token Controls</button>
         <button data-open-tool-panel="permanents">Permanent Controls</button>
         <button data-open-game-options>Game Options</button>
+        <button data-open-tool-panel="player">Player Controls</button>
         <button data-open-tool-panel="counters">Permanent Counter Controls</button>
         <button data-open-floating-mana>${floatingManaOpen || manaPinned ? "Hide Floating Mana" : "Floating Mana Controls"}</button>
       </section>
@@ -1073,6 +1092,7 @@ function renderBattlefieldToolPanel(profile, panel) {
   const titleMap = {
     tokens: "Token Controls",
     permanents: "Permanent Controls",
+    player: "Player Controls",
     counters: "Permanent Counter Controls",
   };
   return `
@@ -1083,8 +1103,28 @@ function renderBattlefieldToolPanel(profile, panel) {
       </div>
       ${panel === "tokens" ? renderTokenControls() : ""}
       ${panel === "permanents" ? renderPermanentControls(profile) : ""}
+      ${panel === "player" ? renderPlayerControls(profile) : ""}
       ${panel === "counters" ? renderPermanentCounterControls(profile) : ""}
     </section>
+  `;
+}
+
+function renderPlayerControls(profile) {
+  const session = profile.activeSession;
+  return `
+    <div class="player-control-widget">
+      <article class="phase-tracker-card">
+        <p class="eyebrow">Current turn</p>
+        <h2>Turn ${session.turn}</h2>
+        <strong>${escapeHtml(PHASES[session.phaseIndex])}</strong>
+      </article>
+      <div class="button-grid">
+        <button data-cast-commander>Cast Commander</button>
+        <button data-archive-game>Archive Game</button>
+        <button data-life-reset>Reset Player Trackers</button>
+        <button data-undo>Undo</button>
+      </div>
+    </div>
   `;
 }
 
@@ -1436,16 +1476,20 @@ function cloneTrackerModifier(modifier) {
 
 function formatTrackerModifier(modifier) {
   if (!modifier || modifier.kind === "none") {
-    return "x1";
+    return "+1";
   }
-  return modifier.kind === "multiply" ? `x${modifier.value}` : `+${modifier.value}`;
+  const value = Number(modifier.value) || 1;
+  return `${value > 0 ? "+" : ""}${value}`;
 }
 
 function formatModifierScopes(modifier) {
   const scopes = modifier?.scopes || {};
   const active = [
     scopes.life ? "Life" : "",
-    scopes.counters ? "Counters" : "",
+    scopes.poison ? "Poison" : "",
+    scopes.energy ? "Energy" : "",
+    scopes.experience ? "XP" : "",
+    scopes.tickets ? "Tickets" : "",
     scopes.commander ? "Commander" : "",
   ].filter(Boolean);
   return active.length ? active.join(" / ") : "Long press";

@@ -1,7 +1,7 @@
 :root {
   --bg: #07040d;
-  --panel: rgba(18, 10, 29, 0.12);
-  --panel-strong: rgba(27, 16, 42, 0.24);
+  --panel: rgba(18, 10, 29, 0.055);
+  --panel-strong: rgba(27, 16, 42, 0.105);
   --line: rgba(255, 255, 255, 0.22);
   --text: #f7efff;
   --muted: rgba(247, 239, 255, 0.68);
@@ -87,7 +87,7 @@ button,
 .file-pill {
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.032);
   color: var(--text);
   padding: 0.55rem 0.8rem;
   min-height: 38px;
@@ -104,7 +104,7 @@ select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: rgba(0, 0, 0, 0.24);
+  background: rgba(0, 0, 0, 0.18);
   color: var(--text);
   padding: 0.7rem 0.85rem;
 }
@@ -119,9 +119,9 @@ select {
   border: 1px solid var(--line);
   border-radius: 24px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.003)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.014), rgba(255, 255, 255, 0.001)),
     var(--panel);
-  backdrop-filter: blur(4px) saturate(1.1);
+  backdrop-filter: blur(2.5px) saturate(1.08);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     0 20px 60px rgba(0, 0, 0, 0.22);
@@ -218,9 +218,9 @@ h2 {
   place-items: center;
   text-align: center;
   background:
-    radial-gradient(circle at 50% 12%, rgba(241, 192, 107, 0.08), transparent 36%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent),
-    rgba(18, 10, 29, 0.1);
+    radial-gradient(circle at 50% 12%, rgba(241, 192, 107, 0.035), transparent 36%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.014), transparent),
+    rgba(18, 10, 29, 0.035);
 }
 
 .life-hero strong {
@@ -247,7 +247,7 @@ h2 {
   justify-items: center;
   padding: 0.5rem 0.65rem;
   border-radius: 18px;
-  background: rgba(9, 5, 17, 0.34);
+  background: rgba(9, 5, 17, 0.18);
 }
 
 .modifier-badge span,
@@ -304,7 +304,16 @@ h2 {
   padding: 0.55rem 0.65rem;
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: rgba(0, 0, 0, 0.16);
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.modifier-custom-row {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .modifier-actions {
@@ -315,6 +324,11 @@ h2 {
   border-color: rgba(241, 192, 107, 0.8);
   background: rgba(241, 192, 107, 0.18);
   color: var(--gold);
+}
+
+.player-control-widget {
+  display: grid;
+  gap: 0.75rem;
 }
 
 .tracker-stack,
@@ -339,7 +353,7 @@ h2 {
   border: 1px solid var(--line);
   border-radius: 16px;
   padding: 0.7rem;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.1);
 }
 
 .counter-stepper > span {
@@ -396,7 +410,7 @@ h2 {
   padding: 0.8rem;
   border: 1px solid var(--line);
   border-radius: 18px;
-  background: rgba(0, 0, 0, 0.16);
+  background: rgba(0, 0, 0, 0.08);
 }
 
 .phase-tracker-card h2,
@@ -447,12 +461,12 @@ h2 {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 18px;
   padding: 0.8rem;
-  background: rgba(0, 0, 0, 0.035);
+  background: rgba(0, 0, 0, 0.015);
 }
 
 .combat-zone {
   text-align: center;
-  background: linear-gradient(90deg, rgba(143, 211, 255, 0.055), rgba(241, 192, 107, 0.055), rgba(255, 126, 205, 0.055));
+  background: linear-gradient(90deg, rgba(143, 211, 255, 0.032), rgba(241, 192, 107, 0.032), rgba(255, 126, 205, 0.032));
 }
 
 .tile-grid {
@@ -478,11 +492,11 @@ h2 {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 16px;
   padding: 0.55rem;
-  background: rgba(255, 255, 255, 0.006);
+  background: rgba(255, 255, 255, 0.002);
 }
 
 .battlefield-group.tapped-zone {
-  background: rgba(143, 211, 255, 0.014);
+  background: rgba(143, 211, 255, 0.008);
 }
 
 .battlefield-group-header {
@@ -685,7 +699,7 @@ h2 {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
   padding: 0.45rem 0.6rem;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.014);
 }
 
 .toggle-row input {
