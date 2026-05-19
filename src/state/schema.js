@@ -47,6 +47,14 @@ export function createDefaultProfile() {
       appearance: {
         compositionMode: "auto",
       },
+      navigation: {
+        showProfileInMainUi: false,
+      },
+    },
+    localAuth: {
+      mode: "guest",
+      locked: false,
+      hasPassword: false,
     },
     activeSession: createGameSession(),
     commanders: {},

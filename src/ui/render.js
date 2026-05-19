@@ -23,8 +23,8 @@ const DEFAULT_TRACKER_MODIFIER = {
 };
 
 export function mountApp(root, store) {
-  const pageOrder = ["life", "battlefield", "profile", "archive", "decks", "leaderboards"];
-  let activePage = pageOrder.includes(location.hash.replace("#", "")) ? location.hash.replace("#", "") : "life";
+  const allPages = ["life", "battlefield", "profile", "archive", "decks", "leaderboards"];
+  let activePage = allPages.includes(location.hash.replace("#", "")) ? location.hash.replace("#", "") : "life";
   let searchResults = [];
   let searchMessage = "";
   let optionsOpen = false;
@@ -51,6 +51,10 @@ export function mountApp(root, store) {
   render(store.getState());
 
   function render(profile) {
+    const visiblePages = getVisiblePages(profile);
+    if (!visiblePages.includes(activePage)) {
+      activePage = activePage === "profile" ? "profile" : visiblePages[0] || "life";
+    }
     document.body.dataset.composition = profile.settings?.appearance?.compositionMode || "auto";
     document.body.dataset.page = activePage;
     root.innerHTML = layout(profile, activePage, searchResults, searchMessage, {
@@ -65,6 +69,7 @@ export function mountApp(root, store) {
       modifierPanelOpen,
       trackerModifier,
       pendingTrackerModifier,
+      visiblePages,
     });
     bind(root, profile);
     scheduleManaAutoClose(profile);
@@ -284,6 +289,30 @@ export function mountApp(root, store) {
       const name = new FormData(event.currentTarget).get("profileName");
       store.dispatch({ type: "SET_PLAYER_NAME", name });
     });
+    container.querySelector("[data-create-password-form]")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const password = String(new FormData(event.currentTarget).get("password") || "");
+      if (password.length < 4) {
+        alert("Use at least 4 characters for local device protection.");
+        return;
+      }
+      await store.createPassword(password);
+    });
+    container.querySelector("[data-login-form]")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const password = String(new FormData(event.currentTarget).get("password") || "");
+      try {
+        await store.login(password);
+      } catch {
+        alert("Password did not match this local profile.");
+      }
+    });
+    container.querySelector("[data-guest-mode]")?.addEventListener("click", () => store.continueGuest());
+    container.querySelector("[data-lock-profile]")?.addEventListener("click", () => store.lockProfile());
+    container.querySelector("[data-open-profile-page]")?.addEventListener("click", () => {
+      optionsOpen = false;
+      setActivePage("profile");
+    });
     container.querySelectorAll("[data-setting-toggle]").forEach((input) => {
       input.addEventListener("change", () => store.dispatch({ type: "SET_SETTING", path: input.dataset.settingToggle, value: input.checked }));
     });
@@ -487,7 +516,11 @@ export function mountApp(root, store) {
   }
 
   function setActivePage(page) {
-    if (!pageOrder.includes(page)) {
+    if (!allPages.includes(page)) {
+      return;
+    }
+    const visiblePages = getVisiblePages(store.getState());
+    if (page !== "profile" && !visiblePages.includes(page)) {
       return;
     }
     activePage = page;
@@ -499,7 +532,8 @@ export function mountApp(root, store) {
   }
 
   function movePage(direction) {
-    const currentIndex = pageOrder.indexOf(activePage);
+    const pageOrder = getVisiblePages(store.getState());
+    const currentIndex = Math.max(0, pageOrder.indexOf(activePage));
     const nextIndex = Math.max(0, Math.min(pageOrder.length - 1, currentIndex + direction));
     if (nextIndex !== currentIndex) {
       setActivePage(pageOrder[nextIndex]);
@@ -706,7 +740,7 @@ export function mountApp(root, store) {
 
 function layout(profile, page, searchResults, searchMessage, uiState) {
   const session = profile.activeSession;
-  const tabs = ["life", "battlefield", "profile", "archive", "decks", "leaderboards"];
+  const tabs = uiState.visiblePages || getVisiblePages(profile);
   return `
     <main class="app-shell" data-app-shell>
       <header class="app-header glass">
@@ -1274,6 +1308,7 @@ function renderGameOptions(profile) {
   const compositionMode = profile.settings?.appearance?.compositionMode || "auto";
   const nextCompositionMode = compositionMode === "mobile" ? "widescreen" : "mobile";
   const compositionLabel = compositionMode === "mobile" ? "Mobile vertical" : "Standard widescreen";
+  const localAuth = profile.localAuth || {};
   return `
     <section class="overlay-backdrop">
       <div class="floating-overlay glass">
@@ -1287,12 +1322,28 @@ function renderGameOptions(profile) {
         <div class="overlay-grid">
           <article class="option-card">
             <h3>Local Login / Profile</h3>
+            <p>Status: ${localAuth.mode === "protected" ? "Password profile loaded" : "Guest / fresh mode"}${localAuth.hasPassword ? " · Password profile available" : ""}</p>
+            <div class="button-grid">
+              <button data-open-profile-page>Open Profile Page</button>
+              <button data-guest-mode>Continue as Guest/Fresh</button>
+              ${localAuth.mode === "protected" ? `<button data-lock-profile>Logout / Lock Profile</button>` : ""}
+            </div>
             <form data-profile-form class="stacked-form">
               <label>Profile name</label>
               <input name="profileName" value="${escapeAttribute(profile.player?.name || "Player")}" placeholder="Player name" />
               <button class="wide">Save Locally</button>
             </form>
-            <p>Local-only profile. No server authentication yet.</p>
+            <form data-create-password-form class="stacked-form">
+              <label>Create Password</label>
+              <input name="password" type="password" autocomplete="new-password" placeholder="Create local password" />
+              <button class="wide">Create / Save Protected Profile</button>
+            </form>
+            <form data-login-form class="stacked-form">
+              <label>Login</label>
+              <input name="password" type="password" autocomplete="current-password" placeholder="Local password" />
+              <button class="wide">Login and Load Saved Data</button>
+            </form>
+            <p>Local device protection only. No cloud authentication, and plaintext passwords are never stored.</p>
           </article>
           <article class="option-card">
             <h3>Multiplayer</h3>
@@ -1313,6 +1364,7 @@ function renderGameOptions(profile) {
               Switch to ${nextCompositionMode === "mobile" ? "Mobile Vertical" : "Standard Widescreen"}
             </button>
             ${renderToggle("Life total panel", "pagePanels.lifeTrackerLife", panels.lifeTrackerLife)}
+            ${renderToggle("Show Profile in Main UI", "navigation.showProfileInMainUi", Boolean(profile.settings?.navigation?.showProfileInMainUi))}
             <p>Floating mana now lives in the Battlefield tools menu as a floating widget with pin/unpin support.</p>
             ${renderToggle("Opponent board panel", "pagePanels.boardOpponent", panels.boardOpponent)}
             ${renderToggle("Combat controls", "pagePanels.boardCombat", panels.boardCombat)}
@@ -1462,6 +1514,11 @@ function getPagePanels(profile) {
     statsTimerWidgets: true,
     ...(profile.settings?.pagePanels || {}),
   };
+}
+
+function getVisiblePages(profile) {
+  const pages = ["life", "battlefield", "archive", "decks", "leaderboards"];
+  return profile.settings?.navigation?.showProfileInMainUi ? ["life", "battlefield", "profile", "archive", "decks", "leaderboards"] : pages;
 }
 
 function cloneTrackerModifier(modifier) {
