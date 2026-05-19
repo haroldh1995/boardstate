@@ -240,6 +240,72 @@ h2 {
   font-size: 1.35rem;
 }
 
+.modifier-badge {
+  width: min(210px, 100%);
+  display: grid;
+  gap: 0.12rem;
+  justify-items: center;
+  padding: 0.5rem 0.65rem;
+  border-radius: 18px;
+  background: rgba(9, 5, 17, 0.34);
+}
+
+.modifier-badge span,
+.modifier-badge small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.modifier-badge strong {
+  color: var(--gold);
+  font-size: clamp(1.15rem, 4vw, 1.8rem);
+  line-height: 1;
+}
+
+.modifier-panel {
+  position: fixed;
+  z-index: 74;
+  left: 50%;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  width: min(360px, calc(100vw - 28px));
+  max-height: min(72svh, 560px);
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  overflow: auto;
+  transform: translateX(-50%);
+}
+
+.modifier-option-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.modifier-option-grid button.active {
+  border-color: rgba(241, 192, 107, 0.8);
+  background: rgba(241, 192, 107, 0.16);
+  color: var(--gold);
+}
+
+.modifier-scope-grid {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.modifier-scope-grid label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
 .tracker-stack,
 .tracker-card {
   display: grid;
@@ -311,6 +377,26 @@ h2 {
   display: grid;
   align-content: start;
   gap: 0.8rem;
+}
+
+.phase-tracker-card {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.phase-tracker-card h2,
+.phase-tracker-card p {
+  margin: 0;
+}
+
+.phase-tracker-card strong {
+  color: var(--gold);
+  font-size: clamp(1.35rem, 4vw, 2rem);
+  line-height: 1;
 }
 
 .life-panel,
@@ -1031,6 +1117,23 @@ h2 {
     grid-template-columns: repeat(2, minmax(46px, 1fr));
     width: min(170px, 100%);
     gap: 0.42rem;
+  }
+
+  .modifier-badge {
+    width: min(150px, 100%);
+    min-height: 56px;
+    padding: 0.36rem 0.45rem;
+    border-radius: 16px;
+  }
+
+  .modifier-badge span,
+  .modifier-badge small {
+    font-size: 0.55rem;
+    letter-spacing: 0.055em;
+  }
+
+  .modifier-badge strong {
+    font-size: clamp(0.95rem, 4.8vw, 1.35rem);
   }
 
   .life-actions .mobile-step {

@@ -9,6 +9,15 @@ const SWIPE_DISTANCE_THRESHOLD = 72;
 const SWIPE_AXIS_DOMINANCE = 1.35;
 const LONG_PRESS_DELAY_MS = 420;
 const REPEAT_INTERVAL_MS = 110;
+const DEFAULT_TRACKER_MODIFIER = {
+  kind: "none",
+  value: 1,
+  scopes: {
+    life: false,
+    counters: false,
+    commander: false,
+  },
+};
 
 export function mountApp(root, store) {
   const pageOrder = ["life", "battlefield", "profile", "archive", "decks", "leaderboards"];
@@ -28,6 +37,9 @@ export function mountApp(root, store) {
   let manaAutoCloseTimer = null;
   let lifeGesture = null;
   let commanderGesture = null;
+  let modifierGesture = null;
+  let modifierPanelOpen = false;
+  let trackerModifier = cloneTrackerModifier(DEFAULT_TRACKER_MODIFIER);
   let lifeZoomGuardsInstalled = false;
   let lastLifeTouchEnd = 0;
 
@@ -46,6 +58,8 @@ export function mountApp(root, store) {
       activeToolPanel,
       quickPanelOpen,
       toolBadgePosition,
+      modifierPanelOpen,
+      trackerModifier,
     });
     bind(root, profile);
     scheduleManaAutoClose(profile);
@@ -67,14 +81,72 @@ export function mountApp(root, store) {
       });
     });
     container.querySelectorAll("[data-player-counter]").forEach((button) => {
-      const action = () => ({ type: "PLAYER_COUNTER_DELTA", counter: button.dataset.playerCounter, amount: Number(button.dataset.delta || 0) });
+      const action = () => ({
+        type: "PLAYER_COUNTER_DELTA",
+        counter: button.dataset.playerCounter,
+        amount: modifyTrackerDelta(Number(button.dataset.delta || 0), "counters"),
+      });
       bindTouchAction(button, action);
       bindLongPressRepeat(button, action);
     });
     container.querySelectorAll("[data-commander-damage]").forEach((button) => {
-      const action = () => ({ type: "COMMANDER_DAMAGE_DELTA", opponentId: "opponent", amount: Number(button.dataset.delta || 0) });
+      const action = () => ({
+        type: "COMMANDER_DAMAGE_DELTA",
+        opponentId: "opponent",
+        amount: modifyTrackerDelta(Number(button.dataset.delta || 0), "commander"),
+      });
       bindTouchAction(button, action);
       bindLongPressRepeat(button, action);
+    });
+    const modifierBadge = container.querySelector("[data-modifier-badge]");
+    if (modifierBadge) {
+      modifierBadge.addEventListener("pointerdown", (event) => {
+        modifierGesture = {
+          timer: setTimeout(() => {
+            modifierPanelOpen = true;
+            vibrateFeedback(true);
+            render(store.getState());
+          }, LONG_PRESS_DELAY_MS),
+        };
+        modifierBadge.setPointerCapture?.(event.pointerId);
+      });
+      ["pointerup", "pointercancel", "pointerleave"].forEach((eventName) => {
+        modifierBadge.addEventListener(eventName, () => {
+          clearTimeout(modifierGesture?.timer);
+          modifierGesture = null;
+        });
+      });
+    }
+    container.querySelectorAll("[data-modifier-option]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const [kind, rawValue] = button.dataset.modifierOption.split(":");
+        trackerModifier = {
+          ...trackerModifier,
+          kind,
+          value: Number(rawValue),
+        };
+        render(store.getState());
+      });
+    });
+    container.querySelectorAll("[data-modifier-scope]").forEach((input) => {
+      input.addEventListener("change", () => {
+        trackerModifier = {
+          ...trackerModifier,
+          scopes: {
+            ...trackerModifier.scopes,
+            [input.dataset.modifierScope]: input.checked,
+          },
+        };
+        render(store.getState());
+      });
+    });
+    container.querySelector("[data-clear-modifier]")?.addEventListener("click", () => {
+      trackerModifier = cloneTrackerModifier(DEFAULT_TRACKER_MODIFIER);
+      render(store.getState());
+    });
+    container.querySelector("[data-close-modifier-panel]")?.addEventListener("click", () => {
+      modifierPanelOpen = false;
+      render(store.getState());
     });
     container.querySelectorAll("[data-setting-button]").forEach((button) => {
       button.addEventListener("click", () =>
@@ -258,7 +330,7 @@ export function mountApp(root, store) {
     });
 
     container.querySelectorAll("[data-life-delta]").forEach((button) => {
-      const action = () => ({ type: "LIFE_DELTA", amount: Number(button.dataset.lifeDelta || 0) });
+      const action = () => ({ type: "LIFE_DELTA", amount: modifyTrackerDelta(Number(button.dataset.lifeDelta || 0), "life") });
       bindTouchAction(button, action);
       bindLongPressRepeat(button, action);
     });
@@ -486,7 +558,7 @@ export function mountApp(root, store) {
       }
       const bounds = target.getBoundingClientRect();
       const addLife = event.clientX > bounds.left + bounds.width / 2 || event.clientY < bounds.top + bounds.height / 2;
-      dispatchWithFeedback({ type: "LIFE_DELTA", amount: addLife ? 1 : -1 });
+      dispatchWithFeedback({ type: "LIFE_DELTA", amount: modifyTrackerDelta(addLife ? 1 : -1, "life") });
     });
     target.addEventListener("pointercancel", () => {
       clearTimeout(lifeGesture?.timer);
@@ -523,7 +595,7 @@ export function mountApp(root, store) {
       if (gesture.opened || Math.abs(event.clientX - gesture.x) > 14 || Math.abs(event.clientY - gesture.y) > 14) {
         return;
       }
-      dispatchWithFeedback({ type: "COMMANDER_DAMAGE_DELTA", opponentId: "opponent", amount: 1 });
+      dispatchWithFeedback({ type: "COMMANDER_DAMAGE_DELTA", opponentId: "opponent", amount: modifyTrackerDelta(1, "commander") });
     });
     target.addEventListener("pointercancel", () => {
       clearTimeout(commanderGesture?.timer);
@@ -534,6 +606,17 @@ export function mountApp(root, store) {
   function dispatchWithFeedback(action, strong = false) {
     store.dispatch(action);
     vibrateFeedback(strong);
+  }
+
+  function modifyTrackerDelta(delta, scope) {
+    if (!trackerModifier.scopes?.[scope] || trackerModifier.kind === "none") {
+      return delta;
+    }
+    if (trackerModifier.kind === "multiply") {
+      return delta * trackerModifier.value;
+    }
+    const sign = Math.sign(delta) || 1;
+    return sign * (Math.abs(delta) + trackerModifier.value);
   }
 
   function vibrateFeedback(strong = false) {
@@ -618,7 +701,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
         </nav>
         ${renderMobileSwipeControls(tabs, page)}
       </header>
-      ${page === "life" ? renderLifeTracker(profile) : ""}
+      ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier, uiState.modifierPanelOpen) : ""}
       ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage) : ""}
       ${page === "profile" ? renderProfile(profile) : ""}
       ${page === "archive" ? renderArchive(profile) : ""}
@@ -632,7 +715,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
   `;
 }
 
-function renderLifeTracker(profile) {
+function renderLifeTracker(profile, trackerModifier, modifierPanelOpen) {
   const session = profile.activeSession;
   const panels = getPagePanels(profile);
   const counters = {
@@ -656,8 +739,8 @@ function renderLifeTracker(profile) {
           <button class="mobile-step" data-life-delta="5">+5</button>
           <button class="mobile-step" data-life-delta="10">+10</button>
         </div>
-        ${panels.statsTimerWidgets ? `<p>Turn ${session.turn} / ${PHASES[session.phaseIndex]}</p>` : ""}
-        <button class="wide" data-next-phase>Next Phase</button>
+        ${renderTrackerModifierBadge(trackerModifier)}
+        ${modifierPanelOpen ? renderTrackerModifierPanel(trackerModifier) : ""}
       </aside>
       ` : ""}
       <section class="tracker-stack">
@@ -693,6 +776,56 @@ function renderMobileSwipeControls(tabs, page) {
       <small>${currentIndex + 1}/${tabs.length}</small>
     </section>
   `;
+}
+
+function renderTrackerModifierBadge(modifier) {
+  return `
+    <button class="modifier-badge" data-modifier-badge title="Long press to choose tracker modifier">
+      <span>Modifier</span>
+      <strong>${escapeHtml(formatTrackerModifier(modifier))}</strong>
+      <small>${escapeHtml(formatModifierScopes(modifier))}</small>
+    </button>
+  `;
+}
+
+function renderTrackerModifierPanel(modifier) {
+  const additiveOptions = [1, 2, 3];
+  const multiplierOptions = [2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const scopes = [
+    ["life", "Life total"],
+    ["counters", "Player counters"],
+    ["commander", "Commander damage"],
+  ];
+  return `
+    <section class="modifier-panel glass" data-no-swipe>
+      <div class="overlay-header compact">
+        <div>
+          <p class="eyebrow">Increment modifier</p>
+          <h2>${escapeHtml(formatTrackerModifier(modifier))}</h2>
+        </div>
+        <button data-close-modifier-panel>Close</button>
+      </div>
+      <p>Pick a modifier, then choose which Life Tracker increment controls it affects.</p>
+      <div class="modifier-option-grid">
+        ${additiveOptions.map((value) => renderModifierOption("add", value, `+${value}`, modifier)).join("")}
+        ${multiplierOptions.map((value) => renderModifierOption("multiply", value, `x${value}`, modifier)).join("")}
+      </div>
+      <div class="modifier-scope-grid">
+        ${scopes.map(([scope, label]) => `
+          <label>
+            <input type="checkbox" data-modifier-scope="${scope}" ${modifier.scopes?.[scope] ? "checked" : ""} />
+            ${label}
+          </label>
+        `).join("")}
+      </div>
+      <button class="wide" data-clear-modifier>Clear modifier</button>
+    </section>
+  `;
+}
+
+function renderModifierOption(kind, value, label, modifier) {
+  const active = modifier.kind === kind && modifier.value === value;
+  return `<button class="${active ? "active" : ""}" data-modifier-option="${kind}:${value}">${label}</button>`;
 }
 
 function renderQuickAdjustmentPanel(profile, panel) {
@@ -768,15 +901,25 @@ function renderBattlefield(profile, searchResults, searchMessage) {
           ${renderBattlefieldGroups(session.battlefield.player, { emptyText: "No permanents yet", expandedAll: profile.settings?.battlefield?.expandedAll })}
         </div>
       </section>
-      ${panels.archiveQuickAdd || panels.statsTimerWidgets ? `
       <aside class="search-panel glass">
-        <h2>Battlefield Quick Add</h2>
-        ${panels.statsTimerWidgets ? `<p>Turn ${session.turn} / ${PHASES[session.phaseIndex]} · Board ${stats.currentBoardSize} · Triggers ${stats.triggersResolved}</p>` : ""}
+        ${renderBattlefieldPhaseTracker(session, stats)}
+        ${panels.archiveQuickAdd ? `<h2>Battlefield Quick Add</h2>` : ""}
         ${panels.archiveQuickAdd ? renderSearch(searchResults, searchMessage) : ""}
       </aside>
-      ` : ""}
     </section>
     ${panels.advancedRulesHelpers ? renderPending(session) : ""}
+  `;
+}
+
+function renderBattlefieldPhaseTracker(session, stats) {
+  return `
+    <section class="phase-tracker-card">
+      <p class="eyebrow">Turn phase</p>
+      <h2>Turn ${session.turn}</h2>
+      <strong>${escapeHtml(PHASES[session.phaseIndex])}</strong>
+      <p>Board ${stats.currentBoardSize} / Triggers ${stats.triggersResolved}</p>
+      <button class="wide" data-next-phase>Next Phase</button>
+    </section>
   `;
 }
 
@@ -1267,6 +1410,33 @@ function getPagePanels(profile) {
     statsTimerWidgets: true,
     ...(profile.settings?.pagePanels || {}),
   };
+}
+
+function cloneTrackerModifier(modifier) {
+  return {
+    kind: modifier.kind,
+    value: modifier.value,
+    scopes: {
+      ...modifier.scopes,
+    },
+  };
+}
+
+function formatTrackerModifier(modifier) {
+  if (!modifier || modifier.kind === "none") {
+    return "x1";
+  }
+  return modifier.kind === "multiply" ? `x${modifier.value}` : `+${modifier.value}`;
+}
+
+function formatModifierScopes(modifier) {
+  const scopes = modifier?.scopes || {};
+  const active = [
+    scopes.life ? "Life" : "",
+    scopes.counters ? "Counters" : "",
+    scopes.commander ? "Commander" : "",
+  ].filter(Boolean);
+  return active.length ? active.join(" / ") : "Long press";
 }
 
 function getMultiplayerSettings(profile) {
