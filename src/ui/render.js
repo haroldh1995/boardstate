@@ -86,7 +86,12 @@ export function mountApp(root, store) {
     );
     container.querySelector("[data-sync-public-stats]")?.addEventListener("click", () => store.dispatch({ type: "SYNC_PUBLIC_STATS" }));
     container.querySelector("[data-open-floating-mana]")?.addEventListener("click", () => {
-      floatingManaOpen = true;
+      const manaPinned = Boolean(profile.settings?.battlefield?.manaPinned);
+      const shouldClose = floatingManaOpen || manaPinned;
+      floatingManaOpen = !shouldClose;
+      if (manaPinned && shouldClose) {
+        store.dispatch({ type: "SET_SETTING", path: "battlefield.manaPinned", value: false });
+      }
       activeToolPanel = "";
       toolMenuOpen = false;
       render(store.getState());
@@ -629,7 +634,6 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
 
 function renderLifeTracker(profile) {
   const session = profile.activeSession;
-  const stats = buildStats(profile);
   const panels = getPagePanels(profile);
   const counters = {
     poison: session.playerCounters?.poison || 0,
@@ -668,18 +672,6 @@ function renderLifeTracker(profile) {
           <p class="eyebrow">Commander Damage</p>
           <h2>One Opponent</h2>
           ${renderCounterControl("damage", commanderDamage, "commander")}
-        </article>
-        <article class="tracker-card mana-card glass">
-          <h2>Floating Mana</h2>
-        ${panels.lifeTrackerMana ? `
-        <div class="mana-grid">${Object.entries(session.manaPool).map(([color, value]) => `<button data-mana="${color}">${color}<span>${value}</span></button>`).join("")}</div>
-        <button class="wide" data-clear-mana>Clear Mana</button>
-        ` : ""}
-        ${panels.lifeTrackerTools ? `
-        <button class="wide" data-cast-commander>Cast Commander</button>
-        <button class="wide" data-archive-game>Archive Current Game</button>
-        ` : ""}
-        ${panels.statsTimerWidgets ? `<p>Board ${stats.currentBoardSize} / Triggers ${stats.triggersResolved}</p>` : ""}
         </article>
       </section>
     </section>
@@ -886,7 +878,7 @@ function renderBattlefieldToolBadge(profile, menuOpen, floatingManaOpen, activeT
         <button data-open-tool-panel="permanents">Permanent Controls</button>
         <button data-open-game-options>Game Options</button>
         <button data-open-tool-panel="counters">Permanent Counter Controls</button>
-        <button data-open-floating-mana>Floating Mana Controls</button>
+        <button data-open-floating-mana>${floatingManaOpen || manaPinned ? "Hide Floating Mana" : "Floating Mana Controls"}</button>
       </section>
       ` : ""}
       ${activeToolPanel ? renderBattlefieldToolPanel(profile, activeToolPanel) : ""}
@@ -1126,8 +1118,7 @@ function renderGameOptions(profile) {
               Switch to ${nextCompositionMode === "mobile" ? "Mobile Vertical" : "Standard Widescreen"}
             </button>
             ${renderToggle("Life total panel", "pagePanels.lifeTrackerLife", panels.lifeTrackerLife)}
-            ${renderToggle("Floating mana panel", "pagePanels.lifeTrackerMana", panels.lifeTrackerMana)}
-            ${renderToggle("Life/tools controls", "pagePanels.lifeTrackerTools", panels.lifeTrackerTools)}
+            <p>Floating mana now lives in the Battlefield tools menu as a floating widget with pin/unpin support.</p>
             ${renderToggle("Opponent board panel", "pagePanels.boardOpponent", panels.boardOpponent)}
             ${renderToggle("Combat controls", "pagePanels.boardCombat", panels.boardCombat)}
             ${renderToggle("Board quick tools", "pagePanels.boardTools", panels.boardTools)}

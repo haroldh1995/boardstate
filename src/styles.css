@@ -1048,40 +1048,10 @@ h2 {
 
   .player-counters-card {
     grid-column: 3;
-    grid-row: 1;
+    grid-row: 1 / span 2;
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
-  }
-
-  .mana-card {
-    grid-column: 3;
-    grid-row: 2;
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  .mana-card .mana-grid {
-    grid-template-columns: 1fr;
-    max-height: min(34svh, 280px);
-    overflow-y: auto;
-    overflow-x: hidden;
-    padding-right: 0.15rem;
-    -webkit-overflow-scrolling: touch;
-    touch-action: pan-y;
-  }
-
-  .mana-card .mana-grid button {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .mana-card .wide,
-  .mana-card [data-cast-commander],
-  .mana-card [data-archive-game] {
-    min-height: 38px;
-    padding: 0.35rem 0.55rem;
-    font-size: 0.78rem;
   }
 
   .tracker-card {
@@ -1134,8 +1104,7 @@ h2 {
   }
 
   .commander-damage-card,
-  .player-counters-card,
-  .mana-card .mana-grid {
+  .player-counters-card {
     scrollbar-width: thin;
   }
 
