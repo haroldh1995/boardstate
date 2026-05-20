@@ -62,6 +62,9 @@ export function mountApp(root, store) {
   let searchDebounceTimer = null;
   let searchRequestToken = 0;
   let searchAbortController = null;
+  let keepSearchInputFocus = false;
+  let searchSelection = { start: null, end: null, direction: "none" };
+  let suppressSearchRefocusUntil = 0;
   let optionsOpen = false;
   let statsOpen = false;
   let statsMode = "individual";
@@ -92,6 +95,8 @@ export function mountApp(root, store) {
   render(store.getState());
 
   function render(profile) {
+    const searchFocusSnapshot = captureSearchFocusState();
+    const searchResultsScrollTop = captureSearchResultsScrollTop(root);
     const visiblePages = getVisiblePages(profile);
     const toolContext = resolveToolContext(profile.activeSession, toolContextOverride);
     const uiLayerState = resolveUiLayerState(profile, activePage, {
@@ -135,6 +140,7 @@ export function mountApp(root, store) {
     bind(root, profile);
     scheduleManaAutoClose(profile);
     installLifeZoomGuards();
+    restoreSearchInputFocus(root, searchFocusSnapshot, searchResultsScrollTop);
   }
 
   function bind(container, profile) {
@@ -622,11 +628,27 @@ export function mountApp(root, store) {
       event.preventDefault();
       const query = new FormData(event.currentTarget).get("query");
       searchQuery = String(query || "");
+      keepSearchInputFocus = true;
       await runScryfallSearch(query, store.getState(), true);
     });
-    container.querySelector("[data-search-query]")?.addEventListener("input", (event) => {
+    const searchInput = container.querySelector("[data-search-query]");
+    searchInput?.addEventListener("focus", () => {
+      keepSearchInputFocus = Date.now() >= suppressSearchRefocusUntil;
+    });
+    searchInput?.addEventListener("blur", () => {
+      if (Date.now() >= suppressSearchRefocusUntil) {
+        keepSearchInputFocus = false;
+      }
+    });
+    searchInput?.addEventListener("input", (event) => {
       const query = event.target.value;
       searchQuery = String(query || "");
+      keepSearchInputFocus = true;
+      searchSelection = {
+        start: event.target.selectionStart,
+        end: event.target.selectionEnd,
+        direction: event.target.selectionDirection || "none",
+      };
       clearTimeout(searchDebounceTimer);
       searchDebounceTimer = setTimeout(() => {
         runScryfallSearch(query, store.getState(), false);
@@ -634,16 +656,32 @@ export function mountApp(root, store) {
     });
 
     container.querySelectorAll("[data-add-result]").forEach((button) => {
-      button.addEventListener("click", () => store.dispatch({ type: "ADD_PERMANENT", card: searchResults[Number(button.dataset.addResult)] }));
+      button.addEventListener("click", () => {
+        keepSearchInputFocus = false;
+        suppressSearchRefocusUntil = Date.now() + 600;
+        store.dispatch({ type: "ADD_PERMANENT", card: searchResults[Number(button.dataset.addResult)] });
+      });
     });
     container.querySelectorAll("[data-cast-result]").forEach((button) => {
-      button.addEventListener("click", () => store.dispatch({ type: "CAST_SPELL", card: searchResults[Number(button.dataset.castResult)] }));
+      button.addEventListener("click", () => {
+        keepSearchInputFocus = false;
+        suppressSearchRefocusUntil = Date.now() + 600;
+        store.dispatch({ type: "CAST_SPELL", card: searchResults[Number(button.dataset.castResult)] });
+      });
     });
     container.querySelectorAll("[data-commander-result]").forEach((button) => {
-      button.addEventListener("click", () => store.dispatch({ type: "SET_COMMANDER", card: searchResults[Number(button.dataset.commanderResult)] }));
+      button.addEventListener("click", () => {
+        keepSearchInputFocus = false;
+        suppressSearchRefocusUntil = Date.now() + 600;
+        store.dispatch({ type: "SET_COMMANDER", card: searchResults[Number(button.dataset.commanderResult)] });
+      });
     });
     container.querySelectorAll("[data-deck-result]").forEach((button) => {
-      button.addEventListener("click", () => store.dispatch({ type: "ADD_DECK_CARD", card: searchResults[Number(button.dataset.deckResult)] }));
+      button.addEventListener("click", () => {
+        keepSearchInputFocus = false;
+        suppressSearchRefocusUntil = Date.now() + 600;
+        store.dispatch({ type: "ADD_DECK_CARD", card: searchResults[Number(button.dataset.deckResult)] });
+      });
     });
     container.querySelectorAll("[data-inspect-result]").forEach((button) => {
       button.addEventListener("click", async () => {
@@ -1168,6 +1206,13 @@ export function mountApp(root, store) {
       searchLoading = false;
       searchResults = [];
       searchMessage = "Start typing to search Scryfall.";
+      if (keepSearchInputFocus) {
+        searchSelection = {
+          start: searchQuery.length,
+          end: searchQuery.length,
+          direction: "none",
+        };
+      }
       render(store.getState());
       return;
     }
@@ -1176,6 +1221,13 @@ export function mountApp(root, store) {
     searchAbortController = new AbortController();
     searchLoading = true;
     searchMessage = navigator.onLine ? "Searching..." : "Offline: showing commander deck matches only.";
+    if (keepSearchInputFocus) {
+      searchSelection = {
+        start: searchQuery.length,
+        end: searchQuery.length,
+        direction: "none",
+      };
+    }
     render(store.getState());
     try {
       const results = await searchScryfall(trimmed, commanderDeck, { requestToken: token, signal: searchAbortController.signal });
@@ -1192,9 +1244,65 @@ export function mountApp(root, store) {
     } finally {
       if (token === searchRequestToken) {
         searchLoading = false;
+        if (keepSearchInputFocus) {
+          searchSelection = {
+            start: searchQuery.length,
+            end: searchQuery.length,
+            direction: "none",
+          };
+        }
         render(store.getState());
       }
     }
+  }
+
+  function captureSearchFocusState() {
+    const active = document.activeElement;
+    const isFocusedSearch = Boolean(active?.matches?.("[data-search-query]"));
+    if (!isFocusedSearch) {
+      return {
+        shouldFocus: keepSearchInputFocus && Date.now() >= suppressSearchRefocusUntil,
+        start: searchSelection.start,
+        end: searchSelection.end,
+        direction: searchSelection.direction,
+      };
+    }
+    return {
+      shouldFocus: Date.now() >= suppressSearchRefocusUntil,
+      start: active.selectionStart,
+      end: active.selectionEnd,
+      direction: active.selectionDirection || "none",
+    };
+  }
+
+  function restoreSearchInputFocus(container, snapshot, searchResultsScrollTop) {
+    const resultList = container.querySelector(".search-results");
+    if (resultList && Number.isFinite(searchResultsScrollTop) && searchResultsScrollTop > 0) {
+      resultList.scrollTop = searchResultsScrollTop;
+    }
+    if (!snapshot?.shouldFocus || Date.now() < suppressSearchRefocusUntil) {
+      return;
+    }
+    const input = container.querySelector("[data-search-query]");
+    if (!input) {
+      return;
+    }
+    input.focus({ preventScroll: true });
+    const start = Number.isFinite(snapshot.start) ? snapshot.start : searchQuery.length;
+    const end = Number.isFinite(snapshot.end) ? snapshot.end : start;
+    try {
+      input.setSelectionRange(start, end, snapshot.direction || "none");
+    } catch {
+      input.setSelectionRange(start, end);
+    }
+  }
+
+  function captureSearchResultsScrollTop(container) {
+    const list = container.querySelector?.(".search-results");
+    if (!list) {
+      return 0;
+    }
+    return list.scrollTop || 0;
   }
 }
 
