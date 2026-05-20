@@ -1726,3 +1726,47 @@ textarea {
     overflow: auto;
   }
 }
+
+.simulation-card {
+  min-height: 7.4rem;
+}
+
+.simulation-hud {
+  position: fixed;
+  right: 0.8rem;
+  bottom: calc(5rem + env(safe-area-inset-bottom));
+  width: min(22rem, calc(100vw - 1.2rem));
+  z-index: 47;
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  background: rgba(18, 10, 35, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.simulation-log {
+  max-height: 9.2rem;
+  overflow-y: auto;
+  display: grid;
+  gap: 0.3rem;
+  padding-right: 0.25rem;
+}
+
+.simulation-log p {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.22;
+}
+
+.simulation-setup {
+  max-width: 32rem;
+}
+
+@media (max-width: 900px) {
+  .simulation-hud {
+    left: 0.6rem;
+    right: 0.6rem;
+    width: auto;
+    bottom: calc(4.8rem + env(safe-area-inset-bottom));
+  }
+}

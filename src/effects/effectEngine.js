@@ -293,13 +293,14 @@ function createTokens(session, effect, source, event) {
     tokenCopyOfId: shouldCopySelf ? source.id : "",
     ownedByCommanderDeck: false,
   });
+  const battlefieldSide = controller === "player" ? "player" : "opponent";
 
   const next = {
     ...session,
     battlefield: {
       ...session.battlefield,
-      [controller === "opponent" ? "opponent" : "player"]: stackPermanent(
-        session.battlefield[controller === "opponent" ? "opponent" : "player"],
+      [battlefieldSide]: stackPermanent(
+        session.battlefield[battlefieldSide],
         token
       ),
     },

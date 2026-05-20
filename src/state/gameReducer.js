@@ -2,20 +2,17 @@ import { archiveCurrentGame } from "../archive/archiveService.js";
 import { hydratePermanentEffects, processEventTriggers, recalculateContinuousEffects, resolveQueuedTrigger, resolveSpell } from "../effects/effectEngine.js";
 import { addCardToCommanderDeck, assignCommander, castCommander, recordCommanderCardUsage } from "../game/commanderSystem.js";
 import { assignBlocker, declareAttackers, resolveCombat } from "../game/combatSystem.js";
-import { createManaPool, PHASES } from "./schema.js";
+import { createGameSession, createManaPool, PHASES } from "./schema.js";
 import { clone, createId, normalizeCount } from "./ids.js";
 import { drainGameEvents, mapActionTypeToGameEvent, queueGameEvent, runGameEventObservers } from "../game/eventBus.js";
 import { transitionFsm } from "../game/fsm.js";
 import { finalizeAction } from "./actions.js";
 import {
-  createWorldShaperOpponent,
-  prepareSimulatedCastPermanent,
-  prepareSimulatedCombat,
-  prepareSimulatedDrawStep,
-  prepareSimulatedLandPlay,
-  prepareSimulatedLegalActionCheck,
-  prepareSimulatedPriority,
-} from "../simulation/simulatedOpponent.js";
+  createNpcPublicSnapshot,
+  createSimLog,
+  createSimulationSession,
+  toOpponentPermanent,
+} from "../simulation/commanderSimulation.js";
 
 export function reduceProfile(profile, event) {
   const actionType = event.actionType || event.type;
@@ -41,6 +38,27 @@ export function reduceProfile(profile, event) {
       break;
     case "SET_MULTIPLAYER_MODE":
       nextProfile = setMultiplayerMode(baseProfile, event.mode);
+      break;
+    case "START_SIMULATION":
+      nextProfile = startSimulation(baseProfile, event);
+      break;
+    case "SIMULATION_PAUSE":
+      nextProfile = updateSimulationStatus(baseProfile, "paused");
+      break;
+    case "SIMULATION_RESUME":
+      nextProfile = updateSimulationStatus(baseProfile, "running");
+      break;
+    case "SIMULATION_STOP":
+      nextProfile = stopSimulation(baseProfile);
+      break;
+    case "SIMULATION_SET_SPEED":
+      nextProfile = updateSimulationSpeed(baseProfile, event.speed);
+      break;
+    case "SIMULATION_PASS_TURN":
+      nextProfile = withSession(baseProfile, advanceSimulationTurn(baseProfile.activeSession, "manual-pass"));
+      break;
+    case "SIMULATION_TICK":
+      nextProfile = withSession(baseProfile, runSimulationTick(baseProfile.activeSession, baseProfile.simulationMemory || {}));
       break;
     case "LIFE_DELTA":
       nextProfile = withSession(baseProfile, {
@@ -172,6 +190,9 @@ export function reduceProfile(profile, event) {
     nextProfile,
     emitAndProcessSessionEvent(withRuntimeSettings(nextProfile.activeSession, nextProfile.settings), event, actionType)
   );
+  nextProfile = updateSimulationMemory(nextProfile, event, actionType);
+  nextProfile = maybeAdvanceLocalSimulationTurn(nextProfile, baseProfile.activeSession, actionType);
+  nextProfile = syncSimulationPresence(nextProfile);
   return withHistory(nextProfile, finalizeAction(event, nextProfile));
 }
 
@@ -181,7 +202,7 @@ function addPermanent(profile, card, controller) {
     controller,
     owner: card.owner || controller,
   });
-  const side = controller === "opponent" ? "opponent" : "player";
+  const side = controller === "player" ? "player" : "opponent";
   const session = {
     ...profile.activeSession,
     battlefield: {
@@ -353,47 +374,560 @@ function updateSetting(profile, path, value) {
 }
 
 function setMultiplayerMode(profile, mode = "offline") {
-  const simulatedOpponent = mode === "simulated" ? prepareSimulatedOpponent(profile) : null;
   const existingSettings = profile.settings?.multiplayer || {};
-  const connectedPlayers = [
-    { id: "local-player", name: profile.player?.name || "Player", authority: "host", role: existingSettings.role || "player" },
-    ...(mode === "simulated" && simulatedOpponent
-      ? [
-          {
-            id: simulatedOpponent.id,
-            name: simulatedOpponent.name,
-            authority: "guest",
-            role: "player",
-            publicBoardSnapshot: simulatedOpponent.publicBoardSnapshot,
-          },
-        ]
-      : []),
-  ];
+  const currentSimulation = profile.activeSession?.simulation || {};
+  const connectedPlayers =
+    mode === "simulated"
+      ? buildSimulationConnectedPlayers(profile, currentSimulation.opponents || {})
+      : [{ id: "local-player", name: profile.player?.name || "Player", authority: "host", role: existingSettings.role || "player" }];
   return {
     ...profile,
+    activeSession: {
+      ...profile.activeSession,
+      simulation:
+        mode === "simulated"
+          ? currentSimulation
+          : {
+              ...currentSimulation,
+              enabled: false,
+              status: "stopped",
+              waitingForUser: false,
+            },
+    },
     settings: {
       ...(profile.settings || {}),
       multiplayer: {
         ...existingSettings,
         mode,
         connectedPlayers,
-        simulatedOpponent,
-        selectedSimulatedOpponentId: simulatedOpponent?.id || "",
       },
     },
   };
 }
 
-function prepareSimulatedOpponent(profile) {
-  const opponent = createWorldShaperOpponent("World Shaper Sim");
+function startSimulation(profile, event = {}) {
+  const setup = createSimulationSession(profile, {
+    selectedOpponents: event.selectedOpponents || profile.settings?.multiplayer?.selectedSimulatedOpponents || [],
+    speed: event.speed || profile.settings?.multiplayer?.simulatedSpeed || "normal",
+  });
+  const connectedPlayers = setup.connectedPlayers || buildSimulationConnectedPlayers(profile, setup.session.simulation.opponents || {});
+  return {
+    ...profile,
+    activeSession: setup.session,
+    settings: {
+      ...(profile.settings || {}),
+      multiplayer: {
+        ...(profile.settings?.multiplayer || {}),
+        mode: "simulated",
+        connectedPlayers,
+        selectedSimulatedOpponents: [...(setup.session.simulation.selectedOpponents || [])],
+        simulatedSpeed: setup.session.simulation.speed || "normal",
+      },
+    },
+  };
+}
+
+function updateSimulationStatus(profile, status = "paused") {
+  const simulation = profile.activeSession?.simulation;
+  if (!simulation?.enabled) {
+    return profile;
+  }
+  return withSession(profile, {
+    ...profile.activeSession,
+    simulation: appendSimulationLog(
+      {
+        ...simulation,
+        status,
+        updatedAt: Date.now(),
+      },
+      createSimLog("system", status === "running" ? "Simulation resumed." : "Simulation paused.")
+    ),
+  });
+}
+
+function updateSimulationSpeed(profile, speed = "normal") {
+  const simulation = profile.activeSession?.simulation;
+  if (!simulation?.enabled) {
+    return profile;
+  }
+  return {
+    ...withSession(profile, {
+      ...profile.activeSession,
+      simulation: {
+        ...simulation,
+        speed,
+        updatedAt: Date.now(),
+      },
+    }),
+    settings: {
+      ...(profile.settings || {}),
+      multiplayer: {
+        ...(profile.settings?.multiplayer || {}),
+        simulatedSpeed: speed,
+      },
+    },
+  };
+}
+
+function stopSimulation(profile) {
+  const simulation = profile.activeSession?.simulation;
+  if (!simulation?.enabled) {
+    return profile;
+  }
+  const nextSimulation = appendSimulationLog(
+    {
+      ...simulation,
+      enabled: false,
+      status: "stopped",
+      waitingForUser: false,
+      updatedAt: Date.now(),
+    },
+    createSimLog("system", "Simulation stopped.")
+  );
+  return {
+    ...withSession(profile, {
+      ...profile.activeSession,
+      simulation: nextSimulation,
+    }),
+    settings: {
+      ...(profile.settings || {}),
+      multiplayer: {
+        ...(profile.settings?.multiplayer || {}),
+        mode: "offline",
+        connectedPlayers: [{ id: "local-player", name: profile.player?.name || "Player", authority: "host", role: "player" }],
+      },
+    },
+  };
+}
+
+function runSimulationTick(session, simulationMemory = {}) {
+  const simulation = session.simulation || {};
+  if (!simulation.enabled || simulation.status !== "running") {
+    return session;
+  }
+  const currentPlayerId = simulation.currentPlayerId || simulation.turnOrder?.[simulation.turnIndex] || "local-player";
+  if (currentPlayerId === "local-player") {
+    if (simulation.waitingForUser) {
+      return session;
+    }
+    return {
+      ...session,
+      simulation: appendSimulationLog(
+        {
+          ...simulation,
+          waitingForUser: true,
+          updatedAt: Date.now(),
+        },
+        createSimLog("system", "Your turn: play normally, then pass turn from simulation controls.")
+      ),
+    };
+  }
+
+  const npc = simulation.opponents?.[currentPlayerId];
+  if (!npc) {
+    return {
+      ...session,
+      simulation: appendSimulationLog(
+        {
+          ...simulation,
+          status: "paused",
+          waitingForUser: true,
+          updatedAt: Date.now(),
+        },
+        createSimLog("system", `Simulation paused: missing NPC state for ${currentPlayerId}.`)
+      ),
+    };
+  }
+
+  const phase = Number.isFinite(Number(simulation.currentPhaseIndex)) ? Number(simulation.currentPhaseIndex) : 0;
+  if (phase === 0) {
+    return applyNpcDrawStep(session, npc, simulation);
+  }
+  if (phase === 1) {
+    return applyNpcMainStep(session, npc, simulation, simulationMemory);
+  }
+  if (phase === 2) {
+    return applyNpcCombatStep(session, npc, simulation);
+  }
+  if (phase === 3) {
+    return applyNpcSecondMainStep(session, npc, simulation, simulationMemory);
+  }
+  return advanceSimulationTurn(session, "npc-end-step");
+}
+
+function applyNpcDrawStep(session, npc, simulation) {
+  const [drawn, ...library] = npc.zones.library || [];
+  const updatedNpc = {
+    ...npc,
+    zones: {
+      ...npc.zones,
+      library,
+      hand: drawn ? [...(npc.zones.hand || []), drawn] : [...(npc.zones.hand || [])],
+    },
+    currentPhaseIndex: 1,
+    landPlaysThisTurn: 0,
+    updatedAt: Date.now(),
+  };
+  return {
+    ...session,
+    phaseIndex: 0,
+    simulation: appendSimulationLog(
+      withNpcUpdated(simulation, updatedNpc, {
+        currentPhaseIndex: 1,
+        updatedAt: Date.now(),
+      }),
+      createSimLog(npc.id, drawn ? `${npc.name} draws ${drawn.name}.` : `${npc.name} tries to draw but has no cards.`)
+    ),
+  };
+}
+
+function applyNpcMainStep(session, npc, simulation, simulationMemory = {}) {
+  let nextSession = session;
+  let updatedNpc = { ...npc };
+  let actionText = `${npc.name} passes Main 1.`;
+
+  const landIndex = (updatedNpc.zones.hand || []).findIndex((card) => isType(card, "Land"));
+  if (landIndex >= 0 && (updatedNpc.landPlaysThisTurn || 0) < 1) {
+    const landCard = updatedNpc.zones.hand[landIndex];
+    updatedNpc.zones.hand = updatedNpc.zones.hand.filter((_, index) => index !== landIndex);
+    nextSession = addOpponentCardToBattlefield(nextSession, landCard, npc.id);
+    updatedNpc.zones.battlefield = [...(updatedNpc.zones.battlefield || []), landCard];
+    updatedNpc.landPlaysThisTurn = 1;
+    actionText = `${npc.name} plays ${landCard.name}.`;
+  } else {
+    const castIndex = chooseNpcCastIndex(updatedNpc, nextSession, simulationMemory, { secondary: false });
+    if (castIndex >= 0) {
+      const castCard = updatedNpc.zones.hand[castIndex];
+      updatedNpc.zones.hand = updatedNpc.zones.hand.filter((_, index) => index !== castIndex);
+      nextSession = resolveNpcCast(nextSession, updatedNpc, castCard, simulationMemory);
+      actionText = `${npc.name} casts ${castCard.name}.`;
+    }
+  }
+
+  updatedNpc.currentPhaseIndex = 2;
+  updatedNpc.updatedAt = Date.now();
+  return {
+    ...nextSession,
+    phaseIndex: 1,
+    simulation: appendSimulationLog(
+      withNpcUpdated(simulation, updatedNpc, {
+        currentPhaseIndex: 2,
+        updatedAt: Date.now(),
+      }),
+      createSimLog(npc.id, actionText)
+    ),
+  };
+}
+
+function applyNpcCombatStep(session, npc, simulation) {
+  const opponentCreatures = (session.battlefield.opponent || []).filter(
+    (permanent) => permanent.controller === npc.id && permanent.isCreature && !permanent.tapped && !permanent.summoningSick
+  );
+  const attackers = opponentCreatures
+    .slice()
+    .sort((left, right) => (right.currentPower || right.basePower || 0) - (left.currentPower || left.basePower || 0))
+    .slice(0, Math.max(1, Math.min(3, opponentCreatures.length)));
+
+  let nextSession = session;
+  let damage = 0;
+  if (attackers.length) {
+    const attackerIds = new Set(attackers.map((attacker) => attacker.id));
+    nextSession = {
+      ...nextSession,
+      battlefield: {
+        ...nextSession.battlefield,
+        opponent: nextSession.battlefield.opponent.map((permanent) =>
+          attackerIds.has(permanent.id)
+            ? createPermanent({ ...permanent, tapped: true, attacking: true })
+            : permanent
+        ),
+      },
+      combat: {
+        ...(nextSession.combat || {}),
+        step: "attackers",
+        attackerIds: [...new Set([...(nextSession.combat?.attackerIds || []), ...attackers.map((attacker) => attacker.id)])],
+      },
+    };
+    damage = attackers.reduce((total, attacker) => total + Number(attacker.currentPower || attacker.basePower || 0), 0);
+    nextSession = {
+      ...nextSession,
+      life: Math.max(0, nextSession.life - Math.max(0, damage)),
+    };
+  }
+
+  const updatedNpc = {
+    ...npc,
+    currentPhaseIndex: 3,
+    updatedAt: Date.now(),
+  };
+  return {
+    ...nextSession,
+    phaseIndex: 2,
+    simulation: appendSimulationLog(
+      withNpcUpdated(simulation, updatedNpc, {
+        currentPhaseIndex: 3,
+        updatedAt: Date.now(),
+      }),
+      createSimLog(npc.id, attackers.length ? `${npc.name} attacks for ${damage}.` : `${npc.name} skips combat.`)
+    ),
+  };
+}
+
+function applyNpcSecondMainStep(session, npc, simulation, simulationMemory = {}) {
+  let nextSession = session;
+  let updatedNpc = { ...npc };
+  let actionText = `${npc.name} passes Main 2.`;
+  const castIndex = chooseNpcCastIndex(updatedNpc, nextSession, simulationMemory, { secondary: true });
+  if (castIndex >= 0) {
+    const castCard = updatedNpc.zones.hand[castIndex];
+    updatedNpc.zones.hand = updatedNpc.zones.hand.filter((_, index) => index !== castIndex);
+    nextSession = resolveNpcCast(nextSession, updatedNpc, castCard, simulationMemory);
+    actionText = `${npc.name} casts ${castCard.name} in Main 2.`;
+  }
+
+  updatedNpc.currentPhaseIndex = 4;
+  updatedNpc.updatedAt = Date.now();
+  return {
+    ...nextSession,
+    phaseIndex: 3,
+    simulation: appendSimulationLog(
+      withNpcUpdated(simulation, updatedNpc, {
+        currentPhaseIndex: 4,
+        updatedAt: Date.now(),
+      }),
+      createSimLog(npc.id, actionText)
+    ),
+  };
+}
+
+function advanceSimulationTurn(session, reason = "end-step") {
+  const simulation = session.simulation || {};
+  if (!simulation.enabled) {
+    return session;
+  }
+  const turnOrder = simulation.turnOrder || ["local-player"];
+  const nextTurnIndex = ((simulation.turnIndex || 0) + 1) % turnOrder.length;
+  const nextPlayerId = turnOrder[nextTurnIndex] || "local-player";
+  const baseRound = Math.max(simulation.round || 1, session.turn || 1);
+  const nextRound = nextTurnIndex === 0 ? baseRound + 1 : baseRound;
+  const nextOpponents = Object.fromEntries(
+    Object.entries(simulation.opponents || {}).map(([id, npc]) => [
+      id,
+      {
+        ...npc,
+        landPlaysThisTurn: 0,
+        currentPhaseIndex: id === nextPlayerId ? 0 : npc.currentPhaseIndex || 0,
+        updatedAt: Date.now(),
+      },
+    ])
+  );
+  const statusText = nextPlayerId === "local-player" ? "Your turn started." : `${nextOpponents[nextPlayerId]?.name || nextPlayerId} turn started.`;
+  const nextSimulation = appendSimulationLog(
+    {
+      ...simulation,
+      opponents: nextOpponents,
+      turnIndex: nextTurnIndex,
+      currentPlayerId: nextPlayerId,
+      currentPhaseIndex: 0,
+      waitingForUser: nextPlayerId === "local-player",
+      round: nextRound,
+      updatedAt: Date.now(),
+    },
+    createSimLog(nextPlayerId === "local-player" ? "system" : nextPlayerId, statusText, reason)
+  );
+  return {
+    ...session,
+    turn: nextRound,
+    phaseIndex: 4,
+    combat: {
+      ...(session.combat || {}),
+      attackerIds: [],
+      blockersByAttacker: {},
+      lines: [],
+    },
+    battlefield: {
+      ...session.battlefield,
+      opponent: (session.battlefield.opponent || []).map((permanent) =>
+        createPermanent({
+          ...permanent,
+          attacking: false,
+          blocking: false,
+          summoningSick: false,
+        })
+      ),
+    },
+    simulation: nextSimulation,
+  };
+}
+
+function resolveNpcCast(session, npc, card, simulationMemory = {}) {
+  if (isType(card, "Instant") || isType(card, "Sorcery")) {
+    const targetId = chooseThreatTargetId(session, simulationMemory);
+    if (targetId) {
+      const selected = new Set([targetId]);
+      const removed = removeSelectedPermanents(
+        {
+          ...session,
+          selectedIds: [...selected],
+        },
+        {
+          mode: "destroy",
+          countMode: "single",
+        }
+      );
+      return {
+        ...removed,
+        effectLog: [
+          {
+            id: createId("sim-effect"),
+            at: Date.now(),
+            sourceName: npc.name,
+            summary: `${npc.name} uses ${card.name} on a high-threat target.`,
+          },
+          ...(removed.effectLog || []),
+        ].slice(0, 120),
+      };
+    }
+    return session;
+  }
+  return addOpponentCardToBattlefield(session, card, npc.id);
+}
+
+function chooseNpcCastIndex(npc, session, simulationMemory = {}, options = {}) {
+  const hand = npc.zones.hand || [];
+  if (!hand.length) {
+    return -1;
+  }
+  const availableMana = getNpcAvailableMana(session, npc.id);
+  const castable = hand
+    .map((card, index) => ({ card, index }))
+    .filter(({ card }) => !isType(card, "Land") && Number(card.manaValue || 0) <= availableMana);
+  if (!castable.length) {
+    return -1;
+  }
+  const scored = castable
+    .map((entry) => ({
+      ...entry,
+      score: getNpcCardPriority(entry.card, simulationMemory, options),
+    }))
+    .sort((left, right) => right.score - left.score);
+  return scored[0]?.index ?? -1;
+}
+
+function getNpcCardPriority(card, simulationMemory = {}, options = {}) {
+  let score = 1;
+  if (isType(card, "Creature")) {
+    score += 4;
+  }
+  if (isType(card, "Instant") || isType(card, "Sorcery")) {
+    score += 3;
+  }
+  if (isType(card, "Artifact") || isType(card, "Enchantment")) {
+    score += 2;
+  }
+  if ((simulationMemory.patterns?.tokenStrategy || 0) >= 2 && /destroy|exile/i.test(card.oracleText || "")) {
+    score += 4;
+  }
+  if (options.secondary) {
+    score -= 1;
+  }
+  return score;
+}
+
+function getNpcAvailableMana(session, npcId) {
+  return (session.battlefield.opponent || []).reduce((sum, permanent) => {
+    if (permanent.controller !== npcId) {
+      return sum;
+    }
+    if (permanent.isLand) {
+      return sum + (permanent.quantity || 1);
+    }
+    if (permanent.isArtifact && /mana|ramp|relic/i.test(`${permanent.name} ${permanent.oracleText}`)) {
+      return sum + 1;
+    }
+    return sum;
+  }, 0);
+}
+
+function addOpponentCardToBattlefield(session, card, controllerId) {
+  const permanent = toOpponentPermanent(card, controllerId);
+  return emitPermanentEntryTriggerEvents(
+    {
+      ...session,
+      battlefield: {
+        ...session.battlefield,
+        opponent: stackBattlefieldPermanent(session.battlefield.opponent || [], permanent),
+      },
+    },
+    permanent,
+    {
+      instances: permanent.quantity || 1,
+      cause: "simulation-cast",
+    }
+  );
+}
+
+function chooseThreatTargetId(session, simulationMemory = {}) {
+  const threats = session.battlefield.player || [];
+  if (!threats.length) {
+    return "";
+  }
+  const memory = simulationMemory.cardThreat || {};
+  const ranked = threats
+    .map((permanent) => {
+      let score = Number(memory[permanent.name] || 0);
+      if (permanent.isCommander) {
+        score += 5;
+      }
+      if (permanent.isToken) {
+        score += 2;
+      }
+      if ((permanent.currentPower || permanent.basePower || 0) >= 5) {
+        score += 3;
+      }
+      if (/doubling season|cathars' crusade|scute swarm/i.test(permanent.name || "")) {
+        score += 6;
+      }
+      return { id: permanent.id, score };
+    })
+    .sort((left, right) => right.score - left.score);
+  return ranked[0]?.id || "";
+}
+
+function buildSimulationConnectedPlayers(profile, opponents = {}) {
   return [
-    prepareSimulatedDrawStep,
-    prepareSimulatedLandPlay,
-    prepareSimulatedCastPermanent,
-    prepareSimulatedCombat,
-    prepareSimulatedPriority,
-    prepareSimulatedLegalActionCheck,
-  ].reduce((nextOpponent, prepare) => prepare(nextOpponent), opponent);
+    { id: "local-player", name: profile.player?.name || "Player", authority: "host", role: "player" },
+    ...Object.values(opponents).map((npc) => ({
+      id: npc.id,
+      name: npc.name,
+      authority: "guest",
+      role: "player",
+      publicBoardSnapshot: createNpcPublicSnapshot(npc),
+    })),
+  ];
+}
+
+function appendSimulationLog(simulation, entry) {
+  return {
+    ...simulation,
+    log: [entry, ...(simulation.log || [])].slice(0, 120),
+    updatedAt: Date.now(),
+  };
+}
+
+function withNpcUpdated(simulation, npc, overrides = {}) {
+  return {
+    ...simulation,
+    opponents: {
+      ...(simulation.opponents || {}),
+      [npc.id]: npc,
+    },
+    ...overrides,
+  };
+}
+
+function isType(card, typeName) {
+  return String(card?.typeLine || "").toLowerCase().includes(String(typeName || "").toLowerCase());
 }
 
 function updatePlayerCounter(session, counter = "custom", amount = 1) {
@@ -530,6 +1064,121 @@ function syncPublicStats(profile) {
           boardSize: publicSummary.boardSize,
           comparedAt: Date.now(),
         })),
+    },
+  };
+}
+
+function updateSimulationMemory(profile, event, actionType) {
+  if (event?.internalOnly || !profile?.activeSession?.simulation?.enabled) {
+    return profile;
+  }
+  const memory = {
+    ...(profile.simulationMemory || {}),
+    patterns: {
+      ...(profile.simulationMemory?.patterns || {}),
+    },
+    cardThreat: {
+      ...(profile.simulationMemory?.cardThreat || {}),
+    },
+    repeatedWinConditions: {
+      ...(profile.simulationMemory?.repeatedWinConditions || {}),
+    },
+    updatedAt: Date.now(),
+  };
+
+  const incrementPattern = (key, amount = 1) => {
+    memory.patterns[key] = normalizeCount(memory.patterns[key], 0) + amount;
+  };
+  const bumpThreat = (name, amount = 1) => {
+    if (!name) {
+      return;
+    }
+    memory.cardThreat[name] = normalizeCount(memory.cardThreat[name], 0) + amount;
+  };
+
+  if (actionType === "ADD_CUSTOM_TOKEN") {
+    incrementPattern("tokenStrategy", normalizeCount(event.quantity, 1));
+  }
+  if (actionType === "ADD_PERMANENT") {
+    const typeLine = String(event.card?.typeLine || "").toLowerCase();
+    if (typeLine.includes("land")) {
+      incrementPattern("landfallStrategy");
+    }
+    if (typeLine.includes("artifact")) {
+      incrementPattern("artifactsStrategy");
+    }
+    if (typeLine.includes("enchantment")) {
+      incrementPattern("enchantmentsStrategy");
+    }
+    if (typeLine.includes("creature")) {
+      bumpThreat(event.card?.name, 1);
+    }
+    if (/doubling season|cathars' crusade|scute swarm/i.test(event.card?.name || "")) {
+      incrementPattern("comboEngineStrategy", 2);
+      bumpThreat(event.card?.name, 3);
+    }
+  }
+  if (actionType === "LIFE_DELTA" && Number(event.amount || 0) > 0) {
+    incrementPattern("lifegainStrategy");
+  }
+  if (actionType === "ADD_MANA" && Number(event.amount || 0) >= 2) {
+    incrementPattern("fastManaStrategy");
+  }
+  if (actionType === "COMMANDER_DAMAGE_DELTA" && Number(event.amount || 0) > 0) {
+    incrementPattern("commanderDamageStrategy");
+  }
+  if (actionType === "REMOVE_SELECTED" && String(event.mode || "").toLowerCase() === "destroy") {
+    incrementPattern("boardWipeStrategy");
+  }
+  return {
+    ...profile,
+    simulationMemory: memory,
+  };
+}
+
+function maybeAdvanceLocalSimulationTurn(profile, previousSession, actionType) {
+  const simulation = profile.activeSession?.simulation;
+  if (!simulation?.enabled || simulation.status !== "running") {
+    return profile;
+  }
+  if (simulation.currentPlayerId !== "local-player") {
+    return profile;
+  }
+  if (!["ADVANCE_PHASE", "SIMULATION_PASS_TURN"].includes(actionType)) {
+    return profile;
+  }
+  if (actionType === "SIMULATION_PASS_TURN") {
+    return profile;
+  }
+  const previousTurn = previousSession?.turn || 0;
+  if (profile.activeSession.turn <= previousTurn || profile.activeSession.phaseIndex !== 0) {
+    return profile;
+  }
+  const alignedSession = {
+    ...profile.activeSession,
+    simulation: {
+      ...simulation,
+      round: Math.max(simulation.round || 1, profile.activeSession.turn || 1),
+      waitingForUser: false,
+    },
+  };
+  return withSession(profile, advanceSimulationTurn(alignedSession, "local-turn-complete"));
+}
+
+function syncSimulationPresence(profile) {
+  const simulation = profile.activeSession?.simulation;
+  if (!simulation?.enabled) {
+    return profile;
+  }
+  return {
+    ...profile,
+    settings: {
+      ...(profile.settings || {}),
+      multiplayer: {
+        ...(profile.settings?.multiplayer || {}),
+        mode: "simulated",
+        connectedPlayers: buildSimulationConnectedPlayers(profile, simulation.opponents || {}),
+      },
     },
   };
 }

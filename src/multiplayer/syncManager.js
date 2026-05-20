@@ -24,7 +24,15 @@ export function createSyncManager({ onRemoteAction, onPresence } = {}) {
       initWebSocket();
     }
     if (mode === "simulated") {
-      onPresence?.([{ id: "local-player", name: settings.localName || "Player", role }, { id: "sim-opponent", name: "Simulated Opponent", role: "guest" }]);
+      const simulatedPlayers = Array.isArray(settings.simulatedPlayers) ? settings.simulatedPlayers : [];
+      onPresence?.([
+        { id: "local-player", name: settings.localName || "Player", role },
+        ...simulatedPlayers.map((player) => ({
+          id: player.id,
+          name: player.name,
+          role: player.role || "player",
+        })),
+      ]);
     }
   }
 

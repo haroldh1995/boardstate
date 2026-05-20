@@ -291,6 +291,10 @@ function normalizeProfile(profile) {
         ...defaults.activeSession.helper,
         ...(profile.activeSession?.helper || {}),
       },
+      simulation: {
+        ...defaults.activeSession.simulation,
+        ...(profile.activeSession?.simulation || {}),
+      },
       history: profile.activeSession?.history || defaults.activeSession.history,
       actionHistory: profile.activeSession?.actionHistory || defaults.activeSession.actionHistory,
       eventHistory: profile.activeSession?.eventHistory || defaults.activeSession.eventHistory,
@@ -299,6 +303,7 @@ function normalizeProfile(profile) {
       redoStack: profile.activeSession?.redoStack || defaults.activeSession.redoStack,
     },
     statsSync: { ...defaults.statsSync, ...(profile.statsSync || {}) },
+    simulationMemory: { ...defaults.simulationMemory, ...(profile.simulationMemory || {}) },
   };
 }
 

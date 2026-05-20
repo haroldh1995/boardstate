@@ -64,6 +64,8 @@ export function createDefaultProfile() {
         wsUrl: "ws://localhost:8787",
         role: "player",
         spectatorMode: false,
+        selectedSimulatedOpponents: ["alpha"],
+        simulatedSpeed: "normal",
       },
       battlefield: {
         manaPinned: false,
@@ -102,6 +104,23 @@ export function createDefaultProfile() {
       lastSyncedAt: 0,
       publicSummary: {},
       peers: [],
+    },
+    simulationMemory: {
+      patterns: {
+        tokenStrategy: 0,
+        landfallStrategy: 0,
+        lifegainStrategy: 0,
+        commanderDamageStrategy: 0,
+        graveyardRecursionStrategy: 0,
+        artifactsStrategy: 0,
+        enchantmentsStrategy: 0,
+        comboEngineStrategy: 0,
+        fastManaStrategy: 0,
+        boardWipeStrategy: 0,
+      },
+      cardThreat: {},
+      repeatedWinConditions: {},
+      updatedAt: 0,
     },
   };
 }
@@ -162,6 +181,22 @@ export function createGameSession() {
       deliveredKeys: [],
       lastKey: "",
       lastShownAt: 0,
+    },
+    simulation: {
+      enabled: false,
+      status: "idle",
+      speed: "normal",
+      selectedOpponents: [],
+      opponents: {},
+      turnOrder: [],
+      turnIndex: 0,
+      currentPlayerId: "local-player",
+      currentPhaseIndex: 0,
+      round: 1,
+      waitingForUser: false,
+      log: [],
+      createdAt: 0,
+      updatedAt: 0,
     },
   };
 }

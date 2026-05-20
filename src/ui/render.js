@@ -76,6 +76,10 @@ export function mountApp(root, store) {
   let activeUtilityPanel = "";
   let combatResolving = false;
   let phaseAdvancePending = false;
+  let simulationSetupOpen = false;
+  let simulationLogOpen = false;
+  let simulationSelectedOpponents = new Set(["alpha"]);
+  let simulationSelectedSpeed = "normal";
   let toolContextOverride = "";
   let quickPanelOpen = "";
   let toolBadgePosition = { x: 18, y: 520 };
@@ -117,6 +121,12 @@ export function mountApp(root, store) {
     if (!visiblePages.includes(activePage)) {
       activePage = activePage === "profile" ? "profile" : visiblePages[0] || "life";
     }
+    if (Array.isArray(profile.settings?.multiplayer?.selectedSimulatedOpponents) && profile.settings.multiplayer.selectedSimulatedOpponents.length) {
+      simulationSelectedOpponents = new Set(profile.settings.multiplayer.selectedSimulatedOpponents);
+    }
+    if (profile.settings?.multiplayer?.simulatedSpeed) {
+      simulationSelectedSpeed = profile.settings.multiplayer.simulatedSpeed;
+    }
     helperMessage = resolveHelperSpriteMessage(profile, activePage);
     document.body.dataset.composition = profile.settings?.appearance?.compositionMode || "auto";
     document.body.dataset.page = activePage;
@@ -144,6 +154,10 @@ export function mountApp(root, store) {
       combatResolving,
       phaseAdvancePending,
       helperMessage,
+      simulationSetupOpen,
+      simulationLogOpen,
+      simulationSelectedOpponents: [...simulationSelectedOpponents],
+      simulationSelectedSpeed,
     });
     bind(root, profile);
     scheduleManaAutoClose(profile);
@@ -301,6 +315,63 @@ export function mountApp(root, store) {
         toolMenuOpen = false;
         render(store.getState());
       })
+    );
+    container.querySelectorAll("[data-open-simulation-setup]").forEach((button) =>
+      button.addEventListener("click", () => {
+        simulationSetupOpen = true;
+        render(store.getState());
+      })
+    );
+    container.querySelectorAll("[data-close-simulation-setup]").forEach((button) =>
+      button.addEventListener("click", () => {
+        simulationSetupOpen = false;
+        render(store.getState());
+      })
+    );
+    container.querySelectorAll("[data-simulation-log-toggle]").forEach((button) =>
+      button.addEventListener("click", () => {
+        simulationLogOpen = !simulationLogOpen;
+        render(store.getState());
+      })
+    );
+    container.querySelectorAll("[data-sim-opponent]").forEach((input) =>
+      input.addEventListener("change", () => {
+        if (input.checked) {
+          simulationSelectedOpponents.add(input.dataset.simOpponent);
+        } else {
+          simulationSelectedOpponents.delete(input.dataset.simOpponent);
+        }
+      })
+    );
+    container.querySelectorAll("[data-sim-speed]").forEach((input) =>
+      input.addEventListener("change", () => {
+        if (input.checked) {
+          simulationSelectedSpeed = input.dataset.simSpeed || "normal";
+        }
+      })
+    );
+    container.querySelectorAll("[data-start-simulation]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const selectedOpponents = [...simulationSelectedOpponents].filter(Boolean);
+        store.dispatch({
+          type: "START_SIMULATION",
+          selectedOpponents: selectedOpponents.length ? selectedOpponents : ["alpha"],
+          speed: simulationSelectedSpeed || "normal",
+        });
+        simulationSetupOpen = false;
+      })
+    );
+    container.querySelectorAll("[data-simulation-pause]").forEach((button) =>
+      button.addEventListener("click", () => store.dispatch({ type: "SIMULATION_PAUSE" }))
+    );
+    container.querySelectorAll("[data-simulation-resume]").forEach((button) =>
+      button.addEventListener("click", () => store.dispatch({ type: "SIMULATION_RESUME" }))
+    );
+    container.querySelectorAll("[data-simulation-stop]").forEach((button) =>
+      button.addEventListener("click", () => store.dispatch({ type: "SIMULATION_STOP" }))
+    );
+    container.querySelectorAll("[data-simulation-pass-turn]").forEach((button) =>
+      button.addEventListener("click", () => store.dispatch({ type: "SIMULATION_PASS_TURN" }))
     );
     container.querySelector("[data-tool-menu]")?.addEventListener("click", () => {
       toolMenuOpen = !toolMenuOpen;
@@ -1656,7 +1727,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
         </nav>
         ${renderMobileSwipeControls(tabs, page)}
       </header>
-      ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier) : ""}
+      ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier, uiState) : ""}
       ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current) : ""}
       ${page === "profile" ? renderProfile(profile) : ""}
       ${page === "archive" ? renderArchive(profile) : ""}
@@ -1668,6 +1739,8 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       ${uiState.modifierPanelOpen ? renderTrackerModifierPanel(uiState.pendingTrackerModifier) : ""}
       ${uiState.optionsOpen ? renderGameOptions(profile) : ""}
       ${uiState.statsOpen ? renderStatsOverlay(profile, uiState.statsMode) : ""}
+      ${renderSimulationHud(profile, uiState.simulationLogOpen)}
+      ${uiState.simulationSetupOpen ? renderSimulationSetupModal(uiState.simulationSelectedOpponents, uiState.simulationSelectedSpeed) : ""}
       ${renderAdhdAssistPanel(profile, page, uiLayer.current)}
       ${renderHelperSprite(profile, uiState.helperMessage)}
       ${renderEdgeSwipeZones(profile)}
@@ -1675,7 +1748,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
   `;
 }
 
-function renderLifeTracker(profile, trackerModifier) {
+function renderLifeTracker(profile, trackerModifier, uiState = {}) {
   const session = profile.activeSession;
   const panels = getPagePanels(profile);
   const counters = {
@@ -1685,6 +1758,7 @@ function renderLifeTracker(profile, trackerModifier) {
     tickets: session.playerCounters?.tickets || 0,
   };
   const commanderDamage = session.commander.damageByOpponent?.opponent || 0;
+  const simulation = session.simulation || {};
   return `
     <section class="life-tracker-page">
       ${panels.lifeTrackerLife ? `
@@ -1703,6 +1777,15 @@ function renderLifeTracker(profile, trackerModifier) {
       </aside>
       ` : ""}
       <section class="tracker-stack">
+        <article class="tracker-card simulation-card glass">
+          <p class="eyebrow">Simulated Multiplayer</p>
+          <h2>${simulation.enabled ? "Simulation Active" : "Commander Test Mode"}</h2>
+          <p>${simulation.enabled ? `Current: ${escapeHtml(getSimulationActorName(profile))}` : "Play against Alpha, Beta, and Omega NPC opponents."}</p>
+          <div class="button-grid">
+            <button data-open-simulation-setup>${simulation.enabled ? "Reconfigure Simulation" : "Start Simulation"}</button>
+            ${simulation.enabled ? `<button data-simulation-log-toggle>${uiState.simulationLogOpen ? "Hide Log" : "Show Log"}</button>` : ""}
+          </div>
+        </article>
         <article class="tracker-card player-counters-card glass">
           <p class="eyebrow">Player Counters</p>
           <h2>Resources</h2>
@@ -1718,6 +1801,87 @@ function renderLifeTracker(profile, trackerModifier) {
       </section>
     </section>
   `;
+}
+
+function renderSimulationHud(profile, simulationLogOpen = false) {
+  const simulation = profile.activeSession?.simulation || {};
+  if (!simulation.enabled) {
+    return "";
+  }
+  const running = simulation.status === "running";
+  const currentActor = getSimulationActorName(profile);
+  const logs = simulation.log || [];
+  return `
+    <section class="simulation-hud glass" data-no-swipe>
+      <div class="overlay-header compact">
+        <div>
+          <p class="eyebrow">Simulation status</p>
+          <h2>${running ? "Running" : escapeHtml(formatLabel(simulation.status || "paused"))}</h2>
+          <strong>${escapeHtml(currentActor)}</strong>
+        </div>
+        <button data-simulation-log-toggle>${simulationLogOpen ? "Hide Log" : "Show Log"}</button>
+      </div>
+      <div class="button-grid">
+        ${running ? `<button data-simulation-pause>Pause</button>` : `<button data-simulation-resume>Resume</button>`}
+        <button data-simulation-pass-turn>Pass Turn</button>
+        <button data-simulation-stop>Stop</button>
+      </div>
+      ${simulationLogOpen ? `
+        <article class="simulation-log">
+          ${(logs || [])
+            .slice(0, 20)
+            .map((entry) => `<p><strong>${escapeHtml(entry.actorId || "system")}</strong> · ${escapeHtml(entry.text || "")}</p>`)
+            .join("") || "<p>No simulation actions yet.</p>"}
+        </article>
+      ` : ""}
+    </section>
+  `;
+}
+
+function renderSimulationSetupModal(selectedOpponents = [], selectedSpeed = "normal") {
+  const selected = new Set(selectedOpponents || []);
+  const speed = selectedSpeed || "normal";
+  return `
+    <section class="overlay-backdrop">
+      <div class="floating-overlay glass simulation-setup">
+        <div class="overlay-header">
+          <div>
+            <p class="eyebrow">Commander NPC Setup</p>
+            <h2>Start Simulation</h2>
+          </div>
+          <button data-close-simulation-setup>Cancel</button>
+        </div>
+        <article class="option-card">
+          <h3>Choose Opponents</h3>
+          <label class="toggle-row"><span>Alpha</span><input type="checkbox" data-sim-opponent="alpha" ${selected.has("alpha") ? "checked" : ""} /></label>
+          <label class="toggle-row"><span>Beta</span><input type="checkbox" data-sim-opponent="beta" ${selected.has("beta") ? "checked" : ""} /></label>
+          <label class="toggle-row"><span>Omega</span><input type="checkbox" data-sim-opponent="omega" ${selected.has("omega") ? "checked" : ""} /></label>
+          <p class="eyebrow">Static deck containers are local-first and can be replaced in code later.</p>
+        </article>
+        <article class="option-card">
+          <h3>Simulation Speed</h3>
+          <label class="toggle-row"><span>Step</span><input type="radio" name="sim-speed" data-sim-speed="step" ${speed === "step" ? "checked" : ""} /></label>
+          <label class="toggle-row"><span>Normal</span><input type="radio" name="sim-speed" data-sim-speed="normal" ${speed === "normal" ? "checked" : ""} /></label>
+          <label class="toggle-row"><span>Fast</span><input type="radio" name="sim-speed" data-sim-speed="fast" ${speed === "fast" ? "checked" : ""} /></label>
+        </article>
+        <div class="button-grid">
+          <button data-start-simulation>Start Game</button>
+          <button data-close-simulation-setup>Cancel</button>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function getSimulationActorName(profile) {
+  const simulation = profile.activeSession?.simulation || {};
+  if (!simulation.enabled) {
+    return "No simulation";
+  }
+  if (simulation.currentPlayerId === "local-player") {
+    return `${profile.player?.name || "Player"} (You)`;
+  }
+  return simulation.opponents?.[simulation.currentPlayerId]?.name || simulation.currentPlayerId || "NPC";
 }
 
 function renderMobileSwipeControls(tabs, page) {
@@ -2783,6 +2947,7 @@ function renderGameOptions(profile) {
               <button data-multiplayer-mode="bluetooth">Bluetooth Placeholder</button>
               <button data-multiplayer-mode="simulated">Simulated Local</button>
               <button data-multiplayer-mode="offline">Disconnect</button>
+              <button data-open-simulation-setup>Start Simulation Setup</button>
             </div>
             <p>Mode: ${escapeHtml(multiplayer.mode)}</p>
             <p>Connected players: ${multiplayer.connectedPlayers.length ? multiplayer.connectedPlayers.map((player) => escapeHtml(player.name)).join(", ") : "None"}</p>
