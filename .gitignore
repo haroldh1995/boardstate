@@ -4,3 +4,8 @@ dist
 *.log
 .env
 .env.*
+android-app/.gradle
+android-app/build
+android-app/app/build
+android-app/keystore/*.jks
+android-app/local.properties

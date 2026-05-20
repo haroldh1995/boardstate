@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">BoardState</string>
+    <string name="loading_text">Loading BoardState...</string>
+    <string name="offline_title">Connection issue</string>
+    <string name="offline_message">BoardState could not load from the network. Retry or open bundled offline view.</string>
+    <string name="retry">Retry</string>
+    <string name="offline_open">Open Offline Copy</string>
+    <string name="status_ready">Ready</string>
+</resources>

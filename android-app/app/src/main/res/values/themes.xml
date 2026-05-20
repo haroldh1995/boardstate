@@ -1,0 +1,13 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.BoardState" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowBackground">@color/bg_dark</item>
+        <item name="android:windowSplashScreenBackground">@color/bg_dark</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/bg_dark</item>
+        <item name="postSplashScreenTheme">@style/Theme.BoardState</item>
+    </style>
+</resources>
