@@ -85,11 +85,17 @@ export function parseStaticEffects(text, card = {}) {
     });
   }
 
-  if (/one or more counters would be (?:put|placed)/.test(text) && /twice that many/.test(text)) {
+  if (
+    (/one or more counters would be (?:put|placed)/.test(text) || /would put one or more counters/.test(text)) &&
+    /twice that many/.test(text)
+  ) {
     effects.push({ kind: "replacement", action: "double-counters", target: "all-permanents", sourceName: card.name });
   }
   if (/create.+twice that many|twice that many.+tokens|double the number of tokens/.test(text)) {
     effects.push({ kind: "replacement", action: "double-tokens", target: "all-tokens", sourceName: card.name });
+  }
+  if (/landfall ability of a permanent you control triggers an additional time|landfall abilities trigger an additional time/.test(text)) {
+    effects.push({ kind: "replacement", action: "double-landfall-triggers", target: "all-landfall-triggers", sourceName: card.name });
   }
 
   return effects;
@@ -113,6 +119,10 @@ export function parseTriggeredEffects(text, card = {}) {
   for (const sentence of splitSentences(text)) {
     if (/whenever .+ creature.+ enters|whenever a creature enters|whenever another creature enters/.test(sentence)) {
       pushActions("creature-entered", sentence);
+    } else if (/whenever a land you control enters|whenever a land enters the battlefield under your control|landfall/.test(sentence)) {
+      pushActions("land-entered", sentence);
+    } else if (/this creature enters with|enters with (?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) [+\-]?\d*\/?[+\-]?\d* counters? on it/.test(sentence)) {
+      pushActions("self-entered", sentence);
     } else if (/when .+ enters|when this enters/.test(sentence)) {
       pushActions("self-entered", sentence);
     } else if (/at the beginning of your upkeep/.test(sentence)) {
@@ -121,7 +131,7 @@ export function parseTriggeredEffects(text, card = {}) {
       pushActions("phase:Combat", sentence);
     } else if (/at the beginning of your end step|at the beginning of each end step/.test(sentence)) {
       pushActions("phase:Ending", sentence);
-    } else if (/whenever .+ attacks|whenever one or more creatures attack/.test(sentence)) {
+    } else if (/whenever .+ attacks|whenever .+ attack|whenever one or more creatures attack/.test(sentence)) {
       pushActions("attack", sentence);
     } else if (/whenever .+ dies|whenever a creature dies/.test(sentence)) {
       pushActions("dies", sentence);
@@ -145,33 +155,63 @@ export function parseSpellEffects(text, card = {}) {
 
 export function parseActions(text, sourceName = "") {
   const actions = [];
+  const normalizedText = normalizeText(text);
+  const target = inferTargetFromText(normalizedText, sourceName);
 
-  if (text.includes("create") && text.includes("token")) {
+  if (normalizedText.includes("create") && normalizedText.includes("token")) {
+    const copyThreshold = parseLandCopyThreshold(normalizedText);
     actions.push({
       action: "create-token",
-      count: parseCount(text),
-      token: parseToken(text),
-      tapped: text.includes("tapped"),
-      attacking: text.includes("attacking"),
+      count: parseCount(normalizedText),
+      token: parseToken(normalizedText),
+      tapped: normalizedText.includes("tapped"),
+      attacking: normalizedText.includes("attacking"),
+      countFrom: parseCountFrom(normalizedText),
+      copySelfAtLandCount: copyThreshold,
+      copySelf: normalizedText.includes("copy of this creature"),
       manual: false,
     });
   }
 
-  if (text.includes("counter") && /\bput\b|\bputs\b|\badd\b|\badds\b/.test(text)) {
-    const target = inferTargetFromText(text, sourceName);
+  if (normalizedText.includes("counter") && /\bput\b|\bputs\b|\badd\b|\badds\b/.test(normalizedText)) {
     actions.push({
       action: "add-counters",
-      count: parseCounterCount(text),
-      counterType: parseCounterType(text),
+      count: parseCounterCount(normalizedText),
+      counterType: parseCounterType(normalizedText),
       target: target.target,
       entity: target.entity,
       manual: target.manual,
     });
   }
 
-  const buff = text.match(/get(?:s)? ([+\-]\d+)\/([+\-]\d+) until end of (turn|combat)/);
+  const etbCounters = normalizedText.match(/enters with (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) ((?:\+1\/\+1|-1\/-1|[a-z ]+)) counters? on (?:it|this creature)/);
+  if (etbCounters) {
+    actions.push({
+      action: "add-counters",
+      count: parseCountToken(etbCounters[1]),
+      counterType: normalizeCounterType(etbCounters[2]),
+      target: "self",
+      entity: "permanent",
+      manual: false,
+    });
+  }
+
+  const counterDoubling = normalizedText.match(
+    /double the number of ((?:\+1\/\+1|-1\/-1|[a-z ]+)) counters on (it|this creature|target creature|target permanent|[a-z0-9 ',\-]+)/
+  );
+  if (counterDoubling) {
+    const onSource = normalizeText(counterDoubling[2]).includes(normalizeText(sourceName));
+    actions.push({
+      action: "double-counters",
+      counterType: normalizeCounterType(counterDoubling[1]),
+      target: counterDoubling[2].includes("target") ? "selected" : onSource ? "self" : "all-creatures",
+      entity: counterDoubling[2].includes("creature") || onSource ? "creature" : "permanent",
+      manual: counterDoubling[2].includes("target"),
+    });
+  }
+
+  const buff = normalizedText.match(/get(?:s)? ([+\-]\d+)\/([+\-]\d+) until end of (turn|combat)/);
   if (buff) {
-    const target = inferTargetFromText(text, sourceName);
     actions.push({
       action: "temporary-buff",
       power: Number(buff[1]) || 0,
@@ -183,9 +223,19 @@ export function parseActions(text, sourceName = "") {
     });
   }
 
-  const gain = text.match(/you gain (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) life/);
+  const gain = normalizedText.match(/you gain (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) life/);
   if (gain) {
     actions.push({ action: "life", amount: parseCountToken(gain[1]), manual: false });
+  }
+
+  const damage = normalizedText.match(/(?:deals?|deal) (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) damage to (each opponent|target opponent|opponent|any target|target creature|target player)/);
+  if (damage) {
+    actions.push({
+      action: "damage",
+      amount: parseCountToken(damage[1]),
+      target: inferDamageTarget(damage[2]),
+      manual: /target/.test(damage[2]),
+    });
   }
 
   return actions;
@@ -202,6 +252,27 @@ function parseToken(text) {
   };
 }
 
+function parseCountFrom(text) {
+  if (/for each attacking creature|equal to the number of attacking creatures/.test(text)) {
+    return "attacking-creatures";
+  }
+  if (/where x is .* power|equal to .* power/.test(text)) {
+    return "source-power";
+  }
+  if (/for each land/.test(text)) {
+    return "lands";
+  }
+  return "";
+}
+
+function parseLandCopyThreshold(text) {
+  const match = text.match(/if you control (six|seven|eight|nine|ten|\d+) or more lands/);
+  if (!match) {
+    return 0;
+  }
+  return parseCountToken(match[1]);
+}
+
 function parseCounterType(text) {
   if (text.includes("+1/+1 counter")) {
     return "+1/+1";
@@ -211,6 +282,14 @@ function parseCounterType(text) {
   }
   const match = text.match(/([a-z]+(?: [a-z]+){0,2}) counters?/);
   return match ? capitalizeWords(match[1].replace(/^(?:a|an|one|two|\d+) /, "")) : "Generic";
+}
+
+function normalizeCounterType(raw) {
+  const value = String(raw || "").trim().toLowerCase();
+  if (value === "+1/+1" || value === "-1/-1") {
+    return value;
+  }
+  return capitalizeWords(value.replace(/ counters?$/, ""));
 }
 
 function parseCounterCount(text) {
@@ -235,6 +314,23 @@ function splitSentences(text) {
 function extractKeywords(text) {
   const known = ["flying", "first strike", "double strike", "deathtouch", "haste", "hexproof", "indestructible", "lifelink", "menace", "reach", "trample", "vigilance", "ward"];
   return known.filter((keyword) => text.includes(keyword));
+}
+
+function inferDamageTarget(raw) {
+  const value = String(raw || "").toLowerCase();
+  if (value.includes("each opponent")) {
+    return "each-opponent";
+  }
+  if (value.includes("opponent")) {
+    return "opponent";
+  }
+  if (value.includes("target creature")) {
+    return "selected-creature";
+  }
+  if (value.includes("target player")) {
+    return "selected-player";
+  }
+  return "selected";
 }
 
 function capitalize(value) {

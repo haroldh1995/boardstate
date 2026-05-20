@@ -4,6 +4,10 @@ import { createDefaultProfile, createGameSession, createPermanent } from "../src
 import { hydratePermanentEffects, processEventTriggers, recalculateContinuousEffects, resolveSpell } from "../src/effects/effectEngine.js";
 import { addCardToCommanderDeck, assignCommander } from "../src/game/commanderSystem.js";
 import { reduceProfile } from "../src/state/gameReducer.js";
+import { createAction } from "../src/state/actions.js";
+import { createFsmState, transitionFsm } from "../src/game/fsm.js";
+import { queueGameEvent } from "../src/game/eventBus.js";
+import { getTargets, selectByQuery } from "../src/effects/targeting.js";
 
 test("Cathars-style effects count creature tokens as creatures", () => {
   const crusade = hydratePermanentEffects(
@@ -162,4 +166,371 @@ test("adding a counter to one stacked permanent splits modified duplicates", () 
   assert.equal(modified.quantity, 1);
   assert.equal(modified.currentPower, 2);
   assert.equal(modified.currentToughness, 2);
+});
+
+test("layer system exposes layer breakdown for static modifiers", () => {
+  const anthem = hydratePermanentEffects(
+    createPermanent({
+      name: "Glorious Anthem",
+      typeLine: "Enchantment",
+      oracleText: "Creatures you control get +1/+1.",
+    })
+  );
+  const creature = hydratePermanentEffects(createPermanent({ name: "Knight", typeLine: "Creature - Human Knight", basePower: 2, baseToughness: 2 }));
+  const session = {
+    ...createGameSession(),
+    battlefield: {
+      ...createGameSession().battlefield,
+      player: [anthem, creature],
+    },
+  };
+  const result = recalculateContinuousEffects(session);
+  const updated = result.battlefield.player.find((permanent) => permanent.name === "Knight");
+  assert.equal(updated.currentPower, 3);
+  assert.equal(updated.currentToughness, 3);
+  assert.ok((updated.layerBreakdown || []).some((entry) => entry.layer === 8));
+});
+
+test("immutable action envelope contains deterministic metadata", () => {
+  const profile = createDefaultProfile();
+  const action = createAction({ type: "LIFE_DELTA", amount: 1, sourceId: "life" }, profile);
+  assert.equal(action.actionType, "LIFE_DELTA");
+  assert.equal(action.type, "LIFE_DELTA");
+  assert.equal(action.sourceId, "life");
+  assert.equal(typeof action.actionId, "string");
+  assert.equal(action.replayable, true);
+  assert.equal(action.undoable, true);
+});
+
+test("fsm transition follows deterministic cycle", () => {
+  const session = { ...createGameSession(), fsm: createFsmState() };
+  const first = transitionFsm(session);
+  const second = transitionFsm(first);
+  assert.equal(first.fsm.current, "mulligan");
+  assert.equal(second.fsm.current, "untap");
+  assert.equal(second.phaseIndex, 0);
+});
+
+test("event bus queues and preserves event history entries", () => {
+  const session = createGameSession();
+  const next = queueGameEvent(session, "LIFE_CHANGED", { amount: 3 });
+  assert.equal(next.eventQueue.length, 1);
+  assert.equal(next.eventHistory.length, 1);
+  assert.equal(next.eventQueue[0].eventType, "LIFE_CHANGED");
+});
+
+test("trigger queue enqueues and resolves triggers with chain metadata", () => {
+  const crusade = hydratePermanentEffects(
+    createPermanent({
+      name: "Cathars' Crusade",
+      typeLine: "Enchantment",
+      oracleText: "Whenever a creature enters the battlefield under your control, put a +1/+1 counter on each creature you control.",
+      isCreature: false,
+    })
+  );
+  const token = hydratePermanentEffects(
+    createPermanent({ name: "Soldier Token", typeLine: "Token Creature - Soldier", basePower: 1, baseToughness: 1, isToken: true })
+  );
+  const session = {
+    ...createGameSession(),
+    battlefield: {
+      ...createGameSession().battlefield,
+      player: [crusade, token],
+    },
+  };
+  const result = processEventTriggers(session, { type: "permanent-entered", permanent: token, eventType: "ENTER_BATTLEFIELD", chainId: "chain-1" });
+  const trigger = result.triggerQueue[0];
+  assert.ok(trigger);
+  assert.equal(trigger.chainId, "chain-1");
+  assert.equal(trigger.status, "resolved");
+});
+
+test("replay to action restores deterministic snapshot", () => {
+  let profile = createDefaultProfile();
+  profile = reduceProfile(profile, createAction({ type: "LIFE_DELTA", amount: 5 }, profile));
+  const latest = profile.activeSession.actionHistory[0];
+  profile = reduceProfile(profile, createAction({ type: "LIFE_DELTA", amount: -10 }, profile));
+  const replayed = reduceProfile(profile, createAction({ type: "REPLAY_TO_ACTION", replayActionId: latest.actionId }, profile));
+  assert.equal(replayed.activeSession.life, latest.snapshot.life);
+  assert.equal(replayed.activeSession.replay.active, true);
+});
+
+test("dynamic query selectors and legal target helpers resolve board targets", () => {
+  const creature = createPermanent({ id: "c1", name: "Knight", typeLine: "Creature - Human Knight", controller: "player" });
+  const artifact = createPermanent({ id: "a1", name: "Relic", typeLine: "Artifact", controller: "player" });
+  const token = createPermanent({ id: "t1", name: "Soldier Token", typeLine: "Token Creature", controller: "player", isToken: true });
+  const session = {
+    ...createGameSession(),
+    selectedIds: ["c1"],
+    battlefield: {
+      ...createGameSession().battlefield,
+      player: [creature, artifact, token],
+      opponent: [],
+    },
+  };
+  const queryTargets = selectByQuery(session, "type:creature controller:you");
+  const selectedTargets = getTargets(session, "selected");
+  assert.equal(queryTargets.length, 2);
+  assert.equal(selectedTargets.length, 1);
+  assert.equal(selectedTargets[0].id, "c1");
+});
+
+test("adhd mode toggle keeps legacy deterministic automation setting in sync", () => {
+  let profile = createDefaultProfile();
+  profile = reduceProfile(profile, createAction({ type: "SET_SETTING", path: "adhdMode.enabled", value: true }, profile));
+  assert.equal(profile.settings.adhdMode.enabled, true);
+  assert.equal(profile.settings.adhdAutomation, true);
+
+  profile = reduceProfile(profile, createAction({ type: "SET_SETTING", path: "adhdAutomation", value: false }, profile));
+  assert.equal(profile.settings.adhdAutomation, false);
+  assert.equal(profile.settings.adhdMode.enabled, false);
+});
+
+test("deterministic token/counter triggers still auto-resolve when adhd auto-assist is disabled", () => {
+  const crusade = hydratePermanentEffects(
+    createPermanent({
+      name: "Cathars' Crusade",
+      typeLine: "Enchantment",
+      oracleText: "Whenever a creature enters the battlefield under your control, put a +1/+1 counter on each creature you control.",
+      isCreature: false,
+    })
+  );
+
+  const profile = {
+    ...createDefaultProfile(),
+    settings: {
+      ...createDefaultProfile().settings,
+      adhdAutomation: false,
+      adhdMode: {
+        ...createDefaultProfile().settings.adhdMode,
+        enabled: true,
+      },
+    },
+    activeSession: {
+      ...createGameSession(),
+      battlefield: {
+        ...createGameSession().battlefield,
+        player: [crusade],
+      },
+    },
+  };
+
+  const tokenCard = {
+    name: "Soldier Token",
+    typeLine: "Token Creature - Soldier",
+    basePower: 1,
+    baseToughness: 1,
+    isToken: true,
+    ownedByCommanderDeck: false,
+  };
+  const result = reduceProfile(profile, createAction({ type: "ADD_PERMANENT", card: tokenCard }, profile));
+  const queued = result.activeSession.triggerQueue.filter((entry) => entry.status === "resolved");
+  const token = result.activeSession.battlefield.player.find((permanent) => permanent.name === "Soldier Token");
+  assert.ok(queued.length >= 1);
+  assert.ok((token.counters?.["+1/+1"] || 0) >= 1);
+});
+
+test("phase-based token triggers resolve once without recursive requeue", () => {
+  let profile = createDefaultProfile();
+  profile = reduceProfile(
+    profile,
+    createAction(
+      {
+        type: "ADD_PERMANENT",
+        card: {
+          name: "Upkeep Token Engine",
+          typeLine: "Enchantment",
+          oracleText: "At the beginning of your upkeep, create a 1/1 white Soldier creature token.",
+        },
+      },
+      profile
+    )
+  );
+  profile = reduceProfile(profile, createAction({ type: "ADVANCE_PHASE" }, profile));
+  const tokens = profile.activeSession.battlefield.player.filter((permanent) => permanent.isToken);
+  assert.equal(tokens.length, 1);
+  assert.equal(tokens[0].quantity, 1);
+  const phaseTriggers = profile.activeSession.triggerQueue.filter((entry) => entry.sourceName === "Upkeep Token Engine");
+  assert.equal(phaseTriggers.filter((entry) => entry.status === "resolved").length, 1);
+});
+
+test("self-enter token trigger resolves once for the source permanent", () => {
+  let profile = createDefaultProfile();
+  profile = reduceProfile(
+    profile,
+    createAction(
+      {
+        type: "ADD_PERMANENT",
+        card: {
+          name: "ETB Maker",
+          typeLine: "Creature",
+          basePower: 2,
+          baseToughness: 2,
+          oracleText: "When this enters the battlefield, create two 1/1 white Soldier creature tokens.",
+        },
+      },
+      profile
+    )
+  );
+  const tokens = profile.activeSession.battlefield.player.filter((permanent) => permanent.name === "Soldier Token");
+  assert.equal(tokens.length, 1);
+  assert.equal(tokens[0].quantity, 2);
+});
+
+test("mandatory scenario 1: etb counters and anim pakal combat token chain resolves automatically", () => {
+  let profile = createDefaultProfile();
+  const add = (card) => {
+    profile = reduceProfile(profile, createAction({ type: "ADD_PERMANENT", card }, profile));
+  };
+
+  add({
+    name: "Anim Pakal, Thousandth Moon",
+    typeLine: "Legendary Creature - Human Soldier",
+    oracleText:
+      "Whenever one or more non-Gnome creatures you control attack, put a +1/+1 counter on Anim Pakal, Thousandth Moon. Then create X 1/1 red Gnome artifact creature tokens that are tapped and attacking, where X is Anim Pakal's power.",
+    basePower: 1,
+    baseToughness: 2,
+  });
+  add({
+    name: "Cathars' Crusade",
+    typeLine: "Enchantment",
+    oracleText: "Whenever a creature enters the battlefield under your control, put a +1/+1 counter on each creature you control.",
+  });
+  add({
+    name: "Mossborn Hydra",
+    typeLine: "Creature - Hydra",
+    oracleText:
+      "Mossborn Hydra enters with a +1/+1 counter on it. Landfall - Whenever a land you control enters the battlefield, double the number of +1/+1 counters on Mossborn Hydra.",
+    basePower: 1,
+    baseToughness: 1,
+  });
+  const hydraEarly = profile.activeSession.battlefield.player.find((permanent) => permanent.name === "Mossborn Hydra");
+  assert.ok((hydraEarly.counters?.["+1/+1"] || 0) >= 1);
+
+  add({
+    name: "Soul Warden",
+    typeLine: "Creature - Human Cleric",
+    oracleText: "Whenever another creature enters the battlefield, you gain 1 life.",
+    basePower: 1,
+    baseToughness: 1,
+  });
+  add({
+    name: "Warleader's Call",
+    typeLine: "Enchantment",
+    oracleText: "Creatures you control get +1/+1. Whenever a creature enters the battlefield under your control, Warleader's Call deals 1 damage to each opponent.",
+  });
+  add({
+    name: "Doubling Season",
+    typeLine: "Enchantment",
+    oracleText:
+      "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead. If an effect would put one or more counters on a permanent you control, it puts twice that many of those counters on that permanent instead.",
+  });
+
+  const anim = profile.activeSession.battlefield.player.find((permanent) => permanent.name === "Anim Pakal, Thousandth Moon");
+  assert.ok(anim);
+  profile = reduceProfile(profile, createAction({ type: "DECLARE_ATTACKERS", ids: [anim.id] }, profile));
+
+  const gnomes = profile.activeSession.battlefield.player.find((permanent) => permanent.name === "Gnome Token");
+  const hydra = profile.activeSession.battlefield.player.find((permanent) => permanent.name === "Mossborn Hydra");
+  const animAfter = profile.activeSession.battlefield.player.find((permanent) => permanent.name === "Anim Pakal, Thousandth Moon");
+  assert.ok(gnomes);
+  assert.ok(gnomes.quantity >= 2);
+  assert.equal(gnomes.tapped, true);
+  assert.equal(gnomes.attacking, true);
+  assert.equal(gnomes.enteredDuringCombat, true);
+  assert.equal(gnomes.sourcePermanentId, animAfter.id);
+  assert.equal(gnomes.createdByTriggerId.length > 0, true);
+  assert.ok(profile.activeSession.combat.attackerIds.includes(gnomes.id));
+  assert.ok((gnomes.stackMembers || []).every((member) => member.tapped && member.attacking));
+  assert.ok((animAfter.counters?.["+1/+1"] || 0) >= (anim.counters?.["+1/+1"] || 0) + 2);
+  assert.ok((hydra.currentPower || 0) >= hydra.basePower + (hydra.counters?.["+1/+1"] || 0) + 1);
+  assert.ok(profile.activeSession.life > 40);
+  assert.ok((profile.activeSession.commander.damageByOpponent?.opponent || 0) > 0);
+});
+
+test("mandatory scenario 2: landfall token/copy generation and trigger doubling resolve automatically", () => {
+  let profile = createDefaultProfile();
+  const add = (card) => {
+    profile = reduceProfile(profile, createAction({ type: "ADD_PERMANENT", card }, profile));
+  };
+  const addLand = (name, id) =>
+    add({
+      id,
+      name,
+      typeLine: "Land",
+      oracleText: "",
+    });
+
+  add({
+    name: "Mossborn Hydra",
+    typeLine: "Creature - Hydra",
+    oracleText:
+      "Mossborn Hydra enters with a +1/+1 counter on it. Landfall - Whenever a land you control enters the battlefield, double the number of +1/+1 counters on Mossborn Hydra.",
+    basePower: 1,
+    baseToughness: 1,
+  });
+  add({
+    name: "Scute Swarm",
+    typeLine: "Creature - Insect",
+    oracleText:
+      "Landfall - Whenever a land enters the battlefield under your control, create a 1/1 green Insect creature token. If you control six or more lands, create a token that's a copy of Scute Swarm instead.",
+    basePower: 1,
+    baseToughness: 1,
+  });
+  add({
+    name: "Traveling Chocobo",
+    typeLine: "Creature - Bird",
+    oracleText: "If a landfall ability of a permanent you control triggers, that ability triggers an additional time.",
+    basePower: 3,
+    baseToughness: 2,
+  });
+  add({
+    name: "Doubling Season",
+    typeLine: "Enchantment",
+    oracleText:
+      "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead. If an effect would put one or more counters on a permanent you control, it puts twice that many of those counters on that permanent instead.",
+  });
+
+  for (let index = 1; index <= 8; index += 1) {
+    addLand(`Test Land ${index}`, `land-${index}`);
+  }
+
+  const insectsTotal = profile.activeSession.battlefield.player
+    .filter((permanent) => permanent.name === "Insect Token")
+    .reduce((sum, permanent) => sum + (permanent.quantity || 1), 0);
+  const scuteCopiesTotal = profile.activeSession.battlefield.player
+    .filter((permanent) => permanent.name === "Scute Swarm" && permanent.isToken && permanent.isCopy)
+    .reduce((sum, permanent) => sum + (permanent.quantity || 1), 0);
+  const hydra = profile.activeSession.battlefield.player.find((permanent) => permanent.name === "Mossborn Hydra");
+  assert.ok(insectsTotal > 0 || scuteCopiesTotal > 0);
+  assert.ok(scuteCopiesTotal >= 1);
+  assert.ok((hydra.counters?.["+1/+1"] || 0) > 1);
+  assert.ok(profile.activeSession.triggerQueue.some((entry) => entry.status === "resolved"));
+});
+
+test("generic tapped-and-attacking combat token text creates tapped attacking tokens", () => {
+  let profile = createDefaultProfile();
+  profile = reduceProfile(
+    profile,
+    createAction(
+      {
+        type: "ADD_PERMANENT",
+        card: {
+          name: "Hero of Bladehold",
+          typeLine: "Creature - Human Knight",
+          basePower: 3,
+          baseToughness: 4,
+          oracleText: "Whenever Hero of Bladehold attacks, create two 1/1 white Soldier creature tokens that are tapped and attacking.",
+        },
+      },
+      profile
+    )
+  );
+  const hero = profile.activeSession.battlefield.player.find((permanent) => permanent.name === "Hero of Bladehold");
+  profile = reduceProfile(profile, createAction({ type: "DECLARE_ATTACKERS", ids: [hero.id] }, profile));
+  const soldiers = profile.activeSession.battlefield.player.find((permanent) => permanent.name === "Soldier Token");
+  assert.ok(soldiers);
+  assert.equal(soldiers.tapped, true);
+  assert.equal(soldiers.attacking, true);
+  assert.ok(profile.activeSession.combat.attackerIds.includes(soldiers.id));
 });

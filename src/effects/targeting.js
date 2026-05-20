@@ -1,4 +1,7 @@
 export function getTargets(session, target, source = null, context = {}) {
+  if (String(target || "").includes(":")) {
+    return selectByQuery(session, target, source, context);
+  }
   const permanents = getAllVisiblePermanents(session);
   const selected = new Set(session.selectedIds || []);
   const attackers = new Set(session.combat?.attackerIds || []);
@@ -14,6 +17,14 @@ export function getTargets(session, target, source = null, context = {}) {
         return selected.has(permanent.id);
       case "all-creatures":
         return permanent.isCreature;
+      case "your-creatures":
+        return permanent.isCreature && permanent.controller === (source?.controller || "player");
+      case "your-permanents":
+        return permanent.controller === (source?.controller || "player");
+      case "your-tokens":
+        return permanent.isToken && permanent.controller === (source?.controller || "player");
+      case "your-lands":
+        return permanent.isLand && permanent.controller === (source?.controller || "player");
       case "all-creature-tokens":
         return permanent.isCreature && permanent.isToken;
       case "all-tokens":
@@ -50,6 +61,64 @@ export function getTargets(session, target, source = null, context = {}) {
   });
 }
 
+export function selectByQuery(session, query, source = null, context = {}) {
+  const permanents = getAllVisiblePermanents(session);
+  const terms = String(query || "")
+    .split(/\s+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  return permanents.filter((permanent) =>
+    terms.every((term) => {
+      const [key, value = ""] = term.split(":");
+      const normalizedValue = value.toLowerCase();
+      if (key === "type") {
+        return String(permanent.typeLine || "").toLowerCase().includes(normalizedValue);
+      }
+      if (key === "controller") {
+        if (normalizedValue === "you") {
+          return permanent.controller === (source?.controller || "player");
+        }
+        if (normalizedValue === "opponent") {
+          return permanent.controller !== (source?.controller || "player");
+        }
+        return permanent.controller === normalizedValue;
+      }
+      if (key === "token") {
+        return normalizedValue === "true" ? Boolean(permanent.isToken) : !permanent.isToken;
+      }
+      if (key === "keyword") {
+        return (permanent.keywords || []).map((entry) => entry.toLowerCase()).includes(normalizedValue);
+      }
+      if (key === "selected") {
+        return (session.selectedIds || []).includes(permanent.id);
+      }
+      if (key === "zone") {
+        return String(permanent.zone || "").toLowerCase() === normalizedValue;
+      }
+      return true;
+    })
+  );
+}
+
+export function suggestLikelyTargets(session, source = null, targetSelector = "all-creatures") {
+  const targets = getTargets(session, targetSelector, source);
+  return [...targets]
+    .sort(
+      (left, right) =>
+        (right.currentPower || 0) + (right.currentToughness || 0) - ((left.currentPower || 0) + (left.currentToughness || 0))
+    )
+    .slice(0, 6);
+}
+
+export function suggestLegalAttachments(session, source) {
+  if (!source || !(source.isAura || source.isEquipment)) {
+    return [];
+  }
+  const targetSelector = source.isAura ? "all-creatures" : "all-creatures";
+  return getTargets(session, targetSelector, source).filter((target) => target.controller === source.controller);
+}
+
 export function getAllVisiblePermanents(session) {
   return [...(session.battlefield?.player || []), ...(session.battlefield?.opponent || [])];
 }
@@ -73,6 +142,18 @@ export function inferTargetFromText(text, sourceName = "") {
   }
   if (oracle.includes("each creature token") || oracle.includes("creature tokens you control")) {
     return { target: "all-creature-tokens", manual: false, entity: "creature" };
+  }
+  if (oracle.includes("creatures you control")) {
+    return { target: "your-creatures", manual: false, entity: "creature" };
+  }
+  if (oracle.includes("tokens you control")) {
+    return { target: "your-tokens", manual: false, entity: "permanent" };
+  }
+  if (oracle.includes("permanents you control")) {
+    return { target: "your-permanents", manual: false, entity: "permanent" };
+  }
+  if (oracle.includes("lands you control")) {
+    return { target: "your-lands", manual: false, entity: "permanent" };
   }
   if (oracle.includes("each creature") || oracle.includes("all creatures") || oracle.includes("creatures you control")) {
     return { target: "all-creatures", manual: false, entity: "creature" };

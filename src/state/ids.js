@@ -18,5 +18,8 @@ export function normalizeSigned(value, fallback = 0) {
 }
 
 export function clone(value) {
+  if (typeof structuredClone === "function") {
+    return structuredClone(value);
+  }
   return JSON.parse(JSON.stringify(value));
 }

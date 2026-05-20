@@ -1,9 +1,12 @@
 import { archiveCurrentGame } from "../archive/archiveService.js";
-import { hydratePermanentEffects, processEventTriggers, recalculateContinuousEffects, resolveSpell } from "../effects/effectEngine.js";
+import { hydratePermanentEffects, processEventTriggers, recalculateContinuousEffects, resolveQueuedTrigger, resolveSpell } from "../effects/effectEngine.js";
 import { addCardToCommanderDeck, assignCommander, castCommander, recordCommanderCardUsage } from "../game/commanderSystem.js";
 import { assignBlocker, declareAttackers, resolveCombat } from "../game/combatSystem.js";
 import { createManaPool, PHASES } from "./schema.js";
 import { clone, createId, normalizeCount } from "./ids.js";
+import { drainGameEvents, mapActionTypeToGameEvent, queueGameEvent, runGameEventObservers } from "../game/eventBus.js";
+import { transitionFsm } from "../game/fsm.js";
+import { finalizeAction } from "./actions.js";
 import {
   createWorldShaperOpponent,
   prepareSimulatedCastPermanent,
@@ -15,15 +18,21 @@ import {
 } from "../simulation/simulatedOpponent.js";
 
 export function reduceProfile(profile, event) {
-  const undoable = !["IMPORT_PROFILE", "SAVE_TICK"].includes(event.type);
+  const actionType = event.actionType || event.type;
+  const undoable = !["IMPORT_PROFILE", "SAVE_TICK"].includes(actionType);
   const baseProfile = undoable ? pushUndo(profile, event) : profile;
   let nextProfile = baseProfile;
 
-  switch (event.type) {
+  switch (actionType) {
     case "IMPORT_PROFILE":
       return event.profile;
     case "UNDO":
       return popUndo(profile);
+    case "REDO":
+      return popRedo(profile);
+    case "REPLAY_TO_ACTION":
+      nextProfile = replayToAction(baseProfile, event.replayActionId || event.payload?.replayActionId || "");
+      break;
     case "SET_PLAYER_NAME":
       nextProfile = { ...baseProfile, player: { ...baseProfile.player, name: event.name || "Player" } };
       break;
@@ -70,7 +79,7 @@ export function reduceProfile(profile, event) {
       nextProfile = withSession(baseProfile, { ...baseProfile.activeSession, manaPool: createManaPool() });
       break;
     case "ADVANCE_PHASE":
-      nextProfile = withSession(baseProfile, advancePhase(baseProfile.activeSession));
+      nextProfile = withSession(baseProfile, advancePhase(withRuntimeSettings(baseProfile.activeSession, baseProfile.settings)));
       break;
     case "ADD_PERMANENT":
       nextProfile = addPermanent(baseProfile, event.card, event.controller || "player");
@@ -79,7 +88,7 @@ export function reduceProfile(profile, event) {
       nextProfile = addPermanent(baseProfile, createTokenCard(event), event.controller || "player");
       break;
     case "CAST_SPELL":
-      nextProfile = withSession(baseProfile, resolveSpell(baseProfile.activeSession, event.card));
+      nextProfile = withSession(baseProfile, resolveSpell(withRuntimeSettings(baseProfile.activeSession, baseProfile.settings), event.card));
       nextProfile = recordCommanderCardUsage(nextProfile, { ...event.card, owner: "player", controller: "player" });
       break;
     case "ATTACH_PERMANENT":
@@ -100,8 +109,14 @@ export function reduceProfile(profile, event) {
     case "SELECT_PERMANENT":
       nextProfile = withSession(baseProfile, toggleSelection(baseProfile.activeSession, event.id));
       break;
+    case "REORDER_PERMANENT":
+      nextProfile = withSession(baseProfile, reorderPermanent(baseProfile.activeSession, event.id, event.direction));
+      break;
     case "DECLARE_ATTACKERS":
-      nextProfile = withSession(baseProfile, processEventTriggers(declareAttackers(baseProfile.activeSession, event.ids || []), { type: "attackers-declared" }));
+      nextProfile = withSession(
+        baseProfile,
+        emitAttackTriggerEvents(withRuntimeSettings(declareAttackers(baseProfile.activeSession, event.ids || []), baseProfile.settings), event.ids || [])
+      );
       break;
     case "ASSIGN_BLOCKER":
       nextProfile = withSession(baseProfile, assignBlocker(baseProfile.activeSession, event.attackerId, event.blockerId));
@@ -121,6 +136,18 @@ export function reduceProfile(profile, event) {
     case "MARK_PENDING_EFFECT":
       nextProfile = withSession(baseProfile, updatePendingEffect(baseProfile.activeSession, event.id, event.status));
       break;
+    case "TRIGGER_QUEUE_RESOLVE":
+      nextProfile = withSession(baseProfile, resolveQueuedTrigger(baseProfile.activeSession, { triggerId: event.id, command: "resolve", requestedBy: event.playerId || "player" }));
+      break;
+    case "TRIGGER_QUEUE_SKIP":
+      nextProfile = withSession(baseProfile, resolveQueuedTrigger(baseProfile.activeSession, { triggerId: event.id, command: "skip", requestedBy: event.playerId || "player" }));
+      break;
+    case "TRIGGER_QUEUE_DELAY":
+      nextProfile = withSession(baseProfile, resolveQueuedTrigger(baseProfile.activeSession, { triggerId: event.id, command: "delay", requestedBy: event.playerId || "player" }));
+      break;
+    case "TRIGGER_QUEUE_REACTIVATE_DELAYED":
+      nextProfile = withSession(baseProfile, reactivateDelayedTriggers(baseProfile.activeSession));
+      break;
     case "ARCHIVE_GAME":
       nextProfile = archiveCurrentGame(baseProfile, event.result || "completed");
       break;
@@ -132,7 +159,11 @@ export function reduceProfile(profile, event) {
       break;
   }
 
-  return withHistory(nextProfile, event);
+  nextProfile = withSession(
+    nextProfile,
+    emitAndProcessSessionEvent(withRuntimeSettings(nextProfile.activeSession, nextProfile.settings), event, actionType)
+  );
+  return withHistory(nextProfile, finalizeAction(event, nextProfile));
 }
 
 function addPermanent(profile, card, controller) {
@@ -149,22 +180,90 @@ function addPermanent(profile, card, controller) {
       [side]: stackBattlefieldPermanent(profile.activeSession.battlefield[side], permanent),
     },
   };
-  const withTriggers = processEventTriggers(session, {
-    type: "permanent-entered",
-    permanent,
+  const withTriggers = emitPermanentEntryTriggerEvents(withRuntimeSettings(session, profile.settings), permanent, {
     instances: permanent.quantity,
+    cause: "add-permanent",
   });
   const withSessionProfile = withSession(profile, withTriggers);
   return controller === "player" ? recordCommanderCardUsage(withSessionProfile, permanent) : withSessionProfile;
 }
 
+function emitPermanentEntryTriggerEvents(session, permanent, { instances = 1, cause = "effect", chainId = createId("chain") } = {}) {
+  const payload = {
+    permanent,
+    instances,
+    cause,
+    controller: permanent.controller,
+  };
+  let nextSession = processEventTriggers(session, {
+    type: "permanent-entered",
+    eventType: "ENTER_BATTLEFIELD",
+    permanent,
+    payload,
+    instances,
+    cause,
+    chainId,
+  });
+  if (permanent.isLand) {
+    nextSession = processEventTriggers(nextSession, {
+      type: "land-entered-battlefield",
+      eventType: "LAND_ENTERED_BATTLEFIELD",
+      permanent,
+      payload,
+      instances,
+      cause,
+      chainId,
+    });
+    nextSession = processEventTriggers(nextSession, {
+      type: "landfall-check",
+      eventType: "LANDFALL_CHECK",
+      permanent,
+      payload,
+      instances,
+      cause,
+      chainId,
+    });
+  }
+  return nextSession;
+}
+
+function emitAttackTriggerEvents(session, attackerIds = []) {
+  const payload = {
+    attackerIds: [...attackerIds],
+    phase: PHASES[session.phaseIndex],
+    attackingPlayerId: "opponent",
+    attackedObjectId: "opponent",
+  };
+  const chainId = createId("chain");
+  const withDeclared = processEventTriggers(session, {
+    type: "attackers-declared",
+    eventType: "ATTACK_DECLARED",
+    payload,
+    ids: [...attackerIds],
+    chainId,
+  });
+  return processEventTriggers(withDeclared, {
+    type: "attack-trigger-check",
+    eventType: "ATTACK_TRIGGER_CHECK",
+    payload,
+    ids: [...attackerIds],
+    chainId,
+  });
+}
+
 function stackBattlefieldPermanent(permanents, incoming) {
   const index = permanents.findIndex((permanent) => permanentStackSignature(permanent) === permanentStackSignature(incoming));
   if (index < 0) {
-    return [...permanents, incoming];
+    return [...permanents, normalizeStackMembers(incoming)];
   }
   return permanents.map((permanent, permanentIndex) =>
-    permanentIndex === index ? hydratePermanentEffects({ ...permanent, quantity: permanent.quantity + incoming.quantity }) : permanent
+    permanentIndex === index
+      ? hydratePermanentEffects({
+          ...permanent,
+          quantity: (permanent.quantity || 1) + (incoming.quantity || 1),
+          stackMembers: [...(permanent.stackMembers || []), ...(normalizeStackMembers(incoming).stackMembers || [])],
+        })
+      : permanent
   );
 }
 
@@ -184,6 +283,14 @@ function permanentStackSignature(permanent) {
     summoningSick: permanent.summoningSick,
     attacking: permanent.attacking,
     blocking: permanent.blocking,
+    enteredDuringCombat: permanent.enteredDuringCombat,
+    attackingPlayerId: permanent.attackingPlayerId,
+    attackedObjectId: permanent.attackedObjectId,
+    createdByTriggerId: permanent.createdByTriggerId,
+    sourcePermanentId: permanent.sourcePermanentId,
+    combatPhaseCreatedIn: permanent.combatPhaseCreatedIn,
+    tokenTemplateId: permanent.tokenTemplateId,
+    tokenCopyOfId: permanent.tokenCopyOfId,
     attachedToId: permanent.attachedToId,
     attachments: [...(permanent.attachments || [])].sort(),
     temporaryModifiers: permanent.temporaryModifiers || [],
@@ -224,29 +331,41 @@ function updateSetting(profile, path, value) {
     cursor = cursor[key];
   });
   cursor[keys[keys.length - 1]] = value;
+  if (path === "adhdMode.enabled") {
+    settings.adhdAutomation = Boolean(value);
+  }
+  if (path === "adhdAutomation") {
+    settings.adhdMode = {
+      ...(settings.adhdMode || {}),
+      enabled: Boolean(value),
+    };
+  }
   return { ...profile, settings };
 }
 
 function setMultiplayerMode(profile, mode = "offline") {
   const simulatedOpponent = mode === "simulated" ? prepareSimulatedOpponent(profile) : null;
-  const connectedPlayers =
-    mode === "simulated"
+  const existingSettings = profile.settings?.multiplayer || {};
+  const connectedPlayers = [
+    { id: "local-player", name: profile.player?.name || "Player", authority: "host", role: existingSettings.role || "player" },
+    ...(mode === "simulated" && simulatedOpponent
       ? [
-          { id: "local-player", name: profile.player?.name || "Player", authority: "host" },
           {
             id: simulatedOpponent.id,
             name: simulatedOpponent.name,
             authority: "guest",
+            role: "player",
             publicBoardSnapshot: simulatedOpponent.publicBoardSnapshot,
           },
         ]
-      : [];
+      : []),
+  ];
   return {
     ...profile,
     settings: {
       ...(profile.settings || {}),
       multiplayer: {
-        ...(profile.settings?.multiplayer || {}),
+        ...existingSettings,
         mode,
         connectedPlayers,
         simulatedOpponent,
@@ -407,31 +526,51 @@ function syncPublicStats(profile) {
 }
 
 function advancePhase(session) {
-  const nextPhaseIndex = (session.phaseIndex + 1) % PHASES.length;
-  const isNewTurn = nextPhaseIndex === 0;
+  const transitioned = transitionFsm(session);
+  const isNewTurn = transitioned.turn !== session.turn;
   const nextSession = {
-    ...session,
-    phaseIndex: nextPhaseIndex,
-    turn: isNewTurn ? session.turn + 1 : session.turn,
+    ...transitioned,
     manaPool: createManaPool(),
     battlefield: {
-      ...session.battlefield,
-      player: session.battlefield.player.map((permanent) => ({
+      ...transitioned.battlefield,
+      player: transitioned.battlefield.player.map((permanent) => ({
         ...permanent,
         tapped: isNewTurn ? false : permanent.tapped,
         summoningSick: isNewTurn ? false : permanent.summoningSick,
         attacking: false,
         blocking: false,
-        temporaryModifiers: nextPhaseIndex === 0 ? [] : permanent.temporaryModifiers,
+        temporaryModifiers: transitioned.phaseIndex === 0 ? [] : permanent.temporaryModifiers,
       })),
     },
   };
-  return processEventTriggers(nextSession, { type: "phase-changed", phase: PHASES[nextPhaseIndex] });
+  const withTurnEvent = isNewTurn ? queueGameEvent(nextSession, "TURN_CHANGED", { turn: nextSession.turn }) : nextSession;
+  const withReactivated = reactivateDelayedTriggers(withTurnEvent);
+  return processEventTriggers(withReactivated, {
+    type: "phase-changed",
+    phase: PHASES[withReactivated.phaseIndex],
+    eventType: "PHASE_CHANGED",
+    payload: { phase: PHASES[withReactivated.phaseIndex] },
+  });
 }
 
 function attachPermanent(session, sourceId, targetId) {
-  const next = updatePermanent(session, sourceId, (permanent) => ({ ...permanent, attachedToId: targetId }));
-  return recalculateContinuousEffects(next);
+  const withSource = updatePermanent(session, sourceId, (permanent) => ({
+    ...permanent,
+    attachedToId: targetId,
+    relationships: {
+      ...(permanent.relationships || {}),
+      attachedToId: targetId,
+    },
+  }));
+  const withTarget = updatePermanent(withSource, targetId, (permanent) => ({
+    ...permanent,
+    attachments: [...new Set([...(permanent.attachments || []), sourceId])],
+    relationships: {
+      ...(permanent.relationships || {}),
+      attachedIds: [...new Set([...(permanent.relationships?.attachedIds || []), sourceId])],
+    },
+  }));
+  return recalculateContinuousEffects(withTarget);
 }
 
 function applyCounterToSession(session, event) {
@@ -485,16 +624,40 @@ function updateOnePermanentInstance(session, id, updater) {
     }
 
     const permanent = side[index];
-    if (permanent.quantity <= 1) {
+    const members = [...(permanent.stackMembers || [])];
+    if ((permanent.quantity || members.length) <= 1 || members.length <= 1) {
       nextBattlefield[sideKey] = side.map((entry) => (entry.id === id ? hydratePermanentEffects(updater(entry)) : entry));
       changed = true;
       return;
     }
 
-    const remaining = hydratePermanentEffects({ ...permanent, quantity: permanent.quantity - 1 });
+    const [memberToUpdate, ...remainingMembers] = members;
+    const remaining = hydratePermanentEffects({
+      ...permanent,
+      quantity: Math.max(1, (permanent.quantity || members.length) - 1),
+      stackMembers: remainingMembers.length ? remainingMembers : members.slice(1),
+    });
     const updated = hydratePermanentEffects({
-      ...updater({ ...permanent, id: createId("perm"), quantity: 1 }),
+      ...updater({
+        ...permanent,
+        id: createId("perm"),
+        quantity: 1,
+        tapped: memberToUpdate?.tapped ?? permanent.tapped,
+        counters: memberToUpdate?.counters || permanent.counters,
+        attachments: memberToUpdate?.attachments || permanent.attachments,
+        temporaryModifiers: memberToUpdate?.temporaryModifiers || permanent.temporaryModifiers,
+      }),
       quantity: 1,
+      stackMembers: [
+        {
+          instanceId: memberToUpdate?.instanceId || createId("member"),
+          tapped: memberToUpdate?.tapped ?? permanent.tapped,
+          counters: memberToUpdate?.counters || permanent.counters,
+          attachments: memberToUpdate?.attachments || permanent.attachments,
+          temporaryModifiers: memberToUpdate?.temporaryModifiers || permanent.temporaryModifiers,
+          metadata: memberToUpdate?.metadata || {},
+        },
+      ],
     });
 
     nextBattlefield[sideKey] = [...side.slice(0, index), remaining, updated, ...side.slice(index + 1)];
@@ -509,6 +672,43 @@ function updateOnePermanentInstance(session, id, updater) {
     ...session,
     battlefield: nextBattlefield,
   });
+}
+
+function normalizeStackMembers(permanent) {
+  const quantity = Math.max(1, Number(permanent.quantity) || 1);
+  const existing = Array.isArray(permanent.stackMembers) && permanent.stackMembers.length ? permanent.stackMembers : [];
+  const stackMembers =
+    existing.length >= quantity
+      ? existing.slice(0, quantity)
+      : [
+          ...existing,
+          ...Array.from({ length: quantity - existing.length }, (_, index) => ({
+            instanceId: createId("member"),
+            tapped: Boolean(permanent.tapped),
+            attacking: Boolean(permanent.attacking),
+            blocking: Boolean(permanent.blocking),
+            summoningSick: Boolean(permanent.summoningSick),
+            counters: { ...(permanent.counters || {}) },
+            attachments: Array.isArray(permanent.attachments) ? [...permanent.attachments] : [],
+            temporaryModifiers: Array.isArray(permanent.temporaryModifiers) ? [...permanent.temporaryModifiers] : [],
+            metadata: {
+              generatedIndex: index + 1,
+              enteredDuringCombat: Boolean(permanent.enteredDuringCombat),
+              attackingPlayerId: permanent.attackingPlayerId || "",
+              attackedObjectId: permanent.attackedObjectId || "",
+              createdByTriggerId: permanent.createdByTriggerId || "",
+              sourcePermanentId: permanent.sourcePermanentId || "",
+              combatPhaseCreatedIn: permanent.combatPhaseCreatedIn || "",
+              tokenTemplateId: permanent.tokenTemplateId || "",
+              tokenCopyOfId: permanent.tokenCopyOfId || "",
+            },
+          })),
+        ];
+  return {
+    ...permanent,
+    quantity,
+    stackMembers,
+  };
 }
 
 function togglePermanentTapped(session, id) {
@@ -549,13 +749,25 @@ function removeSelectedPermanents(session, mode) {
     return session;
   }
   const removed = [...session.battlefield.player, ...session.battlefield.opponent].filter((permanent) => selected.has(permanent.id));
+  const removedIds = new Set(removed.map((permanent) => permanent.id));
+  const scrubAttachments = (permanent) =>
+    hydratePermanentEffects({
+      ...permanent,
+      attachments: (permanent.attachments || []).filter((entry) => !removedIds.has(entry)),
+      relationships: {
+        ...(permanent.relationships || {}),
+        attachedIds: (permanent.relationships?.attachedIds || []).filter((entry) => !removedIds.has(entry)),
+        attachedToId: removedIds.has(permanent.relationships?.attachedToId) ? "" : permanent.relationships?.attachedToId,
+      },
+      attachedToId: removedIds.has(permanent.attachedToId) ? "" : permanent.attachedToId,
+    });
   return recalculateContinuousEffects({
     ...session,
     selectedIds: [],
     battlefield: {
       ...session.battlefield,
-      player: session.battlefield.player.filter((permanent) => !selected.has(permanent.id)),
-      opponent: session.battlefield.opponent.filter((permanent) => !selected.has(permanent.id)),
+      player: session.battlefield.player.filter((permanent) => !selected.has(permanent.id)).map(scrubAttachments),
+      opponent: session.battlefield.opponent.filter((permanent) => !selected.has(permanent.id)).map(scrubAttachments),
     },
     effectLog: [
       {
@@ -578,6 +790,28 @@ function toggleSelection(session, id) {
   };
 }
 
+function reorderPermanent(session, id, direction = 1) {
+  const sideKey = "player";
+  const side = [...session.battlefield[sideKey]];
+  const index = side.findIndex((permanent) => permanent.id === id);
+  if (index < 0) {
+    return session;
+  }
+  const nextIndex = Math.max(0, Math.min(side.length - 1, index + (Number(direction) >= 0 ? 1 : -1)));
+  if (nextIndex === index) {
+    return session;
+  }
+  const [entry] = side.splice(index, 1);
+  side.splice(nextIndex, 0, entry);
+  return {
+    ...session,
+    battlefield: {
+      ...session.battlefield,
+      [sideKey]: side,
+    },
+  };
+}
+
 function updatePendingEffect(session, id, status) {
   return {
     ...session,
@@ -585,43 +819,175 @@ function updatePendingEffect(session, id, status) {
   };
 }
 
+function reactivateDelayedTriggers(session) {
+  const queue = (session.triggerQueue || []).map((entry) => {
+    if (
+      entry.status === "delayed" &&
+      Number(entry.delayedUntilTurn) <= session.turn &&
+      Number(entry.delayedUntilPhase) <= session.phaseIndex
+    ) {
+      return {
+        ...entry,
+        status: "pending",
+        delayedUntilTurn: null,
+        delayedUntilPhase: null,
+      };
+    }
+    return entry;
+  });
+  return {
+    ...session,
+    triggerQueue: queue,
+  };
+}
+
+function emitAndProcessSessionEvent(session, action, actionType) {
+  const mappedEventType = mapActionToGameEvent(action, actionType);
+  if (!mappedEventType) {
+    return session;
+  }
+  const queued = queueGameEvent(
+    session,
+    mappedEventType,
+    {
+      actionType,
+      phase: PHASES[session.phaseIndex],
+      turn: session.turn,
+      permanent: action.card || action.permanent || null,
+      targetIds: action.targetIds || [],
+      amount: action.amount,
+    },
+    {
+      sourceId: action.sourceId || action.id || "",
+      playerId: action.playerId || "local-player",
+    }
+  );
+  const actionsWithInlineTriggerResolution = new Set(["ADD_PERMANENT", "ADD_CUSTOM_TOKEN", "CAST_SPELL", "ADVANCE_PHASE", "DECLARE_ATTACKERS"]);
+  if (actionsWithInlineTriggerResolution.has(actionType)) {
+    return { ...queued, eventQueue: [] };
+  }
+  return drainGameEvents(queued, (nextSession, gameEvent) =>
+    processEventTriggers(
+      runGameEventObservers(nextSession, gameEvent),
+      {
+        type: eventTypeToLegacy(gameEvent.eventType),
+        eventType: gameEvent.eventType,
+        phase: gameEvent.payload?.phase,
+        payload: gameEvent.payload || {},
+        permanent: gameEvent.payload?.permanent || null,
+      }
+    )
+  );
+}
+
+function mapActionToGameEvent(action, actionType) {
+  if (actionType === "REMOVE_SELECTED") {
+    const mode = String(action.mode || "").toLowerCase();
+    if (mode === "destroy") {
+      return "DESTROY";
+    }
+    if (mode === "exile") {
+      return "EXILE";
+    }
+    if (mode === "sacrifice") {
+      return "SACRIFICE";
+    }
+    return "LEAVE_BATTLEFIELD";
+  }
+  return mapActionTypeToGameEvent(actionType);
+}
+
+function eventTypeToLegacy(eventType) {
+  const map = {
+    ENTER_BATTLEFIELD: "permanent-entered",
+    LAND_ENTERED_BATTLEFIELD: "land-entered-battlefield",
+    LANDFALL_CHECK: "landfall-check",
+    LEAVE_BATTLEFIELD: "permanent-left",
+    DESTROY: "permanent-died",
+    EXILE: "permanent-left",
+    SACRIFICE: "permanent-died",
+    COUNTER_ADDED: "counter-added",
+    TOKEN_CREATED: "permanent-entered",
+    PHASE_CHANGED: "phase-changed",
+    TURN_CHANGED: "turn-changed",
+    LIFE_CHANGED: "life-changed",
+    COMMANDER_DAMAGE_CHANGED: "commander-damage-changed",
+    SPELL_CAST: "spell-cast",
+    ABILITY_ACTIVATED: "ability-activated",
+    ATTACK_DECLARED: "attackers-declared",
+    ATTACK_TRIGGER_CHECK: "attack-trigger-check",
+    BLOCK_DECLARED: "blockers-declared",
+  };
+  return map[eventType] || "state-changed";
+}
+
 function withSession(profile, session) {
+  const { runtime, ...cleanSession } = session || {};
   return {
     ...profile,
     activeSession: {
-      ...session,
+      ...cleanSession,
       updatedAt: Date.now(),
     },
   };
 }
 
+function withRuntimeSettings(session, settings = {}) {
+  return {
+    ...session,
+    runtime: {
+      adhdAutomation: Boolean(settings.adhdAutomation ?? settings.adhdMode?.enabled ?? true),
+      confirmAmbiguousEffects: Boolean(settings.confirmAmbiguousEffects ?? true),
+      adhdModeEnabled: Boolean(settings.adhdMode?.enabled),
+      debugRules: Boolean(settings.developer?.rulesDebug),
+    },
+  };
+}
+
 function withHistory(profile, event) {
-  if (event.type === "SAVE_TICK") {
+  if (event.actionType === "SAVE_TICK" || event.type === "SAVE_TICK") {
     return profile;
   }
+  const actionType = event.actionType || event.type || "UNKNOWN";
+  const actionRecord = {
+    actionId: event.actionId || createId("action"),
+    timestamp: event.timestamp || Date.now(),
+    playerId: event.playerId || "local-player",
+    sourceId: event.sourceId || event.id || "",
+    targetIds: Array.isArray(event.targetIds) ? event.targetIds : [],
+    actionType,
+    payload: event.payload || {},
+    resultingStateReference: event.resultingStateReference || `${profile.activeSession.id}:${profile.activeSession.updatedAt}`,
+    replayable: event.replayable !== false,
+    undoable: event.undoable !== false,
+    snapshot: createReplaySnapshot(profile.activeSession),
+  };
   return {
     ...profile,
     activeSession: {
       ...profile.activeSession,
       history: [
         {
-          id: createId("event"),
-          at: Date.now(),
-          type: event.type,
-          summary: event.summary || event.type,
+          id: actionRecord.actionId,
+          at: actionRecord.timestamp,
+          type: actionType,
+          summary: event.summary || actionType,
         },
         ...profile.activeSession.history,
       ].slice(0, 250),
+      actionHistory: [actionRecord, ...(profile.activeSession.actionHistory || [])].slice(0, 600),
     },
   };
 }
 
 function pushUndo(profile, event) {
+  const reason = event.actionType || event.type || "UNKNOWN";
   return {
     ...profile,
     activeSession: {
       ...profile.activeSession,
-      undoStack: [{ reason: event.type, snapshot: clone(profile.activeSession) }, ...profile.activeSession.undoStack].slice(0, 50),
+      undoStack: [{ reason, snapshot: createUndoSnapshot(profile.activeSession) }, ...profile.activeSession.undoStack].slice(0, 50),
+      redoStack: [],
     },
   };
 }
@@ -636,6 +1002,68 @@ function popUndo(profile) {
     activeSession: {
       ...entry.snapshot,
       undoStack: rest,
+      redoStack: [{ reason: "UNDO", snapshot: createUndoSnapshot(profile.activeSession) }, ...(profile.activeSession.redoStack || [])].slice(0, 50),
     },
   };
+}
+
+function popRedo(profile) {
+  const [entry, ...rest] = profile.activeSession.redoStack || [];
+  if (!entry) {
+    return profile;
+  }
+  return {
+    ...profile,
+    activeSession: {
+      ...entry.snapshot,
+      redoStack: rest,
+      undoStack: [{ reason: "REDO", snapshot: createUndoSnapshot(profile.activeSession) }, ...(profile.activeSession.undoStack || [])].slice(0, 50),
+    },
+  };
+}
+
+function replayToAction(profile, actionId) {
+  const history = profile.activeSession.actionHistory || [];
+  const entry = history.find((item) => item.actionId === actionId);
+  if (!entry?.snapshot) {
+    return profile;
+  }
+  return {
+    ...profile,
+    activeSession: {
+      ...createReplaySnapshot(entry.snapshot),
+      replay: {
+        ...(entry.snapshot.replay || {}),
+        active: true,
+        cursor: history.findIndex((item) => item.actionId === actionId),
+        running: false,
+      },
+    },
+  };
+}
+
+function createUndoSnapshot(session) {
+  const snapshot = clone(session);
+  snapshot.undoStack = [];
+  snapshot.redoStack = [];
+  snapshot.actionHistory = [];
+  snapshot.history = [];
+  snapshot.eventQueue = [];
+  snapshot.eventHistory = [];
+  snapshot.runtime = undefined;
+  return snapshot;
+}
+
+function createReplaySnapshot(session) {
+  const snapshot = createUndoSnapshot(session);
+  snapshot.effectLog = (snapshot.effectLog || []).slice(0, 120);
+  snapshot.pendingEffects = (snapshot.pendingEffects || []).slice(0, 60);
+  snapshot.triggerQueue = (snapshot.triggerQueue || []).slice(0, 180);
+  snapshot.replay = {
+    ...(snapshot.replay || {}),
+    active: false,
+    cursor: -1,
+    running: false,
+  };
+  return snapshot;
 }

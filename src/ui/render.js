@@ -1,14 +1,20 @@
 import { buildStats } from "../analytics/statsService.js";
 import { exportProfile, parseImportedProfile } from "../storage/localDatabase.js";
-import { searchScryfall } from "../services/scryfallService.js";
+import { fetchScryfallCardDetails, searchScryfall } from "../services/scryfallService.js";
 import { canBeCommander } from "../game/commanderSystem.js";
 import { PHASES } from "../state/schema.js";
+import { buildPredictiveActions } from "../game/predictiveActions.js";
 
 const PORTRAIT_TOUCH_QUERY = "(orientation: portrait) and (max-width: 1024px)";
 const SWIPE_DISTANCE_THRESHOLD = 72;
 const SWIPE_AXIS_DOMINANCE = 1.35;
 const LONG_PRESS_DELAY_MS = 420;
 const REPEAT_INTERVAL_MS = 110;
+const PERMANENT_DOUBLE_TAP_MS = 260;
+const PERMANENT_VERTICAL_SWIPE_THRESHOLD = 42;
+const PERMANENT_DRAG_REORDER_THRESHOLD = 46;
+const ATTACK_DRAG_TOP_RATIO = 0.34;
+const EDGE_ZONE_SIZE = 26;
 const DEFAULT_TRACKER_MODIFIER = {
   kind: "delta",
   value: 1,
@@ -21,12 +27,41 @@ const DEFAULT_TRACKER_MODIFIER = {
     commander: false,
   },
 };
+const STATUS_ICON_META = {
+  tapped: { glyph: "T", label: "Tapped" },
+  summoningSickness: { glyph: "S", label: "Summoning sickness" },
+  flying: { glyph: "F", label: "Flying" },
+  trample: { glyph: "Tr", label: "Trample" },
+  vigilance: { glyph: "V", label: "Vigilance" },
+  menace: { glyph: "Me", label: "Menace" },
+  deathtouch: { glyph: "D", label: "Deathtouch" },
+  lifelink: { glyph: "L", label: "Lifelink" },
+  ward: { glyph: "W", label: "Ward" },
+  counters: { glyph: "C", label: "Counters present" },
+  commander: { glyph: "Cmd", label: "Commander" },
+  token: { glyph: "Tok", label: "Token" },
+  monarch: { glyph: "Mon", label: "Monarch" },
+  initiative: { glyph: "Init", label: "Initiative" },
+  attacking: { glyph: "Atk", label: "Attacking" },
+  blocking: { glyph: "Blk", label: "Blocking" },
+  modified: { glyph: "Mod", label: "Modified" },
+  triggered: { glyph: "Trig", label: "Triggered ability source" },
+  staticEffect: { glyph: "Sta", label: "Static effect source" },
+  replacementEffect: { glyph: "Rep", label: "Replacement effect source" },
+  unresolvedTrigger: { glyph: "!", label: "Unresolved trigger" },
+  adhdReminder: { glyph: "ADHD", label: "ADHD reminder active" },
+};
 
 export function mountApp(root, store) {
   const allPages = ["life", "battlefield", "profile", "archive", "decks", "leaderboards"];
   let activePage = allPages.includes(location.hash.replace("#", "")) ? location.hash.replace("#", "") : "life";
   let searchResults = [];
   let searchMessage = "";
+  let searchQuery = "";
+  let searchLoading = false;
+  let searchDebounceTimer = null;
+  let searchRequestToken = 0;
+  let searchAbortController = null;
   let optionsOpen = false;
   let statsOpen = false;
   let statsMode = "individual";
@@ -34,10 +69,16 @@ export function mountApp(root, store) {
   let toolMenuOpen = false;
   let floatingManaOpen = false;
   let activeToolPanel = "";
+  let utilityDockOpen = false;
+  let activeUtilityPanel = "";
+  let combatResolving = false;
+  let toolContextOverride = "";
   let quickPanelOpen = "";
   let toolBadgePosition = { x: 18, y: 520 };
   let toolBadgeDrag = null;
   let manaAutoCloseTimer = null;
+  const expandedStackIds = new Set();
+  const permanentGestureState = new Map();
   let lifeGesture = null;
   let commanderGesture = null;
   let modifierGesture = null;
@@ -52,11 +93,23 @@ export function mountApp(root, store) {
 
   function render(profile) {
     const visiblePages = getVisiblePages(profile);
+    const toolContext = resolveToolContext(profile.activeSession, toolContextOverride);
+    const uiLayerState = resolveUiLayerState(profile, activePage, {
+      activeToolPanel,
+      toolMenuOpen,
+      floatingManaOpen,
+      utilityDockOpen,
+      activeUtilityPanel,
+      quickPanelOpen,
+      optionsOpen,
+      statsOpen,
+    });
     if (!visiblePages.includes(activePage)) {
       activePage = activePage === "profile" ? "profile" : visiblePages[0] || "life";
     }
     document.body.dataset.composition = profile.settings?.appearance?.compositionMode || "auto";
     document.body.dataset.page = activePage;
+    document.body.dataset.uiLayer = uiLayerState.current;
     root.innerHTML = layout(profile, activePage, searchResults, searchMessage, {
       optionsOpen,
       statsOpen,
@@ -64,12 +117,20 @@ export function mountApp(root, store) {
       toolMenuOpen,
       floatingManaOpen,
       activeToolPanel,
+      toolContext,
+      utilityDockOpen,
+      activeUtilityPanel,
       quickPanelOpen,
       toolBadgePosition,
       modifierPanelOpen,
       trackerModifier,
       pendingTrackerModifier,
       visiblePages,
+      expandedStackIds: [...expandedStackIds],
+      uiLayerState,
+      searchLoading,
+      searchQuery,
+      combatResolving,
     });
     bind(root, profile);
     scheduleManaAutoClose(profile);
@@ -206,6 +267,14 @@ export function mountApp(root, store) {
         render(store.getState());
       });
     });
+    container.querySelectorAll("[data-set-tool-context]").forEach((button) => {
+      button.addEventListener("click", () => {
+        toolContextOverride = button.dataset.setToolContext || "";
+        activeToolPanel = "";
+        toolMenuOpen = false;
+        render(store.getState());
+      });
+    });
     container.querySelector("[data-open-game-options]")?.addEventListener("click", () => {
       optionsOpen = true;
       activeToolPanel = "";
@@ -319,6 +388,15 @@ export function mountApp(root, store) {
     container.querySelectorAll("[data-multiplayer-mode]").forEach((button) => {
       button.addEventListener("click", () => store.dispatch({ type: "SET_MULTIPLAYER_MODE", mode: button.dataset.multiplayerMode }));
     });
+    container.querySelectorAll("[data-mp-setting]").forEach((input) => {
+      input.addEventListener("change", () =>
+        store.dispatch({
+          type: "SET_SETTING",
+          path: input.dataset.mpSetting,
+          value: input.type === "checkbox" ? input.checked : input.value,
+        })
+      );
+    });
     container.querySelector("[data-open-stats]")?.addEventListener("click", () => {
       statsOpen = true;
       render(store.getState());
@@ -345,6 +423,11 @@ export function mountApp(root, store) {
     container.querySelectorAll("[data-selected-action]").forEach((button) => {
       button.addEventListener("click", () => {
         const action = button.dataset.selectedAction;
+        if (action === "inspect") {
+          activeToolPanel = "inspect";
+          render(store.getState());
+          return;
+        }
         if (action === "tap" || action === "untap") {
           store.dispatch({ type: "SET_SELECTED_TAPPED", tapped: action === "tap" });
           return;
@@ -374,6 +457,35 @@ export function mountApp(root, store) {
           input.focus();
         }
       });
+    });
+    container.querySelector("[data-token-remove-selected]")?.addEventListener("click", () => {
+      store.dispatch({ type: "REMOVE_SELECTED", mode: "remove token" });
+    });
+    container.querySelector("[data-open-life-quick]")?.addEventListener("click", () => {
+      quickPanelOpen = "life";
+      render(store.getState());
+    });
+    container.querySelector("[data-open-commander-quick]")?.addEventListener("click", () => {
+      quickPanelOpen = "commander";
+      render(store.getState());
+    });
+    container.querySelectorAll("[data-player-life-delta]").forEach((button) => {
+      const action = () => ({ type: "LIFE_DELTA", amount: Number(button.dataset.playerLifeDelta || 0) });
+      bindTouchAction(button, action);
+      bindLongPressRepeat(button, action);
+    });
+    container.querySelectorAll("[data-player-counter-delta]").forEach((button) => {
+      const action = () => ({
+        type: "PLAYER_COUNTER_DELTA",
+        counter: button.dataset.playerCounterDelta,
+        amount: Number(button.dataset.delta || 0),
+      });
+      bindTouchAction(button, action);
+      bindLongPressRepeat(button, action);
+    });
+    container.querySelector("[data-save-player-note]")?.addEventListener("click", () => {
+      const note = String(container.querySelector("[data-player-note-input]")?.value || "").trim();
+      store.dispatch({ type: "SET_SETTING", path: "playerNotes.session", value: note });
     });
 
     container.querySelectorAll("[data-life-delta]").forEach((button) => {
@@ -411,6 +523,7 @@ export function mountApp(root, store) {
       dispatchWithFeedback({ type: "SET_COMMANDER_DAMAGE", opponentId: "opponent", value: 0 }, true)
     );
     container.querySelector("[data-undo]")?.addEventListener("click", () => store.dispatch({ type: "UNDO" }));
+    container.querySelector("[data-redo]")?.addEventListener("click", () => store.dispatch({ type: "REDO" }));
     container.querySelector("[data-next-phase]")?.addEventListener("click", () => store.dispatch({ type: "ADVANCE_PHASE" }));
     container.querySelector("[data-archive-game]")?.addEventListener("click", () => store.dispatch({ type: "ARCHIVE_GAME", result: "completed" }));
     container.querySelector("[data-cast-commander]")?.addEventListener("click", () => store.dispatch({ type: "CAST_COMMANDER" }));
@@ -424,7 +537,38 @@ export function mountApp(root, store) {
     container.querySelector("[data-clear-mana]")?.addEventListener("click", () => store.dispatch({ type: "CLEAR_MANA" }));
 
     container.querySelectorAll("[data-permanent]").forEach((button) => {
-      button.addEventListener("click", () => store.dispatch({ type: "SELECT_PERMANENT", id: button.dataset.permanent }));
+      button.addEventListener("click", (event) => {
+        if (profile.settings?.gestures?.advanced) {
+          event.preventDefault();
+          return;
+        }
+        toolContextOverride = "";
+        store.dispatch({ type: "SELECT_PERMANENT", id: button.dataset.permanent });
+      });
+    });
+    container.querySelectorAll("[data-toggle-stack]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const stackId = button.dataset.toggleStack;
+        if (!stackId) {
+          return;
+        }
+        if (expandedStackIds.has(stackId)) {
+          expandedStackIds.delete(stackId);
+        } else {
+          expandedStackIds.add(stackId);
+        }
+        render(store.getState());
+      });
+    });
+    container.querySelectorAll("[data-set-detail-mode]").forEach((button) => {
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "SET_SETTING", path: "battlefield.detailMode", value: button.dataset.setDetailMode });
+      });
+    });
+    container.querySelectorAll("[data-set-compression-mode]").forEach((button) => {
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "SET_SETTING", path: "battlefield.compressionMode", value: button.dataset.setCompressionMode });
+      });
     });
     container.querySelectorAll("[data-tap]").forEach((button) => {
       button.addEventListener("click", () => store.dispatch({ type: "TOGGLE_TAPPED", id: button.dataset.tap }));
@@ -435,7 +579,20 @@ export function mountApp(root, store) {
     container.querySelector("[data-declare-attackers]")?.addEventListener("click", () =>
       store.dispatch({ type: "DECLARE_ATTACKERS", ids: profile.activeSession.selectedIds })
     );
-    container.querySelector("[data-resolve-combat]")?.addEventListener("click", () => store.dispatch({ type: "RESOLVE_COMBAT" }));
+    container.querySelector("[data-resolve-combat]")?.addEventListener("click", () => {
+      if (combatResolving) {
+        return;
+      }
+      combatResolving = true;
+      render(store.getState());
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          store.dispatch({ type: "RESOLVE_COMBAT" });
+          combatResolving = false;
+          render(store.getState());
+        }, 0);
+      });
+    });
 
     container.querySelector("[data-token]")?.addEventListener("click", () =>
       store.dispatch({
@@ -464,12 +621,16 @@ export function mountApp(root, store) {
     container.querySelector("[data-search-form]")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const query = new FormData(event.currentTarget).get("query");
-      const commanderDeck = profile.commanders?.[profile.activeSession.commander?.deckKey]?.cards || [];
-      searchMessage = navigator.onLine ? "Searching..." : "Offline: showing commander deck matches only.";
-      render(store.getState());
-      searchResults = await searchScryfall(query, commanderDeck);
-      searchMessage = searchResults.length ? `${searchResults.length} result(s)` : "No results found.";
-      render(store.getState());
+      searchQuery = String(query || "");
+      await runScryfallSearch(query, store.getState(), true);
+    });
+    container.querySelector("[data-search-query]")?.addEventListener("input", (event) => {
+      const query = event.target.value;
+      searchQuery = String(query || "");
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+        runScryfallSearch(query, store.getState(), false);
+      }, 220);
     });
 
     container.querySelectorAll("[data-add-result]").forEach((button) => {
@@ -484,11 +645,109 @@ export function mountApp(root, store) {
     container.querySelectorAll("[data-deck-result]").forEach((button) => {
       button.addEventListener("click", () => store.dispatch({ type: "ADD_DECK_CARD", card: searchResults[Number(button.dataset.deckResult)] }));
     });
+    container.querySelectorAll("[data-inspect-result]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const card = searchResults[Number(button.dataset.inspectResult)];
+        if (!card?.cardId) {
+          return;
+        }
+        const details = await fetchScryfallCardDetails(card.cardId, true);
+        if (!details) {
+          return;
+        }
+        const rulings = (details.rulings || []).slice(0, 3).map((entry) => `- ${entry.comment}`).join("\n") || "- none";
+        alert(`${details.name}\n${details.manaCost} ${details.typeLine}\n\n${details.oracleText || ""}\n\nRulings:\n${rulings}\n\nTokens: ${(details.tokenReferences || []).map((entry) => entry.name).join(", ") || "none"}`);
+      });
+    });
     container.querySelectorAll("[data-pending-effect]").forEach((button) => {
       button.addEventListener("click", () => store.dispatch({ type: "MARK_PENDING_EFFECT", id: button.dataset.pendingEffect, status: button.dataset.status }));
     });
+    container.querySelectorAll("[data-trigger-resolve]").forEach((button) => {
+      button.addEventListener("click", () => store.dispatch({ type: "TRIGGER_QUEUE_RESOLVE", id: button.dataset.triggerResolve }));
+    });
+    container.querySelectorAll("[data-trigger-delay]").forEach((button) => {
+      button.addEventListener("click", () => store.dispatch({ type: "TRIGGER_QUEUE_DELAY", id: button.dataset.triggerDelay }));
+    });
+    container.querySelectorAll("[data-trigger-skip]").forEach((button) => {
+      button.addEventListener("click", () => store.dispatch({ type: "TRIGGER_QUEUE_SKIP", id: button.dataset.triggerSkip }));
+    });
+    container.querySelectorAll("[data-trigger-inspect]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const triggerId = button.dataset.triggerInspect;
+        const entry = (store.getState().activeSession.triggerQueue || []).find((item) => item.id === triggerId);
+        if (!entry) {
+          return;
+        }
+        alert(`${entry.sourceName}\n${entry.eventType}\nEffects: ${(entry.effectDefinitions || []).map((effect) => effect.action || "effect").join(", ")}\nModifiers: ${(entry.generatedModifiers || []).map((modifier) => `L${modifier.layer}:${modifier.operation}`).join(" | ") || "none"}`);
+      });
+    });
+    container.querySelectorAll("[data-replay-action]").forEach((button) => {
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "REPLAY_TO_ACTION", replayActionId: button.dataset.replayAction });
+      });
+    });
+    container.querySelectorAll("[data-prediction-apply]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const suggestions = buildPredictiveActions(store.getState());
+        const suggestion = suggestions.find((entry) => entry.id === button.dataset.predictionApply);
+        if (!suggestion?.apply?.actionType) {
+          return;
+        }
+        store.dispatch({
+          type: suggestion.apply.actionType,
+          ...(suggestion.apply.payload || {}),
+        });
+      });
+    });
+
+    container.querySelector("[data-toggle-utility-dock]")?.addEventListener("click", () => {
+      utilityDockOpen = !utilityDockOpen;
+      if (!utilityDockOpen) {
+        activeUtilityPanel = "";
+      }
+      render(store.getState());
+    });
+    container.querySelectorAll("[data-open-utility]").forEach((button) => {
+      button.addEventListener("click", () => {
+        activeUtilityPanel = button.dataset.openUtility || "";
+        utilityDockOpen = true;
+        render(store.getState());
+      });
+    });
+    container.querySelectorAll("[data-close-utility-panel]").forEach((button) => {
+      button.addEventListener("click", () => {
+        activeUtilityPanel = "";
+        render(store.getState());
+      });
+    });
+    container.querySelectorAll("[data-roll-dice]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const sides = Math.max(2, Number(button.dataset.rollDice) || 20);
+        const roll = Math.floor(Math.random() * sides) + 1;
+        store.dispatch({ type: "SET_SETTING", path: "utility.lastDice", value: `d${sides}: ${roll}` });
+      });
+    });
+    container.querySelector("[data-run-calculator]")?.addEventListener("click", () => {
+      const expression = String(container.querySelector("[data-utility-calculator]")?.value || "").trim();
+      if (!expression) {
+        return;
+      }
+      const safe = expression.replace(/[^0-9+\-*/(). ]/g, "");
+      try {
+        const result = Function(`"use strict"; return (${safe})`)();
+        store.dispatch({ type: "SET_SETTING", path: "utility.calculator", value: `${safe} = ${result}` });
+      } catch {
+        store.dispatch({ type: "SET_SETTING", path: "utility.calculator", value: `${safe} = error` });
+      }
+    });
+    container.querySelector("[data-save-utility-note]")?.addEventListener("click", () => {
+      const note = String(container.querySelector("[data-utility-note]")?.value || "");
+      store.dispatch({ type: "SET_SETTING", path: "playerNotes.dock", value: note });
+    });
+    bindPermanentGestures(container, profile);
 
     container.querySelector(".floating-mana")?.addEventListener("pointerdown", () => scheduleManaAutoClose(store.getState()));
+    bindEdgeSwipeZones(container, profile);
     document.onkeydown = (event) => {
       if (event.key !== "Escape") {
         return;
@@ -497,19 +756,21 @@ export function mountApp(root, store) {
         activeToolPanel = "";
         floatingManaOpen = false;
         toolMenuOpen = false;
+        activeUtilityPanel = "";
         render(store.getState());
       }
     };
     document.onpointerdown = (event) => {
-      if (!activeToolPanel && !floatingManaOpen) {
+      if (!activeToolPanel && !floatingManaOpen && !activeUtilityPanel) {
         return;
       }
-      if (event.target.closest(".floating-tool-panel, .floating-mana, .radial-menu, .tool-badge")) {
+      if (event.target.closest(".floating-tool-panel, .floating-mana, .radial-menu, .tool-badge, .utility-dock, .utility-overlay")) {
         return;
       }
       if (!profile.settings?.battlefield?.manaPinned) {
         activeToolPanel = "";
         floatingManaOpen = false;
+        activeUtilityPanel = "";
         render(store.getState());
       }
     };
@@ -528,6 +789,11 @@ export function mountApp(root, store) {
     optionsOpen = false;
     statsOpen = false;
     quickPanelOpen = "";
+    toolContextOverride = "";
+    toolMenuOpen = false;
+    activeToolPanel = "";
+    utilityDockOpen = false;
+    activeUtilityPanel = "";
     render(store.getState());
   }
 
@@ -655,6 +921,163 @@ export function mountApp(root, store) {
     });
   }
 
+  function bindPermanentGestures(container, profile) {
+    if (!profile.settings?.gestures?.advanced) {
+      return;
+    }
+    container.querySelectorAll("[data-permanent-card]").forEach((card) => {
+      const permanentId = card.dataset.permanentId;
+      if (!permanentId || card.dataset.readonly === "true") {
+        return;
+      }
+
+      card.addEventListener(
+        "touchstart",
+        (event) => {
+          if (event.touches.length === 2) {
+            event.preventDefault();
+            store.dispatch({ type: "SELECT_PERMANENT", id: permanentId });
+            activeToolPanel = "inspect";
+            toolMenuOpen = false;
+            render(store.getState());
+          }
+        },
+        { passive: false }
+      );
+
+      card.addEventListener("pointerdown", (event) => {
+        if (event.target.closest("[data-tap], [data-counter], .mini button")) {
+          return;
+        }
+        const startedAt = Date.now();
+        const gesture = {
+          id: permanentId,
+          startX: event.clientX,
+          startY: event.clientY,
+          moved: false,
+          startedAt,
+          longPressFired: false,
+          reordered: false,
+          timer: setTimeout(() => {
+            gesture.longPressFired = true;
+            store.dispatch({ type: "SELECT_PERMANENT", id: permanentId });
+            toolContextOverride = "";
+            toolMenuOpen = true;
+            activeToolPanel = "";
+            vibrateFeedback(true);
+            render(store.getState());
+          }, LONG_PRESS_DELAY_MS),
+        };
+        permanentGestureState.set(permanentId, gesture);
+      });
+
+      card.addEventListener("pointermove", (event) => {
+        const gesture = permanentGestureState.get(permanentId);
+        if (!gesture) {
+          return;
+        }
+        const dx = event.clientX - gesture.startX;
+        const dy = event.clientY - gesture.startY;
+        if (Math.abs(dx) > 6 || Math.abs(dy) > 6) {
+          gesture.moved = true;
+        }
+        if (
+          gesture.longPressFired &&
+          !gesture.reordered &&
+          Math.abs(dx) > PERMANENT_DRAG_REORDER_THRESHOLD &&
+          Math.abs(dx) > Math.abs(dy)
+        ) {
+          gesture.reordered = true;
+          store.dispatch({ type: "REORDER_PERMANENT", id: permanentId, direction: dx > 0 ? 1 : -1 });
+        }
+      });
+
+      const finishGesture = (event) => {
+        const gesture = permanentGestureState.get(permanentId);
+        if (!gesture) {
+          return;
+        }
+        clearTimeout(gesture.timer);
+        permanentGestureState.delete(permanentId);
+        if (gesture.longPressFired || gesture.reordered) {
+          return;
+        }
+
+        const dx = event.clientX - gesture.startX;
+        const dy = event.clientY - gesture.startY;
+        if (dy < -PERMANENT_VERTICAL_SWIPE_THRESHOLD && event.clientY < window.innerHeight * ATTACK_DRAG_TOP_RATIO) {
+          store.dispatch({ type: "DECLARE_ATTACKERS", ids: [permanentId] });
+          return;
+        }
+
+        if (Math.abs(dy) > PERMANENT_VERTICAL_SWIPE_THRESHOLD && Math.abs(dy) > Math.abs(dx) * 1.2) {
+          store.dispatch({
+            type: "ADD_COUNTER",
+            id: permanentId,
+            counterType: dy < 0 ? "+1/+1" : "-1/-1",
+            amount: 1,
+          });
+          return;
+        }
+
+        const lastTap = Number(card.dataset.lastTapAt || 0);
+        const now = Date.now();
+        if (now - lastTap < PERMANENT_DOUBLE_TAP_MS) {
+          card.dataset.lastTapAt = "0";
+          store.dispatch({ type: "TOGGLE_TAPPED", id: permanentId });
+          return;
+        }
+        card.dataset.lastTapAt = String(now);
+        if (!gesture.moved && now - gesture.startedAt < LONG_PRESS_DELAY_MS) {
+          store.dispatch({ type: "SELECT_PERMANENT", id: permanentId });
+        }
+      };
+
+      card.addEventListener("pointerup", finishGesture);
+      card.addEventListener("pointercancel", () => {
+        const gesture = permanentGestureState.get(permanentId);
+        if (!gesture) {
+          return;
+        }
+        clearTimeout(gesture.timer);
+        permanentGestureState.delete(permanentId);
+      });
+    });
+  }
+
+  function bindEdgeSwipeZones(container, profile) {
+    if (!profile.settings?.navigation?.edgeSwipeShortcuts) {
+      return;
+    }
+    container.querySelectorAll("[data-edge-zone]").forEach((zone) => {
+      zone.addEventListener("pointerdown", (event) => {
+        const edge = zone.dataset.edgeZone;
+        if (edge === "left") {
+          movePage(-1);
+          return;
+        }
+        if (edge === "right") {
+          utilityDockOpen = true;
+          activeUtilityPanel = activeUtilityPanel || "triggers";
+          render(store.getState());
+          return;
+        }
+        if (edge === "bottom") {
+          floatingManaOpen = true;
+          activeToolPanel = "";
+          toolMenuOpen = false;
+          render(store.getState());
+          return;
+        }
+        if (edge === "top") {
+          utilityDockOpen = true;
+          activeUtilityPanel = "history";
+          render(store.getState());
+        }
+      });
+    });
+  }
+
   function dispatchWithFeedback(action, strong = false) {
     store.dispatch(action);
     vibrateFeedback(strong);
@@ -736,13 +1159,61 @@ export function mountApp(root, store) {
       render(store.getState());
     }, 5000);
   }
+
+  async function runScryfallSearch(query, profile, immediate = false) {
+    const trimmed = String(query || "").trim();
+    searchQuery = String(query || "");
+    const token = ++searchRequestToken;
+    if (!trimmed && !immediate) {
+      searchLoading = false;
+      searchResults = [];
+      searchMessage = "Start typing to search Scryfall.";
+      render(store.getState());
+      return;
+    }
+    const commanderDeck = profile.commanders?.[profile.activeSession.commander?.deckKey]?.cards || [];
+    searchAbortController?.abort();
+    searchAbortController = new AbortController();
+    searchLoading = true;
+    searchMessage = navigator.onLine ? "Searching..." : "Offline: showing commander deck matches only.";
+    render(store.getState());
+    try {
+      const results = await searchScryfall(trimmed, commanderDeck, { requestToken: token, signal: searchAbortController.signal });
+      if (token !== searchRequestToken) {
+        return;
+      }
+      searchResults = results;
+      searchMessage = searchResults.length ? `${searchResults.length} result(s)` : "No results found.";
+    } catch {
+      if (token !== searchRequestToken) {
+        return;
+      }
+      searchMessage = "Search unavailable right now.";
+    } finally {
+      if (token === searchRequestToken) {
+        searchLoading = false;
+        render(store.getState());
+      }
+    }
+  }
 }
 
 function layout(profile, page, searchResults, searchMessage, uiState) {
   const session = profile.activeSession;
   const tabs = uiState.visiblePages || getVisiblePages(profile);
+  const uiLayer = uiState.uiLayerState || resolveUiLayerState(profile, page, uiState);
+  const appLayerClasses = [
+    `ui-layer-${uiLayer.current}`,
+    uiLayer.passive ? "ui-layer-passive" : "",
+    uiLayer.active ? "ui-layer-active" : "",
+    uiLayer.focus ? "ui-layer-focus" : "",
+    uiLayer.inspect ? "ui-layer-inspect" : "",
+    uiLayer.adhd ? "ui-layer-adhd" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return `
-    <main class="app-shell" data-app-shell>
+    <main class="app-shell ${appLayerClasses}" data-ui-layer="${escapeAttribute(uiLayer.current)}" data-app-shell>
       <header class="app-header glass">
         <div class="app-header-top">
           <div>
@@ -759,16 +1230,19 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
         ${renderMobileSwipeControls(tabs, page)}
       </header>
       ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier) : ""}
-      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage) : ""}
+      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current) : ""}
       ${page === "profile" ? renderProfile(profile) : ""}
       ${page === "archive" ? renderArchive(profile) : ""}
-      ${page === "decks" ? renderDecks(profile, searchResults, searchMessage) : ""}
+      ${page === "decks" ? renderDecks(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery) : ""}
       ${page === "leaderboards" ? renderLeaderboards(profile) : ""}
-      ${page === "battlefield" ? renderBattlefieldToolBadge(profile, uiState.toolMenuOpen, uiState.floatingManaOpen, uiState.activeToolPanel, uiState.toolBadgePosition) : ""}
+      ${page === "battlefield" ? renderBattlefieldToolBadge(profile, uiState.toolMenuOpen, uiState.floatingManaOpen, uiState.activeToolPanel, uiState.toolBadgePosition, uiState.toolContext) : ""}
+      ${page === "battlefield" ? renderUtilityDock(profile, uiState.utilityDockOpen, uiState.activeUtilityPanel) : ""}
       ${uiState.quickPanelOpen ? renderQuickAdjustmentPanel(profile, uiState.quickPanelOpen) : ""}
       ${uiState.modifierPanelOpen ? renderTrackerModifierPanel(uiState.pendingTrackerModifier) : ""}
       ${uiState.optionsOpen ? renderGameOptions(profile) : ""}
       ${uiState.statsOpen ? renderStatsOverlay(profile, uiState.statsMode) : ""}
+      ${renderAdhdAssistPanel(profile, page, uiLayer.current)}
+      ${renderEdgeSwipeZones(profile)}
     </main>
   `;
 }
@@ -940,38 +1414,70 @@ function renderCounterControl(name, value, type) {
   `;
 }
 
-function renderBattlefield(profile, searchResults, searchMessage) {
+function renderBattlefield(profile, searchResults, searchMessage, searchLoading, searchQuery, combatResolving, toolContext, expandedStackIds, activeUtilityPanel, uiLayer = "passive") {
   const session = profile.activeSession;
   const stats = buildStats(profile);
   const panels = getPagePanels(profile);
+  const adhdMode = getAdhdMode(profile);
+  const detailMode = profile.settings?.battlefield?.detailMode || "standard";
+  const compressionMode = profile.settings?.battlefield?.compressionMode || "adaptive";
+  const selectedIds = new Set(session.selectedIds || []);
+  const playerDensityClass = getDensityClass(session.battlefield.player, compressionMode);
+  const opponentDensityClass = getDensityClass(session.battlefield.opponent, compressionMode);
   return `
-    <section class="battlefield-page battlefield-page--focused">
-      <section class="arena glass">
+    <section class="battlefield-page battlefield-page--focused ui-layer-surface-${escapeAttribute(uiLayer)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}">
+      <section class="arena glass ${playerDensityClass} ${profile.settings?.battlefield?.focusMode && session.selectedIds?.length ? "focus-mode" : ""} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}" data-set-tool-context="empty">
         ${panels.boardOpponent ? `
-        <div class="opponent-zone">
+        <div class="opponent-zone ${opponentDensityClass}" data-set-tool-context="empty">
           <h2>Opponent Battlefield</h2>
-          ${renderBattlefieldGroups(session.battlefield.opponent, { readonly: true, emptyText: "No visible opponent permanents", expandedAll: profile.settings?.battlefield?.expandedAll })}
+          ${renderBattlefieldGroups(session.battlefield.opponent, {
+            readonly: true,
+            emptyText: "No visible opponent permanents",
+            expandedAll: profile.settings?.battlefield?.expandedAll,
+            selectedIds,
+            detailMode,
+            compressionMode,
+            expandedStackIds,
+            session,
+            settings: profile.settings,
+          })}
         </div>
         ` : ""}
         ${panels.boardCombat ? `
         <div class="combat-zone">
           <h2>Combat</h2>
           <p>${session.combat.damagePreview ? `${session.combat.damagePreview.total} damage estimated` : "Select attackers, then confirm combat."}</p>
-          <div class="row"><button data-declare-attackers>Declare Attackers</button><button data-resolve-combat>Resolve</button></div>
+          <div class="row">
+            <button data-declare-attackers ${combatResolving ? "disabled" : ""}>Declare Attackers</button>
+            <button data-resolve-combat ${combatResolving ? "disabled" : ""}>${combatResolving ? "Resolving…" : "Resolve"}</button>
+          </div>
         </div>
         ` : ""}
         <div class="player-zone">
           <h2>Your Battlefield</h2>
-          ${renderBattlefieldGroups(session.battlefield.player, { emptyText: "No permanents yet", expandedAll: profile.settings?.battlefield?.expandedAll })}
+          ${renderBattlefieldGroups(session.battlefield.player, {
+            emptyText: "No permanents yet",
+            expandedAll: profile.settings?.battlefield?.expandedAll,
+            selectedIds,
+            detailMode,
+            compressionMode,
+            expandedStackIds,
+            session,
+            settings: profile.settings,
+          })}
         </div>
       </section>
       <aside class="search-panel glass">
         ${renderBattlefieldPhaseTracker(session, stats)}
+        ${renderBattlefieldViewControls(detailMode, compressionMode, uiLayer)}
+        ${renderPredictiveSuggestions(profile)}
         ${panels.archiveQuickAdd ? `<h2>Battlefield Quick Add</h2>` : ""}
-        ${panels.archiveQuickAdd ? renderSearch(searchResults, searchMessage) : ""}
+        ${panels.archiveQuickAdd ? renderSearch(searchResults, searchMessage, searchLoading, searchQuery) : ""}
       </aside>
     </section>
     ${panels.advancedRulesHelpers ? renderPending(session) : ""}
+    ${activeUtilityPanel === "history" ? renderActionTimeline(profile) : ""}
+    ${activeUtilityPanel === "triggers" ? renderTriggerQueuePanel(profile) : ""}
   `;
 }
 
@@ -982,6 +1488,7 @@ function renderBattlefieldPhaseTracker(session, stats) {
       <h2>Turn ${session.turn}</h2>
       <strong>${escapeHtml(PHASES[session.phaseIndex])}</strong>
       <p>Board ${stats.currentBoardSize} / Triggers ${stats.triggersResolved}</p>
+      <button class="wide" data-set-tool-context="player">Player Tool Context</button>
       <button class="wide" data-next-phase>Next Phase</button>
     </section>
   `;
@@ -1013,7 +1520,7 @@ function renderPermanentGroup(label, permanents, options = {}) {
         <span>${label}</span>
         <strong>${count}</strong>
       </div>
-      <div class="tile-grid ${options.readonly ? "readonly" : ""}">
+      <div class="tile-grid ${options.readonly ? "readonly" : ""} ${options.compressionMode === "compact" ? "density-high" : ""}">
         ${permanents.map((permanent) => renderPermanent(permanent, options)).join("")}
       </div>
     </section>
@@ -1021,17 +1528,26 @@ function renderPermanentGroup(label, permanents, options = {}) {
 }
 
 function renderPermanent(permanent, options = {}) {
+  const selected = options.selectedIds?.has(permanent.id);
+  const stackExpanded = options.expandedAll || options.expandedStackIds?.has(permanent.id);
+  const detailMode = options.detailMode || "standard";
+  const stackMembers = permanent.stackMembers || [];
+  const statusIcons = collectPermanentStatusIcons(permanent, options.session, options.settings);
   return `
-    <article class="permanent ${permanent.tapped ? "tapped" : ""} ${permanent.attacking ? "attacking" : ""} ${permanent.manualStatus === "pending" ? "pending" : ""}">
+    <article class="permanent detail-${detailMode} ${selected ? "selected" : ""} ${permanent.tapped ? "tapped" : ""} ${permanent.attacking ? "attacking" : ""} ${permanent.manualStatus === "pending" ? "pending" : ""}" data-permanent-card data-permanent-id="${permanent.id}" data-readonly="${options.readonly ? "true" : "false"}">
       <button ${options.readonly ? "" : `data-permanent="${permanent.id}"`}>
         <strong>${escapeHtml(permanent.name)}</strong>
-        <span>${escapeHtml(permanent.typeLine)}</span>
+        ${detailMode !== "compact" ? `<span>${escapeHtml(permanent.typeLine)}</span>` : `<span>MV ${permanent.manaValue || 0}</span>`}
         ${permanent.isCreature ? `<b>${permanent.currentPower}/${permanent.currentToughness}</b>` : ""}
         ${permanent.isPlaneswalker ? `<b>Loyalty ${permanent.counters?.Loyalty || 0}</b>` : ""}
         ${permanent.quantity > 1 ? `<i class="quantity">x${permanent.quantity}</i>` : ""}
         ${permanent.isToken ? "<em>TOKEN</em>" : ""}
+        ${permanent.isCommander ? "<em>COMMANDER</em>" : ""}
       </button>
-      ${options.expandedAll ? renderPermanentDetails(permanent) : ""}
+      ${renderStatusIconRow(statusIcons)}
+      ${detailMode !== "compact" ? renderPermanentDetails(permanent, detailMode) : ""}
+      ${permanent.quantity > 1 ? `<button class="stack-toggle" type="button" data-toggle-stack="${permanent.id}">${stackExpanded ? "Collapse Stack" : "Expand Stack"}</button>` : ""}
+      ${stackExpanded ? renderStackMemberDetails(stackMembers, detailMode) : ""}
       ${options.readonly ? "" : `<div class="row mini">
         <button data-tap="${permanent.id}">${permanent.tapped ? "Untap" : "Tap"}</button>
         <button data-counter="${permanent.id}">+1/+1</button>
@@ -1040,24 +1556,341 @@ function renderPermanent(permanent, options = {}) {
   `;
 }
 
-function renderPermanentDetails(permanent) {
+function renderPermanentDetails(permanent, detailMode = "standard") {
   const counters = Object.entries(permanent.counters || {}).filter(([, value]) => Number(value) > 0);
+  const layerInfo = detailMode === "inspect" ? renderLayerBreakdown(permanent.layerBreakdown || []) : "";
+  const triggerInfo =
+    detailMode === "inspect"
+      ? `<span>Triggers: ${(permanent.triggeredAbilities || []).length} · Static: ${(permanent.staticAbilities || []).length}</span>`
+      : "";
   return `
     <div class="permanent-details">
       ${counters.length ? `<span>${counters.map(([type, value]) => `${escapeHtml(type)} ${value}`).join(" / ")}</span>` : "<span>No counters</span>"}
       ${permanent.keywords?.length ? `<span>${permanent.keywords.map(escapeHtml).join(", ")}</span>` : ""}
+      ${detailMode === "inspect" ? `<span>${escapeHtml(permanent.rulesText || permanent.oracleText || "No rules text")}</span>` : ""}
+      ${triggerInfo}
+      ${layerInfo}
     </div>
   `;
 }
 
-function renderSearch(results, message) {
+function renderStatusIconRow(statusIcons = []) {
+  if (!statusIcons.length) {
+    return "";
+  }
+  return `
+    <div class="status-icon-row">
+      ${statusIcons
+        .map(
+          (status) => `
+        <span class="status-icon status-${escapeAttribute(status.key)}" title="${escapeAttribute(status.label)}" aria-label="${escapeAttribute(status.label)}">
+          ${escapeHtml(status.glyph)}
+        </span>
+      `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function collectPermanentStatusIcons(permanent, session, settings) {
+  const keywordSet = new Set((permanent.keywords || []).map((keyword) => String(keyword || "").toLowerCase()));
+  const hasCounters = Object.values(permanent.counters || {}).some((value) => Number(value) > 0);
+  const adhdEnabled = Boolean(settings?.adhdMode?.enabled);
+  const unresolvedTrigger =
+    (session?.triggerQueue || []).some((entry) => entry.status === "pending" && entry.sourceId === permanent.id) ||
+    (session?.pendingEffects || []).some((entry) => entry.status === "pending" && entry.sourceId === permanent.id);
+  const hasMonarch = keywordSet.has("monarch") || Number(session?.playerCounters?.monarch || 0) > 0;
+  const hasInitiative = keywordSet.has("initiative") || Number(session?.playerCounters?.initiative || 0) > 0;
+  const modified = hasCounters || (permanent.temporaryModifiers || []).length > 0 || (permanent.layerBreakdown || []).length > 0;
+
+  const statusOrder = [
+    ["tapped", Boolean(permanent.tapped)],
+    ["summoningSickness", Boolean(permanent.summoningSick)],
+    ["flying", keywordSet.has("flying")],
+    ["trample", keywordSet.has("trample")],
+    ["vigilance", keywordSet.has("vigilance")],
+    ["menace", keywordSet.has("menace")],
+    ["deathtouch", keywordSet.has("deathtouch")],
+    ["lifelink", keywordSet.has("lifelink")],
+    ["ward", keywordSet.has("ward")],
+    ["counters", hasCounters],
+    ["commander", Boolean(permanent.isCommander)],
+    ["token", Boolean(permanent.isToken)],
+    ["monarch", hasMonarch],
+    ["initiative", hasInitiative],
+    ["attacking", Boolean(permanent.attacking)],
+    ["blocking", Boolean(permanent.blocking)],
+    ["modified", modified],
+    ["triggered", (permanent.triggeredAbilities || []).length > 0],
+    ["staticEffect", (permanent.staticAbilities || []).length > 0],
+    ["replacementEffect", (permanent.replacementEffects || []).length > 0],
+    ["unresolvedTrigger", unresolvedTrigger],
+    ["adhdReminder", adhdEnabled && unresolvedTrigger],
+  ];
+
+  return statusOrder
+    .filter(([, enabled]) => enabled)
+    .map(([key]) => ({
+      key,
+      glyph: STATUS_ICON_META[key]?.glyph || key.slice(0, 3).toUpperCase(),
+      label: STATUS_ICON_META[key]?.label || key,
+    }));
+}
+
+function renderLayerBreakdown(layerBreakdown = []) {
+  if (!layerBreakdown.length) {
+    return "<span>Layers: no active modifiers</span>";
+  }
+  return `<span>Layers: ${layerBreakdown.map((entry) => `L${entry.layer}:${entry.operation}`).join(" · ")}</span>`;
+}
+
+function renderStackMemberDetails(stackMembers = [], detailMode = "standard") {
+  if (!stackMembers.length || detailMode === "compact") {
+    return "";
+  }
+  return `
+    <div class="stack-member-list">
+      ${stackMembers.map((member) => `
+        <span>
+          ${member.instanceId}
+          ${member.tapped ? " · tapped" : ""}
+          ${Object.keys(member.counters || {}).length ? ` · ${Object.entries(member.counters).map(([counter, value]) => `${counter} ${value}`).join(", ")}` : ""}
+        </span>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderBattlefieldViewControls(detailMode, compressionMode, uiLayer = "passive") {
+  const detailModes = ["compact", "standard", "inspect"];
+  const compressionModes = ["adaptive", "compact", "expanded"];
+  return `
+    <section class="phase-tracker-card">
+      <p class="eyebrow">Battlefield display</p>
+      <span>UI layer: ${escapeHtml(formatLabel(uiLayer))}</span>
+      <div class="button-grid">
+        ${detailModes.map((mode) => `<button class="${detailMode === mode ? "active" : ""}" data-set-detail-mode="${mode}">${formatLabel(mode)}</button>`).join("")}
+      </div>
+      <div class="button-grid">
+        ${compressionModes.map((mode) => `<button class="${compressionMode === mode ? "active" : ""}" data-set-compression-mode="${mode}">${formatLabel(mode)}</button>`).join("")}
+      </div>
+      <div class="button-grid">
+        <button data-setting-button="battlefield.expandedAll" data-value="true">Expand Board Stacks</button>
+        <button data-setting-button="battlefield.expandedAll" data-value="false">Collapse Board Stacks</button>
+      </div>
+    </section>
+  `;
+}
+
+function renderPredictiveSuggestions(profile) {
+  const suggestions = buildPredictiveActions(profile);
+  if (!suggestions.length) {
+    return `
+      <section class="phase-tracker-card">
+        <p class="eyebrow">Predictive Actions</p>
+        <p>No immediate suggestions.</p>
+      </section>
+    `;
+  }
+  return `
+    <section class="phase-tracker-card">
+      <p class="eyebrow">Predictive Actions</p>
+      ${suggestions
+        .map(
+          (suggestion) => `
+        <article class="prediction-row">
+          <strong>${escapeHtml(suggestion.label)}</strong>
+          <span>${escapeHtml(suggestion.detail)}</span>
+          ${
+            suggestion.apply
+              ? `<button data-prediction-apply="${escapeAttribute(suggestion.id)}">Apply</button>`
+              : ""
+          }
+        </article>
+      `
+        )
+        .join("")}
+    </section>
+  `;
+}
+
+function renderActionTimeline(profile) {
+  const entries = profile.activeSession.actionHistory || [];
+  return `
+    <section class="utility-overlay glass history-timeline" data-no-swipe>
+      <div class="overlay-header compact">
+        <h2>Action Timeline</h2>
+        <button data-close-utility-panel>Close</button>
+      </div>
+      <div class="timeline-controls row">
+        <button data-undo>Undo</button>
+        <button data-redo>Redo</button>
+      </div>
+      <div class="timeline-list scroll-safe">
+        ${entries
+          .slice(0, 140)
+          .map(
+            (entry) => `
+          <article class="log-card">
+            <strong>${escapeHtml(entry.actionType)}</strong>
+            <span>${new Date(entry.timestamp).toLocaleTimeString()} · ${escapeHtml(entry.playerId || "local-player")}</span>
+            <p>${escapeHtml(JSON.stringify(entry.payload || {}))}</p>
+            <button data-replay-action="${entry.actionId}">Replay To Here</button>
+          </article>
+        `
+          )
+          .join("") || "<p>No actions yet.</p>"}
+      </div>
+    </section>
+  `;
+}
+
+function renderTriggerQueuePanel(profile) {
+  const queue = profile.activeSession.triggerQueue || [];
+  return `
+    <section class="utility-overlay glass trigger-queue-panel" data-no-swipe>
+      <div class="overlay-header compact">
+        <h2>Trigger Queue</h2>
+        <button data-close-utility-panel>Close</button>
+      </div>
+      <div class="timeline-list scroll-safe">
+        ${queue
+          .map(
+            (entry) => `
+          <article class="log-card ${entry.status === "pending" ? "pending-trigger" : ""}">
+            <strong>${escapeHtml(entry.sourceName)}</strong>
+            <span>${escapeHtml(entry.eventType)} · Chain ${escapeHtml(entry.chainId)}</span>
+            <p>Status: ${escapeHtml(entry.status)}</p>
+            <p>Effects: ${(entry.effectDefinitions || []).map((effect) => escapeHtml(effect.action || "effect")).join(", ")}</p>
+            <p>Modifiers: ${(entry.generatedModifiers || []).map((modifier) => `L${modifier.layer}:${modifier.operation}`).join(" · ") || "none"}</p>
+            <div class="row mini">
+              <button data-trigger-resolve="${entry.id}">Resolve</button>
+              <button data-trigger-delay="${entry.id}">Delay</button>
+              <button data-trigger-skip="${entry.id}">Skip</button>
+              <button data-trigger-inspect="${entry.id}">Inspect</button>
+            </div>
+          </article>
+        `
+          )
+          .join("") || "<p>No queued triggers.</p>"}
+      </div>
+    </section>
+  `;
+}
+
+function renderUtilityDock(profile, open, activeUtilityPanel) {
+  const manaTotal = Object.values(profile.activeSession.manaPool || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+  return `
+    <section class="utility-dock ${open ? "open" : ""}">
+      <button class="utility-dock-toggle glass" data-toggle-utility-dock>${open ? "Close" : "Utility"}</button>
+      ${open ? `
+        <div class="utility-dock-menu glass">
+          <button data-open-utility="dice">Dice</button>
+          <button data-open-utility="tokens">Token Gen</button>
+          <button data-open-utility="mana">Mana ${manaTotal ? `(${manaTotal})` : ""}</button>
+          <button data-open-utility="calculator">Calculator</button>
+          <button data-open-utility="notes">Notes</button>
+          <button data-open-utility="phase">Phase</button>
+          <button data-open-utility="triggers">Queue</button>
+          <button data-open-utility="history">History</button>
+          <button data-open-utility="rules">Rules</button>
+        </div>
+      ` : ""}
+      ${renderUtilityPanel(profile, activeUtilityPanel)}
+    </section>
+  `;
+}
+
+function renderUtilityPanel(profile, panel) {
+  if (!panel || panel === "history" || panel === "triggers") {
+    return "";
+  }
+  const session = profile.activeSession;
+  const note = profile.settings?.playerNotes?.dock || "";
+  const diceValue = profile.settings?.utility?.lastDice || "d20: 1";
+  const calcValue = profile.settings?.utility?.calculator || "";
+  const rulesText = (getSelectedPermanents(session)[0]?.rulesText || getSelectedPermanents(session)[0]?.oracleText || "Select a permanent to inspect rules.");
+  return `
+    <section class="utility-overlay glass" data-no-swipe>
+      <div class="overlay-header compact">
+        <h2>${escapeHtml(formatLabel(panel))}</h2>
+        <button data-close-utility-panel>Close</button>
+      </div>
+      ${panel === "dice" ? `
+        <div class="button-grid">
+          <button data-roll-dice="6">Roll d6</button>
+          <button data-roll-dice="20">Roll d20</button>
+          <button data-roll-dice="100">Roll d100</button>
+        </div>
+        <p>${escapeHtml(diceValue)}</p>
+      ` : ""}
+      ${panel === "tokens" ? `
+        <button class="wide" data-open-tool-panel="tokens">Open Token Generator</button>
+      ` : ""}
+      ${panel === "mana" ? `
+        <button class="wide" data-open-floating-mana>Open Floating Mana</button>
+      ` : ""}
+      ${panel === "calculator" ? `
+        <input data-utility-calculator value="${escapeAttribute(calcValue)}" placeholder="e.g. (6+4)*2-3" />
+        <button class="wide" data-run-calculator>Calculate</button>
+      ` : ""}
+      ${panel === "notes" ? `
+        <textarea data-utility-note rows="5" placeholder="Game notes">${escapeHtml(note)}</textarea>
+        <button class="wide" data-save-utility-note>Save Note</button>
+      ` : ""}
+      ${panel === "phase" ? `
+        <p>FSM ${escapeHtml(session.fsm?.current || "setup")} · Turn ${session.turn}</p>
+        <button class="wide" data-next-phase>Advance Phase</button>
+      ` : ""}
+      ${panel === "rules" ? `
+        <p>${escapeHtml(rulesText)}</p>
+        <button class="wide" data-open-tool-panel="inspect">Inspect Selected Permanent</button>
+      ` : ""}
+    </section>
+  `;
+}
+
+function renderEdgeSwipeZones(profile) {
+  if (!profile.settings?.navigation?.edgeSwipeShortcuts) {
+    return "";
+  }
+  return `
+    <div class="edge-swipe-zone edge-left" data-edge-zone="left" aria-hidden="true"></div>
+    <div class="edge-swipe-zone edge-right" data-edge-zone="right" aria-hidden="true"></div>
+    <div class="edge-swipe-zone edge-bottom" data-edge-zone="bottom" aria-hidden="true"></div>
+    <div class="edge-swipe-zone edge-top" data-edge-zone="top" aria-hidden="true"></div>
+  `;
+}
+
+function getDensityClass(permanents = [], compressionMode = "adaptive") {
+  if (compressionMode === "compact") {
+    return "density-high";
+  }
+  if (compressionMode === "expanded") {
+    return "density-low";
+  }
+  const count = permanents.reduce((sum, permanent) => sum + (Number(permanent.quantity) || 1), 0);
+  if (count >= 18) {
+    return "density-high";
+  }
+  if (count >= 10) {
+    return "density-medium";
+  }
+  return "density-low";
+}
+
+function renderSearch(results, message, loading = false, query = "") {
   return `
     <form class="search-box" data-search-form>
       <label>Scryfall Search</label>
-      <div class="row"><input name="query" placeholder="Card, token, land, spell" /><button>Search</button></div>
+      <div class="row">
+        <input name="query" data-search-query value="${escapeAttribute(query)}" placeholder="Card, token, land, spell" />
+        <button ${loading ? "disabled" : ""}>${loading ? "Searching…" : "Search"}</button>
+      </div>
       <p>${escapeHtml(message || "Works offline with saved commander deck matches.")}</p>
     </form>
-    <div class="search-results">
+    <div class="search-results scroll-safe" data-no-swipe>
       ${results.map((card, index) => `
         <article>
           <strong>${escapeHtml(card.name)}</strong>
@@ -1065,6 +1898,7 @@ function renderSearch(results, message) {
           <div class="row mini">
             ${card.isInstant || card.isSorcery || /\b(Instant|Sorcery)\b/i.test(card.typeLine || "") ? `<button data-cast-result="${index}">Cast</button>` : `<button data-add-result="${index}">Add</button>`}
             <button data-deck-result="${index}">Deck</button>
+            <button data-inspect-result="${index}">Inspect</button>
             ${canBeCommander(card) ? `<button data-commander-result="${index}">Commander</button>` : ""}
           </div>
         </article>
@@ -1073,26 +1907,86 @@ function renderSearch(results, message) {
   `;
 }
 
-function renderBattlefieldToolBadge(profile, menuOpen, floatingManaOpen, activeToolPanel, position) {
+function renderBattlefieldToolBadge(profile, menuOpen, floatingManaOpen, activeToolPanel, position, toolContext) {
   const manaPinned = Boolean(profile.settings?.battlefield?.manaPinned);
   const badgeStyle = `left:${Math.round(position.x)}px;top:${Math.round(position.y)}px;`;
+  const radialActions = getContextualRadialActions(toolContext, floatingManaOpen || manaPinned);
   return `
     <div class="battlefield-tool-system">
       <button class="tool-badge glass" style="${badgeStyle}" data-tool-badge aria-label="Battlefield tools">Tools</button>
       ${menuOpen ? `
       <section class="radial-menu glass" style="${badgeStyle}">
-        <button data-open-tool-panel="tokens">Token Controls</button>
-        <button data-open-tool-panel="permanents">Permanent Controls</button>
-        <button data-open-game-options>Game Options</button>
-        <button data-open-tool-panel="player">Player Controls</button>
-        <button data-open-tool-panel="counters">Permanent Counter Controls</button>
-        <button data-open-floating-mana>${floatingManaOpen || manaPinned ? "Hide Floating Mana" : "Floating Mana Controls"}</button>
+        <p class="radial-context-label">Context: ${escapeHtml(formatLabel(toolContext))}</p>
+        ${radialActions.map((entry) => renderRadialAction(entry)).join("")}
       </section>
       ` : ""}
-      ${activeToolPanel ? renderBattlefieldToolPanel(profile, activeToolPanel) : ""}
+      ${activeToolPanel ? renderBattlefieldToolPanel(profile, activeToolPanel, toolContext) : ""}
       ${floatingManaOpen || manaPinned ? renderFloatingManaControls(profile, manaPinned) : ""}
     </div>
   `;
+}
+
+function getContextualRadialActions(toolContext, manaOpen) {
+  const base = [
+    { type: "panel", panel: "player", label: "Player Controls" },
+    { type: "utility", panel: "triggers", label: "Utility Dock" },
+    { type: "options", label: "Game Options" },
+    { type: "mana", label: manaOpen ? "Hide Floating Mana" : "Floating Mana Controls" },
+  ];
+  if (toolContext === "player") {
+    return base;
+  }
+  if (toolContext === "empty") {
+    return [{ type: "panel", panel: "tokens", label: "Token Controls" }, ...base];
+  }
+  if (toolContext === "token") {
+    return [
+      { type: "panel", panel: "tokens", label: "Token Controls" },
+      { type: "panel", panel: "counters", label: "Permanent Counter Controls" },
+      { type: "panel", panel: "permanents", label: "Permanent Controls" },
+      { type: "panel", panel: "inspect", label: "Inspect" },
+      ...base,
+    ];
+  }
+  if (toolContext === "stack") {
+    return [
+      { type: "panel", panel: "tokens", label: "Token Stack Controls" },
+      { type: "panel", panel: "permanents", label: "Permanent Controls" },
+      { type: "panel", panel: "inspect", label: "Inspect Stack" },
+      ...base,
+    ];
+  }
+  if (toolContext === "commander") {
+    return [
+      { type: "panel", panel: "commander", label: "Commander Tools" },
+      { type: "panel", panel: "counters", label: "Permanent Counter Controls" },
+      { type: "panel", panel: "permanents", label: "Permanent Controls" },
+      { type: "panel", panel: "inspect", label: "Inspect" },
+      ...base,
+    ];
+  }
+  if (toolContext === "creature" || toolContext === "permanent") {
+    return [
+      { type: "panel", panel: "permanents", label: "Permanent Controls" },
+      { type: "panel", panel: "counters", label: "Permanent Counter Controls" },
+      { type: "panel", panel: "inspect", label: "Inspect" },
+      ...base,
+    ];
+  }
+  return base;
+}
+
+function renderRadialAction(entry) {
+  if (entry.type === "panel") {
+    return `<button data-open-tool-panel="${escapeAttribute(entry.panel)}">${escapeHtml(entry.label)}</button>`;
+  }
+  if (entry.type === "options") {
+    return `<button data-open-game-options>${escapeHtml(entry.label)}</button>`;
+  }
+  if (entry.type === "utility") {
+    return `<button data-open-utility="${escapeAttribute(entry.panel || "triggers")}">${escapeHtml(entry.label)}</button>`;
+  }
+  return `<button data-open-floating-mana>${escapeHtml(entry.label)}</button>`;
 }
 
 function renderFloatingManaControls(profile, pinned) {
@@ -1128,6 +2022,8 @@ function renderBattlefieldToolPanel(profile, panel) {
     permanents: "Permanent Controls",
     player: "Player Controls",
     counters: "Permanent Counter Controls",
+    inspect: "Inspect",
+    commander: "Commander Tools",
   };
   return `
     <section class="floating-tool-panel glass" data-floating-tool-panel>
@@ -1139,12 +2035,15 @@ function renderBattlefieldToolPanel(profile, panel) {
       ${panel === "permanents" ? renderPermanentControls(profile) : ""}
       ${panel === "player" ? renderPlayerControls(profile) : ""}
       ${panel === "counters" ? renderPermanentCounterControls(profile) : ""}
+      ${panel === "inspect" ? renderInspectPanel(profile) : ""}
+      ${panel === "commander" ? renderCommanderTools(profile) : ""}
     </section>
   `;
 }
 
 function renderPlayerControls(profile) {
   const session = profile.activeSession;
+  const note = profile.settings?.playerNotes?.session || "";
   return `
     <div class="player-control-widget">
       <article class="phase-tracker-card">
@@ -1153,7 +2052,24 @@ function renderPlayerControls(profile) {
         <strong>${escapeHtml(PHASES[session.phaseIndex])}</strong>
       </article>
       <div class="button-grid">
+        <button data-open-life-quick>Life</button>
+        <button data-open-commander-quick>Commander Damage</button>
+        <button data-player-counter-delta="poison" data-delta="1">Poison +1</button>
+        <button data-player-counter-delta="energy" data-delta="1">Energy +1</button>
+      </div>
+      <div class="button-grid">
+        <button data-player-life-delta="-1">Life -1</button>
+        <button data-player-life-delta="1">Life +1</button>
+        <button data-player-life-delta="-5">Life -5</button>
+        <button data-player-life-delta="5">Life +5</button>
+      </div>
+      <label class="stacked-form">Notes
+        <textarea rows="3" data-player-note-input placeholder="Table notes, reminders, politics...">${escapeHtml(note)}</textarea>
+      </label>
+      <button class="wide" data-save-player-note>Save notes</button>
+      <div class="button-grid">
         <button data-cast-commander>Cast Commander</button>
+        <button data-next-phase>Next Phase</button>
         <button data-archive-game>Archive Game</button>
         <button data-life-reset>Reset Player Trackers</button>
         <button data-undo>Undo</button>
@@ -1164,17 +2080,24 @@ function renderPlayerControls(profile) {
 
 function renderTokenControls() {
   return `
-    <form class="stacked-form" data-token-form>
-      <label>Token name<input name="tokenName" value="Generic Token" /></label>
-      <div class="form-grid-2">
-        <label>Power<input name="power" type="number" inputmode="numeric" value="1" /></label>
-        <label>Toughness<input name="toughness" type="number" inputmode="numeric" value="1" /></label>
+    <div class="stacked-form">
+      <form class="stacked-form" data-token-form>
+        <label>Token name<input name="tokenName" value="Generic Token" /></label>
+        <div class="form-grid-2">
+          <label>Power<input name="power" type="number" inputmode="numeric" value="1" /></label>
+          <label>Toughness<input name="toughness" type="number" inputmode="numeric" value="1" /></label>
+        </div>
+        <label>Quantity<input name="quantity" type="number" min="1" inputmode="numeric" value="1" /></label>
+        <label>Token type<input name="tokenType" value="Creature" placeholder="Creature, Artifact, Treasure..." /></label>
+        <label class="toggle-row"><span>Tapped</span><input name="tapped" type="checkbox" /></label>
+        <button class="wide">Add token to battlefield</button>
+      </form>
+      <div class="button-grid">
+        <button data-token-remove-selected>Remove selected token(s)</button>
+        <button data-setting-button="battlefield.expandedAll" data-value="true">Expand token stacks</button>
+        <button data-setting-button="battlefield.expandedAll" data-value="false">Collapse token stacks</button>
       </div>
-      <label>Quantity<input name="quantity" type="number" min="1" inputmode="numeric" value="1" /></label>
-      <label>Token type<input name="tokenType" value="Creature" placeholder="Creature, Artifact, Treasure..." /></label>
-      <label class="toggle-row"><span>Tapped</span><input name="tapped" type="checkbox" /></label>
-      <button class="wide">Add token to battlefield</button>
-    </form>
+    </div>
   `;
 }
 
@@ -1191,6 +2114,7 @@ function renderPermanentControls(profile) {
         <button data-selected-action="exile">Exile selected</button>
         <button data-selected-action="sacrifice">Sacrifice selected</button>
         <button data-selected-action="remove">Remove selected</button>
+        <button data-selected-action="inspect">Inspect selected</button>
         <button data-setting-button="battlefield.expandedAll" data-value="${expanded ? "false" : "true"}">${expanded ? "Collapse all permanents" : "Expand all permanents"}</button>
         <button data-selected-action="clear">Clear selected permanents</button>
       </div>
@@ -1217,6 +2141,55 @@ function renderPermanentCounterControls(profile) {
       </div>
       <button class="wide">Apply counters</button>
     </form>
+  `;
+}
+
+function renderInspectPanelLegacy(profile) {
+  const selected = getSelectedPermanents(profile.activeSession);
+  const recentEvents = (profile.activeSession.eventHistory || []).slice(0, 8);
+  if (!selected.length) {
+    return `<p class="eyebrow">Select one or more permanents to inspect details and active modifications.</p>`;
+  }
+  return `
+    <div class="stacked-form">
+      ${selected.map((permanent) => `
+        <article class="log-card">
+          <strong>${escapeHtml(permanent.name)}</strong>
+          <span>${escapeHtml(permanent.typeLine)}</span>
+          <p>${permanent.isCreature ? `${permanent.currentPower}/${permanent.currentToughness}` : "Non-creature permanent"}</p>
+          <p>${Object.entries(permanent.counters || {}).filter(([, value]) => Number(value) > 0).map(([type, value]) => `${escapeHtml(type)} ${value}`).join(" / ") || "No counters"}</p>
+          <p>${permanent.keywords?.length ? permanent.keywords.map(escapeHtml).join(", ") : "No keywords"}</p>
+          <p>${escapeHtml(permanent.rulesText || permanent.oracleText || "No rules text")}</p>
+          <p>Triggers ${(permanent.triggeredAbilities || []).length} · Static ${(permanent.staticAbilities || []).length}</p>
+          <p>${(permanent.layerBreakdown || []).map((entry) => `L${entry.layer}:${entry.operation}`).join(" · ") || "No active layer modifiers"}</p>
+        </article>
+      `).join("")}
+      <article class="log-card">
+        <strong>Trigger History</strong>
+        ${recentEvents.map((event) => `<p>${escapeHtml(event.eventType)} · ${new Date(event.timestamp).toLocaleTimeString()}</p>`).join("") || "<p>No recent events</p>"}
+      </article>
+    </div>
+  `;
+}
+
+function renderCommanderTools(profile) {
+  const commander = profile.activeSession.commander || {};
+  const opponentDamage = commander.damageByOpponent?.opponent || 0;
+  return `
+    <div class="stacked-form">
+      <article class="phase-tracker-card">
+        <p class="eyebrow">Commander status</p>
+        <h2>${escapeHtml(commander.name || "No commander selected")}</h2>
+        <strong>Tax ${commander.commanderTax || 0}</strong>
+        <p>Cast count ${commander.castCount || 0} · Damage ${opponentDamage}</p>
+      </article>
+      <div class="button-grid">
+        <button data-cast-commander>Cast Commander</button>
+        <button data-commander-damage data-delta="1">Damage +1</button>
+        <button data-commander-damage data-delta="-1">Damage -1</button>
+        <button data-open-commander-quick>Adjust damage</button>
+      </div>
+    </div>
   `;
 }
 
@@ -1269,12 +2242,12 @@ function renderArchive(profile) {
   `;
 }
 
-function renderDecks(profile, results, message) {
+function renderDecks(profile, results, message, searchLoading, searchQuery) {
   const decks = Object.values(profile.commanders || {});
   return `
     <section class="utility-page glass">
       <h2>Commander Decks</h2>
-      ${renderSearch(results, message)}
+      ${renderSearch(results, message, searchLoading, searchQuery)}
       ${decks.map((deck) => `
         <article class="log-card">
           <strong>${escapeHtml(deck.commanderName)}</strong>
@@ -1348,6 +2321,7 @@ function renderGameOptions(profile) {
           <article class="option-card">
             <h3>Multiplayer</h3>
             <div class="button-grid">
+              <button data-multiplayer-mode="local">Local Multiplayer</button>
               <button data-multiplayer-mode="wifi">Connect via WiFi</button>
               <button data-multiplayer-mode="bluetooth">Bluetooth Placeholder</button>
               <button data-multiplayer-mode="simulated">Simulated Local</button>
@@ -1355,6 +2329,19 @@ function renderGameOptions(profile) {
             </div>
             <p>Mode: ${escapeHtml(multiplayer.mode)}</p>
             <p>Connected players: ${multiplayer.connectedPlayers.length ? multiplayer.connectedPlayers.map((player) => escapeHtml(player.name)).join(", ") : "None"}</p>
+            <label class="stacked-form">Room ID
+              <input data-mp-setting="multiplayer.roomId" value="${escapeAttribute(multiplayer.roomId || "boardstate-room")}" />
+            </label>
+            <label class="stacked-form">WiFi Sync URL
+              <input data-mp-setting="multiplayer.wsUrl" value="${escapeAttribute(multiplayer.wsUrl || "ws://localhost:8787")}" />
+            </label>
+            <label class="stacked-form">Role
+              <select data-mp-setting="multiplayer.role">
+                <option value="player" ${multiplayer.role === "player" ? "selected" : ""}>Player</option>
+                <option value="spectator" ${multiplayer.role === "spectator" ? "selected" : ""}>Spectator</option>
+              </select>
+            </label>
+            ${renderToggle("Spectator view mode", "multiplayer.spectatorMode", Boolean(multiplayer.spectatorMode))}
             ${renderToggle("Multiplayer authority confirmations", "multiplayer.confirmAuthority", multiplayer.confirmAuthority)}
           </article>
           <article class="option-card">
@@ -1365,6 +2352,7 @@ function renderGameOptions(profile) {
             </button>
             ${renderToggle("Life total panel", "pagePanels.lifeTrackerLife", panels.lifeTrackerLife)}
             ${renderToggle("Show Profile in Main UI", "navigation.showProfileInMainUi", Boolean(profile.settings?.navigation?.showProfileInMainUi))}
+            ${renderToggle("Enable Edge Swipe Shortcuts", "navigation.edgeSwipeShortcuts", Boolean(profile.settings?.navigation?.edgeSwipeShortcuts))}
             <p>Floating mana now lives in the Battlefield tools menu as a floating widget with pin/unpin support.</p>
             ${renderToggle("Opponent board panel", "pagePanels.boardOpponent", panels.boardOpponent)}
             ${renderToggle("Combat controls", "pagePanels.boardCombat", panels.boardCombat)}
@@ -1375,10 +2363,22 @@ function renderGameOptions(profile) {
           </article>
           <article class="option-card">
             <h3>Rules / Accessibility</h3>
-            ${renderToggle("ADHD auto automation", "adhdAutomation", settings.adhdAutomation)}
+            <p>ADHD Mode is a companion assistance layer for reminders and clarity, not official judging or full rules enforcement.</p>
+            ${renderToggle("ADHD Mode", "adhdMode.enabled", Boolean(settings.adhdMode?.enabled))}
+            ${renderToggle("ADHD trigger reminders", "adhdMode.triggerReminders", Boolean(settings.adhdMode?.triggerReminders))}
+            ${renderToggle("ADHD missed trigger reminders", "adhdMode.missedTriggerReminders", Boolean(settings.adhdMode?.missedTriggerReminders))}
+            ${renderToggle("ADHD targeting reminders", "adhdMode.targetingReminders", Boolean(settings.adhdMode?.targetingReminders))}
+            ${renderToggle("ADHD layer explanation", "adhdMode.layerExplanation", Boolean(settings.adhdMode?.layerExplanation))}
+            ${renderToggle("ADHD step-by-step prompts", "adhdMode.stepByStepPrompts", Boolean(settings.adhdMode?.stepByStepPrompts))}
+            ${renderToggle("ADHD reduced visual noise", "adhdMode.reducedNoise", Boolean(settings.adhdMode?.reducedNoise))}
+            ${renderToggle("ADHD highlight likely actions", "adhdMode.highlightLikelyActions", Boolean(settings.adhdMode?.highlightLikelyActions))}
+            ${renderToggle("ADHD resource reminders", "adhdMode.resourceReminders", Boolean(settings.adhdMode?.resourceReminders))}
+            ${renderToggle("ADHD deterministic auto-assist", "adhdAutomation", settings.adhdAutomation)}
             ${renderToggle("Confirm ambiguous effects", "confirmAmbiguousEffects", settings.confirmAmbiguousEffects)}
             ${renderToggle("Haptics hooks", "haptics", settings.haptics)}
             ${renderToggle("Compact permanent tiles", "compactTiles", settings.compactTiles)}
+            ${renderToggle("Enable Advanced Gestures", "gestures.advanced", Boolean(profile.settings?.gestures?.advanced))}
+            ${renderToggle("Focus mode", "battlefield.focusMode", Boolean(profile.settings?.battlefield?.focusMode))}
           </article>
         </div>
       </div>
@@ -1481,6 +2481,319 @@ function buildStatsGroups(profile, stats) {
   };
 }
 
+function renderInspectPanel(profile) {
+  const selected = getSelectedPermanents(profile.activeSession);
+  const recentEvents = (profile.activeSession.eventHistory || []).slice(0, 8);
+  const adhdMode = getAdhdMode(profile);
+  const unresolvedQueue = profile.activeSession.triggerQueue || [];
+  if (!selected.length) {
+    return `<p class="eyebrow">Select one or more permanents to inspect details and active modifications.</p>`;
+  }
+  return `
+    <div class="stacked-form">
+      ${selected
+        .map(
+          (permanent) => `
+        <article class="log-card">
+          <strong>${escapeHtml(permanent.name)}</strong>
+          <span>${escapeHtml(permanent.typeLine)}</span>
+          ${renderPermanentLayerInspector(permanent, profile)}
+          ${
+            adhdMode.enabled
+              ? `
+            <div class="inspect-reminder-block">
+              <strong>ADHD reminders</strong>
+              <p>${escapeHtml(buildAdhdReminderText(profile, permanent) || "No active ADHD reminders for this object.")}</p>
+              <p>${escapeHtml(buildTriggerChainSummary(unresolvedQueue, permanent.id) || "No unresolved trigger chain links.")}</p>
+            </div>
+          `
+              : ""
+          }
+        </article>
+      `
+        )
+        .join("")}
+      <article class="log-card">
+        <strong>Trigger History</strong>
+        ${
+          recentEvents.map((event) => `<p>${escapeHtml(event.eventType)} · ${new Date(event.timestamp).toLocaleTimeString()}</p>`).join("") ||
+          "<p>No recent events</p>"
+        }
+      </article>
+    </div>
+  `;
+}
+
+function renderPermanentLayerInspector(permanent, profile) {
+  const counters = Object.entries(permanent.counters || {})
+    .filter(([, value]) => Number(value) > 0)
+    .map(([type, value]) => `${type} ${value}`);
+  const layerBreakdown = permanent.layerBreakdown || [];
+  const typeChanges = layerBreakdown.filter((entry) => entry.operation === "set-type");
+  const colorChanges = layerBreakdown.filter((entry) => entry.operation === "set-color");
+  const abilityChanges = layerBreakdown.filter((entry) => entry.operation === "add-keywords");
+  const statChanges = layerBreakdown.filter((entry) => entry.operation === "add-pt" || entry.operation === "set-base-pt");
+  const unresolvedLinks = (profile.activeSession.triggerQueue || []).filter(
+    (entry) => entry.sourceId === permanent.id && entry.status === "pending"
+  );
+  const unresolvedButtons = unresolvedLinks
+    .slice(0, 4)
+    .map((entry) => `<button data-trigger-inspect="${escapeAttribute(entry.id)}">Inspect ${escapeHtml(entry.id)}</button>`)
+    .join("");
+  const copySource =
+    permanent.relationships?.copiedFromId ||
+    permanent.metadata?.copiedFrom ||
+    (permanent.isCopy ? "Copy source tracked in token metadata" : "None");
+
+  return `
+    <div class="layer-inspector-grid">
+      <p><strong>Base:</strong> ${permanent.basePower}/${permanent.baseToughness} · MV ${permanent.manaValue || 0}</p>
+      <p><strong>Copied values:</strong> ${escapeHtml(copySource)}</p>
+      <p><strong>Control:</strong> Owner ${escapeHtml(permanent.owner || "player")} · Controller ${escapeHtml(permanent.controller || "player")}</p>
+      <p><strong>Type changes:</strong> ${
+        typeChanges.length
+          ? typeChanges.map((entry) => `L${entry.layer}:${entry.operation}`).join(" · ")
+          : "No type overrides"
+      }</p>
+      <p><strong>Color changes:</strong> ${
+        colorChanges.length
+          ? colorChanges.map((entry) => `L${entry.layer}:${entry.operation}`).join(" · ")
+          : "No color overrides"
+      }</p>
+      <p><strong>Ability changes:</strong> ${
+        abilityChanges.length
+          ? abilityChanges
+              .map((entry) => `${entry.keywordDelta?.length ? entry.keywordDelta.join(", ") : `L${entry.layer}:${entry.operation}`}`)
+              .join(" · ")
+          : "No ability overrides"
+      }</p>
+      <p><strong>Modifiers:</strong> ${
+        statChanges.length
+          ? statChanges
+              .map((entry) => {
+                const p = Number(entry.powerDelta || 0);
+                const t = Number(entry.toughnessDelta || 0);
+                return `L${entry.layer}:${entry.operation} (${p >= 0 ? "+" : ""}${p}/${t >= 0 ? "+" : ""}${t})`;
+              })
+              .join(" · ")
+          : "No active stat modifiers"
+      }</p>
+      <p><strong>Counters:</strong> ${counters.length ? counters.map(escapeHtml).join(" / ") : "No counters"}</p>
+      <p><strong>Final stats:</strong> ${
+        permanent.isCreature ? `${permanent.currentPower}/${permanent.currentToughness}` : "Non-creature permanent"
+      }</p>
+      <p><strong>Oracle text:</strong> ${escapeHtml(permanent.rulesText || permanent.oracleText || "No rules text")}</p>
+      <p><strong>Unresolved trigger links:</strong> ${
+        unresolvedLinks.length
+          ? unresolvedLinks.map((entry) => `${entry.id} (${entry.eventType})`).join(", ")
+          : "None"
+      }</p>
+      ${unresolvedButtons ? `<div class="row mini">${unresolvedButtons}</div>` : ""}
+    </div>
+  `;
+}
+
+function buildAdhdReminderText(profile, permanent) {
+  const session = profile.activeSession;
+  const reminders = [];
+  const adhdMode = getAdhdMode(profile);
+  if (!adhdMode.enabled) {
+    return "";
+  }
+  if (permanent?.summoningSick) {
+    reminders.push("Summoning sickness reminder");
+  }
+  if ((session.triggerQueue || []).some((entry) => entry.status === "pending")) {
+    reminders.push("Resolve pending trigger queue entries");
+  }
+  if ((session.pendingEffects || []).some((entry) => entry.status === "pending")) {
+    reminders.push("Manual effect confirmations pending");
+  }
+  if (session.manaPool && Object.values(session.manaPool).some((value) => Number(value) > 0)) {
+    reminders.push("Floating mana still available");
+  }
+  if (Number(session.commander?.damageByOpponent?.opponent || 0) > 0) {
+    reminders.push("Commander damage tracker has active value");
+  }
+  if (Object.values(session.playerCounters || {}).some((value) => Number(value) > 0)) {
+    reminders.push("Player counters are non-zero");
+  }
+  if (adhdMode.phaseActionReminders) {
+    reminders.push(`Phase action check: ${PHASES[session.phaseIndex] || "Unknown phase"}`);
+  }
+  return reminders.join(" · ");
+}
+
+function buildTriggerChainSummary(queue = [], sourceId = "") {
+  const pending = queue.filter((entry) => entry.status === "pending" && (!sourceId || entry.sourceId === sourceId));
+  if (!pending.length) {
+    return "";
+  }
+  return pending.map((entry) => `${entry.chainId}:${entry.eventType}`).join(" · ");
+}
+
+function resolveUiLayerState(profile, page, uiState = {}) {
+  const session = profile.activeSession || {};
+  const adhdMode = getAdhdMode(profile);
+  const inspectOpen =
+    uiState.activeToolPanel === "inspect" ||
+    profile.settings?.battlefield?.detailMode === "inspect" ||
+    page === "leaderboards" && uiState.statsOpen;
+  const focusActive = Boolean(profile.settings?.battlefield?.focusMode && (session.selectedIds || []).length);
+  const active =
+    Boolean((session.selectedIds || []).length) ||
+    Boolean(uiState.toolMenuOpen) ||
+    Boolean(uiState.activeToolPanel) ||
+    Boolean(uiState.floatingManaOpen) ||
+    Boolean(uiState.utilityDockOpen) ||
+    Boolean(uiState.activeUtilityPanel) ||
+    Boolean(uiState.quickPanelOpen) ||
+    Boolean(uiState.optionsOpen) ||
+    Boolean(uiState.statsOpen);
+  const current = adhdMode.enabled
+    ? "adhd"
+    : inspectOpen
+      ? "inspect"
+      : focusActive
+        ? "focus"
+        : active
+          ? "active"
+          : "passive";
+  return {
+    current,
+    passive: current === "passive",
+    active: current === "active",
+    focus: current === "focus",
+    inspect: current === "inspect",
+    adhd: current === "adhd",
+  };
+}
+
+function getAdhdMode(profile) {
+  const settings = profile.settings || {};
+  const defaults = {
+    enabled: false,
+    triggerReminders: true,
+    missedTriggerReminders: true,
+    legalityHints: true,
+    targetingReminders: true,
+    stackExplanation: true,
+    layerExplanation: true,
+    triggerChainView: true,
+    replayDebugInfo: true,
+    stateInspector: true,
+    focusedGuidance: true,
+    reducedNoise: true,
+    highlightLikelyActions: true,
+    phaseActionReminders: true,
+    unresolvedReminders: true,
+    resourceReminders: true,
+    stepByStepPrompts: false,
+  };
+  const legacyEnabled = Boolean(settings.adhdAutomation);
+  return {
+    ...defaults,
+    ...(settings.adhdMode || {}),
+    enabled: Boolean(settings.adhdMode?.enabled ?? legacyEnabled),
+  };
+}
+
+function renderAdhdAssistPanel(profile, page, uiLayer) {
+  const adhdMode = getAdhdMode(profile);
+  if (!adhdMode.enabled) {
+    return "";
+  }
+  const session = profile.activeSession;
+  const selected = getSelectedPermanents(session)[0] || null;
+  const queue = session.triggerQueue || [];
+  const pendingQueue = queue.filter((entry) => entry.status === "pending");
+  const missedQueue = queue.filter((entry) => entry.status === "skipped" || entry.status === "delayed");
+  const likelyActions = adhdMode.highlightLikelyActions ? buildPredictiveActions(profile).slice(0, 4) : [];
+  const phaseLabel = PHASES[session.phaseIndex] || "Unknown";
+
+  return `
+    <section class="adhd-assist-panel glass" data-no-swipe data-page="${escapeAttribute(page)}" data-ui-layer="${escapeAttribute(uiLayer)}">
+      <div class="overlay-header compact">
+        <div>
+          <p class="eyebrow">ADHD Mode</p>
+          <h2>Assistance Layer</h2>
+        </div>
+        <span class="eyebrow">${escapeHtml(phaseLabel)} · Turn ${session.turn}</span>
+      </div>
+      <p>${escapeHtml(
+        [
+          adhdMode.focusedGuidance ? `Current focus: ${selected ? selected.name : "Select a permanent or player tool"}` : "",
+          adhdMode.phaseActionReminders ? `Phase reminder: resolve actions before leaving ${phaseLabel}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ") || "Assistance layer active."
+      )}</p>
+      <div class="adhd-assist-grid">
+        ${adhdMode.triggerReminders ? `<article><strong>Trigger reminders</strong><p>${pendingQueue.length} unresolved</p></article>` : ""}
+        ${adhdMode.missedTriggerReminders ? `<article><strong>Missed trigger reminders</strong><p>${missedQueue.length} flagged</p></article>` : ""}
+        ${adhdMode.resourceReminders ? `<article><strong>Resource reminders</strong><p>Mana ${Object.values(session.manaPool || {}).reduce((sum, value) => sum + Number(value || 0), 0)} · Counters ${Object.values(session.playerCounters || {}).reduce((sum, value) => sum + Number(value || 0), 0)}</p></article>` : ""}
+        ${
+          adhdMode.replayDebugInfo
+            ? `<article><strong>Action / replay debug</strong><p>Actions ${(session.actionHistory || []).length} · Undo ${(session.undoStack || []).length} · Redo ${(session.redoStack || []).length}</p></article>`
+            : ""
+        }
+      </div>
+      ${
+        adhdMode.stackExplanation && pendingQueue.length
+          ? `<div class="adhd-mini-list"><strong>Stack explanation</strong>${pendingQueue
+              .slice(0, 4)
+              .map((entry) => `<p>${escapeHtml(entry.sourceName)} · ${escapeHtml(entry.eventType)} · Chain ${escapeHtml(entry.chainId)}</p>`)
+              .join("")}</div>`
+          : ""
+      }
+      ${
+        adhdMode.layerExplanation && selected
+          ? `<div class="adhd-mini-list"><strong>Modifier / layer explanation</strong><p>${escapeHtml(
+              (selected.layerBreakdown || []).map((entry) => `L${entry.layer}:${entry.operation}`).join(" · ") || "No active modifiers"
+            )}</p></div>`
+          : ""
+      }
+      ${
+        adhdMode.stateInspector && selected
+          ? `<div class="adhd-mini-list"><strong>Battlefield state inspector</strong><p>${escapeHtml(
+              `${selected.name} · ${selected.typeLine} · ${selected.currentPower}/${selected.currentToughness}`
+            )}</p><p>${escapeHtml(selected.rulesText || selected.oracleText || "No oracle text available")}</p></div>`
+          : ""
+      }
+      ${
+        adhdMode.targetingReminders && selected
+          ? `<div class="adhd-mini-list"><strong>Targeting reminders</strong><p>${escapeHtml(
+              selected.isAura || selected.isEquipment
+                ? "Attachment target check recommended."
+                : selected.isCreature
+                  ? "Attack/block legality check recommended."
+                  : "Confirm target selectors before resolving effects."
+            )}</p></div>`
+          : ""
+      }
+      ${
+        adhdMode.legalityHints && profile.activeSession.commander?.name
+          ? `<div class="adhd-mini-list"><strong>Legality hints</strong><p>Commander identity: ${escapeHtml(
+              (profile.activeSession.commander.colorIdentity || []).join("") || "Colorless"
+            )}</p></div>`
+          : ""
+      }
+      ${
+        adhdMode.highlightLikelyActions && likelyActions.length
+          ? `<div class="adhd-mini-list"><strong>Likely next actions</strong>${likelyActions
+              .map((suggestion) => `<p>${escapeHtml(suggestion.label)} · ${escapeHtml(suggestion.detail)}</p>`)
+              .join("")}</div>`
+          : ""
+      }
+      ${
+        adhdMode.stepByStepPrompts
+          ? `<div class="adhd-mini-list"><strong>Step-by-step prompt</strong><p>1) Resolve pending triggers 2) Confirm modifiers 3) Update combat declarations 4) Advance phase</p></div>`
+          : ""
+      }
+    </section>
+  `;
+}
+
 function renderToggle(label, path, checked, truthyValue = true) {
   const value = truthyValue === true ? "true" : truthyValue;
   return `
@@ -1492,11 +2805,14 @@ function renderToggle(label, path, checked, truthyValue = true) {
 }
 
 function getSettings(profile) {
+  const adhdMode = getAdhdMode(profile);
   return {
-    adhdAutomation: true,
+    adhdAutomation: adhdMode.enabled,
+    adhdMode,
     confirmAmbiguousEffects: true,
     haptics: false,
     compactTiles: true,
+    gestures: { advanced: true },
     ...(profile.settings || {}),
   };
 }
@@ -1519,6 +2835,37 @@ function getPagePanels(profile) {
 function getVisiblePages(profile) {
   const pages = ["life", "battlefield", "archive", "decks", "leaderboards"];
   return profile.settings?.navigation?.showProfileInMainUi ? ["life", "battlefield", "profile", "archive", "decks", "leaderboards"] : pages;
+}
+
+function getSelectedPermanents(session) {
+  const selected = new Set(session.selectedIds || []);
+  if (!selected.size) {
+    return [];
+  }
+  return [...session.battlefield.player, ...session.battlefield.opponent].filter((permanent) => selected.has(permanent.id));
+}
+
+function resolveToolContext(session, override = "") {
+  if (override === "player") {
+    return "player";
+  }
+  const selected = getSelectedPermanents(session);
+  if (!selected.length) {
+    return override === "empty" ? "empty" : "empty";
+  }
+  if (selected.some((permanent) => (Number(permanent.quantity) || 1) > 1)) {
+    return "stack";
+  }
+  if (selected.some((permanent) => permanent.isCommander)) {
+    return "commander";
+  }
+  if (selected.every((permanent) => permanent.isToken)) {
+    return "token";
+  }
+  if (selected.every((permanent) => permanent.isCreature)) {
+    return "creature";
+  }
+  return "permanent";
 }
 
 function cloneTrackerModifier(modifier) {
@@ -1560,6 +2907,10 @@ function getMultiplayerSettings(profile) {
     confirmAuthority: true,
     bluetoothReady: false,
     wifiReady: true,
+    roomId: "boardstate-room",
+    wsUrl: "ws://localhost:8787",
+    role: "player",
+    spectatorMode: false,
     ...(profile.settings?.multiplayer || {}),
   };
 }
