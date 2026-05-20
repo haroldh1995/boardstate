@@ -202,19 +202,24 @@ export function resolveSpell(session, spell) {
 
 export function resolveEffect(session, effect, source, event = {}) {
   if (effect.manual) {
+    const pendingEntry = {
+      id: createId("pending"),
+      sourceId: source.id,
+      sourceName: source.name,
+      effect,
+      summary: effect.summary || effect.reason || "Manual choice required",
+      status: "pending",
+      createdAt: Date.now(),
+      triggerId: event.payload?.triggerId || event.triggerId || "",
+      eventType: event.eventType || event.type || "",
+    };
     return {
       ...session,
-      pendingEffects: [
-        {
-          id: createId("pending"),
-          sourceId: source.id,
-          sourceName: source.name,
-          effect,
-          status: "pending",
-          createdAt: Date.now(),
-        },
-        ...session.pendingEffects,
-      ].slice(0, 30),
+      pendingEffects: [pendingEntry, ...session.pendingEffects].slice(0, 60),
+      effectLog: [
+        createLog(source.name, `Manual choice required: ${effect.summary || effect.reason || effect.action || "effect"}.`),
+        ...session.effectLog,
+      ].slice(0, 80),
     };
   }
 
@@ -241,7 +246,20 @@ function createTokens(session, effect, source, event) {
   const repeats = Math.max(1, normalizeCount(event.payload?.instances ?? event.instances, 1));
   const replacementCount = getReplacementEffects(session, controller, "double-tokens").length;
   const multiplier = getTokenMultiplierForController(session, controller);
-  const count = Math.max(1, normalizeCount(resolveTokenCount(session, effect, source), 1)) * multiplier * repeats;
+  const baseCount = normalizeCount(resolveTokenCount(session, effect, source), 0);
+  const count = Math.max(0, baseCount * multiplier * repeats);
+  if (count <= 0) {
+    return appendDebugTrace(session, "tokens-created", {
+      source: source.name,
+      token: effect.token?.name || "Token",
+      count: 0,
+      controller,
+      multiplier,
+      replacementCount,
+      repeats,
+      skipped: "zero-count",
+    });
+  }
   const shouldCopySelf =
     Boolean(effect.copySelf) &&
     (!effect.copySelfAtLandCount || countLands(session, controller) >= Number(effect.copySelfAtLandCount || 0));
@@ -434,12 +452,21 @@ function resolveTokenCount(session, effect, source) {
   }
   if (countFrom === "source-power") {
     const currentSource = getAllPermanents(session).find((permanent) => permanent.id === source.id) || source;
-    return Math.max(1, Number(currentSource.currentPower || currentSource.basePower || 1));
+    const power = Number(currentSource.currentPower ?? currentSource.basePower ?? 0);
+    return Number.isFinite(power) ? Math.max(0, Math.trunc(power)) : 0;
+  }
+  if (countFrom === "source-plus1-counters") {
+    const currentSource = getAllPermanents(session).find((permanent) => permanent.id === source.id) || source;
+    return normalizeCount(currentSource.counters?.["+1/+1"], 0);
+  }
+  if (countFrom === "source-all-counters") {
+    const currentSource = getAllPermanents(session).find((permanent) => permanent.id === source.id) || source;
+    return Object.values(currentSource.counters || {}).reduce((sum, value) => sum + normalizeCount(value, 0), 0);
   }
   if (countFrom === "lands") {
     return countLands(session, source.controller);
   }
-  return effect.count;
+  return normalizeCount(effect.count, 0);
 }
 
 function countLands(session, controller = "player") {
@@ -555,7 +582,10 @@ function triggerMatchesStructured(trigger, event, source, session) {
     return false;
   }
   const normalizedEventType = String(event.eventType || "").toUpperCase();
-  if (!normalizedEventType || normalizedEventType !== eventType) {
+  const comparableEventType = ["DESTROY", "EXILE", "SACRIFICE"].includes(normalizedEventType)
+    ? "LEAVE_BATTLEFIELD"
+    : normalizedEventType;
+  if (!comparableEventType || comparableEventType !== eventType) {
     return false;
   }
 
@@ -568,7 +598,7 @@ function triggerMatchesStructured(trigger, event, source, session) {
   if (eventType === "ATTACK_DECLARED" || eventType === "ATTACK_TRIGGER_CHECK") {
     return evaluateAttackCondition(trigger.condition, event, source, session);
   }
-  if (eventType === "LEAVE_BATTLEFIELD") {
+  if (["LEAVE_BATTLEFIELD", "DESTROY", "EXILE", "SACRIFICE"].includes(eventType)) {
     return evaluateLeaveBattlefieldCondition(trigger.condition, event);
   }
   if (eventType === "PHASE_CHANGED" && trigger.timing === "phase") {
@@ -858,7 +888,11 @@ function evaluateLeaveBattlefieldCondition(condition, event) {
   if (!permanent) {
     return false;
   }
+  const cause = String(event.payload?.cause || event.cause || "").toLowerCase();
   if (condition === "dies") {
+    if (["exile", "bounce", "return", "remove"].includes(cause)) {
+      return false;
+    }
     return Boolean(permanent.isCreature);
   }
   return true;

@@ -238,6 +238,24 @@ export function parseActions(text, sourceName = "") {
     });
   }
 
+  if (requiresManualChoice(normalizedText) && !actions.some((entry) => entry.manual)) {
+    actions.push({
+      action: "manual-choice",
+      manual: true,
+      reason: inferManualChoiceReason(normalizedText),
+      summary: buildManualChoiceSummary(normalizedText),
+    });
+  }
+
+  if (!actions.length && normalizedText) {
+    actions.push({
+      action: "manual-choice",
+      manual: true,
+      reason: "Unsupported effect requires manual resolution",
+      summary: buildManualChoiceSummary(normalizedText),
+    });
+  }
+
   return actions;
 }
 
@@ -256,8 +274,14 @@ function parseCountFrom(text) {
   if (/for each attacking creature|equal to the number of attacking creatures/.test(text)) {
     return "attacking-creatures";
   }
+  if (/equal to the number of \+1\/\+1 counters on|that many \+1\/\+1 counters on/.test(text)) {
+    return "source-plus1-counters";
+  }
   if (/where x is .* power|equal to .* power/.test(text)) {
     return "source-power";
+  }
+  if (/equal to the number of counters on/.test(text)) {
+    return "source-all-counters";
   }
   if (/for each land/.test(text)) {
     return "lands";
@@ -339,4 +363,43 @@ function capitalize(value) {
 
 function capitalizeWords(value) {
   return String(value || "").split(/\s+/).filter(Boolean).map(capitalize).join(" ");
+}
+
+function requiresManualChoice(text) {
+  if (!text) {
+    return false;
+  }
+  return [
+    /\bmay\b/,
+    /\bchoose\b/,
+    /\btarget\b/,
+    /\bone or more\b/,
+    /\bup to\b/,
+    /\bany number\b/,
+    /\bpay\b/,
+    /\beither\b/,
+    /\battach\b/,
+    /\bequip\b/,
+    /\bdistribute\b/,
+    /\border\b/,
+    /\bunless\b/,
+  ].some((pattern) => pattern.test(text));
+}
+
+function inferManualChoiceReason(text) {
+  if (/\btarget\b/.test(text)) return "Target selection required";
+  if (/\bmay\b/.test(text)) return "Optional effect decision required";
+  if (/\bchoose\b|\beither\b|\bup to\b|\bany number\b/.test(text)) return "Mode/choice selection required";
+  if (/\battach\b|\bequip\b/.test(text)) return "Attachment target choice required";
+  if (/\bpay\b|\bunless\b/.test(text)) return "Cost/payment decision required";
+  if (/\border\b|\bdistribute\b/.test(text)) return "Ordering/distribution decision required";
+  return "Manual choice required";
+}
+
+function buildManualChoiceSummary(text) {
+  const compact = String(text || "").replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return "Manual choice required.";
+  }
+  return `Manual choice required: ${compact.slice(0, 180)}`;
 }

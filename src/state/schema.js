@@ -83,6 +83,10 @@ export function createDefaultProfile() {
       gestures: {
         advanced: true,
       },
+      helperSprite: {
+        enabled: false,
+        remindersAtUpkeep: true,
+      },
     },
     localAuth: {
       mode: "guest",
@@ -148,6 +152,16 @@ export function createGameSession() {
       active: false,
       cursor: -1,
       running: false,
+    },
+    helper: {
+      reminderRequested: false,
+      reminderRequestedTurn: 0,
+      reminderQueue: [],
+      replayQueue: [],
+      dismissedKeys: [],
+      deliveredKeys: [],
+      lastKey: "",
+      lastShownAt: 0,
     },
   };
 }

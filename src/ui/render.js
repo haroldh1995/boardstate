@@ -75,6 +75,7 @@ export function mountApp(root, store) {
   let utilityDockOpen = false;
   let activeUtilityPanel = "";
   let combatResolving = false;
+  let phaseAdvancePending = false;
   let toolContextOverride = "";
   let quickPanelOpen = "";
   let toolBadgePosition = { x: 18, y: 520 };
@@ -90,6 +91,9 @@ export function mountApp(root, store) {
   let pendingTrackerModifier = cloneTrackerModifier(DEFAULT_TRACKER_MODIFIER);
   let lifeZoomGuardsInstalled = false;
   let lastLifeTouchEnd = 0;
+  let helperMessage = null;
+  let helperHideTimer = null;
+  let helperDismissCooldown = new Map();
 
   store.subscribe(render);
   render(store.getState());
@@ -97,6 +101,7 @@ export function mountApp(root, store) {
   function render(profile) {
     const searchFocusSnapshot = captureSearchFocusState();
     const searchResultsScrollTop = captureSearchResultsScrollTop(root);
+    const viewportScrollSnapshot = captureViewportScroll(root);
     const visiblePages = getVisiblePages(profile);
     const toolContext = resolveToolContext(profile.activeSession, toolContextOverride);
     const uiLayerState = resolveUiLayerState(profile, activePage, {
@@ -112,6 +117,7 @@ export function mountApp(root, store) {
     if (!visiblePages.includes(activePage)) {
       activePage = activePage === "profile" ? "profile" : visiblePages[0] || "life";
     }
+    helperMessage = resolveHelperSpriteMessage(profile, activePage);
     document.body.dataset.composition = profile.settings?.appearance?.compositionMode || "auto";
     document.body.dataset.page = activePage;
     document.body.dataset.uiLayer = uiLayerState.current;
@@ -136,10 +142,13 @@ export function mountApp(root, store) {
       searchLoading,
       searchQuery,
       combatResolving,
+      phaseAdvancePending,
+      helperMessage,
     });
     bind(root, profile);
     scheduleManaAutoClose(profile);
     installLifeZoomGuards();
+    restoreViewportScroll(root, viewportScrollSnapshot);
     restoreSearchInputFocus(root, searchFocusSnapshot, searchResultsScrollTop);
   }
 
@@ -274,19 +283,25 @@ export function mountApp(root, store) {
       });
     });
     container.querySelectorAll("[data-set-tool-context]").forEach((button) => {
-      button.addEventListener("click", () => {
+      button.addEventListener("click", (event) => {
+        const enforceDirectTarget = button.matches(".arena, .opponent-zone");
+        if (enforceDirectTarget && event.target !== button) {
+          return;
+        }
         toolContextOverride = button.dataset.setToolContext || "";
         activeToolPanel = "";
         toolMenuOpen = false;
         render(store.getState());
       });
     });
-    container.querySelector("[data-open-game-options]")?.addEventListener("click", () => {
-      optionsOpen = true;
-      activeToolPanel = "";
-      toolMenuOpen = false;
-      render(store.getState());
-    });
+    container.querySelectorAll("[data-open-game-options]").forEach((button) =>
+      button.addEventListener("click", () => {
+        optionsOpen = true;
+        activeToolPanel = "";
+        toolMenuOpen = false;
+        render(store.getState());
+      })
+    );
     container.querySelector("[data-tool-menu]")?.addEventListener("click", () => {
       toolMenuOpen = !toolMenuOpen;
       render(store.getState());
@@ -294,6 +309,8 @@ export function mountApp(root, store) {
     const toolBadge = container.querySelector("[data-tool-badge]");
     if (toolBadge) {
       toolBadge.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
         toolBadge.setPointerCapture?.(event.pointerId);
         toolBadgeDrag = {
           startX: event.clientX,
@@ -307,6 +324,7 @@ export function mountApp(root, store) {
         if (!toolBadgeDrag) {
           return;
         }
+        event.preventDefault();
         const dx = event.clientX - toolBadgeDrag.startX;
         const dy = event.clientY - toolBadgeDrag.startY;
         toolBadgeDrag.moved = toolBadgeDrag.moved || Math.abs(dx) > 5 || Math.abs(dy) > 5;
@@ -317,7 +335,9 @@ export function mountApp(root, store) {
         toolBadge.style.left = `${toolBadgePosition.x}px`;
         toolBadge.style.top = `${toolBadgePosition.y}px`;
       });
-      toolBadge.addEventListener("pointerup", () => {
+      toolBadge.addEventListener("pointerup", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
         if (toolBadgeDrag?.moved) {
           toolBadgeDrag = null;
           return;
@@ -326,6 +346,11 @@ export function mountApp(root, store) {
         toolMenuOpen = !toolMenuOpen;
         render(store.getState());
       });
+      ["pointercancel", "pointerleave"].forEach((eventName) =>
+        toolBadge.addEventListener(eventName, () => {
+          toolBadgeDrag = null;
+        })
+      );
     }
     container.querySelector("[data-app-shell]")?.addEventListener("pointerdown", (event) => {
       if (!isPortraitTouchMode() || isSwipeBlockedTarget(event.target)) {
@@ -346,12 +371,14 @@ export function mountApp(root, store) {
       }
       movePage(deltaX < 0 ? 1 : -1);
     });
-    container.querySelector("[data-game-options]")?.addEventListener("click", () => {
-      optionsOpen = true;
-      activeToolPanel = "";
-      toolMenuOpen = false;
-      render(store.getState());
-    });
+    container.querySelectorAll("[data-game-options]").forEach((button) =>
+      button.addEventListener("click", () => {
+        optionsOpen = true;
+        activeToolPanel = "";
+        toolMenuOpen = false;
+        render(store.getState());
+      })
+    );
     container.querySelectorAll("[data-close-overlay]").forEach((button) => {
       button.addEventListener("click", () => {
         optionsOpen = false;
@@ -390,6 +417,12 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-setting-toggle]").forEach((input) => {
       input.addEventListener("change", () => store.dispatch({ type: "SET_SETTING", path: input.dataset.settingToggle, value: input.checked }));
+    });
+    container.querySelector("[data-helper-remind]")?.addEventListener("click", () => {
+      const messages = collectHelperCandidateMessages(store.getState(), activePage)
+        .slice(0, 8)
+        .map((entry) => ({ key: entry.key, text: entry.text, source: entry.source }));
+      store.dispatch({ type: "HELPER_REMIND_ME", messages });
     });
     container.querySelectorAll("[data-multiplayer-mode]").forEach((button) => {
       button.addEventListener("click", () => store.dispatch({ type: "SET_MULTIPLAYER_MODE", mode: button.dataset.multiplayerMode }));
@@ -442,7 +475,51 @@ export function mountApp(root, store) {
           store.dispatch({ type: "CLEAR_SELECTION" });
           return;
         }
+        if (["destroy", "exile", "sacrifice", "bounce", "remove", "remove token"].includes(action)) {
+          const selectedPermanents = getSelectedPermanents(store.getState().activeSession);
+          const stacked = selectedPermanents.filter((permanent) => Number(permanent.quantity || 1) > 1);
+          if (!stacked.length) {
+            store.dispatch({ type: "REMOVE_SELECTED", mode: action, countMode: "all", count: 1 });
+            return;
+          }
+          const modeFromPanel = container.querySelector("[data-stack-remove-mode]")?.value || action;
+          const countMode = button.dataset.countMode || "custom";
+          const removalPayload = resolveStackRemovalRequest(stacked, countMode);
+          if (!removalPayload) {
+            return;
+          }
+          store.dispatch({
+            type: "REMOVE_SELECTED",
+            mode: modeFromPanel,
+            countMode: removalPayload.countMode,
+            count: removalPayload.count,
+            countById: removalPayload.countById,
+          });
+          return;
+        }
         store.dispatch({ type: "REMOVE_SELECTED", mode: action });
+      });
+    });
+    container.querySelectorAll("[data-stack-remove]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const selectedPermanents = getSelectedPermanents(store.getState().activeSession);
+        const stacked = selectedPermanents.filter((permanent) => Number(permanent.quantity || 1) > 1);
+        if (!stacked.length) {
+          return;
+        }
+        const mode = container.querySelector("[data-stack-remove-mode]")?.value || "destroy";
+        const countMode = button.dataset.stackRemove || "custom";
+        const removalPayload = resolveStackRemovalRequest(stacked, countMode);
+        if (!removalPayload) {
+          return;
+        }
+        store.dispatch({
+          type: "REMOVE_SELECTED",
+          mode,
+          countMode: removalPayload.countMode,
+          count: removalPayload.count,
+          countById: removalPayload.countById,
+        });
       });
     });
     container.querySelector("[data-counter-form]")?.addEventListener("submit", (event) => {
@@ -530,7 +607,16 @@ export function mountApp(root, store) {
     );
     container.querySelector("[data-undo]")?.addEventListener("click", () => store.dispatch({ type: "UNDO" }));
     container.querySelector("[data-redo]")?.addEventListener("click", () => store.dispatch({ type: "REDO" }));
-    container.querySelector("[data-next-phase]")?.addEventListener("click", () => store.dispatch({ type: "ADVANCE_PHASE" }));
+    container.querySelectorAll("[data-next-phase]").forEach((button) => {
+      if (phaseAdvancePending) {
+        button.disabled = true;
+        button.dataset.phaseLabel = button.textContent || "Next Phase";
+        button.textContent = "Advancing…";
+      }
+      button.addEventListener("click", () => {
+        advancePhaseFromUi();
+      });
+    });
     container.querySelector("[data-archive-game]")?.addEventListener("click", () => store.dispatch({ type: "ARCHIVE_GAME", result: "completed" }));
     container.querySelector("[data-cast-commander]")?.addEventListener("click", () => store.dispatch({ type: "CAST_COMMANDER" }));
 
@@ -654,6 +740,18 @@ export function mountApp(root, store) {
         runScryfallSearch(query, store.getState(), false);
       }, 220);
     });
+    container.querySelector(".search-results")?.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+      keepSearchInputFocus = true;
+      searchSelection = {
+        start: searchInput?.selectionStart,
+        end: searchInput?.selectionEnd,
+        direction: searchInput?.selectionDirection || "none",
+      };
+    });
+    container.querySelector(".search-results")?.addEventListener("touchstart", (event) => {
+      event.stopPropagation();
+    });
 
     container.querySelectorAll("[data-add-result]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -737,6 +835,26 @@ export function mountApp(root, store) {
         });
       });
     });
+    container.querySelector("[data-helper-dismiss]")?.addEventListener("click", () => {
+      dismissHelperSpriteMessage(true);
+    });
+    container.querySelector("[data-helper-open]")?.addEventListener("click", () => {
+      if (!helperMessage) {
+        return;
+      }
+      if (helperMessage.source === "trigger-queue") {
+        activeUtilityPanel = "triggers";
+        utilityDockOpen = true;
+      } else if (helperMessage.source === "pending-effects") {
+        activeToolPanel = "inspect";
+      } else if (helperMessage.source === "phase") {
+        advancePhaseFromUi();
+        return;
+      } else if (helperMessage.source === "stack-removal") {
+        activeToolPanel = "permanents";
+      }
+      render(store.getState());
+    });
 
     container.querySelector("[data-toggle-utility-dock]")?.addEventListener("click", () => {
       utilityDockOpen = !utilityDockOpen;
@@ -749,6 +867,8 @@ export function mountApp(root, store) {
       button.addEventListener("click", () => {
         activeUtilityPanel = button.dataset.openUtility || "";
         utilityDockOpen = true;
+        toolMenuOpen = false;
+        activeToolPanel = "";
         render(store.getState());
       });
     });
@@ -802,7 +922,11 @@ export function mountApp(root, store) {
       if (!activeToolPanel && !floatingManaOpen && !activeUtilityPanel) {
         return;
       }
-      if (event.target.closest(".floating-tool-panel, .floating-mana, .radial-menu, .tool-badge, .utility-dock, .utility-overlay")) {
+      if (
+        event.target.closest(
+          ".floating-tool-panel, .floating-mana, .radial-menu, .tool-badge, .utility-dock, .utility-overlay, button, input, label, textarea, select, [data-permanent-card], [data-permanent], [data-tap], [data-counter]"
+        )
+      ) {
         return;
       }
       if (!profile.settings?.battlefield?.manaPinned) {
@@ -841,6 +965,20 @@ export function mountApp(root, store) {
     const nextIndex = Math.max(0, Math.min(pageOrder.length - 1, currentIndex + direction));
     if (nextIndex !== currentIndex) {
       setActivePage(pageOrder[nextIndex]);
+    }
+  }
+
+  async function advancePhaseFromUi() {
+    if (phaseAdvancePending) {
+      return;
+    }
+    phaseAdvancePending = true;
+    render(store.getState());
+    try {
+      await store.dispatch({ type: "ADVANCE_PHASE" });
+    } finally {
+      phaseAdvancePending = false;
+      render(store.getState());
     }
   }
 
@@ -1116,9 +1254,188 @@ export function mountApp(root, store) {
     });
   }
 
+  function resolveHelperSpriteMessage(profile, page) {
+    const helperSettings = profile.settings?.helperSprite || {};
+    if (!helperSettings.enabled) {
+      clearTimeout(helperHideTimer);
+      helperMessage = null;
+      return null;
+    }
+    if (optionsOpen || statsOpen || modifierPanelOpen || quickPanelOpen) {
+      return helperMessage;
+    }
+    if (keepSearchInputFocus) {
+      return helperMessage;
+    }
+    const now = Date.now();
+    const candidates = collectHelperCandidateMessages(profile, page);
+    if (!candidates.length) {
+      helperMessage = null;
+      return null;
+    }
+    const helperSession = profile.activeSession.helper || {};
+    const replayQueue = helperSession.replayQueue || [];
+    const replayCandidate = replayQueue[0]
+      ? {
+          key: replayQueue[0].key,
+          text: replayQueue[0].text,
+          source: replayQueue[0].source || "remind-me",
+          isReminderReplay: true,
+        }
+      : null;
+    const next = replayCandidate || candidates[0];
+    if (!next) {
+      return helperMessage;
+    }
+    const cooldownUntil = helperDismissCooldown.get(next.key) || 0;
+    if (cooldownUntil > now) {
+      return helperMessage;
+    }
+    if (helperMessage?.key === next.key) {
+      return helperMessage;
+    }
+    helperMessage = {
+      ...next,
+      shownAt: now,
+    };
+    clearTimeout(helperHideTimer);
+    helperHideTimer = setTimeout(() => {
+      dismissHelperSpriteMessage(true);
+    }, Math.max(2800, Math.min(6400, 2300 + Math.round(next.text.length * 12))));
+    store.dispatch({ type: "HELPER_MARK_SHOWN", messageKey: next.key });
+    return helperMessage;
+  }
+
+  function collectHelperCandidateMessages(profile, page) {
+    const session = profile.activeSession;
+    const messages = [];
+    const adhdMode = getAdhdMode(profile);
+    const pendingQueue = (session.triggerQueue || []).filter((entry) => entry.status === "pending");
+    const pendingEffects = (session.pendingEffects || []).filter((entry) => entry.status === "pending");
+    const ignoredEffects = (session.pendingEffects || []).filter((entry) => entry.status === "ignored");
+    const selected = getSelectedPermanents(session);
+    const stacked = selected.filter((permanent) => Number(permanent.quantity || 1) > 1);
+    const manaFloating = Object.values(session.manaPool || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+
+    if (pendingQueue.length) {
+      const top = pendingQueue[0];
+      messages.push({
+        key: `queue:${top.id}`,
+        source: "trigger-queue",
+        text: `Trigger ready: ${top.sourceName} (${top.eventType}).`,
+      });
+    }
+    if (pendingEffects.length) {
+      const top = pendingEffects[0];
+      messages.push({
+        key: `manual:${top.id}`,
+        source: "pending-effects",
+        text: `Manual choice required: ${top.summary || top.effect?.summary || top.effect?.reason || "Resolve or skip from pending effects."}`,
+      });
+    }
+    if (ignoredEffects.length && adhdMode.enabled) {
+      messages.push({
+        key: `ignored:${ignoredEffects[0].id}`,
+        source: "pending-effects",
+        text: "Ignored manual effect still unresolved. Open pending effects to review.",
+      });
+    }
+    if (stacked.length) {
+      messages.push({
+        key: `stack:${stacked.map((entry) => entry.id).join(",")}`,
+        source: "stack-removal",
+        text: "Stack selected: use Remove 1 / Custom / All in Permanent Controls.",
+      });
+    }
+    if (page === "battlefield" && session.phaseIndex === 2 && !session.combat?.attackerIds?.length) {
+      messages.push({
+        key: `combat:${session.turn}:${session.phaseIndex}`,
+        source: "combat",
+        text: "Combat reminder: declare attackers or advance phase.",
+      });
+    }
+    if (page === "battlefield" && session.phaseIndex === 0) {
+      messages.push({
+        key: `phase:${session.turn}:${session.phaseIndex}`,
+        source: "phase",
+        text: "Beginning phase: resolve upkeep/beginning triggers before moving on.",
+      });
+    }
+    if (adhdMode.enabled && manaFloating > 0) {
+      messages.push({
+        key: `mana:${session.turn}:${manaFloating}`,
+        source: "resource",
+        text: `Floating mana reminder: ${manaFloating} mana still available.`,
+      });
+    }
+    if (page === "battlefield" && searchLoading) {
+      messages.push({
+        key: `search-loading:${searchQuery}`,
+        source: "search",
+        text: "Scryfall search is loading. You can keep typing.",
+      });
+    }
+    return messages;
+  }
+
+  function dismissHelperSpriteMessage(addCooldown = false) {
+    if (!helperMessage) {
+      return;
+    }
+    clearTimeout(helperHideTimer);
+    if (addCooldown && helperMessage.key) {
+      helperDismissCooldown.set(helperMessage.key, Date.now() + 25000);
+    }
+    if (helperMessage.isReminderReplay) {
+      store.dispatch({ type: "HELPER_DISMISS_MESSAGE", messageKey: helperMessage.key });
+    }
+    helperMessage = null;
+    render(store.getState());
+  }
+
   function dispatchWithFeedback(action, strong = false) {
     store.dispatch(action);
     vibrateFeedback(strong);
+  }
+
+  function resolveStackRemovalRequest(stackedPermanents = [], requestedMode = "custom") {
+    const mode = String(requestedMode || "custom").toLowerCase();
+    const totals = Object.fromEntries(stackedPermanents.map((permanent) => [permanent.id, Math.max(1, Number(permanent.quantity || 1))]));
+    if (mode === "all") {
+      return {
+        countMode: "all",
+        count: Math.max(...Object.values(totals)),
+        countById: totals,
+      };
+    }
+    if (mode === "single" || mode === "1") {
+      return {
+        countMode: "single",
+        count: 1,
+        countById: Object.fromEntries(stackedPermanents.map((permanent) => [permanent.id, 1])),
+      };
+    }
+    const largestStack = Math.max(...Object.values(totals));
+    const answer = prompt(`Remove how many from each selected stack? (1-${largestStack}, or "all")`, "1");
+    if (answer === null) {
+      return null;
+    }
+    const normalized = String(answer).trim().toLowerCase();
+    if (normalized === "all") {
+      return {
+        countMode: "all",
+        count: largestStack,
+        countById: totals,
+      };
+    }
+    const numeric = Math.max(1, Math.floor(Number(normalized) || 1));
+    return {
+      countMode: "custom",
+      count: numeric,
+      countById: Object.fromEntries(
+        stackedPermanents.map((permanent) => [permanent.id, Math.min(totals[permanent.id], numeric)])
+      ),
+    };
   }
 
   function applyTrackerModifier() {
@@ -1206,13 +1523,6 @@ export function mountApp(root, store) {
       searchLoading = false;
       searchResults = [];
       searchMessage = "Start typing to search Scryfall.";
-      if (keepSearchInputFocus) {
-        searchSelection = {
-          start: searchQuery.length,
-          end: searchQuery.length,
-          direction: "none",
-        };
-      }
       render(store.getState());
       return;
     }
@@ -1221,14 +1531,9 @@ export function mountApp(root, store) {
     searchAbortController = new AbortController();
     searchLoading = true;
     searchMessage = navigator.onLine ? "Searching..." : "Offline: showing commander deck matches only.";
-    if (keepSearchInputFocus) {
-      searchSelection = {
-        start: searchQuery.length,
-        end: searchQuery.length,
-        direction: "none",
-      };
+    if (!keepSearchInputFocus) {
+      render(store.getState());
     }
-    render(store.getState());
     try {
       const results = await searchScryfall(trimmed, commanderDeck, { requestToken: token, signal: searchAbortController.signal });
       if (token !== searchRequestToken) {
@@ -1244,15 +1549,29 @@ export function mountApp(root, store) {
     } finally {
       if (token === searchRequestToken) {
         searchLoading = false;
-        if (keepSearchInputFocus) {
-          searchSelection = {
-            start: searchQuery.length,
-            end: searchQuery.length,
-            direction: "none",
-          };
-        }
         render(store.getState());
       }
+    }
+  }
+
+  function captureViewportScroll(container) {
+    const shell = container.querySelector?.(".app-shell");
+    return {
+      pageY: window.scrollY || document.documentElement.scrollTop || 0,
+      shellY: shell?.scrollTop || 0,
+    };
+  }
+
+  function restoreViewportScroll(container, snapshot) {
+    if (!snapshot) {
+      return;
+    }
+    if (Math.abs((window.scrollY || 0) - (snapshot.pageY || 0)) > 1) {
+      window.scrollTo({ top: snapshot.pageY || 0, left: 0, behavior: "auto" });
+    }
+    const shell = container.querySelector?.(".app-shell");
+    if (shell && Number.isFinite(snapshot.shellY) && Math.abs((shell.scrollTop || 0) - snapshot.shellY) > 1) {
+      shell.scrollTop = snapshot.shellY;
     }
   }
 
@@ -1350,6 +1669,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       ${uiState.optionsOpen ? renderGameOptions(profile) : ""}
       ${uiState.statsOpen ? renderStatsOverlay(profile, uiState.statsMode) : ""}
       ${renderAdhdAssistPanel(profile, page, uiLayer.current)}
+      ${renderHelperSprite(profile, uiState.helperMessage)}
       ${renderEdgeSwipeZones(profile)}
     </main>
   `;
@@ -1578,12 +1898,12 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
       <aside class="search-panel glass">
         ${renderBattlefieldPhaseTracker(session, stats)}
         ${renderBattlefieldViewControls(detailMode, compressionMode, uiLayer)}
-        ${renderPredictiveSuggestions(profile)}
+        ${profile.settings?.helperSprite?.enabled ? "" : renderPredictiveSuggestions(profile)}
         ${panels.archiveQuickAdd ? `<h2>Battlefield Quick Add</h2>` : ""}
         ${panels.archiveQuickAdd ? renderSearch(searchResults, searchMessage, searchLoading, searchQuery) : ""}
       </aside>
     </section>
-    ${panels.advancedRulesHelpers ? renderPending(session) : ""}
+    ${panels.advancedRulesHelpers || (session.pendingEffects || []).length ? renderPending(session) : ""}
     ${activeUtilityPanel === "history" ? renderActionTimeline(profile) : ""}
     ${activeUtilityPanel === "triggers" ? renderTriggerQueuePanel(profile) : ""}
   `;
@@ -1870,6 +2190,7 @@ function renderTriggerQueuePanel(profile) {
             <strong>${escapeHtml(entry.sourceName)}</strong>
             <span>${escapeHtml(entry.eventType)} · Chain ${escapeHtml(entry.chainId)}</span>
             <p>Status: ${escapeHtml(entry.status)}</p>
+            ${entry.effectDefinitions?.some((effect) => effect.manual) ? `<p><strong>manual choice required</strong></p>` : ""}
             <p>Effects: ${(entry.effectDefinitions || []).map((effect) => escapeHtml(effect.action || "effect")).join(", ")}</p>
             <p>Modifiers: ${(entry.generatedModifiers || []).map((modifier) => `L${modifier.layer}:${modifier.operation}`).join(" · ") || "none"}</p>
             <div class="row mini">
@@ -2212,6 +2533,9 @@ function renderTokenControls() {
 function renderPermanentControls(profile) {
   const selectedCount = profile.activeSession.selectedIds?.length || 0;
   const expanded = Boolean(profile.settings?.battlefield?.expandedAll);
+  const selected = getSelectedPermanents(profile.activeSession);
+  const selectedStacks = selected.filter((permanent) => Number(permanent.quantity || 1) > 1);
+  const maxStackQuantity = selectedStacks.reduce((max, permanent) => Math.max(max, Number(permanent.quantity || 1)), 0);
   return `
     <div class="stacked-form">
       <p class="eyebrow">${selectedCount} selected permanent(s)</p>
@@ -2226,6 +2550,29 @@ function renderPermanentControls(profile) {
         <button data-setting-button="battlefield.expandedAll" data-value="${expanded ? "false" : "true"}">${expanded ? "Collapse all permanents" : "Expand all permanents"}</button>
         <button data-selected-action="clear">Clear selected permanents</button>
       </div>
+      ${
+        selectedStacks.length
+          ? `
+        <div class="stacked-form stack-removal-card">
+          <p class="eyebrow">Stack quantity removal (${selectedStacks.length} stack${selectedStacks.length === 1 ? "" : "s"} selected, max ${maxStackQuantity})</p>
+          <label>Removal mode
+            <select data-stack-remove-mode>
+              <option value="destroy">Destroy</option>
+              <option value="exile">Exile</option>
+              <option value="sacrifice">Sacrifice</option>
+              <option value="bounce">Bounce / Return</option>
+              <option value="remove">Generic Remove</option>
+            </select>
+          </label>
+          <div class="button-grid">
+            <button data-stack-remove="single">Remove 1</button>
+            <button data-stack-remove="custom">Remove Custom</button>
+            <button data-stack-remove="all">Remove All</button>
+          </div>
+        </div>
+      `
+          : ""
+      }
     </div>
   `;
 }
@@ -2311,9 +2658,11 @@ function renderPending(session) {
       ${session.pendingEffects.map((effect) => `
         <article>
           <strong>${escapeHtml(effect.sourceName)}</strong>
-          <span>${escapeHtml(effect.status)}</span>
+          <span>${escapeHtml(effect.status === "pending" ? "manual choice required" : effect.status)}</span>
+          <p>${escapeHtml(effect.summary || effect.effect?.summary || effect.effect?.reason || effect.effect?.action || "Manual decision required.")}</p>
           <button data-pending-effect="${effect.id}" data-status="resolved">Resolved</button>
           <button data-pending-effect="${effect.id}" data-status="skipped">Skipped</button>
+          <button data-pending-effect="${effect.id}" data-status="ignored">Ignored</button>
         </article>
       `).join("")}
     </section>
@@ -2472,6 +2821,8 @@ function renderGameOptions(profile) {
           <article class="option-card">
             <h3>Rules / Accessibility</h3>
             <p>ADHD Mode is a companion assistance layer for reminders and clarity, not official judging or full rules enforcement.</p>
+            ${renderToggle("Helper Sprite", "helperSprite.enabled", Boolean(profile.settings?.helperSprite?.enabled))}
+            <button class="wide" data-helper-remind>Remind me</button>
             ${renderToggle("ADHD Mode", "adhdMode.enabled", Boolean(settings.adhdMode?.enabled))}
             ${renderToggle("ADHD trigger reminders", "adhdMode.triggerReminders", Boolean(settings.adhdMode?.triggerReminders))}
             ${renderToggle("ADHD missed trigger reminders", "adhdMode.missedTriggerReminders", Boolean(settings.adhdMode?.missedTriggerReminders))}
@@ -2717,6 +3068,9 @@ function buildAdhdReminderText(profile, permanent) {
   if ((session.pendingEffects || []).some((entry) => entry.status === "pending")) {
     reminders.push("Manual effect confirmations pending");
   }
+  if ((session.pendingEffects || []).some((entry) => entry.status === "ignored")) {
+    reminders.push("Ignored manual effects still need review");
+  }
   if (session.manaPool && Object.values(session.manaPool).some((value) => Number(value) > 0)) {
     reminders.push("Floating mana still available");
   }
@@ -2816,6 +3170,8 @@ function renderAdhdAssistPanel(profile, page, uiLayer) {
   const queue = session.triggerQueue || [];
   const pendingQueue = queue.filter((entry) => entry.status === "pending");
   const missedQueue = queue.filter((entry) => entry.status === "skipped" || entry.status === "delayed");
+  const manualPending = (session.pendingEffects || []).filter((entry) => entry.status === "pending");
+  const manualIgnored = (session.pendingEffects || []).filter((entry) => entry.status === "ignored");
   const likelyActions = adhdMode.highlightLikelyActions ? buildPredictiveActions(profile).slice(0, 4) : [];
   const phaseLabel = PHASES[session.phaseIndex] || "Unknown";
 
@@ -2838,6 +3194,7 @@ function renderAdhdAssistPanel(profile, page, uiLayer) {
       )}</p>
       <div class="adhd-assist-grid">
         ${adhdMode.triggerReminders ? `<article><strong>Trigger reminders</strong><p>${pendingQueue.length} unresolved</p></article>` : ""}
+        ${adhdMode.unresolvedReminders ? `<article><strong>Manual choices</strong><p>${manualPending.length} pending Â· ${manualIgnored.length} ignored</p></article>` : ""}
         ${adhdMode.missedTriggerReminders ? `<article><strong>Missed trigger reminders</strong><p>${missedQueue.length} flagged</p></article>` : ""}
         ${adhdMode.resourceReminders ? `<article><strong>Resource reminders</strong><p>Mana ${Object.values(session.manaPool || {}).reduce((sum, value) => sum + Number(value || 0), 0)} · Counters ${Object.values(session.playerCounters || {}).reduce((sum, value) => sum + Number(value || 0), 0)}</p></article>` : ""}
         ${
@@ -2902,6 +3259,21 @@ function renderAdhdAssistPanel(profile, page, uiLayer) {
   `;
 }
 
+function renderHelperSprite(profile, helperMessage) {
+  if (!profile.settings?.helperSprite?.enabled || !helperMessage) {
+    return "";
+  }
+  return `
+    <section class="helper-sprite-widget glass" data-no-swipe>
+      <button class="helper-sprite-avatar" data-helper-dismiss title="Dismiss helper sprite">✨</button>
+      <button class="helper-sprite-bubble" data-helper-open>
+        <strong>Helper Sprite</strong>
+        <span>${escapeHtml(helperMessage.text)}</span>
+      </button>
+    </section>
+  `;
+}
+
 function renderToggle(label, path, checked, truthyValue = true) {
   const value = truthyValue === true ? "true" : truthyValue;
   return `
@@ -2917,6 +3289,11 @@ function getSettings(profile) {
   return {
     adhdAutomation: adhdMode.enabled,
     adhdMode,
+    helperSprite: {
+      enabled: false,
+      remindersAtUpkeep: true,
+      ...(profile.settings?.helperSprite || {}),
+    },
     confirmAmbiguousEffects: true,
     haptics: false,
     compactTiles: true,

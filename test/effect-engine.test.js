@@ -191,6 +191,82 @@ test("layer system exposes layer breakdown for static modifiers", () => {
   assert.ok((updated.layerBreakdown || []).some((entry) => entry.layer === 8));
 });
 
+test("partial stack removal supports single/custom/all and undo restoration", () => {
+  let profile = createDefaultProfile();
+  profile = reduceProfile(
+    profile,
+    createAction(
+      {
+        type: "ADD_PERMANENT",
+        card: {
+          id: "soldier-stack",
+          name: "Soldier Token",
+          typeLine: "Token Creature - Soldier",
+          basePower: 1,
+          baseToughness: 1,
+          isToken: true,
+          quantity: 5,
+        },
+      },
+      profile
+    )
+  );
+  const stack = profile.activeSession.battlefield.player.find((permanent) => permanent.id === "soldier-stack");
+  profile = reduceProfile(profile, createAction({ type: "SELECT_PERMANENT", id: stack.id }, profile));
+
+  profile = reduceProfile(profile, createAction({ type: "REMOVE_SELECTED", mode: "destroy", countMode: "single", count: 1 }, profile));
+  let remaining = profile.activeSession.battlefield.player.find((permanent) => permanent.name === "Soldier Token");
+  assert.equal(remaining.quantity, 4);
+
+  profile = reduceProfile(profile, createAction({ type: "REMOVE_SELECTED", mode: "destroy", countMode: "custom", count: 2 }, profile));
+  remaining = profile.activeSession.battlefield.player.find((permanent) => permanent.name === "Soldier Token");
+  assert.equal(remaining.quantity, 2);
+
+  profile = reduceProfile(profile, createAction({ type: "REMOVE_SELECTED", mode: "destroy", countMode: "all", count: 99 }, profile));
+  remaining = profile.activeSession.battlefield.player.find((permanent) => permanent.name === "Soldier Token");
+  assert.equal(Boolean(remaining), false);
+
+  profile = reduceProfile(profile, createAction({ type: "UNDO" }, profile));
+  remaining = profile.activeSession.battlefield.player.find((permanent) => permanent.name === "Soldier Token");
+  assert.equal(remaining.quantity, 2);
+  profile = reduceProfile(profile, createAction({ type: "UNDO" }, profile));
+  remaining = profile.activeSession.battlefield.player.find((permanent) => permanent.name === "Soldier Token");
+  assert.equal(remaining.quantity, 4);
+  profile = reduceProfile(profile, createAction({ type: "UNDO" }, profile));
+  remaining = profile.activeSession.battlefield.player.find((permanent) => permanent.name === "Soldier Token");
+  assert.equal(remaining.quantity, 5);
+});
+
+test("partial destroy uses removed count while exile does not trigger dies", () => {
+  let profile = createDefaultProfile();
+  const add = (card) => {
+    profile = reduceProfile(profile, createAction({ type: "ADD_PERMANENT", card }, profile));
+  };
+  add({
+    name: "Death Warden",
+    typeLine: "Creature - Cleric",
+    basePower: 1,
+    baseToughness: 1,
+    oracleText: "Whenever a creature dies, you gain 1 life.",
+  });
+  add({
+    id: "test-stack",
+    name: "Test Soldier",
+    typeLine: "Token Creature - Soldier",
+    basePower: 1,
+    baseToughness: 1,
+    isToken: true,
+    quantity: 4,
+  });
+  const stack = profile.activeSession.battlefield.player.find((permanent) => permanent.id === "test-stack");
+  profile = reduceProfile(profile, createAction({ type: "SELECT_PERMANENT", id: stack.id }, profile));
+
+  profile = reduceProfile(profile, createAction({ type: "REMOVE_SELECTED", mode: "destroy", countMode: "custom", count: 2 }, profile));
+  assert.equal(profile.activeSession.life, 42);
+  profile = reduceProfile(profile, createAction({ type: "REMOVE_SELECTED", mode: "exile", countMode: "single", count: 1 }, profile));
+  assert.equal(profile.activeSession.life, 42);
+});
+
 test("immutable action envelope contains deterministic metadata", () => {
   const profile = createDefaultProfile();
   const action = createAction({ type: "LIFE_DELTA", amount: 1, sourceId: "life" }, profile);
@@ -284,6 +360,25 @@ test("adhd mode toggle keeps legacy deterministic automation setting in sync", (
   profile = reduceProfile(profile, createAction({ type: "SET_SETTING", path: "adhdAutomation", value: false }, profile));
   assert.equal(profile.settings.adhdAutomation, false);
   assert.equal(profile.settings.adhdMode.enabled, false);
+});
+
+test("helper remind me queues messages and replays on next upkeep turn", () => {
+  let profile = createDefaultProfile();
+  const queuedMessage = [{ key: "queue:test", text: "Resolve queued trigger.", source: "trigger-queue" }];
+  profile = reduceProfile(profile, createAction({ type: "HELPER_REMIND_ME", messages: queuedMessage }, profile));
+  assert.equal(profile.activeSession.helper.reminderRequested, true);
+  assert.equal(profile.activeSession.helper.reminderQueue.length, 1);
+
+  for (let step = 0; step < 40 && !(profile.activeSession.helper.replayQueue || []).length; step += 1) {
+    profile = reduceProfile(profile, createAction({ type: "ADVANCE_PHASE" }, profile));
+  }
+  assert.ok(profile.activeSession.turn >= 1);
+  assert.equal(profile.activeSession.helper.reminderRequested, false);
+  assert.equal(profile.activeSession.helper.replayQueue.length, 1);
+
+  profile = reduceProfile(profile, createAction({ type: "HELPER_DISMISS_MESSAGE", messageKey: "queue:test" }, profile));
+  assert.equal(profile.activeSession.helper.replayQueue.length, 0);
+  assert.ok(profile.activeSession.helper.dismissedKeys.includes("queue:test"));
 });
 
 test("deterministic token/counter triggers still auto-resolve when adhd auto-assist is disabled", () => {
@@ -446,6 +541,78 @@ test("mandatory scenario 1: etb counters and anim pakal combat token chain resol
   assert.ok((hydra.currentPower || 0) >= hydra.basePower + (hydra.counters?.["+1/+1"] || 0) + 1);
   assert.ok(profile.activeSession.life > 40);
   assert.ok((profile.activeSession.commander.damageByOpponent?.opponent || 0) > 0);
+});
+
+test("anim pakal token count uses +1/+1 counter count, not power", () => {
+  let profile = createDefaultProfile();
+  profile = reduceProfile(
+    profile,
+    createAction(
+      {
+        type: "ADD_PERMANENT",
+        card: {
+          name: "Anim Pakal, Thousandth Moon",
+          typeLine: "Legendary Creature - Human Soldier",
+          oracleText:
+            "Whenever one or more non-Gnome creatures you control attack, put a +1/+1 counter on Anim Pakal, Thousandth Moon. Then create X 1/1 red Gnome artifact creature tokens that are tapped and attacking, where X is Anim Pakal's power.",
+          basePower: 4,
+          baseToughness: 2,
+        },
+      },
+      profile
+    )
+  );
+  const anim = profile.activeSession.battlefield.player.find((permanent) => permanent.name === "Anim Pakal, Thousandth Moon");
+  profile = reduceProfile(
+    profile,
+    createAction({ type: "ADD_COUNTER", id: anim.id, counterType: "+1/+1", amount: 2 }, profile)
+  );
+
+  profile = reduceProfile(profile, createAction({ type: "DECLARE_ATTACKERS", ids: [anim.id] }, profile));
+  const gnomes = profile.activeSession.battlefield.player.find((permanent) => permanent.name === "Gnome Token");
+  const animAfter = profile.activeSession.battlefield.player.find((permanent) => permanent.name === "Anim Pakal, Thousandth Moon");
+
+  assert.ok(gnomes);
+  assert.equal(animAfter.counters?.["+1/+1"], 3);
+  assert.equal(gnomes.quantity, 3);
+  assert.notEqual(gnomes.quantity, animAfter.currentPower);
+});
+
+test("manual-choice effects are queued and logged instead of silently ignored", () => {
+  let profile = createDefaultProfile();
+  profile = reduceProfile(
+    profile,
+    createAction(
+      {
+        type: "ADD_PERMANENT",
+        card: {
+          name: "Choice Keeper",
+          typeLine: "Creature - Human Wizard",
+          basePower: 2,
+          baseToughness: 2,
+          oracleText: "When Choice Keeper enters the battlefield, choose target creature.",
+        },
+      },
+      profile
+    )
+  );
+
+  const queued = (profile.activeSession.triggerQueue || []).find(
+    (entry) => entry.sourceName === "Choice Keeper" && entry.status === "pending"
+  );
+  assert.ok(queued);
+  assert.ok((queued.effectDefinitions || []).some((effect) => effect.manual));
+
+  profile = reduceProfile(profile, createAction({ type: "TRIGGER_QUEUE_RESOLVE", id: queued.id }, profile));
+  const pending = profile.activeSession.pendingEffects || [];
+  assert.ok(pending.length > 0);
+  assert.equal(pending[0].status, "pending");
+  assert.ok(/manual choice required/i.test(pending[0].summary || ""));
+  assert.ok(
+    (profile.activeSession.effectLog || []).some((entry) =>
+      /manual choice required/i.test(entry.summary || entry.text || "")
+    )
+  );
 });
 
 test("mandatory scenario 2: landfall token/copy generation and trigger doubling resolve automatically", () => {

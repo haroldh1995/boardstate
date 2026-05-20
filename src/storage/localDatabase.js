@@ -271,6 +271,7 @@ function normalizeProfile(profile) {
       navigation: { ...defaults.settings.navigation, ...(profile.settings?.navigation || {}) },
       gestures: { ...defaults.settings.gestures, ...(profile.settings?.gestures || {}) },
       adhdMode: { ...defaults.settings.adhdMode, ...(profile.settings?.adhdMode || {}) },
+      helperSprite: { ...defaults.settings.helperSprite, ...(profile.settings?.helperSprite || {}) },
       recentCounterTypes: profile.settings?.recentCounterTypes || defaults.settings.recentCounterTypes || [],
     },
     localAuth: { ...defaults.localAuth, ...(profile.localAuth || {}) },
@@ -285,6 +286,10 @@ function normalizeProfile(profile) {
       fsm: {
         ...defaults.activeSession.fsm,
         ...(profile.activeSession?.fsm || {}),
+      },
+      helper: {
+        ...defaults.activeSession.helper,
+        ...(profile.activeSession?.helper || {}),
       },
       history: profile.activeSession?.history || defaults.activeSession.history,
       actionHistory: profile.activeSession?.actionHistory || defaults.activeSession.actionHistory,

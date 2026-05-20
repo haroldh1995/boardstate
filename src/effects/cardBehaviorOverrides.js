@@ -20,7 +20,7 @@ const overrides = {
         condition: "attack-non-gnome-you-control",
         action: "create-token",
         count: 1,
-        countFrom: "source-power",
+        countFrom: "source-plus1-counters",
         token: {
           name: "Gnome Token",
           typeLine: "Token Artifact Creature - Gnome",

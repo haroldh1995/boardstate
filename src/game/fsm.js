@@ -21,6 +21,7 @@ const NEXT_STATE = FSM_STATES.reduce((next, state, index) => {
   next[state] = FSM_STATES[(index + 1) % FSM_STATES.length];
   return next;
 }, {});
+NEXT_STATE.cleanup = "untap";
 
 const MAJOR_PHASE_BY_STATE = {
   setup: "Beginning",
@@ -53,7 +54,8 @@ export function canTransition(current, next) {
 
 export function transitionFsm(session, requestedNext = "") {
   const current = session.fsm?.current || "setup";
-  const next = requestedNext && canTransition(current, requestedNext) ? requestedNext : NEXT_STATE[current] || "setup";
+  const inferredNext = current === "cleanup" ? "untap" : NEXT_STATE[current] || "setup";
+  const next = requestedNext && canTransition(current, requestedNext) ? requestedNext : inferredNext;
   const previous = current;
   const transitions = [
     {

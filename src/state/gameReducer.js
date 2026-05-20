@@ -101,7 +101,7 @@ export function reduceProfile(profile, event) {
       nextProfile = withSession(baseProfile, setSelectedTapped(baseProfile.activeSession, Boolean(event.tapped)));
       break;
     case "REMOVE_SELECTED":
-      nextProfile = withSession(baseProfile, removeSelectedPermanents(baseProfile.activeSession, event.mode || "remove"));
+      nextProfile = withSession(baseProfile, removeSelectedPermanents(baseProfile.activeSession, event));
       break;
     case "CLEAR_SELECTION":
       nextProfile = withSession(baseProfile, { ...baseProfile.activeSession, selectedIds: [] });
@@ -135,6 +135,15 @@ export function reduceProfile(profile, event) {
       break;
     case "MARK_PENDING_EFFECT":
       nextProfile = withSession(baseProfile, updatePendingEffect(baseProfile.activeSession, event.id, event.status));
+      break;
+    case "HELPER_REMIND_ME":
+      nextProfile = withSession(baseProfile, requestHelperReminder(baseProfile.activeSession, event.messages || []));
+      break;
+    case "HELPER_DISMISS_MESSAGE":
+      nextProfile = withSession(baseProfile, dismissHelperMessage(baseProfile.activeSession, event.messageKey || ""));
+      break;
+    case "HELPER_MARK_SHOWN":
+      nextProfile = withSession(baseProfile, markHelperMessageShown(baseProfile.activeSession, event.messageKey || ""));
       break;
     case "TRIGGER_QUEUE_RESOLVE":
       nextProfile = withSession(baseProfile, resolveQueuedTrigger(baseProfile.activeSession, { triggerId: event.id, command: "resolve", requestedBy: event.playerId || "player" }));
@@ -528,6 +537,13 @@ function syncPublicStats(profile) {
 function advancePhase(session) {
   const transitioned = transitionFsm(session);
   const isNewTurn = transitioned.turn !== session.turn;
+  const helperState = session.helper || {};
+  const shouldReplayHelperReminder =
+    isNewTurn &&
+    transitioned.phaseIndex === 0 &&
+    Boolean(helperState.reminderRequested) &&
+    Array.isArray(helperState.reminderQueue) &&
+    helperState.reminderQueue.length > 0;
   const nextSession = {
     ...transitioned,
     manaPool: createManaPool(),
@@ -542,6 +558,14 @@ function advancePhase(session) {
         temporaryModifiers: transitioned.phaseIndex === 0 ? [] : permanent.temporaryModifiers,
       })),
     },
+    helper: shouldReplayHelperReminder
+      ? {
+          ...helperState,
+          reminderRequested: false,
+          replayQueue: helperState.reminderQueue,
+          reminderQueue: [],
+        }
+      : helperState,
   };
   const withTurnEvent = isNewTurn ? queueGameEvent(nextSession, "TURN_CHANGED", { turn: nextSession.turn }) : nextSession;
   const withReactivated = reactivateDelayedTriggers(withTurnEvent);
@@ -743,13 +767,100 @@ function setSelectedTapped(session, tapped) {
   });
 }
 
-function removeSelectedPermanents(session, mode) {
+function removeSelectedPermanents(session, options = {}) {
+  const mode = String(options.mode || "remove");
+  const countMode = String(options.countMode || "all");
+  const requestedCount = Math.max(1, normalizeCount(options.count, 1));
+  const countById = options.countById && typeof options.countById === "object" ? options.countById : {};
   const selected = new Set(session.selectedIds || []);
   if (!selected.size) {
     return session;
   }
-  const removed = [...session.battlefield.player, ...session.battlefield.opponent].filter((permanent) => selected.has(permanent.id));
-  const removedIds = new Set(removed.map((permanent) => permanent.id));
+  const removed = [];
+  const removedIds = new Set();
+  const remainingSelected = [];
+
+  const eventType = mapRemovalModeToEventType(mode);
+  const eventLegacyType = mapRemovalModeToLegacyType(mode);
+  const chainId = createId("chain");
+
+  let nextSession = {
+    ...session,
+    battlefield: {
+      ...session.battlefield,
+      player: [...session.battlefield.player],
+      opponent: [...session.battlefield.opponent],
+    },
+  };
+
+  ["player", "opponent"].forEach((sideKey) => {
+    const nextSide = [];
+    (nextSession.battlefield[sideKey] || []).forEach((permanent) => {
+      if (!selected.has(permanent.id)) {
+        nextSide.push(permanent);
+        return;
+      }
+      const totalQty = Math.max(1, Number(permanent.quantity) || 1);
+      const perPermanentRequested = Math.max(1, normalizeCount(countById[permanent.id], requestedCount));
+      const removeCountRaw =
+        countMode === "all"
+          ? totalQty
+          : countMode === "single"
+            ? 1
+            : perPermanentRequested;
+      const removeCount = Math.max(1, Math.min(totalQty, removeCountRaw));
+      const remaining = totalQty - removeCount;
+
+      removed.push({
+        id: permanent.id,
+        name: permanent.name,
+        mode,
+        count: removeCount,
+        totalBefore: totalQty,
+        side: sideKey,
+      });
+
+      const removedPermanent = hydratePermanentEffects({
+        ...permanent,
+        id: createId("removed"),
+        quantity: removeCount,
+        stackMembers: (permanent.stackMembers || []).slice(0, removeCount),
+      });
+
+      nextSession = processEventTriggers(nextSession, {
+        type: eventLegacyType,
+        eventType,
+        payload: {
+          permanent: removedPermanent,
+          instances: removeCount,
+          cause: mode,
+          controller: removedPermanent.controller,
+        },
+        permanent: removedPermanent,
+        instances: removeCount,
+        cause: mode,
+        chainId,
+      });
+
+      if (remaining <= 0) {
+        removedIds.add(permanent.id);
+        return;
+      }
+      const remainingPermanent = hydratePermanentEffects({
+        ...permanent,
+        quantity: remaining,
+        stackMembers: (permanent.stackMembers || []).slice(removeCount),
+      });
+      nextSide.push(remainingPermanent);
+      remainingSelected.push(remainingPermanent.id);
+    });
+    nextSession.battlefield[sideKey] = nextSide;
+  });
+
+  if (!removed.length) {
+    return session;
+  }
+
   const scrubAttachments = (permanent) =>
     hydratePermanentEffects({
       ...permanent,
@@ -761,25 +872,58 @@ function removeSelectedPermanents(session, mode) {
       },
       attachedToId: removedIds.has(permanent.attachedToId) ? "" : permanent.attachedToId,
     });
+
   return recalculateContinuousEffects({
-    ...session,
-    selectedIds: [],
+    ...nextSession,
+    selectedIds: remainingSelected,
     battlefield: {
-      ...session.battlefield,
-      player: session.battlefield.player.filter((permanent) => !selected.has(permanent.id)).map(scrubAttachments),
-      opponent: session.battlefield.opponent.filter((permanent) => !selected.has(permanent.id)).map(scrubAttachments),
+      ...nextSession.battlefield,
+      player: nextSession.battlefield.player.map(scrubAttachments),
+      opponent: nextSession.battlefield.opponent.map(scrubAttachments),
     },
     effectLog: [
       {
         id: createId("effect"),
         at: Date.now(),
         sourceName: "Permanent Controls",
-        text: `${mode} ${removed.map((permanent) => permanent.name).join(", ")}`,
+        text: `${mode} ${removed.map((entry) => `${entry.name} x${entry.count}`).join(", ")}`,
+        summary: `${mode} ${removed.reduce((sum, entry) => sum + entry.count, 0)} permanent instance(s)`,
+        payload: {
+          mode,
+          countMode,
+          count: requestedCount,
+          removed,
+        },
         status: "resolved",
       },
       ...(session.effectLog || []),
     ],
   });
+}
+
+function mapRemovalModeToEventType(mode = "remove") {
+  const normalized = String(mode || "remove").toLowerCase();
+  if (normalized === "destroy") {
+    return "DESTROY";
+  }
+  if (normalized === "exile") {
+    return "EXILE";
+  }
+  if (normalized === "sacrifice") {
+    return "SACRIFICE";
+  }
+  if (normalized === "bounce" || normalized === "return") {
+    return "LEAVE_BATTLEFIELD";
+  }
+  return "LEAVE_BATTLEFIELD";
+}
+
+function mapRemovalModeToLegacyType(mode = "remove") {
+  const normalized = String(mode || "remove").toLowerCase();
+  if (normalized === "destroy" || normalized === "sacrifice") {
+    return "permanent-died";
+  }
+  return "permanent-left";
 }
 
 function toggleSelection(session, id) {
@@ -813,9 +957,97 @@ function reorderPermanent(session, id, direction = 1) {
 }
 
 function updatePendingEffect(session, id, status) {
+  const entry = (session.pendingEffects || []).find((effect) => effect.id === id);
+  const normalizedStatus = String(status || "pending").toLowerCase();
+  const summaryLabel =
+    normalizedStatus === "resolved"
+      ? "resolved"
+      : normalizedStatus === "skipped"
+        ? "skipped"
+        : normalizedStatus === "ignored"
+          ? "ignored"
+          : normalizedStatus;
   return {
     ...session,
-    pendingEffects: session.pendingEffects.map((effect) => (effect.id === id ? { ...effect, status } : effect)),
+    pendingEffects: session.pendingEffects.map((effect) => (effect.id === id ? { ...effect, status: normalizedStatus, updatedAt: Date.now() } : effect)),
+    effectLog: entry
+      ? [
+          {
+            id: createId("effect"),
+            at: Date.now(),
+            sourceName: entry.sourceName || "Manual Effect",
+            summary: `Manual effect ${summaryLabel}: ${entry.summary || entry.effect?.summary || entry.effect?.action || "effect"}`,
+            status: normalizedStatus,
+          },
+          ...(session.effectLog || []),
+        ].slice(0, 80)
+      : session.effectLog,
+  };
+}
+
+function requestHelperReminder(session, messages = []) {
+  const cleaned = Array.isArray(messages)
+    ? messages
+        .map((entry) => ({
+          key: String(entry.key || ""),
+          text: String(entry.text || "").trim(),
+          source: String(entry.source || "helper"),
+        }))
+        .filter((entry) => entry.key && entry.text)
+        .slice(0, 8)
+    : [];
+  return {
+    ...session,
+    helper: {
+      ...(session.helper || {}),
+      reminderRequested: true,
+      reminderRequestedTurn: session.turn,
+      reminderQueue: cleaned,
+    },
+    effectLog: [
+      {
+        id: createId("effect"),
+        at: Date.now(),
+        sourceName: "Helper Sprite",
+        summary: `Remind me armed for next upkeep${cleaned.length ? ` (${cleaned.length} message${cleaned.length === 1 ? "" : "s"})` : ""}.`,
+        status: "queued",
+      },
+      ...(session.effectLog || []),
+    ].slice(0, 80),
+  };
+}
+
+function dismissHelperMessage(session, messageKey = "") {
+  if (!messageKey) {
+    return session;
+  }
+  const helper = session.helper || {};
+  const replayQueue = (helper.replayQueue || []).filter((entry) => entry.key !== messageKey);
+  const dismissedKeys = [...new Set([...(helper.dismissedKeys || []), messageKey])].slice(-80);
+  return {
+    ...session,
+    helper: {
+      ...helper,
+      replayQueue,
+      dismissedKeys,
+    },
+  };
+}
+
+function markHelperMessageShown(session, messageKey = "") {
+  if (!messageKey) {
+    return session;
+  }
+  const helper = session.helper || {};
+  const deliveredKeys = [...new Set([...(helper.deliveredKeys || []), messageKey])].slice(-120);
+  return {
+    ...session,
+    helper: {
+      ...helper,
+      deliveredKeys,
+      lastKey: messageKey,
+      lastShownAt: Date.now(),
+    },
   };
 }
 
@@ -882,17 +1114,7 @@ function emitAndProcessSessionEvent(session, action, actionType) {
 
 function mapActionToGameEvent(action, actionType) {
   if (actionType === "REMOVE_SELECTED") {
-    const mode = String(action.mode || "").toLowerCase();
-    if (mode === "destroy") {
-      return "DESTROY";
-    }
-    if (mode === "exile") {
-      return "EXILE";
-    }
-    if (mode === "sacrifice") {
-      return "SACRIFICE";
-    }
-    return "LEAVE_BATTLEFIELD";
+    return "";
   }
   return mapActionTypeToGameEvent(actionType);
 }
@@ -1059,6 +1281,15 @@ function createReplaySnapshot(session) {
   snapshot.effectLog = (snapshot.effectLog || []).slice(0, 120);
   snapshot.pendingEffects = (snapshot.pendingEffects || []).slice(0, 60);
   snapshot.triggerQueue = (snapshot.triggerQueue || []).slice(0, 180);
+  if (snapshot.helper) {
+    snapshot.helper = {
+      ...snapshot.helper,
+      reminderQueue: (snapshot.helper.reminderQueue || []).slice(0, 12),
+      replayQueue: (snapshot.helper.replayQueue || []).slice(0, 12),
+      dismissedKeys: (snapshot.helper.dismissedKeys || []).slice(-120),
+      deliveredKeys: (snapshot.helper.deliveredKeys || []).slice(-180),
+    };
+  }
   snapshot.replay = {
     ...(snapshot.replay || {}),
     active: false,
