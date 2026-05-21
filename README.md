@@ -33,6 +33,29 @@ npm run test
 npm run build
 ```
 
+## Android Studio Wrapper
+
+The repo includes a full Android Studio wrapper at:
+
+```text
+android-app/
+```
+
+Clone and build without additional coding:
+
+```bash
+npm install
+npm run android:build:all
+```
+
+Outputs:
+
+- `android-app/app/build/outputs/apk/debug/app-debug.apk`
+- `android-app/app/build/outputs/apk/release/app-release.apk`
+- `android-app/app/build/outputs/bundle/release/app-release.aab`
+
+Open `android-app/README.md` for full Android Studio + Play upload steps.
+
 ## Hosting
 
 This app is configured for GitHub Pages at:

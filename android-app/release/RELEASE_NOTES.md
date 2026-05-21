@@ -20,3 +20,11 @@
 - Debug APK
 - Release APK
 - Release AAB
+- Upload certificate PEM (`release/upload_certificate.pem`)
+
+## Build automation
+- Root command `npm run android:build:all` now:
+  - builds the web app
+  - syncs assets into Android wrapper
+  - builds debug/release APK + AAB
+  - exports Play upload certificate

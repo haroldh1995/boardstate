@@ -9,7 +9,13 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test",
-    "multiplayer:server": "node ./scripts/multiplayer-server.mjs"
+    "multiplayer:server": "node ./scripts/multiplayer-server.mjs",
+    "android:sync-assets": "node ./scripts/sync-android-assets.mjs",
+    "android:prepare": "npm run build && npm run android:sync-assets",
+    "android:gradle": "node ./scripts/android-gradle.mjs",
+    "android:build:debug": "npm run android:prepare && npm run android:gradle -- clean assembleDebug",
+    "android:build:release": "npm run android:prepare && npm run android:gradle -- clean assembleRelease bundleRelease",
+    "android:build:all": "npm run android:prepare && npm run android:gradle -- clean assembleDebug assembleRelease bundleRelease exportReleaseUploadCertificate"
   },
   "devDependencies": {
     "vite": "^8.0.12",

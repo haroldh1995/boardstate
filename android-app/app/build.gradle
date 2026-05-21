@@ -1,5 +1,94 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id "com.android.application"
+}
+
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+def defaultReleaseKeystorePath = keystoreProperties.getProperty("storeFile", "keystore/boardstate-upload.jks")
+def releaseKeystoreFile = rootProject.file(defaultReleaseKeystorePath)
+def releaseStorePassword = keystoreProperties.getProperty("storePassword", System.getenv("BOARDSTATE_KEYSTORE_PASSWORD") ?: "boardstateUpload123!")
+def releaseKeyAlias = keystoreProperties.getProperty("keyAlias", System.getenv("BOARDSTATE_KEY_ALIAS") ?: "boardstateupload")
+def releaseKeyPassword = keystoreProperties.getProperty("keyPassword", System.getenv("BOARDSTATE_KEY_PASSWORD") ?: releaseStorePassword)
+def releaseDName = keystoreProperties.getProperty(
+    "dName",
+    "CN=BoardState Upload,O=BoardState,C=US"
+)
+def isWindowsOs = System.getProperty("os.name").toLowerCase().contains("win")
+def bundledKeytool = new File(System.getProperty("java.home"), "bin/${isWindowsOs ? 'keytool.exe' : 'keytool'}")
+def keytoolExecutablePath = bundledKeytool.exists() ? bundledKeytool.absolutePath : (isWindowsOs ? "keytool.exe" : "keytool")
+def uploadCertificatePem = rootProject.file("release/upload_certificate.pem")
+
+tasks.register("ensureReleaseKeystore") {
+    group = "signing"
+    description = "Ensures a release upload keystore exists. Generates one locally if missing."
+    outputs.file(releaseKeystoreFile)
+
+    doLast {
+        if (releaseKeystoreFile.exists()) {
+            logger.lifecycle("Using existing release keystore at ${releaseKeystoreFile}")
+            return
+        }
+
+        releaseKeystoreFile.parentFile.mkdirs()
+
+        def generationArgs = [
+            "-genkeypair",
+            "-v",
+            "-storetype", "JKS",
+            "-keystore", releaseKeystoreFile.absolutePath,
+            "-storepass", releaseStorePassword,
+            "-keypass", releaseKeyPassword,
+            "-alias", releaseKeyAlias,
+            "-keyalg", "RSA",
+            "-keysize", "2048",
+            "-validity", "10000",
+            "-dname", releaseDName
+        ]
+
+        exec {
+            executable keytoolExecutablePath
+            args generationArgs
+        }
+
+        if (!releaseKeystoreFile.exists()) {
+            throw new GradleException("Failed to generate release keystore at ${releaseKeystoreFile}")
+        }
+
+        logger.lifecycle("Generated release keystore at ${releaseKeystoreFile}. Keep this file safe for future app updates.")
+    }
+}
+
+tasks.register("exportReleaseUploadCertificate") {
+    group = "signing"
+    description = "Exports the upload certificate PEM from the configured release keystore."
+    dependsOn("ensureReleaseKeystore")
+    outputs.file(uploadCertificatePem)
+
+    doLast {
+        uploadCertificatePem.parentFile.mkdirs()
+        def exportArgs = [
+            "-export",
+            "-rfc",
+            "-alias", releaseKeyAlias,
+            "-keystore", releaseKeystoreFile.absolutePath,
+            "-storepass", releaseStorePassword,
+            "-file", uploadCertificatePem.absolutePath
+        ]
+
+        exec {
+            executable keytoolExecutablePath
+            args exportArgs
+        }
+
+        logger.lifecycle("Exported upload certificate to ${uploadCertificatePem}")
+    }
 }
 
 android {
@@ -17,10 +106,10 @@ android {
 
     signingConfigs {
         release {
-            storeFile file("../keystore/boardstate-release.jks")
-            storePassword "boardstate123"
-            keyAlias "boardstate"
-            keyPassword "boardstate123"
+            storeFile releaseKeystoreFile
+            storePassword releaseStorePassword
+            keyAlias releaseKeyAlias
+            keyPassword releaseKeyPassword
         }
     }
 
@@ -34,6 +123,7 @@ android {
             shrinkResources true
             signingConfig signingConfigs.release
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            buildConfigField "boolean", "RELEASE_BUILD", "true"
         }
     }
 
@@ -45,6 +135,17 @@ android {
     buildFeatures {
         buildConfig true
     }
+}
+
+tasks.matching { task ->
+    task.name in [
+        "validateSigningRelease",
+        "packageRelease",
+        "assembleRelease",
+        "bundleRelease"
+    ]
+}.configureEach {
+    dependsOn("ensureReleaseKeystore")
 }
 
 dependencies {
