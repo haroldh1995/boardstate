@@ -1,46 +1,138 @@
-// Static simulation deck container for Alpha.
-// Replace this list with the assigned final deck list when available.
+import { parseDeckLines } from "./deckParsing.js";
+
+const alphaMainboard = `
+1 Aftermath Analyst
+1 Arcane Signet
+1 Augur of Autumn
+1 Baloth Prime
+1 Beast Within
+1 Binding the Old Gods
+1 Blasphemous Act
+1 Bojuka Bog
+1 Braids, Arisen Nightmare
+1 Cabaretti Courtyard
+1 Canyon Slough
+1 Centaur Vinecrasher
+1 Cinder Glade
+1 Command Tower
+1 Cultivate
+1 Dakmor Salvage
+1 Escape to the Wilds
+1 Escape Tunnel
+1 Eumidian Hatchery
+1 Eumidian Wastewaker
+1 Evendo Brushrazer
+1 Evolving Wilds
+1 Exploration Broodship
+1 Fabled Passage
+1 Farseek
+1 Festering Thicket
+4 Forest
+4 Forest
+1 Formless Genesis
+1 Gaze of Granite
+1 God-Eternal Bontu
+1 Groundskeeper
+1 Hammer of Purphoros
+1 Harrow
+1 Horizon Explorer
+1 Infernal Grasp
+1 Juri, Master of the Revue
+1 Karplusan Forest
+1 Korvold, Fae-Cursed King
+1 Llanowar Wastes
+1 Loamcrafter Faun
+1 Maestros Theater
+1 Mayhem Devil
+1 Mazirek, Kraul Death Priest
+1 Moraug, Fury of Akoum
+1 Mountain
+2 Mountain
+1 Mountain Valley
+1 Multani, Yavimaya's Avatar
+1 Myriad Landscape
+1 Nature's Lore
+1 Night's Whisper
+1 Omnath, Locus of Rage
+1 Oracle of Mul Daya
+1 Pest Infestation
+1 Planetary Annihilation
+1 Putrefy
+1 Rakdos Charm
+1 Rampaging Baloths
+1 Riveteers Overlook
+1 Rocky Tar Pit
+1 Roiling Regrowth
+1 Satyr Wayfinder
+1 Scouring Swarm
+1 Sheltered Thicket
+1 Skyshroud Claim
+1 Smoldering Marsh
+1 Sol Ring
+1 Soul of Windgrace
+1 Splendid Reclamation
+1 Springbloom Druid
+1 Sprouting Goblin
+1 Sulfurous Springs
+3 Swamp
+2 Swamp
+1 Szarel, Genesis Shepherd
+1 Tear Asunder
+1 Terramorphic Expanse
+1 The Gitrog Monster
+1 Tireless Tracker
+1 Titania, Protector of Argoth
+1 Twilight Mire
+1 Uurg, Spawn of Turg
+1 Vernal Fen
+1 Viridescent Bog
+1 Wastes
+1 Windgrace's Judgment
+1 World Breaker
+1 Worldsoul's Rage
+`;
+
 export const alphaDeck = {
   id: "alpha",
   name: "Alpha",
-  deckName: "Alpha Commander Deck (Static Simulation)",
-  status: "example-safe",
-  isPlaceholder: true,
+  deckName: "Hearthhull Land Recursion Engine",
+  status: "static-assigned",
+  isPlaceholder: false,
   commander: {
-    name: "Alpha Commander Placeholder",
-    typeLine: "Legendary Creature — Advisor",
-    manaCost: "{3}{W}{U}",
-    manaValue: 5,
-    power: 3,
-    toughness: 5,
-    oracleText: "Whenever another creature enters the battlefield under your control, you gain 1 life.",
-    role: "commander",
-    quantity: 1,
+    name: "Hearthhull, the Worldseed",
+    role: "primary-commander",
   },
-  cards: [
-    { name: "Alpha Plains Placeholder", typeLine: "Basic Land — Plains", manaCost: "", manaValue: 0, role: "land", quantity: 18 },
-    { name: "Alpha Island Placeholder", typeLine: "Basic Land — Island", manaCost: "", manaValue: 0, role: "land", quantity: 18 },
-    { name: "Alpha Ramp Relic Placeholder", typeLine: "Artifact", manaCost: "{2}", manaValue: 2, role: "ramp", quantity: 6 },
-    {
-      name: "Alpha Support Creature Placeholder",
-      typeLine: "Creature — Soldier",
-      manaCost: "{2}{W}",
-      manaValue: 3,
-      power: 2,
-      toughness: 3,
-      oracleText: "When this creature enters, put a +1/+1 counter on target creature you control.",
-      role: "creature",
-      quantity: 10,
-    },
-    {
-      name: "Alpha Removal Placeholder",
-      typeLine: "Instant",
-      manaCost: "{1}{W}",
-      manaValue: 2,
-      oracleText: "Destroy target attacking creature.",
-      role: "interaction",
-      quantity: 6,
-    },
-  ],
+  backupCommander: {
+    name: "Szarel, Genesis Shepherd",
+    role: "backup-commander",
+  },
+  strategy: {
+    archetype: "Jund land sacrifice recursion landfall",
+    tags: ["landfall", "sacrifice", "graveyard-recursion", "token-engine", "attrition"],
+    priorities: [
+      "Prioritize land ramp and self-sacrificing lands.",
+      "Recursively return lands from graveyard to trigger landfall repeatedly.",
+      "Deploy sacrifice payoffs and token payoffs before recursion spikes.",
+      "Hold targeted removal for high-threat engines.",
+      "Close via landfall token swarms and sacrifice damage/drain payoffs.",
+    ],
+    threatPriorityCards: [
+      "The Gitrog Monster",
+      "Omnath, Locus of Rage",
+      "Rampaging Baloths",
+      "Splendid Reclamation",
+      "Aftermath Analyst",
+      "Titania, Protector of Argoth",
+      "Moraug, Fury of Akoum",
+    ],
+    revengeLearningFocus: [
+      "graveyard-hate",
+      "token-hate",
+      "landfall-hate",
+      "exile-removal",
+      "anti-sacrifice-locks",
+    ],
+  },
+  cards: parseDeckLines(alphaMainboard),
 };
 

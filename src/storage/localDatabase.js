@@ -295,6 +295,10 @@ function normalizeProfile(profile) {
         ...defaults.activeSession.simulation,
         ...(profile.activeSession?.simulation || {}),
       },
+      gameTracking: {
+        ...defaults.activeSession.gameTracking,
+        ...(profile.activeSession?.gameTracking || {}),
+      },
       history: profile.activeSession?.history || defaults.activeSession.history,
       actionHistory: profile.activeSession?.actionHistory || defaults.activeSession.actionHistory,
       eventHistory: profile.activeSession?.eventHistory || defaults.activeSession.eventHistory,

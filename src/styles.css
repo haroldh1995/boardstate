@@ -1762,6 +1762,26 @@ textarea {
   max-width: 32rem;
 }
 
+.life-start-controls {
+  margin-top: 0.42rem;
+}
+
+.opponent-zone-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.opponent-zone-header h2 {
+  margin: 0;
+}
+
+.opponent-battlefield-overlay {
+  max-width: min(64rem, calc(100vw - 1rem));
+}
+
 @media (max-width: 900px) {
   .simulation-hud {
     left: 0.6rem;

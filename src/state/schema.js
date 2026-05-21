@@ -172,6 +172,11 @@ export function createGameSession() {
       cursor: -1,
       running: false,
     },
+    gameTracking: {
+      active: false,
+      startedAt: 0,
+      mode: "training-ground",
+    },
     helper: {
       reminderRequested: false,
       reminderRequestedTurn: 0,

@@ -2,7 +2,7 @@ import { archiveCurrentGame } from "../archive/archiveService.js";
 import { hydratePermanentEffects, processEventTriggers, recalculateContinuousEffects, resolveQueuedTrigger, resolveSpell } from "../effects/effectEngine.js";
 import { addCardToCommanderDeck, assignCommander, castCommander, recordCommanderCardUsage } from "../game/commanderSystem.js";
 import { assignBlocker, declareAttackers, resolveCombat } from "../game/combatSystem.js";
-import { createGameSession, createManaPool, PHASES } from "./schema.js";
+import { createGameSession, createManaPool, createPermanent, PHASES } from "./schema.js";
 import { clone, createId, normalizeCount } from "./ids.js";
 import { drainGameEvents, mapActionTypeToGameEvent, queueGameEvent, runGameEventObservers } from "../game/eventBus.js";
 import { transitionFsm } from "../game/fsm.js";
@@ -38,6 +38,15 @@ export function reduceProfile(profile, event) {
       break;
     case "SET_MULTIPLAYER_MODE":
       nextProfile = setMultiplayerMode(baseProfile, event.mode);
+      break;
+    case "START_GAME_TRACKING":
+      nextProfile = withSession(baseProfile, startGameTracking(baseProfile.activeSession));
+      break;
+    case "STOP_GAME_TRACKING":
+      nextProfile = withSession(baseProfile, stopGameTracking(baseProfile.activeSession));
+      break;
+    case "ACTIVATE_BOARD":
+      nextProfile = withSession(baseProfile, activateBoardState(withRuntimeSettings(baseProfile.activeSession, baseProfile.settings)));
       break;
     case "START_SIMULATION":
       nextProfile = startSimulation(baseProfile, event);
@@ -488,6 +497,11 @@ function stopSimulation(profile) {
     ...withSession(profile, {
       ...profile.activeSession,
       simulation: nextSimulation,
+      gameTracking: {
+        active: false,
+        startedAt: profile.activeSession?.gameTracking?.startedAt || 0,
+        mode: "training-ground",
+      },
     }),
     settings: {
       ...(profile.settings || {}),
@@ -595,12 +609,21 @@ function applyNpcMainStep(session, npc, simulation, simulationMemory = {}) {
     updatedNpc.landPlaysThisTurn = 1;
     actionText = `${npc.name} plays ${landCard.name}.`;
   } else {
+    const commanderCast = maybeCastNpcCommander(nextSession, updatedNpc);
+    if (commanderCast) {
+      nextSession = commanderCast.session;
+      updatedNpc = commanderCast.npc;
+      actionText = `${npc.name} casts commander ${updatedNpc.commander.card.name}${updatedNpc.commander.tax > 0 ? ` (tax ${updatedNpc.commander.tax})` : ""}.`;
+    } else {
     const castIndex = chooseNpcCastIndex(updatedNpc, nextSession, simulationMemory, { secondary: false });
     if (castIndex >= 0) {
       const castCard = updatedNpc.zones.hand[castIndex];
       updatedNpc.zones.hand = updatedNpc.zones.hand.filter((_, index) => index !== castIndex);
-      nextSession = resolveNpcCast(nextSession, updatedNpc, castCard, simulationMemory);
+      const castResult = resolveNpcCast(nextSession, updatedNpc, castCard, simulationMemory);
+      nextSession = castResult.session;
+      updatedNpc = castResult.npc;
       actionText = `${npc.name} casts ${castCard.name}.`;
+    }
     }
   }
 
@@ -623,10 +646,12 @@ function applyNpcCombatStep(session, npc, simulation) {
   const opponentCreatures = (session.battlefield.opponent || []).filter(
     (permanent) => permanent.controller === npc.id && permanent.isCreature && !permanent.tapped && !permanent.summoningSick
   );
+  const strategyAggression = (npc.strategy?.tags || []).some((tag) => ["spellslinger", "landfall", "colorless-ramp"].includes(tag)) ? 1 : 0;
+  const maxAttackers = Math.max(1, Math.min(opponentCreatures.length, 3 + strategyAggression));
   const attackers = opponentCreatures
     .slice()
     .sort((left, right) => (right.currentPower || right.basePower || 0) - (left.currentPower || left.basePower || 0))
-    .slice(0, Math.max(1, Math.min(3, opponentCreatures.length)));
+    .slice(0, maxAttackers);
 
   let nextSession = session;
   let damage = 0;
@@ -677,12 +702,21 @@ function applyNpcSecondMainStep(session, npc, simulation, simulationMemory = {})
   let nextSession = session;
   let updatedNpc = { ...npc };
   let actionText = `${npc.name} passes Main 2.`;
+  const commanderCast = maybeCastNpcCommander(nextSession, updatedNpc, { conservative: true });
+  if (commanderCast) {
+    nextSession = commanderCast.session;
+    updatedNpc = commanderCast.npc;
+    actionText = `${npc.name} casts commander ${updatedNpc.commander.card.name} in Main 2.`;
+  } else {
   const castIndex = chooseNpcCastIndex(updatedNpc, nextSession, simulationMemory, { secondary: true });
   if (castIndex >= 0) {
     const castCard = updatedNpc.zones.hand[castIndex];
     updatedNpc.zones.hand = updatedNpc.zones.hand.filter((_, index) => index !== castIndex);
-    nextSession = resolveNpcCast(nextSession, updatedNpc, castCard, simulationMemory);
+    const castResult = resolveNpcCast(nextSession, updatedNpc, castCard, simulationMemory);
+    nextSession = castResult.session;
+    updatedNpc = castResult.npc;
     actionText = `${npc.name} casts ${castCard.name} in Main 2.`;
+  }
   }
 
   updatedNpc.currentPhaseIndex = 4;
@@ -776,21 +810,48 @@ function resolveNpcCast(session, npc, card, simulationMemory = {}) {
         }
       );
       return {
-        ...removed,
-        effectLog: [
-          {
-            id: createId("sim-effect"),
-            at: Date.now(),
-            sourceName: npc.name,
-            summary: `${npc.name} uses ${card.name} on a high-threat target.`,
+        session: {
+          ...removed,
+          effectLog: [
+            {
+              id: createId("sim-effect"),
+              at: Date.now(),
+              sourceName: npc.name,
+              summary: `${npc.name} uses ${card.name} on a high-threat target.`,
+            },
+            ...(removed.effectLog || []),
+          ].slice(0, 120),
+        },
+        npc: {
+          ...npc,
+          zones: {
+            ...npc.zones,
+            graveyard: [...(npc.zones?.graveyard || []), card],
           },
-          ...(removed.effectLog || []),
-        ].slice(0, 120),
+        },
       };
     }
-    return session;
+    return {
+      session,
+      npc: {
+        ...npc,
+        zones: {
+          ...npc.zones,
+          graveyard: [...(npc.zones?.graveyard || []), card],
+        },
+      },
+    };
   }
-  return addOpponentCardToBattlefield(session, card, npc.id);
+  return {
+    session: addOpponentCardToBattlefield(session, card, npc.id),
+    npc: {
+      ...npc,
+      zones: {
+        ...npc.zones,
+        battlefield: [...(npc.zones?.battlefield || []), card],
+      },
+    },
+  };
 }
 
 function chooseNpcCastIndex(npc, session, simulationMemory = {}, options = {}) {
@@ -808,14 +869,57 @@ function chooseNpcCastIndex(npc, session, simulationMemory = {}, options = {}) {
   const scored = castable
     .map((entry) => ({
       ...entry,
-      score: getNpcCardPriority(entry.card, simulationMemory, options),
+      score: getNpcCardPriority(entry.card, simulationMemory, { ...options, npc }),
     }))
     .sort((left, right) => right.score - left.score);
   return scored[0]?.index ?? -1;
 }
 
+function maybeCastNpcCommander(session, npc, options = {}) {
+  if (npc.commander?.zone !== "command" || !npc.commander?.card) {
+    return null;
+  }
+  const availableMana = getNpcAvailableMana(session, npc.id);
+  const commanderValue = Number(npc.commander.card.manaValue || 0);
+  const tax = Number(npc.commander.tax || 0);
+  const totalCost = commanderValue + tax;
+  if (!Number.isFinite(totalCost) || totalCost <= 0 || totalCost > availableMana) {
+    return null;
+  }
+  if (options.conservative && availableMana <= totalCost + 1) {
+    return null;
+  }
+  const castCard = {
+    ...npc.commander.card,
+    unresolvedDefinition: false,
+  };
+  const nextSession = addOpponentCardToBattlefield(session, castCard, npc.id);
+  return {
+    session: nextSession,
+    npc: {
+      ...npc,
+      commander: {
+        ...npc.commander,
+        zone: "battlefield",
+        castCount: Number(npc.commander.castCount || 0) + 1,
+      },
+      zones: {
+        ...npc.zones,
+        command: [],
+        battlefield: [...(npc.zones?.battlefield || []), castCard],
+      },
+    },
+  };
+}
+
+function npcStrategyTags(npc) {
+  return new Set((npc?.strategy?.tags || []).map((tag) => String(tag || "").toLowerCase()));
+}
+
 function getNpcCardPriority(card, simulationMemory = {}, options = {}) {
   let score = 1;
+  const strategyTags = npcStrategyTags(options.npc);
+  const priorityCards = new Set((options.npc?.strategy?.threatPriorityCards || []).map((name) => String(name || "").toLowerCase()));
   if (isType(card, "Creature")) {
     score += 4;
   }
@@ -824,6 +928,18 @@ function getNpcCardPriority(card, simulationMemory = {}, options = {}) {
   }
   if (isType(card, "Artifact") || isType(card, "Enchantment")) {
     score += 2;
+  }
+  if (priorityCards.has(String(card.name || "").toLowerCase())) {
+    score += 6;
+  }
+  if (strategyTags.has("landfall") && /land|reclamation|tracker|baloths|gitrog/i.test(card.name || "")) {
+    score += 4;
+  }
+  if (strategyTags.has("spellslinger") && (isType(card, "Instant") || isType(card, "Sorcery"))) {
+    score += 3;
+  }
+  if (strategyTags.has("colorless-ramp") && (isType(card, "Artifact") || /eldrazi|kozilek|ugin/i.test(card.name || ""))) {
+    score += 4;
   }
   if ((simulationMemory.patterns?.tokenStrategy || 0) >= 2 && /destroy|exile/i.test(card.oracleText || "")) {
     score += 4;
@@ -851,7 +967,7 @@ function getNpcAvailableMana(session, npcId) {
 
 function addOpponentCardToBattlefield(session, card, controllerId) {
   const permanent = toOpponentPermanent(card, controllerId);
-  return emitPermanentEntryTriggerEvents(
+  const withEntry = emitPermanentEntryTriggerEvents(
     {
       ...session,
       battlefield: {
@@ -865,6 +981,22 @@ function addOpponentCardToBattlefield(session, card, controllerId) {
       cause: "simulation-cast",
     }
   );
+  if (!card.unresolvedDefinition) {
+    return withEntry;
+  }
+  return {
+    ...withEntry,
+    effectLog: [
+      {
+        id: createId("sim-unresolved"),
+        at: Date.now(),
+        sourceName: "Simulation Parser",
+        summary: `Unresolved card definition retained for ${card.name}.`,
+        status: "manual-choice-required",
+      },
+      ...(withEntry.effectLog || []),
+    ].slice(0, 160),
+  };
 }
 
 function chooseThreatTargetId(session, simulationMemory = {}) {
@@ -873,9 +1005,11 @@ function chooseThreatTargetId(session, simulationMemory = {}) {
     return "";
   }
   const memory = simulationMemory.cardThreat || {};
+  const winMemory = simulationMemory.repeatedWinConditions || {};
   const ranked = threats
     .map((permanent) => {
       let score = Number(memory[permanent.name] || 0);
+      score += Number(winMemory[permanent.name] || 0);
       if (permanent.isCommander) {
         score += 5;
       }
@@ -1068,6 +1202,102 @@ function syncPublicStats(profile) {
   };
 }
 
+function startGameTracking(session) {
+  if (session.gameTracking?.active) {
+    return session;
+  }
+  const now = Date.now();
+  return {
+    ...session,
+    gameTracking: {
+      active: true,
+      startedAt: now,
+      mode: "active-game",
+    },
+    effectLog: [
+      {
+        id: createId("game-start"),
+        at: now,
+        sourceName: "Game Tracking",
+        summary: "Game tracking started.",
+      },
+      ...(session.effectLog || []),
+    ].slice(0, 120),
+  };
+}
+
+function stopGameTracking(session) {
+  if (!session.gameTracking?.active) {
+    return session;
+  }
+  const now = Date.now();
+  return {
+    ...session,
+    gameTracking: {
+      active: false,
+      startedAt: session.gameTracking?.startedAt || 0,
+      mode: "training-ground",
+    },
+    effectLog: [
+      {
+        id: createId("game-stop"),
+        at: now,
+        sourceName: "Game Tracking",
+        summary: "Game tracking stopped. Training ground remains active.",
+      },
+      ...(session.effectLog || []),
+    ].slice(0, 120),
+  };
+}
+
+function activateBoardState(session) {
+  const recalculated = recalculateContinuousEffects(session);
+  const pending = collectManualChoiceEffects(recalculated);
+  const nextPending = [...pending, ...(recalculated.pendingEffects || [])].slice(0, 120);
+  return {
+    ...recalculated,
+    pendingEffects: nextPending,
+    effectLog: [
+      {
+        id: createId("board-activate"),
+        at: Date.now(),
+        sourceName: "Training Ground",
+        summary: `Activate Board evaluated ${getAllPermanents(recalculated).length} permanents and queued ${pending.length} manual choice item(s).`,
+      },
+      ...(recalculated.effectLog || []),
+    ].slice(0, 160),
+  };
+}
+
+function collectManualChoiceEffects(session) {
+  const existing = new Set((session.pendingEffects || []).map((entry) => `${entry.sourceId}:${entry.effect?.action || entry.summary}`));
+  const results = [];
+  getAllPermanents(session).forEach((permanent) => {
+    (permanent.parsedEffects || []).forEach((effect) => {
+      if (!effect.manual) {
+        return;
+      }
+      const key = `${permanent.id}:${effect.action || effect.reason || "manual"}`;
+      if (existing.has(key)) {
+        return;
+      }
+      existing.add(key);
+      results.push({
+        id: createId("pending"),
+        sourceId: permanent.id,
+        sourceName: permanent.name,
+        effect,
+        summary: `manual choice required: ${effect.reason || effect.summary || effect.action || "effect"}`,
+        status: "pending",
+        createdAt: Date.now(),
+        eventType: "BOARD_ACTIVATE",
+        triggerId: "",
+      });
+    });
+  });
+  return results;
+}
+
 function updateSimulationMemory(profile, event, actionType) {
   if (event?.internalOnly || !profile?.activeSession?.simulation?.enabled) {
     return profile;
@@ -1095,6 +1325,12 @@ function updateSimulationMemory(profile, event, actionType) {
     }
     memory.cardThreat[name] = normalizeCount(memory.cardThreat[name], 0) + amount;
   };
+  const bumpWinCondition = (name, amount = 1) => {
+    if (!name) {
+      return;
+    }
+    memory.repeatedWinConditions[name] = normalizeCount(memory.repeatedWinConditions[name], 0) + amount;
+  };
 
   if (actionType === "ADD_CUSTOM_TOKEN") {
     incrementPattern("tokenStrategy", normalizeCount(event.quantity, 1));
@@ -1116,6 +1352,10 @@ function updateSimulationMemory(profile, event, actionType) {
     if (/doubling season|cathars' crusade|scute swarm/i.test(event.card?.name || "")) {
       incrementPattern("comboEngineStrategy", 2);
       bumpThreat(event.card?.name, 3);
+      bumpWinCondition(event.card?.name, 1);
+    }
+    if (/omnath, locus of rage|rampaging baloths|the gitrog monster|stella lee, wild card|zhulodok, void gorger/i.test(event.card?.name || "")) {
+      bumpWinCondition(event.card?.name, 2);
     }
   }
   if (actionType === "LIFE_DELTA" && Number(event.amount || 0) > 0) {
@@ -1467,6 +1707,8 @@ function removeSelectedPermanents(session, options = {}) {
         count: removeCount,
         totalBefore: totalQty,
         side: sideKey,
+        controller: permanent.controller,
+        permanent,
       });
 
       const removedPermanent = hydratePermanentEffects({
@@ -1522,13 +1764,14 @@ function removeSelectedPermanents(session, options = {}) {
       attachedToId: removedIds.has(permanent.attachedToId) ? "" : permanent.attachedToId,
     });
 
+  const zonedSession = applySimulationZoneUpdatesForRemoval(nextSession, removed, mode);
   return recalculateContinuousEffects({
-    ...nextSession,
+    ...zonedSession,
     selectedIds: remainingSelected,
     battlefield: {
-      ...nextSession.battlefield,
-      player: nextSession.battlefield.player.map(scrubAttachments),
-      opponent: nextSession.battlefield.opponent.map(scrubAttachments),
+      ...zonedSession.battlefield,
+      player: zonedSession.battlefield.player.map(scrubAttachments),
+      opponent: zonedSession.battlefield.opponent.map(scrubAttachments),
     },
     effectLog: [
       {
@@ -1548,6 +1791,71 @@ function removeSelectedPermanents(session, options = {}) {
       ...(session.effectLog || []),
     ],
   });
+}
+
+function applySimulationZoneUpdatesForRemoval(session, removed = [], mode = "remove") {
+  if (!session.simulation?.enabled || !removed.length) {
+    return session;
+  }
+  const opponents = { ...(session.simulation.opponents || {}) };
+  let changed = false;
+  removed.forEach((entry) => {
+    if (entry.side !== "opponent" || !entry.controller || !opponents[entry.controller]) {
+      return;
+    }
+    const npc = opponents[entry.controller];
+    const movedCard = {
+      name: entry.permanent?.name || entry.name,
+      typeLine: entry.permanent?.typeLine || "Permanent",
+      manaValue: entry.permanent?.manaValue || 0,
+      cardId: entry.permanent?.cardId || "",
+      role: entry.permanent?.role || "",
+    };
+    const zones = {
+      ...(npc.zones || {}),
+      graveyard: [...(npc.zones?.graveyard || [])],
+      exile: [...(npc.zones?.exile || [])],
+      command: [...(npc.zones?.command || [])],
+      battlefield: [...(npc.zones?.battlefield || [])],
+    };
+    if (entry.permanent?.isCommander || npc.commander?.card?.name === movedCard.name) {
+      zones.command = [npc.commander.card];
+      opponents[entry.controller] = {
+        ...npc,
+        zones,
+        commander: {
+          ...npc.commander,
+          zone: "command",
+          tax: Number(npc.commander?.tax || 0) + 2,
+        },
+        updatedAt: Date.now(),
+      };
+      changed = true;
+      return;
+    }
+    if (String(mode || "").toLowerCase() === "exile") {
+      zones.exile.push(movedCard);
+    } else {
+      zones.graveyard.push(movedCard);
+    }
+    opponents[entry.controller] = {
+      ...npc,
+      zones,
+      updatedAt: Date.now(),
+    };
+    changed = true;
+  });
+  if (!changed) {
+    return session;
+  }
+  return {
+    ...session,
+    simulation: {
+      ...session.simulation,
+      opponents,
+      updatedAt: Date.now(),
+    },
+  };
 }
 
 function mapRemovalModeToEventType(mode = "remove") {
@@ -1911,6 +2219,10 @@ function replayToAction(profile, actionId) {
       },
     },
   };
+}
+
+function getAllPermanents(session) {
+  return [...(session.battlefield?.player || []), ...(session.battlefield?.opponent || [])];
 }
 
 function createUndoSnapshot(session) {

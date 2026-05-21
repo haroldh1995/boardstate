@@ -1,46 +1,138 @@
-// Static simulation deck container for Omega.
-// Replace this list with the assigned final deck list when available.
+import { parseDeckLines } from "./deckParsing.js";
+
+const omegaMainboard = `
+1 Abstruse Archaic
+1 All Is Dust
+1 Ancient Stone Idol
+1 Arcane Lighthouse
+1 Arch of Orazca
+1 Artisan of Kozilek
+1 Bane of Bala Ged
+1 Blast Zone
+1 Bonders' Enclave
+1 Burnished Hart
+1 Calamity of the Titans
+1 Crashing Drawbridge
+1 Darksteel Monolith
+1 Desecrate Reality
+1 Dreamstone Hedron
+1 Duplicant
+1 Eldrazi Temple
+1 Endbringer
+1 Endless Atlas
+1 Endless One
+1 Everflowing Chalice
+1 Fireshrieker
+1 Flayer of Loyalties
+1 Forge of Heroes
+1 Forsaken Monument
+1 Geier Reach Sanitarium
+1 Geode Golem
+1 Guildless Commons
+1 Hangarback Walker
+1 Hedron Archive
+1 Investigator's Journal
+1 It That Betrays
+1 Kaldra Compleat
+1 Kozilek, the Great Distortion
+1 Lightning Greaves
+1 Mage-Ring Network
+1 Matter Reshaper
+1 Mazemind Tome
+1 Metalwork Colossus
+1 Meteor Golem
+1 Mind Stone
+1 Mirage Mirror
+1 Mirrorpool
+1 Myriad Construct
+1 Mystic Forge
+1 Not of This World
+1 Oblivion Sower
+1 Omarthis, Ghostfire Initiate
+1 Ornithopter of Paradise
+1 Palladium Myr
+1 Perilous Vault
+1 Phyrexian Triniform
+1 Reliquary Tower
+1 Rise of the Eldrazi
+1 Rogue's Passage
+1 Ruins of Oran-Rief
+1 Scaretiller
+1 Scavenger Grounds
+1 Sea Gate Wreckage
+1 Shrine of the Forsaken Gods
+1 Skittering Cicada
+1 Sol Ring
+1 Solemn Simulacrum
+1 Soul of New Phyrexia
+1 Spatial Contortion
+1 Steel Hellkite
+1 Stonecoil Serpent
+1 Suspicious Bookcase
+1 Temple of the False God
+1 Thought Vessel
+1 Thran Dynamo
+1 Titan's Presence
+1 Tomb of the Spirit Dragon
+1 Transmogrifying Wand
+1 Tyrite Sanctum
+1 Ugin, the Ineffable
+1 Ugin's Mastery
+1 Unstable Obelisk
+1 Urza's Mine
+1 Urza's Power Plant
+1 Urza's Tower
+1 War Room
+1 Warping Wail
+8 Wastes
+7 Wastes
+1 Worn Powerstone
+`;
+
 export const omegaDeck = {
   id: "omega",
   name: "Omega",
-  deckName: "Edge of Eternities — World Shaper (Simulation)",
-  status: "example-safe",
-  isPlaceholder: true,
+  deckName: "Zhulodok Colorless Eldrazi Ramp",
+  status: "static-assigned",
+  isPlaceholder: false,
   commander: {
-    name: "World Shaper Commander Placeholder",
-    typeLine: "Legendary Creature — Elemental",
-    manaCost: "{3}{G}{U}",
-    manaValue: 5,
-    power: 4,
-    toughness: 6,
-    oracleText: "Landfall — Whenever a land enters the battlefield under your control, draw a card.",
-    role: "commander",
-    quantity: 1,
+    name: "Zhulodok, Void Gorger",
+    role: "primary-commander",
   },
-  cards: [
-    { name: "Omega Forest Placeholder", typeLine: "Basic Land — Forest", manaCost: "", manaValue: 0, role: "land", quantity: 20 },
-    { name: "Omega Island Placeholder", typeLine: "Basic Land — Island", manaCost: "", manaValue: 0, role: "land", quantity: 18 },
-    { name: "Omega Ramp Placeholder", typeLine: "Artifact", manaCost: "{2}", manaValue: 2, role: "ramp", quantity: 8 },
-    {
-      name: "Omega Landfall Creature Placeholder",
-      typeLine: "Creature — Beast",
-      manaCost: "{2}{G}",
-      manaValue: 3,
-      power: 3,
-      toughness: 3,
-      oracleText: "Landfall — Put a +1/+1 counter on this creature.",
-      role: "creature",
-      quantity: 10,
-    },
-    {
-      name: "Omega Token Engine Placeholder",
-      typeLine: "Enchantment",
-      manaCost: "{3}{G}",
-      manaValue: 4,
-      oracleText: "Whenever a land enters the battlefield under your control, create a 1/1 green Insect creature token.",
-      role: "engine",
-      quantity: 6,
-    },
-  ],
+  backupCommander: {
+    name: "Omarthis, Ghostfire Initiate",
+    role: "backup-commander",
+  },
+  strategy: {
+    archetype: "Colorless Eldrazi ramp cascade bombs",
+    tags: ["colorless-ramp", "mana-rocks", "cascade", "eldrazi", "top-end-pressure"],
+    priorities: [
+      "Accelerate with mana rocks and colorless utility lands first.",
+      "Cast Zhulodok when immediate value/protection is likely.",
+      "Prioritize mana value 7+ colorless casts to trigger cascade, cascade.",
+      "Hold scarce removal for high-impact engines or blockers.",
+      "Close via giant attackers and repeated pressure.",
+    ],
+    threatPriorityCards: [
+      "Kozilek, the Great Distortion",
+      "Rise of the Eldrazi",
+      "Artisan of Kozilek",
+      "Bane of Bala Ged",
+      "It That Betrays",
+      "Steel Hellkite",
+      "Metalwork Colossus",
+      "Phyrexian Triniform",
+      "All Is Dust",
+    ],
+    revengeLearningFocus: [
+      "artifact-removal",
+      "exile-removal",
+      "commander-removal",
+      "fast-aggro",
+      "token-chump-walls",
+      "graveyard-recursion",
+    ],
+  },
+  cards: parseDeckLines(omegaMainboard),
 };
 

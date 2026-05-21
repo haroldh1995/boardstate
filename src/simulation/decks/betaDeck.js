@@ -1,47 +1,122 @@
-// Static simulation deck container for Beta.
-// Replace this list with the assigned final deck list when available.
+import { parseDeckLines } from "./deckParsing.js";
+
+const betaMainboard = `
+1 Arcane Bombardment
+1 Arcane Denial
+1 Arcane Signet
+1 Archmage Emeritus
+1 Baral's Expertise
+1 Big Score
+1 Bloodthirsty Adversary
+1 Cascade Bluffs
+1 Chaos Warp
+1 Command Tower
+1 Crackling Spellslinger
+1 Curse of the Swine
+1 Cursed Mirror
+1 Deep Analysis
+1 Dig Through Time
+1 Electrostatic Field
+1 Elemental Eruption
+1 Epic Experiment
+1 Eris, Roar of the Storm
+1 Exotic Orchard
+1 Expressive Iteration
+1 Faithless Looting
+1 Ferrous Lake
+1 Finale of Promise
+1 Finale of Revelation
+1 Forger's Foundry
+1 Frostboil Snarl
+1 Galvanic Iteration
+1 Goblin Electromancer
+1 Guttersnipe
+1 Haughty Djinn
+14 Island
+1 Izzet Boilerworks
+1 Izzet Signet
+1 Kaza, Roil Chaser
+1 Leyline Dowser
+1 Lock and Load
+1 Midnight Clock
+1 Mizzix's Mastery
+13 Mountain
+1 Murmuring Mystic
+1 Niv-Mizzet, Parun
+1 Octavia, Living Thesis
+1 Opt
+1 Ponder
+1 Pongify
+1 Preordain
+1 Propaganda
+1 Pteramander
+1 Pyretic Charge
+1 Radical Idea
+1 Reliquary Tower
+1 Rousing Refrain
+1 Serum Visions
+1 Shark Typhoon
+1 Shivan Reef
+1 Smoldering Stagecoach
+1 Sol Ring
+1 Storm-Kiln Artist
+1 Sulfur Falls
+1 Talrand, Sky Summoner
+1 Temple of Epiphany
+1 Temple of the False God
+1 Tezzeret's Gambit
+1 Think Twice
+1 Third Path Iconoclast
+1 Thunderclap Drake
+1 Treasure Cruise
+1 Vandalblast
+1 Veyran, Voice of Duality
+1 Volcanic Torrent
+1 Windfall
+1 Winged Boots
+1 Young Pyromancer
+`;
+
 export const betaDeck = {
   id: "beta",
   name: "Beta",
-  deckName: "Beta Commander Deck (Static Simulation)",
-  status: "example-safe",
-  isPlaceholder: true,
+  deckName: "Stella Lee Spellslinger Storm",
+  status: "static-assigned",
+  isPlaceholder: false,
   commander: {
-    name: "Beta Commander Placeholder",
-    typeLine: "Legendary Creature — Warlock",
-    manaCost: "{2}{B}{R}",
-    manaValue: 4,
-    power: 4,
-    toughness: 4,
-    oracleText: "Whenever another creature you control dies, each opponent loses 1 life.",
-    role: "commander",
-    quantity: 1,
+    name: "Stella Lee, Wild Card",
+    role: "primary-commander",
   },
-  cards: [
-    { name: "Beta Swamp Placeholder", typeLine: "Basic Land — Swamp", manaCost: "", manaValue: 0, role: "land", quantity: 18 },
-    { name: "Beta Mountain Placeholder", typeLine: "Basic Land — Mountain", manaCost: "", manaValue: 0, role: "land", quantity: 18 },
-    {
-      name: "Beta Aggro Creature Placeholder",
-      typeLine: "Creature — Warrior",
-      manaCost: "{1}{R}",
-      manaValue: 2,
-      power: 2,
-      toughness: 1,
-      oracleText: "Haste",
-      keywords: ["haste"],
-      role: "creature",
-      quantity: 12,
-    },
-    {
-      name: "Beta Spot Removal Placeholder",
-      typeLine: "Sorcery",
-      manaCost: "{1}{B}",
-      manaValue: 2,
-      oracleText: "Destroy target creature.",
-      role: "interaction",
-      quantity: 8,
-    },
-    { name: "Beta Value Engine Placeholder", typeLine: "Enchantment", manaCost: "{2}{B}", manaValue: 3, role: "engine", quantity: 6 },
-  ],
+  strategy: {
+    archetype: "Izzet spellslinger copy-storm token payoffs",
+    tags: ["spellslinger", "storm-threshold", "cantrip", "token-payoffs", "spell-copy"],
+    priorities: [
+      "Sequence low-cost cantrips to hit second and third spell turns.",
+      "Develop payoff permanents before high-value spell chains.",
+      "Use copy effects on best-value instants/sorceries.",
+      "Protect Stella Lee and spell payoff engines.",
+      "Finish with copied burn/value turns and token pressure.",
+    ],
+    threatPriorityCards: [
+      "Guttersnipe",
+      "Electrostatic Field",
+      "Talrand, Sky Summoner",
+      "Murmuring Mystic",
+      "Third Path Iconoclast",
+      "Young Pyromancer",
+      "Storm-Kiln Artist",
+      "Archmage Emeritus",
+      "Veyran, Voice of Duality",
+      "Niv-Mizzet, Parun",
+    ],
+    revengeLearningFocus: [
+      "lifegain",
+      "graveyard-hate",
+      "anti-token-sweepers",
+      "counterspell-wars",
+      "commander-removal",
+    ],
+  },
+  cards: parseDeckLines(betaMainboard),
 };
 

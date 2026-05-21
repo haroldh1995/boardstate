@@ -2,8 +2,9 @@ import { buildStats } from "../analytics/statsService.js";
 import { exportProfile, parseImportedProfile } from "../storage/localDatabase.js";
 import { fetchScryfallCardDetails, searchScryfall } from "../services/scryfallService.js";
 import { canBeCommander } from "../game/commanderSystem.js";
-import { PHASES } from "../state/schema.js";
+import { createPermanent, PHASES } from "../state/schema.js";
 import { buildPredictiveActions } from "../game/predictiveActions.js";
+import { getSimulationDeckById } from "../simulation/decks/index.js";
 
 const PORTRAIT_TOUCH_QUERY = "(orientation: portrait) and (max-width: 1024px)";
 const SWIPE_DISTANCE_THRESHOLD = 72;
@@ -80,6 +81,9 @@ export function mountApp(root, store) {
   let simulationLogOpen = false;
   let simulationSelectedOpponents = new Set(["alpha"]);
   let simulationSelectedSpeed = "normal";
+  let opponentBoardIndex = 0;
+  let opponentOverlayOpen = false;
+  let opponentSwipeStart = null;
   let toolContextOverride = "";
   let quickPanelOpen = "";
   let toolBadgePosition = { x: 18, y: 520 };
@@ -120,6 +124,13 @@ export function mountApp(root, store) {
     });
     if (!visiblePages.includes(activePage)) {
       activePage = activePage === "profile" ? "profile" : visiblePages[0] || "life";
+    }
+    const opponentBoards = getOpponentBoards(profile);
+    if (!opponentBoards.length) {
+      opponentBoardIndex = 0;
+      opponentOverlayOpen = false;
+    } else if (opponentBoardIndex >= opponentBoards.length) {
+      opponentBoardIndex = 0;
     }
     if (Array.isArray(profile.settings?.multiplayer?.selectedSimulatedOpponents) && profile.settings.multiplayer.selectedSimulatedOpponents.length) {
       simulationSelectedOpponents = new Set(profile.settings.multiplayer.selectedSimulatedOpponents);
@@ -322,6 +333,12 @@ export function mountApp(root, store) {
         render(store.getState());
       })
     );
+    container.querySelectorAll("[data-start-game-tracking]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const tracking = store.getState().activeSession?.gameTracking || {};
+        store.dispatch({ type: tracking.active ? "STOP_GAME_TRACKING" : "START_GAME_TRACKING" });
+      })
+    );
     container.querySelectorAll("[data-close-simulation-setup]").forEach((button) =>
       button.addEventListener("click", () => {
         simulationSetupOpen = false;
@@ -373,6 +390,61 @@ export function mountApp(root, store) {
     container.querySelectorAll("[data-simulation-pass-turn]").forEach((button) =>
       button.addEventListener("click", () => store.dispatch({ type: "SIMULATION_PASS_TURN" }))
     );
+    container.querySelectorAll("[data-opponent-nav]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const direction = button.dataset.opponentNav === "next" ? 1 : -1;
+        const boards = getOpponentBoards(store.getState());
+        if (!boards.length) {
+          return;
+        }
+        opponentBoardIndex = (opponentBoardIndex + direction + boards.length) % boards.length;
+        render(store.getState());
+      })
+    );
+    container.querySelectorAll("[data-open-opponent-overlay]").forEach((button) =>
+      button.addEventListener("click", () => {
+        opponentOverlayOpen = true;
+        render(store.getState());
+      })
+    );
+    container.querySelectorAll("[data-close-opponent-overlay]").forEach((button) =>
+      button.addEventListener("click", () => {
+        opponentOverlayOpen = false;
+        render(store.getState());
+      })
+    );
+    container.querySelectorAll("[data-opponent-permanent]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const id = button.dataset.opponentPermanent;
+        if (!id) {
+          return;
+        }
+        toolContextOverride = "permanent";
+        store.dispatch({ type: "SELECT_PERMANENT", id });
+      })
+    );
+    container.querySelectorAll("[data-opponent-swipe]").forEach((panel) => {
+      panel.addEventListener("pointerdown", (event) => {
+        opponentSwipeStart = { x: event.clientX, y: event.clientY };
+      });
+      panel.addEventListener("pointerup", (event) => {
+        if (!opponentSwipeStart) {
+          return;
+        }
+        const dx = event.clientX - opponentSwipeStart.x;
+        const dy = event.clientY - opponentSwipeStart.y;
+        opponentSwipeStart = null;
+        if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.2) {
+          return;
+        }
+        const boards = getOpponentBoards(store.getState());
+        if (!boards.length) {
+          return;
+        }
+        opponentBoardIndex = (opponentBoardIndex + (dx < 0 ? 1 : -1) + boards.length) % boards.length;
+        render(store.getState());
+      });
+    });
     container.querySelector("[data-tool-menu]")?.addEventListener("click", () => {
       toolMenuOpen = !toolMenuOpen;
       render(store.getState());
@@ -640,6 +712,9 @@ export function mountApp(root, store) {
     container.querySelector("[data-save-player-note]")?.addEventListener("click", () => {
       const note = String(container.querySelector("[data-player-note-input]")?.value || "").trim();
       store.dispatch({ type: "SET_SETTING", path: "playerNotes.session", value: note });
+    });
+    container.querySelector("[data-activate-board]")?.addEventListener("click", () => {
+      store.dispatch({ type: "ACTIVATE_BOARD" });
     });
 
     container.querySelectorAll("[data-life-delta]").forEach((button) => {
@@ -1728,7 +1803,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
         ${renderMobileSwipeControls(tabs, page)}
       </header>
       ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier, uiState) : ""}
-      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current) : ""}
+      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex, opponentOverlayOpen }) : ""}
       ${page === "profile" ? renderProfile(profile) : ""}
       ${page === "archive" ? renderArchive(profile) : ""}
       ${page === "decks" ? renderDecks(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery) : ""}
@@ -1758,6 +1833,7 @@ function renderLifeTracker(profile, trackerModifier, uiState = {}) {
     tickets: session.playerCounters?.tickets || 0,
   };
   const commanderDamage = session.commander.damageByOpponent?.opponent || 0;
+  const gameTracking = session.gameTracking || {};
   const simulation = session.simulation || {};
   return `
     <section class="life-tracker-page">
@@ -1774,6 +1850,10 @@ function renderLifeTracker(profile, trackerModifier, uiState = {}) {
           <button class="mobile-step" data-life-delta="10">+10</button>
         </div>
         ${renderTrackerModifierBadge(trackerModifier)}
+        <div class="button-grid life-start-controls">
+          <button data-start-game-tracking>${gameTracking.active ? "Game Tracking Active" : "Start Game"}</button>
+          <button data-open-simulation-setup>${simulation.enabled ? "Reconfigure Simulation" : "Start Simulation"}</button>
+        </div>
       </aside>
       ` : ""}
       <section class="tracker-stack">
@@ -1841,6 +1921,9 @@ function renderSimulationHud(profile, simulationLogOpen = false) {
 function renderSimulationSetupModal(selectedOpponents = [], selectedSpeed = "normal") {
   const selected = new Set(selectedOpponents || []);
   const speed = selectedSpeed || "normal";
+  const alphaDeck = getSimulationDeckById("alpha");
+  const betaDeck = getSimulationDeckById("beta");
+  const omegaDeck = getSimulationDeckById("omega");
   return `
     <section class="overlay-backdrop">
       <div class="floating-overlay glass simulation-setup">
@@ -1853,10 +1936,10 @@ function renderSimulationSetupModal(selectedOpponents = [], selectedSpeed = "nor
         </div>
         <article class="option-card">
           <h3>Choose Opponents</h3>
-          <label class="toggle-row"><span>Alpha</span><input type="checkbox" data-sim-opponent="alpha" ${selected.has("alpha") ? "checked" : ""} /></label>
-          <label class="toggle-row"><span>Beta</span><input type="checkbox" data-sim-opponent="beta" ${selected.has("beta") ? "checked" : ""} /></label>
-          <label class="toggle-row"><span>Omega</span><input type="checkbox" data-sim-opponent="omega" ${selected.has("omega") ? "checked" : ""} /></label>
-          <p class="eyebrow">Static deck containers are local-first and can be replaced in code later.</p>
+          <label class="toggle-row"><span>Alpha · ${escapeHtml(alphaDeck?.deckName || "Deck")}</span><input type="checkbox" data-sim-opponent="alpha" ${selected.has("alpha") ? "checked" : ""} /></label>
+          <label class="toggle-row"><span>Beta · ${escapeHtml(betaDeck?.deckName || "Deck")}</span><input type="checkbox" data-sim-opponent="beta" ${selected.has("beta") ? "checked" : ""} /></label>
+          <label class="toggle-row"><span>Omega · ${escapeHtml(omegaDeck?.deckName || "Deck")}</span><input type="checkbox" data-sim-opponent="omega" ${selected.has("omega") ? "checked" : ""} /></label>
+          <p class="eyebrow">Deck status: ${escapeHtml(alphaDeck?.status || "unknown")} / ${escapeHtml(betaDeck?.status || "unknown")} / ${escapeHtml(omegaDeck?.status || "unknown")}</p>
         </article>
         <article class="option-card">
           <h3>Simulation Speed</h3>
@@ -2006,7 +2089,7 @@ function renderCounterControl(name, value, type) {
   `;
 }
 
-function renderBattlefield(profile, searchResults, searchMessage, searchLoading, searchQuery, combatResolving, toolContext, expandedStackIds, activeUtilityPanel, uiLayer = "passive") {
+function renderBattlefield(profile, searchResults, searchMessage, searchLoading, searchQuery, combatResolving, toolContext, expandedStackIds, activeUtilityPanel, uiLayer = "passive", uiState = {}) {
   const session = profile.activeSession;
   const stats = buildStats(profile);
   const panels = getPagePanels(profile);
@@ -2016,14 +2099,19 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
   const selectedIds = new Set(session.selectedIds || []);
   const playerDensityClass = getDensityClass(session.battlefield.player, compressionMode);
   const opponentDensityClass = getDensityClass(session.battlefield.opponent, compressionMode);
+  const opponentBoards = getOpponentBoards(profile);
+  const hasOpponentBoards = opponentBoards.length > 0;
+  const activeOpponentIndex = hasOpponentBoards ? Math.max(0, Math.min(opponentBoards.length - 1, Number(uiState.opponentBoardIndex) || 0)) : 0;
+  const activeOpponent = hasOpponentBoards ? opponentBoards[activeOpponentIndex] : null;
   return `
     <section class="battlefield-page battlefield-page--focused ui-layer-surface-${escapeAttribute(uiLayer)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}">
       <section class="arena glass ${playerDensityClass} ${profile.settings?.battlefield?.focusMode && session.selectedIds?.length ? "focus-mode" : ""} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}" data-set-tool-context="empty">
         ${panels.boardOpponent ? `
-        <div class="opponent-zone ${opponentDensityClass}" data-set-tool-context="empty">
-          <h2>Opponent Battlefield</h2>
-          ${renderBattlefieldGroups(session.battlefield.opponent, {
+        <div class="opponent-zone ${opponentDensityClass}" data-opponent-swipe data-set-tool-context="empty">
+          ${renderOpponentZoneHeader(opponentBoards, activeOpponentIndex, activeOpponent)}
+          ${activeOpponent ? renderBattlefieldGroups(activeOpponent.permanents, {
             readonly: true,
+            allowTargeting: true,
             emptyText: "No visible opponent permanents",
             expandedAll: profile.settings?.battlefield?.expandedAll,
             selectedIds,
@@ -2032,7 +2120,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
             expandedStackIds,
             session,
             settings: profile.settings,
-          })}
+          }) : empty("No visible opponent permanents")}
         </div>
         ` : ""}
         ${panels.boardCombat ? `
@@ -2070,7 +2158,115 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
     ${panels.advancedRulesHelpers || (session.pendingEffects || []).length ? renderPending(session) : ""}
     ${activeUtilityPanel === "history" ? renderActionTimeline(profile) : ""}
     ${activeUtilityPanel === "triggers" ? renderTriggerQueuePanel(profile) : ""}
+    ${uiState.opponentOverlayOpen && activeOpponent ? renderOpponentBattlefieldOverlay(profile, activeOpponent, activeOpponentIndex, opponentBoards.length, detailMode, compressionMode, selectedIds, expandedStackIds) : ""}
   `;
+}
+
+function renderOpponentZoneHeader(opponentBoards, activeIndex, activeOpponent) {
+  if (!opponentBoards.length) {
+    return "<h2>Opponent Battlefield</h2>";
+  }
+  return `
+    <div class="opponent-zone-header">
+      <div>
+        <h2>${escapeHtml(activeOpponent?.name || "Opponent Battlefield")}</h2>
+        <p class="eyebrow">${activeIndex + 1}/${opponentBoards.length} · ${escapeHtml(activeOpponent?.deckName || "Opponent")}</p>
+      </div>
+      <div class="row mini">
+        ${opponentBoards.length > 1 ? `<button data-opponent-nav="prev">‹</button><button data-opponent-nav="next">›</button>` : ""}
+        <button data-open-opponent-overlay>Expand Battlefield</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderOpponentBattlefieldOverlay(profile, opponentBoard, activeIndex, totalOpponents, detailMode, compressionMode, selectedIds, expandedStackIds) {
+  return `
+    <section class="overlay-backdrop">
+      <div class="floating-overlay glass opponent-battlefield-overlay" data-opponent-swipe>
+        <div class="overlay-header">
+          <div>
+            <p class="eyebrow">Opponent Battlefield</p>
+            <h2>${escapeHtml(opponentBoard.name)}</h2>
+            <strong>${activeIndex + 1}/${totalOpponents}</strong>
+          </div>
+          <div class="row mini">
+            ${totalOpponents > 1 ? `<button data-opponent-nav="prev">‹</button><button data-opponent-nav="next">›</button>` : ""}
+            <button data-close-opponent-overlay>Close</button>
+          </div>
+        </div>
+        ${renderBattlefieldGroups(opponentBoard.permanents, {
+          readonly: true,
+          allowTargeting: true,
+          emptyText: "No visible permanents",
+          expandedAll: profile.settings?.battlefield?.expandedAll,
+          selectedIds,
+          detailMode: detailMode === "compact" ? "standard" : detailMode,
+          compressionMode,
+          expandedStackIds,
+          session: profile.activeSession,
+          settings: profile.settings,
+        })}
+      </div>
+    </section>
+  `;
+}
+
+function getOpponentBoards(profile) {
+  const session = profile.activeSession;
+  const permanentGroups = new Map();
+  (session.battlefield?.opponent || []).forEach((permanent) => {
+    const key = permanent.controller || "opponent";
+    if (!permanentGroups.has(key)) {
+      permanentGroups.set(key, []);
+    }
+    permanentGroups.get(key).push(permanent);
+  });
+  const byId = new Map();
+  const peers = (profile.settings?.multiplayer?.connectedPlayers || []).filter((player) => player.id !== "local-player");
+  peers.forEach((peer) => {
+    const snapshotPermanents = (peer.publicBoardSnapshot || []).map((entry) =>
+      createPermanent({
+        id: entry.id || `snapshot-${peer.id}-${entry.name}`,
+        name: entry.name || "Permanent",
+        typeLine: entry.typeLine || "Permanent",
+        tapped: Boolean(entry.tapped),
+        quantity: Number(entry.quantity || 1),
+        counters: entry.counters || {},
+        controller: peer.id,
+        owner: peer.id,
+      })
+    );
+    byId.set(peer.id, {
+      id: peer.id,
+      name: peer.name || peer.id,
+      deckName: peer.deckName || peer.publicBoardSnapshot?.deckName || "Opponent",
+      permanents: permanentGroups.get(peer.id) || snapshotPermanents,
+      life: Number(peer.life ?? 40),
+    });
+  });
+  Object.values(session.simulation?.opponents || {}).forEach((npc) => {
+    byId.set(npc.id, {
+      id: npc.id,
+      name: npc.name,
+      deckName: npc.deckName || "Simulation Deck",
+      permanents: permanentGroups.get(npc.id) || [],
+      life: Number(npc.life ?? 40),
+    });
+  });
+  permanentGroups.forEach((permanents, id) => {
+    if (byId.has(id)) {
+      return;
+    }
+    byId.set(id, {
+      id,
+      name: id === "opponent" ? "Opponent" : id,
+      deckName: "Opponent",
+      permanents,
+      life: 40,
+    });
+  });
+  return [...byId.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function renderBattlefieldPhaseTracker(session, stats) {
@@ -2125,9 +2321,14 @@ function renderPermanent(permanent, options = {}) {
   const detailMode = options.detailMode || "standard";
   const stackMembers = permanent.stackMembers || [];
   const statusIcons = collectPermanentStatusIcons(permanent, options.session, options.settings);
+  const targetAttr = options.readonly
+    ? options.allowTargeting
+      ? `data-opponent-permanent="${escapeAttribute(permanent.id)}"`
+      : ""
+    : `data-permanent="${permanent.id}"`;
   return `
     <article class="permanent detail-${detailMode} ${selected ? "selected" : ""} ${permanent.tapped ? "tapped" : ""} ${permanent.attacking ? "attacking" : ""} ${permanent.manualStatus === "pending" ? "pending" : ""}" data-permanent-card data-permanent-id="${permanent.id}" data-readonly="${options.readonly ? "true" : "false"}">
-      <button ${options.readonly ? "" : `data-permanent="${permanent.id}"`}>
+      <button ${targetAttr}>
         <strong>${escapeHtml(permanent.name)}</strong>
         ${detailMode !== "compact" ? `<span>${escapeHtml(permanent.typeLine)}</span>` : `<span>MV ${permanent.manaValue || 0}</span>`}
         ${permanent.isCreature ? `<b>${permanent.currentPower}/${permanent.currentToughness}</b>` : ""}
@@ -2663,6 +2864,7 @@ function renderPlayerControls(profile) {
       <div class="button-grid">
         <button data-cast-commander>Cast Commander</button>
         <button data-next-phase>Next Phase</button>
+        <button data-activate-board>Activate Board</button>
         <button data-archive-game>Archive Game</button>
         <button data-life-reset>Reset Player Trackers</button>
         <button data-undo>Undo</button>
