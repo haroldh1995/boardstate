@@ -18,8 +18,11 @@ export function createSimulationSession(profile, options = {}) {
   const selectedOpponents = (Array.isArray(options.selectedOpponents) ? options.selectedOpponents : [])
     .filter((id) => SIM_OPPONENT_IDS.includes(id));
   const safeOpponents = selectedOpponents.length ? selectedOpponents : ["alpha"];
+  const revengeEnabled = options.revengeEnabled !== false;
+  const format = inferSimulationFormat(safeOpponents.length);
   const speed = String(options.speed || "normal").toLowerCase();
   const opponents = Object.fromEntries(safeOpponents.map((id) => [id, createNpcStateFromDeck(id)]));
+  const players = createSimulationPlayers(profile, opponents);
   const integrityNotes = safeOpponents.map((id) => {
     const deck = getSimulationDeckById(id);
     const integrity = summarizeDeckIntegrity(deck);
@@ -39,8 +42,16 @@ export function createSimulationSession(profile, options = {}) {
     enabled: true,
     status: "running",
     speed: SIMULATION_SPEEDS[speed] ? speed : "normal",
+    revengeEnabled,
+    format,
     selectedOpponents: safeOpponents,
     opponents,
+    players,
+    eliminatedPlayerIds: [],
+    eliminations: [],
+    winnerId: "",
+    statsRecorded: false,
+    strategyAdjustmentsApplied: 0,
     turnOrder: ["local-player", ...safeOpponents],
     turnIndex: 0,
     currentPlayerId: "local-player",
@@ -49,6 +60,7 @@ export function createSimulationSession(profile, options = {}) {
     waitingForUser: true,
     log: [
       createSimLog("system", "Simulation started. Your turn is active."),
+      createSimLog("system", `Format: ${format}. Revenge ${revengeEnabled ? "ON" : "OFF"}.`),
       createSimLog("system", `Deck integrity: ${integrityNotes.join(" | ")}`),
     ],
     createdAt: Date.now(),
@@ -65,6 +77,43 @@ export function createSimulationSession(profile, options = {}) {
     session,
     connectedPlayers,
   };
+}
+
+function inferSimulationFormat(opponentCount = 1) {
+  if (opponentCount <= 1) {
+    return "1v1 Commander";
+  }
+  if (opponentCount === 2) {
+    return "3-way Commander";
+  }
+  return "4-way Commander";
+}
+
+function createSimulationPlayers(profile, opponents = {}) {
+  const localPlayerName = profile.player?.name || "Player";
+  const players = {
+    "local-player": {
+      id: "local-player",
+      name: localPlayerName,
+      life: 40,
+      eliminated: false,
+      isNpc: false,
+      commanderDamageFrom: {},
+      commanderDamageBy: {},
+    },
+  };
+  Object.values(opponents || {}).forEach((npc) => {
+    players[npc.id] = {
+      id: npc.id,
+      name: npc.name,
+      life: 40,
+      eliminated: false,
+      isNpc: true,
+      commanderDamageFrom: {},
+      commanderDamageBy: {},
+    };
+  });
+  return players;
 }
 
 export function createNpcPublicSnapshot(npc) {

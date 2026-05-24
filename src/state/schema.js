@@ -66,6 +66,7 @@ export function createDefaultProfile() {
         spectatorMode: false,
         selectedSimulatedOpponents: ["alpha"],
         simulatedSpeed: "normal",
+        simulationRevenge: true,
       },
       battlefield: {
         manaPinned: false,
@@ -122,6 +123,7 @@ export function createDefaultProfile() {
       repeatedWinConditions: {},
       updatedAt: 0,
     },
+    simulationStats: createEmptySimulationStats(),
   };
 }
 
@@ -191,8 +193,16 @@ export function createGameSession() {
       enabled: false,
       status: "idle",
       speed: "normal",
+      revengeEnabled: true,
+      format: "1v1 Commander",
       selectedOpponents: [],
       opponents: {},
+      players: {},
+      eliminatedPlayerIds: [],
+      eliminations: [],
+      winnerId: "",
+      statsRecorded: false,
+      strategyAdjustmentsApplied: 0,
       turnOrder: [],
       turnIndex: 0,
       currentPlayerId: "local-player",
@@ -203,6 +213,39 @@ export function createGameSession() {
       createdAt: 0,
       updatedAt: 0,
     },
+  };
+}
+
+export function createEmptySimulationStats() {
+  return {
+    gamesPlayed: 0,
+    averageTurnCount: 0,
+    user: {
+      wins: 0,
+      losses: 0,
+      eliminations: 0,
+    },
+    alpha: {
+      wins: 0,
+      losses: 0,
+      eliminations: 0,
+    },
+    beta: {
+      wins: 0,
+      losses: 0,
+      eliminations: 0,
+    },
+    omega: {
+      wins: 0,
+      losses: 0,
+      eliminations: 0,
+    },
+    commanderDamageEliminations: 0,
+    mostThreateningCards: {},
+    mostTargetedCards: {},
+    mostValuableCards: {},
+    strategyAdjustmentsApplied: 0,
+    history: [],
   };
 }
 

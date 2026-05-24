@@ -81,6 +81,9 @@ export function mountApp(root, store) {
   let simulationLogOpen = false;
   let simulationSelectedOpponents = new Set(["alpha"]);
   let simulationSelectedSpeed = "normal";
+  let simulationRevengeEnabled = true;
+  let simulationSetupError = "";
+  let simulationStatsOpen = false;
   let opponentBoardIndex = 0;
   let opponentOverlayOpen = false;
   let opponentSwipeStart = null;
@@ -121,6 +124,8 @@ export function mountApp(root, store) {
       quickPanelOpen,
       optionsOpen,
       statsOpen,
+      simulationSetupOpen,
+      simulationStatsOpen,
     });
     if (!visiblePages.includes(activePage)) {
       activePage = activePage === "profile" ? "profile" : visiblePages[0] || "life";
@@ -137,6 +142,9 @@ export function mountApp(root, store) {
     }
     if (profile.settings?.multiplayer?.simulatedSpeed) {
       simulationSelectedSpeed = profile.settings.multiplayer.simulatedSpeed;
+    }
+    if (typeof profile.settings?.multiplayer?.simulationRevenge === "boolean") {
+      simulationRevengeEnabled = Boolean(profile.settings.multiplayer.simulationRevenge);
     }
     helperMessage = resolveHelperSpriteMessage(profile, activePage);
     document.body.dataset.composition = profile.settings?.appearance?.compositionMode || "auto";
@@ -169,6 +177,11 @@ export function mountApp(root, store) {
       simulationLogOpen,
       simulationSelectedOpponents: [...simulationSelectedOpponents],
       simulationSelectedSpeed,
+      simulationRevengeEnabled,
+      simulationSetupError,
+      simulationStatsOpen,
+      opponentBoardIndex,
+      opponentOverlayOpen,
     });
     bind(root, profile);
     scheduleManaAutoClose(profile);
@@ -329,6 +342,7 @@ export function mountApp(root, store) {
     );
     container.querySelectorAll("[data-open-simulation-setup]").forEach((button) =>
       button.addEventListener("click", () => {
+        simulationSetupError = "";
         simulationSetupOpen = true;
         render(store.getState());
       })
@@ -340,7 +354,10 @@ export function mountApp(root, store) {
       })
     );
     container.querySelectorAll("[data-close-simulation-setup]").forEach((button) =>
-      button.addEventListener("click", () => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        simulationSetupError = "";
         simulationSetupOpen = false;
         render(store.getState());
       })
@@ -367,15 +384,48 @@ export function mountApp(root, store) {
         }
       })
     );
-    container.querySelectorAll("[data-start-simulation]").forEach((button) =>
+    container.querySelectorAll("[data-sim-revenge]").forEach((input) =>
+      input.addEventListener("change", () => {
+        simulationRevengeEnabled = input.checked;
+      })
+    );
+    container.querySelectorAll("[data-open-simulation-stats]").forEach((button) =>
       button.addEventListener("click", () => {
+        simulationStatsOpen = true;
+        render(store.getState());
+      })
+    );
+    container.querySelectorAll("[data-close-simulation-stats]").forEach((button) =>
+      button.addEventListener("click", () => {
+        simulationStatsOpen = false;
+        render(store.getState());
+      })
+    );
+    container.querySelectorAll("[data-start-simulation]").forEach((button) =>
+      button.addEventListener(async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
         const selectedOpponents = [...simulationSelectedOpponents].filter(Boolean);
-        store.dispatch({
-          type: "START_SIMULATION",
-          selectedOpponents: selectedOpponents.length ? selectedOpponents : ["alpha"],
-          speed: simulationSelectedSpeed || "normal",
-        });
+        if (!selectedOpponents.length) {
+          simulationSetupError = "Select at least one opponent to start a simulation.";
+          render(store.getState());
+          return;
+        }
+        simulationSetupError = "";
         simulationSetupOpen = false;
+        render(store.getState());
+        try {
+          await store.dispatch({
+          type: "START_SIMULATION",
+          selectedOpponents,
+          speed: simulationSelectedSpeed || "normal",
+          revengeEnabled: simulationRevengeEnabled,
+        });
+        } catch {
+          simulationSetupError = "Simulation failed to start. Check setup and try again.";
+          simulationSetupOpen = true;
+          render(store.getState());
+        }
       })
     );
     container.querySelectorAll("[data-simulation-pause]").forEach((button) =>
@@ -1803,7 +1853,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
         ${renderMobileSwipeControls(tabs, page)}
       </header>
       ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier, uiState) : ""}
-      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex, opponentOverlayOpen }) : ""}
+      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen) }) : ""}
       ${page === "profile" ? renderProfile(profile) : ""}
       ${page === "archive" ? renderArchive(profile) : ""}
       ${page === "decks" ? renderDecks(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery) : ""}
@@ -1815,7 +1865,8 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       ${uiState.optionsOpen ? renderGameOptions(profile) : ""}
       ${uiState.statsOpen ? renderStatsOverlay(profile, uiState.statsMode) : ""}
       ${renderSimulationHud(profile, uiState.simulationLogOpen)}
-      ${uiState.simulationSetupOpen ? renderSimulationSetupModal(uiState.simulationSelectedOpponents, uiState.simulationSelectedSpeed) : ""}
+      ${uiState.simulationSetupOpen ? renderSimulationSetupModal(uiState.simulationSelectedOpponents, uiState.simulationSelectedSpeed, uiState.simulationRevengeEnabled, uiState.simulationSetupError) : ""}
+      ${uiState.simulationStatsOpen ? renderSimulationStatsOverlay(profile) : ""}
       ${renderAdhdAssistPanel(profile, page, uiLayer.current)}
       ${renderHelperSprite(profile, uiState.helperMessage)}
       ${renderEdgeSwipeZones(profile)}
@@ -1864,6 +1915,7 @@ function renderLifeTracker(profile, trackerModifier, uiState = {}) {
           <div class="button-grid">
             <button data-open-simulation-setup>${simulation.enabled ? "Reconfigure Simulation" : "Start Simulation"}</button>
             ${simulation.enabled ? `<button data-simulation-log-toggle>${uiState.simulationLogOpen ? "Hide Log" : "Show Log"}</button>` : ""}
+            <button data-open-simulation-stats>Simulation Stats</button>
           </div>
         </article>
         <article class="tracker-card player-counters-card glass">
@@ -1918,7 +1970,7 @@ function renderSimulationHud(profile, simulationLogOpen = false) {
   `;
 }
 
-function renderSimulationSetupModal(selectedOpponents = [], selectedSpeed = "normal") {
+function renderSimulationSetupModal(selectedOpponents = [], selectedSpeed = "normal", revengeEnabled = true, setupError = "") {
   const selected = new Set(selectedOpponents || []);
   const speed = selectedSpeed || "normal";
   const alphaDeck = getSimulationDeckById("alpha");
@@ -1947,9 +1999,66 @@ function renderSimulationSetupModal(selectedOpponents = [], selectedSpeed = "nor
           <label class="toggle-row"><span>Normal</span><input type="radio" name="sim-speed" data-sim-speed="normal" ${speed === "normal" ? "checked" : ""} /></label>
           <label class="toggle-row"><span>Fast</span><input type="radio" name="sim-speed" data-sim-speed="fast" ${speed === "fast" ? "checked" : ""} /></label>
         </article>
+        <article class="option-card">
+          <h3>Revenge Learning</h3>
+          <label class="toggle-row"><span>Revenge ON</span><input type="checkbox" data-sim-revenge ${revengeEnabled ? "checked" : ""} /></label>
+          <p class="eyebrow">ON: NPCs adapt against the winner and each other. OFF: base strategies only.</p>
+        </article>
+        ${setupError ? `<p class="simulation-setup-error">${escapeHtml(setupError)}</p>` : ""}
         <div class="button-grid">
           <button data-start-simulation>Start Game</button>
+          <button data-open-simulation-stats>Simulation Stats</button>
           <button data-close-simulation-setup>Cancel</button>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderSimulationStatsOverlay(profile) {
+  const stats = profile.simulationStats || {};
+  const history = stats.history || [];
+  const latest = history[0];
+  const topThreats = summarizeRecordEntries(stats.mostThreateningCards, 5);
+  const topTargets = summarizeRecordEntries(stats.mostTargetedCards, 5);
+  const topValue = summarizeRecordEntries(stats.mostValuableCards, 5);
+  return `
+    <section class="overlay-backdrop">
+      <div class="floating-overlay glass simulation-stats-overlay">
+        <div class="overlay-header">
+          <div>
+            <p class="eyebrow">Simulation-only tracking</p>
+            <h2>Simulation Stats</h2>
+          </div>
+          <button data-close-simulation-stats>Close</button>
+        </div>
+        <div class="stats-grid">
+          <article class="stat-card"><span>Games played</span><strong>${escapeHtml(Number(stats.gamesPlayed || 0))}</strong></article>
+          <article class="stat-card"><span>Average game length (turns)</span><strong>${escapeHtml(Number(stats.averageTurnCount || 0).toFixed(2))}</strong></article>
+          <article class="stat-card"><span>Commander damage eliminations</span><strong>${escapeHtml(Number(stats.commanderDamageEliminations || 0))}</strong></article>
+          <article class="stat-card"><span>Strategy adjustments applied</span><strong>${escapeHtml(Number(stats.strategyAdjustmentsApplied || 0))}</strong></article>
+          <article class="stat-card"><span>User W-L</span><strong>${escapeHtml(`${stats.user?.wins || 0}-${stats.user?.losses || 0}`)}</strong></article>
+          <article class="stat-card"><span>Alpha W-L</span><strong>${escapeHtml(`${stats.alpha?.wins || 0}-${stats.alpha?.losses || 0}`)}</strong></article>
+          <article class="stat-card"><span>Beta W-L</span><strong>${escapeHtml(`${stats.beta?.wins || 0}-${stats.beta?.losses || 0}`)}</strong></article>
+          <article class="stat-card"><span>Omega W-L</span><strong>${escapeHtml(`${stats.omega?.wins || 0}-${stats.omega?.losses || 0}`)}</strong></article>
+        </div>
+        <div class="overlay-grid">
+          <article class="option-card">
+            <h3>Top Threat Signals</h3>
+            <div class="deck-list">${topThreats.map((entry) => `<span>${escapeHtml(entry)}</span>`).join("") || "<span>No threat data yet</span>"}</div>
+          </article>
+          <article class="option-card">
+            <h3>Most Targeted</h3>
+            <div class="deck-list">${topTargets.map((entry) => `<span>${escapeHtml(entry)}</span>`).join("") || "<span>No target data yet</span>"}</div>
+          </article>
+          <article class="option-card">
+            <h3>Most Valuable</h3>
+            <div class="deck-list">${topValue.map((entry) => `<span>${escapeHtml(entry)}</span>`).join("") || "<span>No value data yet</span>"}</div>
+          </article>
+          <article class="option-card">
+            <h3>Latest Result</h3>
+            <p>${latest ? `${escapeHtml(latest.format || "Commander")} · Winner: ${escapeHtml(latest.winnerName || latest.winnerId || "Unknown")} · Turns: ${escapeHtml(latest.turnCount || 0)} · Revenge: ${latest.revengeEnabled ? "ON" : "OFF"}` : "No simulation result recorded yet."}</p>
+          </article>
         </div>
       </div>
     </section>
@@ -3150,9 +3259,11 @@ function renderGameOptions(profile) {
               <button data-multiplayer-mode="simulated">Simulated Local</button>
               <button data-multiplayer-mode="offline">Disconnect</button>
               <button data-open-simulation-setup>Start Simulation Setup</button>
+              <button data-open-simulation-stats>Simulation Stats</button>
             </div>
             <p>Mode: ${escapeHtml(multiplayer.mode)}</p>
             <p>Connected players: ${multiplayer.connectedPlayers.length ? multiplayer.connectedPlayers.map((player) => escapeHtml(player.name)).join(", ") : "None"}</p>
+            ${renderToggle("Simulation Revenge Learning", "multiplayer.simulationRevenge", Boolean(multiplayer.simulationRevenge ?? true))}
             <label class="stacked-form">Room ID
               <input data-mp-setting="multiplayer.roomId" value="${escapeAttribute(multiplayer.roomId || "boardstate-room")}" />
             </label>
@@ -3478,7 +3589,9 @@ function resolveUiLayerState(profile, page, uiState = {}) {
     Boolean(uiState.activeUtilityPanel) ||
     Boolean(uiState.quickPanelOpen) ||
     Boolean(uiState.optionsOpen) ||
-    Boolean(uiState.statsOpen);
+    Boolean(uiState.statsOpen) ||
+    Boolean(uiState.simulationSetupOpen) ||
+    Boolean(uiState.simulationStatsOpen);
   const current = adhdMode.enabled
     ? "adhd"
     : inspectOpen
@@ -3639,6 +3752,13 @@ function renderHelperSprite(profile, helperMessage) {
       </button>
     </section>
   `;
+}
+
+function summarizeRecordEntries(record = {}, limit = 5) {
+  return Object.entries(record || {})
+    .sort((left, right) => Number(right[1] || 0) - Number(left[1] || 0))
+    .slice(0, Math.max(1, limit))
+    .map(([name, value]) => `${name}: ${value}`);
 }
 
 function renderToggle(label, path, checked, truthyValue = true) {

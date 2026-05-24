@@ -308,6 +308,27 @@ function normalizeProfile(profile) {
     },
     statsSync: { ...defaults.statsSync, ...(profile.statsSync || {}) },
     simulationMemory: { ...defaults.simulationMemory, ...(profile.simulationMemory || {}) },
+    simulationStats: {
+      ...defaults.simulationStats,
+      ...(profile.simulationStats || {}),
+      user: { ...defaults.simulationStats.user, ...(profile.simulationStats?.user || {}) },
+      alpha: { ...defaults.simulationStats.alpha, ...(profile.simulationStats?.alpha || {}) },
+      beta: { ...defaults.simulationStats.beta, ...(profile.simulationStats?.beta || {}) },
+      omega: { ...defaults.simulationStats.omega, ...(profile.simulationStats?.omega || {}) },
+      mostThreateningCards: {
+        ...defaults.simulationStats.mostThreateningCards,
+        ...(profile.simulationStats?.mostThreateningCards || {}),
+      },
+      mostTargetedCards: {
+        ...defaults.simulationStats.mostTargetedCards,
+        ...(profile.simulationStats?.mostTargetedCards || {}),
+      },
+      mostValuableCards: {
+        ...defaults.simulationStats.mostValuableCards,
+        ...(profile.simulationStats?.mostValuableCards || {}),
+      },
+      history: profile.simulationStats?.history || defaults.simulationStats.history,
+    },
   };
 }
 

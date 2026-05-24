@@ -2,7 +2,7 @@ import { archiveCurrentGame } from "../archive/archiveService.js";
 import { hydratePermanentEffects, processEventTriggers, recalculateContinuousEffects, resolveQueuedTrigger, resolveSpell } from "../effects/effectEngine.js";
 import { addCardToCommanderDeck, assignCommander, castCommander, recordCommanderCardUsage } from "../game/commanderSystem.js";
 import { assignBlocker, declareAttackers, resolveCombat } from "../game/combatSystem.js";
-import { createGameSession, createManaPool, createPermanent, PHASES } from "./schema.js";
+import { createEmptySimulationStats, createGameSession, createManaPool, createPermanent, PHASES } from "./schema.js";
 import { clone, createId, normalizeCount } from "./ids.js";
 import { drainGameEvents, mapActionTypeToGameEvent, queueGameEvent, runGameEventObservers } from "../game/eventBus.js";
 import { transitionFsm } from "../game/fsm.js";
@@ -199,6 +199,7 @@ export function reduceProfile(profile, event) {
     nextProfile,
     emitAndProcessSessionEvent(withRuntimeSettings(nextProfile.activeSession, nextProfile.settings), event, actionType)
   );
+  nextProfile = reconcileSimulationCompletion(nextProfile, baseProfile, actionType, event);
   nextProfile = updateSimulationMemory(nextProfile, event, actionType);
   nextProfile = maybeAdvanceLocalSimulationTurn(nextProfile, baseProfile.activeSession, actionType);
   nextProfile = syncSimulationPresence(nextProfile);
@@ -415,9 +416,11 @@ function setMultiplayerMode(profile, mode = "offline") {
 }
 
 function startSimulation(profile, event = {}) {
+  const revengeEnabled = event.revengeEnabled !== false;
   const setup = createSimulationSession(profile, {
     selectedOpponents: event.selectedOpponents || profile.settings?.multiplayer?.selectedSimulatedOpponents || [],
     speed: event.speed || profile.settings?.multiplayer?.simulatedSpeed || "normal",
+    revengeEnabled,
   });
   const connectedPlayers = setup.connectedPlayers || buildSimulationConnectedPlayers(profile, setup.session.simulation.opponents || {});
   return {
@@ -431,6 +434,7 @@ function startSimulation(profile, event = {}) {
         connectedPlayers,
         selectedSimulatedOpponents: [...(setup.session.simulation.selectedOpponents || [])],
         simulatedSpeed: setup.session.simulation.speed || "normal",
+        simulationRevenge: revengeEnabled,
       },
     },
   };
@@ -515,17 +519,24 @@ function stopSimulation(profile) {
 }
 
 function runSimulationTick(session, simulationMemory = {}) {
-  const simulation = session.simulation || {};
+  const preparedSession = ensureSimulationPlayerState(session);
+  const simulation = preparedSession.simulation || {};
   if (!simulation.enabled || simulation.status !== "running") {
-    return session;
+    return preparedSession;
+  }
+  if (simulation.winnerId) {
+    return concludeSimulationSession(preparedSession, simulation.winnerId, "winner-detected");
   }
   const currentPlayerId = simulation.currentPlayerId || simulation.turnOrder?.[simulation.turnIndex] || "local-player";
+  if (simulation.eliminatedPlayerIds?.includes(currentPlayerId)) {
+    return advanceSimulationTurn(preparedSession, "skip-eliminated-player");
+  }
   if (currentPlayerId === "local-player") {
     if (simulation.waitingForUser) {
-      return session;
+      return preparedSession;
     }
     return {
-      ...session,
+      ...preparedSession,
       simulation: appendSimulationLog(
         {
           ...simulation,
@@ -540,7 +551,7 @@ function runSimulationTick(session, simulationMemory = {}) {
   const npc = simulation.opponents?.[currentPlayerId];
   if (!npc) {
     return {
-      ...session,
+      ...preparedSession,
       simulation: appendSimulationLog(
         {
           ...simulation,
@@ -555,18 +566,18 @@ function runSimulationTick(session, simulationMemory = {}) {
 
   const phase = Number.isFinite(Number(simulation.currentPhaseIndex)) ? Number(simulation.currentPhaseIndex) : 0;
   if (phase === 0) {
-    return applyNpcDrawStep(session, npc, simulation);
+    return applyNpcDrawStep(preparedSession, npc, simulation);
   }
   if (phase === 1) {
-    return applyNpcMainStep(session, npc, simulation, simulationMemory);
+    return applyNpcMainStep(preparedSession, npc, simulation, simulationMemory);
   }
   if (phase === 2) {
-    return applyNpcCombatStep(session, npc, simulation);
+    return applyNpcCombatStep(preparedSession, npc, simulation, simulationMemory);
   }
   if (phase === 3) {
-    return applyNpcSecondMainStep(session, npc, simulation, simulationMemory);
+    return applyNpcSecondMainStep(preparedSession, npc, simulation, simulationMemory);
   }
-  return advanceSimulationTurn(session, "npc-end-step");
+  return advanceSimulationTurn(preparedSession, "npc-end-step");
 }
 
 function applyNpcDrawStep(session, npc, simulation) {
@@ -642,7 +653,7 @@ function applyNpcMainStep(session, npc, simulation, simulationMemory = {}) {
   };
 }
 
-function applyNpcCombatStep(session, npc, simulation) {
+function applyNpcCombatStep(session, npc, simulation, simulationMemory = {}) {
   const opponentCreatures = (session.battlefield.opponent || []).filter(
     (permanent) => permanent.controller === npc.id && permanent.isCreature && !permanent.tapped && !permanent.summoningSick
   );
@@ -655,6 +666,8 @@ function applyNpcCombatStep(session, npc, simulation) {
 
   let nextSession = session;
   let damage = 0;
+  const attackTargetId = chooseNpcAttackTargetId(nextSession, simulation, npc, simulationMemory);
+  const attackTargetName = getSimulationPlayerName(simulation, attackTargetId);
   if (attackers.length) {
     const attackerIds = new Set(attackers.map((attacker) => attacker.id));
     nextSession = {
@@ -663,7 +676,14 @@ function applyNpcCombatStep(session, npc, simulation) {
         ...nextSession.battlefield,
         opponent: nextSession.battlefield.opponent.map((permanent) =>
           attackerIds.has(permanent.id)
-            ? createPermanent({ ...permanent, tapped: true, attacking: true })
+            ? createPermanent({
+                ...permanent,
+                tapped: true,
+                attacking: true,
+                attackedObjectId: attackTargetId,
+                attackingPlayerId: attackTargetId,
+                enteredDuringCombat: true,
+              })
             : permanent
         ),
       },
@@ -674,10 +694,15 @@ function applyNpcCombatStep(session, npc, simulation) {
       },
     };
     damage = attackers.reduce((total, attacker) => total + Number(attacker.currentPower || attacker.basePower || 0), 0);
-    nextSession = {
-      ...nextSession,
-      life: Math.max(0, nextSession.life - Math.max(0, damage)),
-    };
+    nextSession = applyCombatDamageToSimulationTarget(nextSession, simulation, npc, attackTargetId, attackers);
+    const targetAfterDamage = nextSession.simulation?.players?.[attackTargetId];
+    const targetLife = Number(targetAfterDamage?.life ?? 0);
+    damage = Math.max(0, damage);
+    if (targetAfterDamage?.eliminated) {
+      nextSession = appendSimulationEffectLog(nextSession, `${attackTargetName} is eliminated by combat damage.`);
+    } else {
+      nextSession = appendSimulationEffectLog(nextSession, `${npc.name} damages ${attackTargetName} (${targetLife} life remaining).`);
+    }
   }
 
   const updatedNpc = {
@@ -693,7 +718,10 @@ function applyNpcCombatStep(session, npc, simulation) {
         currentPhaseIndex: 3,
         updatedAt: Date.now(),
       }),
-      createSimLog(npc.id, attackers.length ? `${npc.name} attacks for ${damage}.` : `${npc.name} skips combat.`)
+      createSimLog(
+        npc.id,
+        attackers.length ? `${npc.name} attacks ${attackTargetName} for ${damage}.` : `${npc.name} skips combat.`
+      )
     ),
   };
 }
@@ -735,15 +763,27 @@ function applyNpcSecondMainStep(session, npc, simulation, simulationMemory = {})
 }
 
 function advanceSimulationTurn(session, reason = "end-step") {
-  const simulation = session.simulation || {};
+  const preparedSession = ensureSimulationPlayerState(session);
+  const simulation = preparedSession.simulation || {};
   if (!simulation.enabled) {
-    return session;
+    return preparedSession;
   }
-  const turnOrder = simulation.turnOrder || ["local-player"];
-  const nextTurnIndex = ((simulation.turnIndex || 0) + 1) % turnOrder.length;
-  const nextPlayerId = turnOrder[nextTurnIndex] || "local-player";
+  if (simulation.winnerId) {
+    return concludeSimulationSession(preparedSession, simulation.winnerId, reason);
+  }
+  const activeTurnOrder = getActiveSimulationTurnOrder(simulation);
+  if (activeTurnOrder.length <= 1) {
+    const winnerId = activeTurnOrder[0] || "local-player";
+    return concludeSimulationSession(preparedSession, winnerId, "last-player-standing");
+  }
+  const currentPlayerId = simulation.currentPlayerId || activeTurnOrder[0];
+  const currentOrderIndex = Math.max(0, activeTurnOrder.indexOf(currentPlayerId));
+  const nextOrderIndex = (currentOrderIndex + 1) % activeTurnOrder.length;
+  const nextPlayerId = activeTurnOrder[nextOrderIndex] || "local-player";
+  const turnOrder = simulation.turnOrder || activeTurnOrder;
+  const nextTurnIndex = Math.max(0, turnOrder.indexOf(nextPlayerId));
   const baseRound = Math.max(simulation.round || 1, session.turn || 1);
-  const nextRound = nextTurnIndex === 0 ? baseRound + 1 : baseRound;
+  const nextRound = nextOrderIndex === 0 ? baseRound + 1 : baseRound;
   const nextOpponents = Object.fromEntries(
     Object.entries(simulation.opponents || {}).map(([id, npc]) => [
       id,
@@ -759,6 +799,7 @@ function advanceSimulationTurn(session, reason = "end-step") {
   const nextSimulation = appendSimulationLog(
     {
       ...simulation,
+      turnOrder,
       opponents: nextOpponents,
       turnIndex: nextTurnIndex,
       currentPlayerId: nextPlayerId,
@@ -770,18 +811,18 @@ function advanceSimulationTurn(session, reason = "end-step") {
     createSimLog(nextPlayerId === "local-player" ? "system" : nextPlayerId, statusText, reason)
   );
   return {
-    ...session,
+    ...preparedSession,
     turn: nextRound,
     phaseIndex: 4,
     combat: {
-      ...(session.combat || {}),
+      ...(preparedSession.combat || {}),
       attackerIds: [],
       blockersByAttacker: {},
       lines: [],
     },
     battlefield: {
-      ...session.battlefield,
-      opponent: (session.battlefield.opponent || []).map((permanent) =>
+      ...preparedSession.battlefield,
+      opponent: (preparedSession.battlefield.opponent || []).map((permanent) =>
         createPermanent({
           ...permanent,
           attacking: false,
@@ -796,7 +837,7 @@ function advanceSimulationTurn(session, reason = "end-step") {
 
 function resolveNpcCast(session, npc, card, simulationMemory = {}) {
   if (isType(card, "Instant") || isType(card, "Sorcery")) {
-    const targetId = chooseThreatTargetId(session, simulationMemory);
+    const targetId = chooseThreatTargetId(session, simulationMemory, npc.id);
     if (targetId) {
       const selected = new Set([targetId]);
       const removed = removeSelectedPermanents(
@@ -892,6 +933,7 @@ function maybeCastNpcCommander(session, npc, options = {}) {
   const castCard = {
     ...npc.commander.card,
     unresolvedDefinition: false,
+    isCommander: true,
   };
   const nextSession = addOpponentCardToBattlefield(session, castCard, npc.id);
   return {
@@ -920,6 +962,9 @@ function getNpcCardPriority(card, simulationMemory = {}, options = {}) {
   let score = 1;
   const strategyTags = npcStrategyTags(options.npc);
   const priorityCards = new Set((options.npc?.strategy?.threatPriorityCards || []).map((name) => String(name || "").toLowerCase()));
+  const npcLearning = simulationMemory?.npcLearning?.[options.npc?.id || ""] || {};
+  const learnedCardPriority = npcLearning.cardPriority || {};
+  const learnedCardScore = Number(learnedCardPriority[card.name] || learnedCardPriority[String(card.name || "").toLowerCase()] || 0);
   if (isType(card, "Creature")) {
     score += 4;
   }
@@ -944,6 +989,8 @@ function getNpcCardPriority(card, simulationMemory = {}, options = {}) {
   if ((simulationMemory.patterns?.tokenStrategy || 0) >= 2 && /destroy|exile/i.test(card.oracleText || "")) {
     score += 4;
   }
+  score += learnedCardScore;
+  score += Math.max(0, Number(npcLearning.aggression || 0)) * 0.15;
   if (options.secondary) {
     score -= 1;
   }
@@ -999,17 +1046,23 @@ function addOpponentCardToBattlefield(session, card, controllerId) {
   };
 }
 
-function chooseThreatTargetId(session, simulationMemory = {}) {
-  const threats = session.battlefield.player || [];
+function chooseThreatTargetId(session, simulationMemory = {}, actingNpcId = "") {
+  const threats = [
+    ...(session.battlefield.player || []),
+    ...(session.battlefield.opponent || []).filter((permanent) => permanent.controller !== actingNpcId),
+  ];
   if (!threats.length) {
     return "";
   }
   const memory = simulationMemory.cardThreat || {};
   const winMemory = simulationMemory.repeatedWinConditions || {};
+  const npcLearning = simulationMemory?.npcLearning?.[actingNpcId] || {};
+  const targetPriority = npcLearning.targetPriority || {};
   const ranked = threats
     .map((permanent) => {
       let score = Number(memory[permanent.name] || 0);
       score += Number(winMemory[permanent.name] || 0);
+      score += Number(targetPriority[permanent.controller === "player" ? "local-player" : permanent.controller] || 0);
       if (permanent.isCommander) {
         score += 5;
       }
@@ -1039,6 +1092,256 @@ function buildSimulationConnectedPlayers(profile, opponents = {}) {
       publicBoardSnapshot: createNpcPublicSnapshot(npc),
     })),
   ];
+}
+
+function ensureSimulationPlayerState(session) {
+  const simulation = session.simulation || {};
+  if (!simulation.enabled) {
+    return session;
+  }
+  const turnOrder = (simulation.turnOrder || []).length
+    ? [...simulation.turnOrder]
+    : ["local-player", ...Object.keys(simulation.opponents || {})];
+  const existingPlayers = simulation.players || {};
+  const nextPlayers = {};
+  const nextOpponents = { ...(simulation.opponents || {}) };
+
+  turnOrder.forEach((playerId) => {
+    const previous = existingPlayers[playerId] || {};
+    const isLocal = playerId === "local-player";
+    const npc = isLocal ? null : nextOpponents[playerId];
+    const baseLife = isLocal ? Number(session.life || previous.life || 40) : Number(npc?.life ?? previous.life ?? 40);
+    const commanderDamageFrom = { ...(previous.commanderDamageFrom || (isLocal ? {} : npc?.commanderDamageFrom || {})) };
+    const commanderDamageBy = { ...(previous.commanderDamageBy || {}) };
+    const eliminatedByCommander = Object.values(commanderDamageFrom).some((value) => Number(value || 0) >= 21);
+    const eliminated = Boolean(previous.eliminated || baseLife <= 0 || eliminatedByCommander);
+    nextPlayers[playerId] = {
+      id: playerId,
+      name: isLocal ? previous.name || "Player" : previous.name || npc?.name || playerId,
+      life: Number.isFinite(baseLife) ? baseLife : 40,
+      eliminated,
+      isNpc: !isLocal,
+      commanderDamageFrom,
+      commanderDamageBy,
+    };
+    if (!isLocal && npc) {
+      nextOpponents[playerId] = {
+        ...npc,
+        life: nextPlayers[playerId].life,
+        commanderDamageFrom,
+      };
+    }
+  });
+
+  const eliminatedPlayerIds = Object.values(nextPlayers)
+    .filter((player) => player.eliminated)
+    .map((player) => player.id);
+
+  return {
+    ...session,
+    life: Math.max(0, Number(nextPlayers["local-player"]?.life ?? session.life ?? 40)),
+    simulation: {
+      ...simulation,
+      turnOrder,
+      players: nextPlayers,
+      opponents: nextOpponents,
+      eliminatedPlayerIds,
+    },
+  };
+}
+
+function getActiveSimulationTurnOrder(simulation = {}) {
+  const players = simulation.players || {};
+  return (simulation.turnOrder || [])
+    .filter((id) => Boolean(players[id]))
+    .filter((id) => !players[id].eliminated);
+}
+
+function getSimulationPlayerName(simulation = {}, playerId = "") {
+  if (!playerId) {
+    return "Unknown";
+  }
+  if (playerId === "local-player") {
+    return simulation.players?.["local-player"]?.name || "Player";
+  }
+  return simulation.players?.[playerId]?.name || simulation.opponents?.[playerId]?.name || playerId;
+}
+
+function getControllerBattlefieldThreat(session, controllerId) {
+  const permanents =
+    controllerId === "local-player"
+      ? session.battlefield.player || []
+      : (session.battlefield.opponent || []).filter((permanent) => permanent.controller === controllerId);
+  return permanents.reduce((score, permanent) => {
+    let nextScore = score + 1;
+    if (permanent.isCommander) {
+      nextScore += 6;
+    }
+    if (permanent.isToken) {
+      nextScore += 2;
+    }
+    if (permanent.isCreature) {
+      nextScore += Math.max(1, Number(permanent.currentPower || permanent.basePower || 0));
+    }
+    if (/doubling season|cathars' crusade|scute swarm|zhulodok|stella lee|hearthhull|szarel|kozilek/i.test(permanent.name || "")) {
+      nextScore += 7;
+    }
+    return nextScore;
+  }, 0);
+}
+
+function chooseNpcAttackTargetId(session, simulation, npc, simulationMemory = {}) {
+  const activeTargets = getActiveSimulationTurnOrder(simulation).filter((playerId) => playerId !== npc.id);
+  if (!activeTargets.length) {
+    return "local-player";
+  }
+  const npcLearning = simulationMemory?.npcLearning?.[npc.id] || {};
+  const targetPriority = npcLearning.targetPriority || {};
+  const learnedAggression = Math.max(0, Number(npcLearning.aggression || 0));
+  const ranked = activeTargets
+    .map((playerId) => {
+      const player = simulation.players?.[playerId];
+      const boardThreat = getControllerBattlefieldThreat(session, playerId);
+      const lifePressure = Math.max(0, 40 - Number(player?.life || 40));
+      const eliminationPressure = Number(player?.life || 40) <= 8 ? 8 : 0;
+      const revengePressure =
+        playerId === "local-player"
+          ? Number(simulationMemory.patterns?.comboEngineStrategy || 0) +
+            Number(simulationMemory.patterns?.tokenStrategy || 0) +
+            Number(simulationMemory.patterns?.commanderDamageStrategy || 0)
+          : 0;
+      const learnedPriority = Number(targetPriority[playerId] || 0);
+      const score = boardThreat + lifePressure + eliminationPressure + revengePressure + learnedPriority + learnedAggression * 0.2;
+      return { playerId, score };
+    })
+    .sort((left, right) => right.score - left.score);
+  return ranked[0]?.playerId || activeTargets[0];
+}
+
+function appendSimulationEffectLog(session, summary = "") {
+  if (!summary) {
+    return session;
+  }
+  return {
+    ...session,
+    effectLog: [
+      {
+        id: createId("sim-effect"),
+        at: Date.now(),
+        sourceName: "Simulation",
+        summary,
+      },
+      ...(session.effectLog || []),
+    ].slice(0, 180),
+  };
+}
+
+function applyCombatDamageToSimulationTarget(session, simulation, npc, targetId, attackers = []) {
+  if (!targetId) {
+    return session;
+  }
+  const nextSession = ensureSimulationPlayerState(session);
+  const nextSimulation = nextSession.simulation || {};
+  const players = { ...(nextSimulation.players || {}) };
+  if (!players[targetId]) {
+    return nextSession;
+  }
+  const totalDamage = attackers.reduce((sum, attacker) => sum + Math.max(0, Number(attacker.currentPower || attacker.basePower || 0)), 0);
+  const target = {
+    ...(players[targetId] || {}),
+    commanderDamageFrom: { ...(players[targetId]?.commanderDamageFrom || {}) },
+  };
+  const wasEliminated = Boolean(target.eliminated);
+  const source = {
+    ...(players[npc.id] || {}),
+    commanderDamageBy: { ...(players[npc.id]?.commanderDamageBy || {}) },
+  };
+  target.life = Math.max(0, Number(target.life || 0) - totalDamage);
+  attackers.forEach((attacker) => {
+    const isCommanderAttack = Boolean(attacker.isCommander || attacker.name === npc.commander?.card?.name);
+    if (!isCommanderAttack) {
+      return;
+    }
+    const commanderKey = npc.commander?.card?.name || npc.id;
+    const attackerDamage = Math.max(0, Number(attacker.currentPower || attacker.basePower || 0));
+    target.commanderDamageFrom[commanderKey] = Number(target.commanderDamageFrom[commanderKey] || 0) + attackerDamage;
+    source.commanderDamageBy[commanderKey] = Number(source.commanderDamageBy[commanderKey] || 0) + attackerDamage;
+  });
+  const commanderDamageLoss = Object.entries(target.commanderDamageFrom || {}).find(([, value]) => Number(value || 0) >= 21);
+  target.eliminated = target.life <= 0 || Boolean(commanderDamageLoss);
+  players[targetId] = target;
+  players[npc.id] = source;
+  const opponents = { ...(nextSimulation.opponents || {}) };
+  if (targetId !== "local-player" && opponents[targetId]) {
+    opponents[targetId] = {
+      ...opponents[targetId],
+      life: target.life,
+      commanderDamageFrom: { ...(target.commanderDamageFrom || {}) },
+      updatedAt: Date.now(),
+    };
+  }
+  if (opponents[npc.id]) {
+    opponents[npc.id] = {
+      ...opponents[npc.id],
+      updatedAt: Date.now(),
+    };
+  }
+  const eliminatedPlayerIds = Object.values(players)
+    .filter((player) => player?.eliminated)
+    .map((player) => player.id);
+  const eliminationReason = commanderDamageLoss ? "commander-damage" : "combat-damage";
+  const eliminationEntry =
+    !wasEliminated && target.eliminated
+      ? {
+          id: createId("sim-elim"),
+          at: Date.now(),
+          byPlayerId: npc.id,
+          targetPlayerId: targetId,
+          reason: eliminationReason,
+          commanderSource: commanderDamageLoss?.[0] || "",
+        }
+      : null;
+  return {
+    ...nextSession,
+    life: targetId === "local-player" ? target.life : nextSession.life,
+    simulation: {
+      ...nextSimulation,
+      players,
+      opponents,
+      eliminatedPlayerIds,
+      eliminations: eliminationEntry
+        ? [eliminationEntry, ...(nextSimulation.eliminations || [])].slice(0, 80)
+        : nextSimulation.eliminations || [],
+      updatedAt: Date.now(),
+    },
+  };
+}
+
+function concludeSimulationSession(session, winnerId, reason = "completed") {
+  const preparedSession = ensureSimulationPlayerState(session);
+  const simulation = preparedSession.simulation || {};
+  if (!simulation.enabled) {
+    return preparedSession;
+  }
+  const winnerName = getSimulationPlayerName(simulation, winnerId);
+  return {
+    ...preparedSession,
+    simulation: appendSimulationLog(
+      {
+        ...simulation,
+        status: "completed",
+        waitingForUser: true,
+        winnerId,
+        updatedAt: Date.now(),
+      },
+      createSimLog("system", `Simulation complete. Winner: ${winnerName}.`, reason)
+    ),
+    gameTracking: {
+      ...(preparedSession.gameTracking || {}),
+      active: false,
+      mode: "training-ground",
+    },
+  };
 }
 
 function appendSimulationLog(simulation, entry) {
@@ -1298,8 +1601,264 @@ function collectManualChoiceEffects(session) {
   return results;
 }
 
+function reconcileSimulationCompletion(profile, previousProfile, actionType, event) {
+  const simulation = profile.activeSession?.simulation || {};
+  if (!simulation.enabled) {
+    return profile;
+  }
+  let nextProfile = profile;
+  let session = ensureSimulationPlayerState(nextProfile.activeSession);
+  if (session !== nextProfile.activeSession) {
+    nextProfile = withSession(nextProfile, session);
+  }
+  const normalizedSimulation = nextProfile.activeSession.simulation || {};
+  if (normalizedSimulation.status === "running") {
+    const activePlayers = getActiveSimulationTurnOrder(normalizedSimulation);
+    if (activePlayers.length <= 1) {
+      const winnerId = activePlayers[0] || normalizedSimulation.winnerId || "local-player";
+      nextProfile = withSession(nextProfile, concludeSimulationSession(nextProfile.activeSession, winnerId, "state-check"));
+    }
+  }
+  const completedSimulation = nextProfile.activeSession?.simulation || {};
+  if (completedSimulation.status !== "completed" || completedSimulation.statsRecorded) {
+    return nextProfile;
+  }
+  return applySimulationStatsResult(nextProfile, previousProfile, actionType, event);
+}
+
+function applySimulationStatsResult(profile, previousProfile, actionType, event) {
+  const simulation = profile.activeSession?.simulation || {};
+  if (!simulation.winnerId) {
+    return profile;
+  }
+  const previousStats = profile.simulationStats || createEmptySimulationStats();
+  const stats = {
+    ...previousStats,
+    user: { ...(previousStats.user || {}) },
+    alpha: { ...(previousStats.alpha || {}) },
+    beta: { ...(previousStats.beta || {}) },
+    omega: { ...(previousStats.omega || {}) },
+    mostThreateningCards: { ...(previousStats.mostThreateningCards || {}) },
+    mostTargetedCards: { ...(previousStats.mostTargetedCards || {}) },
+    mostValuableCards: { ...(previousStats.mostValuableCards || {}) },
+    history: [...(previousStats.history || [])],
+  };
+
+  const participants = ["local-player", ...(simulation.selectedOpponents || [])].filter((id, index, array) => id && array.indexOf(id) === index);
+  const winnerId = simulation.winnerId;
+  const turnCount = Math.max(1, Number(profile.activeSession?.turn || simulation.round || 1));
+  const gamesPlayed = Number(stats.gamesPlayed || 0) + 1;
+  const revengeEnabled = simulation.revengeEnabled !== false;
+  const adjustmentsApplied = revengeEnabled ? Math.max(1, Number(simulation.strategyAdjustmentsApplied || 0) + 1) : 0;
+
+  participants.forEach((playerId) => {
+    const statsKey = mapSimulationPlayerToStatsKey(playerId);
+    if (!stats[statsKey]) {
+      return;
+    }
+    if (playerId === winnerId) {
+      stats[statsKey].wins = Number(stats[statsKey].wins || 0) + 1;
+    } else {
+      stats[statsKey].losses = Number(stats[statsKey].losses || 0) + 1;
+    }
+  });
+
+  (simulation.eliminations || []).forEach((elimination) => {
+    const byKey = mapSimulationPlayerToStatsKey(elimination.byPlayerId);
+    if (!stats[byKey]) {
+      return;
+    }
+    stats[byKey].eliminations = Number(stats[byKey].eliminations || 0) + 1;
+    if (elimination.reason === "commander-damage") {
+      stats.commanderDamageEliminations = Number(stats.commanderDamageEliminations || 0) + 1;
+    }
+  });
+
+  if (revengeEnabled) {
+    const opponentIds = (simulation.selectedOpponents || []).filter(Boolean);
+    opponentIds.forEach((npcId) => {
+      const npcState = simulation.opponents?.[npcId];
+      if (!npcState) {
+        return;
+      }
+      const emphasisCards = npcState.strategy?.threatPriorityCards || [];
+      emphasisCards.slice(0, 6).forEach((cardName) => {
+        stats.mostThreateningCards[cardName] = Number(stats.mostThreateningCards[cardName] || 0) + 1;
+      });
+      if (winnerId !== npcId) {
+        stats.mostTargetedCards[npcState.commander?.card?.name || npcState.commanderProfile?.primary || npcState.name] =
+          Number(stats.mostTargetedCards[npcState.commander?.card?.name || npcState.commanderProfile?.primary || npcState.name] || 0) + 1;
+      }
+    });
+  }
+
+  (profile.activeSession?.effectLog || [])
+    .slice(0, 16)
+    .forEach((entry) => {
+      const source = String(entry.sourceName || "").trim();
+      if (!source || source === "Simulation") {
+        return;
+      }
+      stats.mostValuableCards[source] = Number(stats.mostValuableCards[source] || 0) + 1;
+    });
+
+  stats.gamesPlayed = gamesPlayed;
+  stats.averageTurnCount = Number(((Number(stats.averageTurnCount || 0) * (gamesPlayed - 1) + turnCount) / gamesPlayed).toFixed(2));
+  stats.strategyAdjustmentsApplied = Number(stats.strategyAdjustmentsApplied || 0) + adjustmentsApplied;
+  stats.history = [
+    {
+      id: createId("simstat"),
+      at: Date.now(),
+      format: simulation.format || inferSimulationFormat((simulation.selectedOpponents || []).length),
+      winnerId,
+      winnerName: getSimulationPlayerName(simulation, winnerId),
+      turnCount,
+      opponentsUsed: [...(simulation.selectedOpponents || [])],
+      revengeEnabled,
+      strategyAdjustmentsApplied: adjustmentsApplied,
+      eliminations: [...(simulation.eliminations || [])],
+      actionType,
+      sourceAction: event?.type || event?.actionType || actionType,
+    },
+    ...stats.history,
+  ].slice(0, 120);
+
+  const nextProfile = {
+    ...profile,
+    simulationMemory: applyRevengeLearningFromSimulation(profile.simulationMemory || {}, simulation),
+    simulationStats: stats,
+    activeSession: {
+      ...profile.activeSession,
+      simulation: {
+        ...simulation,
+        statsRecorded: true,
+        strategyAdjustmentsApplied: Number(simulation.strategyAdjustmentsApplied || 0) + adjustmentsApplied,
+      },
+    },
+  };
+  return nextProfile;
+}
+
+function mapSimulationPlayerToStatsKey(playerId = "") {
+  if (playerId === "local-player") {
+    return "user";
+  }
+  if (playerId === "alpha" || playerId === "beta" || playerId === "omega") {
+    return playerId;
+  }
+  return "user";
+}
+
+function inferSimulationFormat(opponentCount = 1) {
+  if (opponentCount <= 1) {
+    return "1v1 Commander";
+  }
+  if (opponentCount === 2) {
+    return "3-way Commander";
+  }
+  return "4-way Commander";
+}
+
+function applyRevengeLearningFromSimulation(memory = {}, simulation = {}) {
+  if (simulation.revengeEnabled === false) {
+    return memory;
+  }
+
+  const nextMemory = {
+    ...memory,
+    patterns: {
+      ...(memory.patterns || {}),
+    },
+    cardThreat: {
+      ...(memory.cardThreat || {}),
+    },
+    repeatedWinConditions: {
+      ...(memory.repeatedWinConditions || {}),
+    },
+    npcLearning: {
+      ...(memory.npcLearning || {}),
+    },
+    updatedAt: Date.now(),
+  };
+
+  const participants = ["local-player", ...(simulation.selectedOpponents || [])]
+    .filter(Boolean)
+    .filter((id, index, array) => array.indexOf(id) === index);
+  const winnerId = simulation.winnerId || "local-player";
+  const eliminations = simulation.eliminations || [];
+
+  participants
+    .filter((id) => id !== "local-player")
+    .forEach((npcId) => {
+      const previousLearning = nextMemory.npcLearning[npcId] || {};
+      const targetPriority = { ...(previousLearning.targetPriority || {}) };
+      const cardPriority = { ...(previousLearning.cardPriority || {}) };
+      const knownThreats = { ...(previousLearning.knownThreats || {}) };
+      let aggression = Number(previousLearning.aggression || 0);
+      let defense = Number(previousLearning.defense || 0);
+      let matchCount = Number(previousLearning.matchCount || 0) + 1;
+
+      participants.forEach((targetId) => {
+        if (targetId === npcId) {
+          return;
+        }
+        targetPriority[targetId] = Number(targetPriority[targetId] || 0);
+      });
+
+      if (winnerId !== npcId) {
+        targetPriority[winnerId] = Number(targetPriority[winnerId] || 0) + 2;
+        defense += 1;
+      } else {
+        aggression += 1;
+      }
+
+      eliminations.forEach((entry) => {
+        if (!entry) {
+          return;
+        }
+        if (entry.byPlayerId === npcId) {
+          targetPriority[entry.targetPlayerId] = Number(targetPriority[entry.targetPlayerId] || 0) + 1;
+          aggression += entry.reason === "commander-damage" ? 2 : 1;
+        }
+        if (entry.targetPlayerId === npcId) {
+          targetPriority[entry.byPlayerId] = Number(targetPriority[entry.byPlayerId] || 0) + 2;
+          defense += 2;
+        }
+      });
+
+      (simulation.opponents?.[winnerId]?.strategy?.threatPriorityCards || [])
+        .slice(0, 6)
+        .forEach((cardName) => {
+          cardPriority[cardName] = Number(cardPriority[cardName] || 0) + 2;
+          knownThreats[cardName] = Number(knownThreats[cardName] || 0) + 1;
+        });
+
+      (simulation.opponents?.[npcId]?.strategy?.revengeLearningFocus || [])
+        .forEach((focus) => {
+          const key = `${focus}`;
+          knownThreats[key] = Number(knownThreats[key] || 0) + 1;
+        });
+
+      nextMemory.npcLearning[npcId] = {
+        aggression,
+        defense,
+        matchCount,
+        targetPriority,
+        cardPriority,
+        knownThreats,
+        lastWinner: winnerId,
+        lastUpdated: Date.now(),
+      };
+    });
+
+  return nextMemory;
+}
+
 function updateSimulationMemory(profile, event, actionType) {
   if (event?.internalOnly || !profile?.activeSession?.simulation?.enabled) {
+    return profile;
+  }
+  if (profile.activeSession.simulation.revengeEnabled === false) {
     return profile;
   }
   const memory = {
