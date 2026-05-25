@@ -2,14 +2,15 @@
 
 ## App
 - Name: BoardState
-- Version: 1.9.1
-- Version code: 10
+- Version: 1.9.2
+- Version code: 11
 - Package: `com.boardstate.app`
 
 ## Summary
 - Wraps the production BoardState web app in Android WebView.
 - Supports remote-first loading with bundled offline fallback.
 - Keeps JavaScript + DOM storage enabled for local-first app state.
+- Uses the provided dragon icon as the official launcher/app icon set.
 
 ## Included behavior
 - WebView back navigation
