@@ -413,7 +413,8 @@ export function mountApp(root, store) {
         }
         simulationSetupError = "";
         simulationSetupOpen = false;
-        render(store.getState());
+        simulationStatsOpen = false;
+        setActivePage("battlefield");
         try {
           await store.dispatch({
           type: "START_SIMULATION",
