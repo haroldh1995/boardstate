@@ -208,11 +208,12 @@ function createNpcStateFromDeck(id) {
 }
 
 export function toDeckCard(card, ownerId = "npc") {
-  const inferredTypeLine = card.typeLine || inferTypeLineFromName(card.name || "");
+  const inferredTypeLine = inferSimulationTypeLine(card);
   const inferredRole = card.role || inferRoleFromType(inferredTypeLine);
   const inferredManaValue = Number.isFinite(Number(card.manaValue))
     ? Number(card.manaValue)
     : inferManaValueFromCard(card, inferredTypeLine);
+  const inferredStats = inferCreatureStats(card, inferredTypeLine, inferredManaValue, inferredRole);
   const unresolvedDefinition = Boolean(card.unresolvedDefinition || !card.typeLine);
   return {
     cardId: card.cardId || createId("simcard"),
@@ -220,8 +221,8 @@ export function toDeckCard(card, ownerId = "npc") {
     manaCost: card.manaCost || "",
     manaValue: inferredManaValue,
     typeLine: inferredTypeLine || "Permanent",
-    power: Number.isFinite(Number(card.power)) ? Number(card.power) : 0,
-    toughness: Number.isFinite(Number(card.toughness)) ? Number(card.toughness) : 0,
+    power: inferredStats.power,
+    toughness: inferredStats.toughness,
     oracleText: card.oracleText || "",
     keywords: Array.isArray(card.keywords) ? card.keywords : [],
     role: inferredRole,
@@ -229,6 +230,43 @@ export function toDeckCard(card, ownerId = "npc") {
     owner: ownerId,
     controller: ownerId,
     unresolvedDefinition,
+  };
+}
+
+function inferSimulationTypeLine(card = {}) {
+  if (card.typeLine) {
+    return card.typeLine;
+  }
+  const role = String(card.role || "").toLowerCase();
+  if (role.includes("commander")) {
+    return "Legendary Creature";
+  }
+  return inferTypeLineFromName(card.name || "");
+}
+
+function inferCreatureStats(card = {}, typeLine = "", manaValue = 0, role = "") {
+  const explicitPower = Number(card.power);
+  const explicitToughness = Number(card.toughness);
+  if (Number.isFinite(explicitPower) && Number.isFinite(explicitToughness)) {
+    return {
+      power: explicitPower,
+      toughness: explicitToughness,
+    };
+  }
+  if (!/\bCreature\b/i.test(typeLine)) {
+    return {
+      power: Number.isFinite(explicitPower) ? explicitPower : 0,
+      toughness: Number.isFinite(explicitToughness) ? explicitToughness : 0,
+    };
+  }
+  const safeMv = Math.max(1, Number.isFinite(Number(manaValue)) ? Number(manaValue) : 3);
+  const baseline = Math.max(1, Math.min(10, Math.round(safeMv / 2) + 1));
+  const commanderBoost = String(role || "").toLowerCase().includes("commander") ? 1 : 0;
+  const inferredPower = Number.isFinite(explicitPower) ? explicitPower : baseline + commanderBoost;
+  const inferredToughness = Number.isFinite(explicitToughness) ? explicitToughness : baseline + (safeMv >= 5 ? 1 : 0) + commanderBoost;
+  return {
+    power: inferredPower,
+    toughness: inferredToughness,
   };
 }
 

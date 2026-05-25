@@ -16,7 +16,9 @@ import {
 
 export function reduceProfile(profile, event) {
   const actionType = event.actionType || event.type;
-  const undoable = !["IMPORT_PROFILE", "SAVE_TICK"].includes(actionType);
+  const undoable =
+    !event?.internalOnly &&
+    !["IMPORT_PROFILE", "SAVE_TICK", "SIMULATION_TICK"].includes(actionType);
   const baseProfile = undoable ? pushUndo(profile, event) : profile;
   let nextProfile = baseProfile;
 
@@ -707,6 +709,7 @@ function applyNpcCombatStep(session, npc, simulation, simulationMemory = {}) {
 
   const updatedNpc = {
     ...npc,
+    lastAttackTargetId: attackers.length ? attackTargetId : npc.lastAttackTargetId || "",
     currentPhaseIndex: 3,
     updatedAt: Date.now(),
   };
@@ -1206,16 +1209,46 @@ function chooseNpcAttackTargetId(session, simulation, npc, simulationMemory = {}
       const eliminationPressure = Number(player?.life || 40) <= 8 ? 8 : 0;
       const revengePressure =
         playerId === "local-player"
-          ? Number(simulationMemory.patterns?.comboEngineStrategy || 0) +
-            Number(simulationMemory.patterns?.tokenStrategy || 0) +
-            Number(simulationMemory.patterns?.commanderDamageStrategy || 0)
+          ? (Number(simulationMemory.patterns?.comboEngineStrategy || 0) +
+              Number(simulationMemory.patterns?.tokenStrategy || 0) +
+              Number(simulationMemory.patterns?.commanderDamageStrategy || 0)) * 0.35
           : 0;
       const learnedPriority = Number(targetPriority[playerId] || 0);
-      const score = boardThreat + lifePressure + eliminationPressure + revengePressure + learnedPriority + learnedAggression * 0.2;
+      const spreadPenalty =
+        activeTargets.length > 2 && npc.lastAttackTargetId && npc.lastAttackTargetId === playerId
+          ? -2
+          : 0;
+      const localNeutralPenalty =
+        playerId === "local-player" &&
+        boardThreat <= 1 &&
+        learnedPriority <= 0 &&
+        revengePressure <= 1
+          ? -1.4
+          : 0;
+      const tieBreaker = deterministicTargetBias(`${npc.id}:${playerId}:${simulation.round || 1}`);
+      const score =
+        boardThreat +
+        lifePressure +
+        eliminationPressure +
+        revengePressure +
+        learnedPriority +
+        learnedAggression * 0.2 +
+        spreadPenalty +
+        localNeutralPenalty +
+        tieBreaker;
       return { playerId, score };
     })
     .sort((left, right) => right.score - left.score);
   return ranked[0]?.playerId || activeTargets[0];
+}
+
+function deterministicTargetBias(seed = "") {
+  const value = String(seed || "");
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) % 9973;
+  }
+  return (hash % 19) / 100;
 }
 
 function appendSimulationEffectLog(session, summary = "") {
