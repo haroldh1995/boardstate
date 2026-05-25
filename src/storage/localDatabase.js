@@ -295,6 +295,10 @@ function normalizeProfile(profile) {
         ...defaults.activeSession.simulation,
         ...(profile.activeSession?.simulation || {}),
       },
+      syncedMultiplayer: {
+        ...defaults.activeSession.syncedMultiplayer,
+        ...(profile.activeSession?.syncedMultiplayer || {}),
+      },
       gameTracking: {
         ...defaults.activeSession.gameTracking,
         ...(profile.activeSession?.gameTracking || {}),

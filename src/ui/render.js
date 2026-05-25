@@ -16,6 +16,14 @@ const PERMANENT_VERTICAL_SWIPE_THRESHOLD = 42;
 const PERMANENT_DRAG_REORDER_THRESHOLD = 46;
 const ATTACK_DRAG_TOP_RATIO = 0.34;
 const EDGE_ZONE_SIZE = 26;
+const HUD_DRAG_THRESHOLD = 7;
+const HUD_BADGE_DEFAULTS = {
+  tools: { x: 18, y: 520 },
+  utility: { x: 98, y: 520 },
+  helper: { x: 14, y: 420 },
+  simulation: { x: 14, y: 182 },
+  floatingMana: { x: 14, y: 332 },
+};
 const DEFAULT_TRACKER_MODIFIER = {
   kind: "delta",
   value: 1,
@@ -84,13 +92,24 @@ export function mountApp(root, store) {
   let simulationRevengeEnabled = true;
   let simulationSetupError = "";
   let simulationStatsOpen = false;
+  let simulationSetupSuppressOpenUntil = 0;
+  let syncedTurnOrderSetupOpen = false;
+  let syncedTurnOrderError = "";
+  let syncedTurnOrderPlayers = [];
+  let syncedTurnOrderRolls = {};
+  let syncedTurnOrderOrder = [];
+  let syncedTurnOrderSuggested = [];
+  let syncedTurnOrderTiePlayerIds = [];
+  let simulationUiHandlersInstalled = false;
+  let phaseControlMessage = "";
   let opponentBoardIndex = 0;
   let opponentOverlayOpen = false;
   let opponentSwipeStart = null;
   let toolContextOverride = "";
   let quickPanelOpen = "";
-  let toolBadgePosition = { x: 18, y: 520 };
-  let toolBadgeDrag = null;
+  let hudBadgePositions = cloneHudBadgePositions(HUD_BADGE_DEFAULTS);
+  let hudBadgeDrag = null;
+  let hudBadgesLocked = false;
   let manaAutoCloseTimer = null;
   const expandedStackIds = new Set();
   const permanentGestureState = new Map();
@@ -103,6 +122,7 @@ export function mountApp(root, store) {
   let lifeZoomGuardsInstalled = false;
   let lastLifeTouchEnd = 0;
   let helperMessage = null;
+  let helperFadeTimer = null;
   let helperHideTimer = null;
   let helperDismissCooldown = new Map();
 
@@ -126,6 +146,7 @@ export function mountApp(root, store) {
       statsOpen,
       simulationSetupOpen,
       simulationStatsOpen,
+      syncedTurnOrderSetupOpen,
     });
     if (!visiblePages.includes(activePage)) {
       activePage = activePage === "profile" ? "profile" : visiblePages[0] || "life";
@@ -146,6 +167,33 @@ export function mountApp(root, store) {
     if (typeof profile.settings?.multiplayer?.simulationRevenge === "boolean") {
       simulationRevengeEnabled = Boolean(profile.settings.multiplayer.simulationRevenge);
     }
+    const syncedTurnOrderState = profile.activeSession?.syncedMultiplayer || {};
+    if (!syncedTurnOrderSetupOpen && !syncedTurnOrderOrder.length && Array.isArray(syncedTurnOrderState.turnOrder) && syncedTurnOrderState.turnOrder.length) {
+      syncedTurnOrderOrder = [...syncedTurnOrderState.turnOrder];
+    }
+    if (!syncedTurnOrderSetupOpen && !Object.keys(syncedTurnOrderRolls).length && syncedTurnOrderState.rolls && Object.keys(syncedTurnOrderState.rolls).length) {
+      syncedTurnOrderRolls = { ...syncedTurnOrderState.rolls };
+    }
+    if (!syncedTurnOrderSetupOpen && !syncedTurnOrderPlayers.length && Array.isArray(syncedTurnOrderState.players) && syncedTurnOrderState.players.length) {
+      syncedTurnOrderPlayers = [...syncedTurnOrderState.players];
+      syncedTurnOrderSuggested = [...(syncedTurnOrderState.suggestedTurnOrder || [])];
+      syncedTurnOrderTiePlayerIds = [...(syncedTurnOrderState.tiePlayerIds || [])];
+    }
+    if (profile.activeSession?.simulation?.enabled && profile.activeSession?.simulation?.status !== "idle") {
+      simulationSetupOpen = false;
+      simulationSetupError = "";
+    }
+    const navigationSettings = profile.settings?.navigation || {};
+    hudBadgePositions = mergeHudBadgePositions(navigationSettings.hudBadgePositions);
+    if (isPortraitTouchMode()) {
+      hudBadgePositions = Object.fromEntries(
+        Object.entries(hudBadgePositions).map(([key, position]) => [
+          key,
+          clampHudBadgePosition(key, Number(position?.x || 0), Number(position?.y || 0)),
+        ])
+      );
+    }
+    hudBadgesLocked = Boolean(navigationSettings.hudBadgesLocked);
     helperMessage = resolveHelperSpriteMessage(profile, activePage);
     document.body.dataset.composition = profile.settings?.appearance?.compositionMode || "auto";
     document.body.dataset.page = activePage;
@@ -161,7 +209,6 @@ export function mountApp(root, store) {
       utilityDockOpen,
       activeUtilityPanel,
       quickPanelOpen,
-      toolBadgePosition,
       modifierPanelOpen,
       trackerModifier,
       pendingTrackerModifier,
@@ -172,6 +219,7 @@ export function mountApp(root, store) {
       searchQuery,
       combatResolving,
       phaseAdvancePending,
+      phaseControlMessage,
       helperMessage,
       simulationSetupOpen,
       simulationLogOpen,
@@ -180,10 +228,21 @@ export function mountApp(root, store) {
       simulationRevengeEnabled,
       simulationSetupError,
       simulationStatsOpen,
+      isMobilePortrait: isPortraitTouchMode(),
+      hudBadgePositions,
+      hudBadgesLocked,
+      syncedTurnOrderSetupOpen,
+      syncedTurnOrderError,
+      syncedTurnOrderPlayers,
+      syncedTurnOrderRolls,
+      syncedTurnOrderOrder,
+      syncedTurnOrderSuggested,
+      syncedTurnOrderTiePlayerIds,
       opponentBoardIndex,
       opponentOverlayOpen,
     });
     bind(root, profile);
+    installSimulationUiHandlers();
     scheduleManaAutoClose(profile);
     installLifeZoomGuards();
     restoreViewportScroll(root, viewportScrollSnapshot);
@@ -341,7 +400,12 @@ export function mountApp(root, store) {
       })
     );
     container.querySelectorAll("[data-open-simulation-setup]").forEach((button) =>
-      button.addEventListener("click", () => {
+      button.addEventListener("click", (event) => {
+        if (Date.now() < simulationSetupSuppressOpenUntil) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
         simulationSetupError = "";
         simulationSetupOpen = true;
         render(store.getState());
@@ -357,9 +421,15 @@ export function mountApp(root, store) {
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        simulationSetupError = "";
-        simulationSetupOpen = false;
-        render(store.getState());
+        closeSimulationSetup();
+      })
+    );
+    container.querySelectorAll("[data-simulation-setup-backdrop]").forEach((backdrop) =>
+      backdrop.addEventListener("click", (event) => {
+        if (event.target !== backdrop) {
+          return;
+        }
+        closeSimulationSetup();
       })
     );
     container.querySelectorAll("[data-simulation-log-toggle]").forEach((button) =>
@@ -402,31 +472,10 @@ export function mountApp(root, store) {
       })
     );
     container.querySelectorAll("[data-start-simulation]").forEach((button) =>
-      button.addEventListener(async (event) => {
+      button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        const selectedOpponents = [...simulationSelectedOpponents].filter(Boolean);
-        if (!selectedOpponents.length) {
-          simulationSetupError = "Select at least one opponent to start a simulation.";
-          render(store.getState());
-          return;
-        }
-        simulationSetupError = "";
-        simulationSetupOpen = false;
-        simulationStatsOpen = false;
-        setActivePage("battlefield");
-        try {
-          await store.dispatch({
-          type: "START_SIMULATION",
-          selectedOpponents,
-          speed: simulationSelectedSpeed || "normal",
-          revengeEnabled: simulationRevengeEnabled,
-        });
-        } catch {
-          simulationSetupError = "Simulation failed to start. Check setup and try again.";
-          simulationSetupOpen = true;
-          render(store.getState());
-        }
+        startSimulationFromSetup();
       })
     );
     container.querySelectorAll("[data-simulation-pause]").forEach((button) =>
@@ -437,6 +486,11 @@ export function mountApp(root, store) {
     );
     container.querySelectorAll("[data-simulation-stop]").forEach((button) =>
       button.addEventListener("click", () => store.dispatch({ type: "SIMULATION_STOP" }))
+    );
+    container.querySelectorAll("[data-end-game]").forEach((button) =>
+      button.addEventListener("click", () => {
+        endActiveGame();
+      })
     );
     container.querySelectorAll("[data-simulation-pass-turn]").forEach((button) =>
       button.addEventListener("click", () => store.dispatch({ type: "SIMULATION_PASS_TURN" }))
@@ -496,56 +550,68 @@ export function mountApp(root, store) {
         render(store.getState());
       });
     });
-    container.querySelector("[data-tool-menu]")?.addEventListener("click", () => {
-      toolMenuOpen = !toolMenuOpen;
-      render(store.getState());
-    });
+    container.querySelectorAll("[data-tool-menu], [data-open-tool-menu]").forEach((button) =>
+      button.addEventListener("click", () => {
+        toolMenuOpen = !toolMenuOpen;
+        render(store.getState());
+      })
+    );
     const toolBadge = container.querySelector("[data-tool-badge]");
     if (toolBadge) {
       toolBadge.addEventListener("pointerdown", (event) => {
         event.preventDefault();
         event.stopPropagation();
+        const toolPosition = hudBadgePositions.tools || HUD_BADGE_DEFAULTS.tools;
         toolBadge.setPointerCapture?.(event.pointerId);
-        toolBadgeDrag = {
+        hudBadgeDrag = {
+          id: "tools",
           startX: event.clientX,
           startY: event.clientY,
-          originalX: toolBadgePosition.x,
-          originalY: toolBadgePosition.y,
+          originalX: toolPosition.x,
+          originalY: toolPosition.y,
           moved: false,
         };
       });
       toolBadge.addEventListener("pointermove", (event) => {
-        if (!toolBadgeDrag) {
+        if (!hudBadgeDrag || hudBadgeDrag.id !== "tools" || hudBadgesLocked) {
           return;
         }
         event.preventDefault();
-        const dx = event.clientX - toolBadgeDrag.startX;
-        const dy = event.clientY - toolBadgeDrag.startY;
-        toolBadgeDrag.moved = toolBadgeDrag.moved || Math.abs(dx) > 5 || Math.abs(dy) > 5;
-        toolBadgePosition = {
-          x: Math.max(8, Math.min(window.innerWidth - 82, toolBadgeDrag.originalX + dx)),
-          y: Math.max(8, Math.min(window.innerHeight - 82, toolBadgeDrag.originalY + dy)),
+        const dx = event.clientX - hudBadgeDrag.startX;
+        const dy = event.clientY - hudBadgeDrag.startY;
+        hudBadgeDrag.moved = hudBadgeDrag.moved || Math.abs(dx) > HUD_DRAG_THRESHOLD || Math.abs(dy) > HUD_DRAG_THRESHOLD;
+        const next = clampHudBadgePosition("tools", hudBadgeDrag.originalX + dx, hudBadgeDrag.originalY + dy);
+        hudBadgePositions = {
+          ...hudBadgePositions,
+          tools: next,
         };
-        toolBadge.style.left = `${toolBadgePosition.x}px`;
-        toolBadge.style.top = `${toolBadgePosition.y}px`;
+        toolBadge.style.left = `${next.x}px`;
+        toolBadge.style.top = `${next.y}px`;
       });
       toolBadge.addEventListener("pointerup", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        if (toolBadgeDrag?.moved) {
-          toolBadgeDrag = null;
+        if (hudBadgeDrag?.id !== "tools") {
+          hudBadgeDrag = null;
           return;
         }
-        toolBadgeDrag = null;
+        const wasMoved = Boolean(hudBadgeDrag.moved && !hudBadgesLocked);
+        hudBadgeDrag = null;
+        if (wasMoved) {
+          persistHudBadgePositions(hudBadgePositions);
+          render(store.getState());
+          return;
+        }
         toolMenuOpen = !toolMenuOpen;
         render(store.getState());
       });
       ["pointercancel", "pointerleave"].forEach((eventName) =>
         toolBadge.addEventListener(eventName, () => {
-          toolBadgeDrag = null;
+          hudBadgeDrag = null;
         })
       );
     }
+    bindDraggableHudBadges(container);
     container.querySelector("[data-app-shell]")?.addEventListener("pointerdown", (event) => {
       if (!isPortraitTouchMode() || isSwipeBlockedTarget(event.target)) {
         return;
@@ -577,6 +643,8 @@ export function mountApp(root, store) {
       button.addEventListener("click", () => {
         optionsOpen = false;
         statsOpen = false;
+        syncedTurnOrderSetupOpen = false;
+        syncedTurnOrderError = "";
         render(store.getState());
       });
     });
@@ -612,6 +680,11 @@ export function mountApp(root, store) {
     container.querySelectorAll("[data-setting-toggle]").forEach((input) => {
       input.addEventListener("change", () => store.dispatch({ type: "SET_SETTING", path: input.dataset.settingToggle, value: input.checked }));
     });
+    container.querySelectorAll("[data-reset-hud-layout]").forEach((button) =>
+      button.addEventListener("click", () => {
+        resetHudLayout();
+      })
+    );
     container.querySelector("[data-helper-remind]")?.addEventListener("click", () => {
       const messages = collectHelperCandidateMessages(store.getState(), activePage)
         .slice(0, 8)
@@ -630,6 +703,48 @@ export function mountApp(root, store) {
         })
       );
     });
+    container.querySelectorAll("[data-open-synced-turn-order-setup]").forEach((button) =>
+      button.addEventListener("click", () => {
+        openSyncedTurnOrderSetup();
+      })
+    );
+    container.querySelectorAll("[data-close-synced-turn-order-setup]").forEach((button) =>
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        closeSyncedTurnOrderSetup();
+      })
+    );
+    container.querySelectorAll("[data-synced-turn-order-backdrop]").forEach((backdrop) =>
+      backdrop.addEventListener("click", (event) => {
+        if (event.target !== backdrop) {
+          return;
+        }
+        closeSyncedTurnOrderSetup();
+      })
+    );
+    container.querySelectorAll("[data-roll-synced-turn-order]").forEach((button) =>
+      button.addEventListener("click", () => {
+        rollSyncedTurnOrder();
+      })
+    );
+    container.querySelectorAll("[data-reroll-synced-turn-ties]").forEach((button) =>
+      button.addEventListener("click", () => {
+        rerollSyncedTurnOrderTies();
+      })
+    );
+    container.querySelectorAll("[data-move-synced-turn-order]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const playerId = button.dataset.playerId;
+        const direction = button.dataset.moveSyncedTurnOrder === "up" ? -1 : 1;
+        moveSyncedTurnOrderPlayer(playerId, direction);
+      })
+    );
+    container.querySelectorAll("[data-confirm-synced-turn-order]").forEach((button) =>
+      button.addEventListener("click", () => {
+        confirmSyncedTurnOrder();
+      })
+    );
     container.querySelector("[data-open-stats]")?.addEventListener("click", () => {
       statsOpen = true;
       render(store.getState());
@@ -1049,6 +1164,13 @@ export function mountApp(root, store) {
         return;
       } else if (helperMessage.source === "stack-removal") {
         activeToolPanel = "permanents";
+      } else if (helperMessage.source === "predictive" && helperMessage.predictiveApply?.actionType) {
+        store.dispatch({
+          type: helperMessage.predictiveApply.actionType,
+          ...(helperMessage.predictiveApply.payload || {}),
+        });
+        dismissHelperSpriteMessage(true);
+        return;
       }
       render(store.getState());
     });
@@ -1063,7 +1185,8 @@ export function mountApp(root, store) {
     container.querySelectorAll("[data-open-utility]").forEach((button) => {
       button.addEventListener("click", () => {
         activeUtilityPanel = button.dataset.openUtility || "";
-        utilityDockOpen = true;
+        // Open the selected utility panel without forcing the dock menu to stay expanded behind it.
+        utilityDockOpen = false;
         toolMenuOpen = false;
         activeToolPanel = "";
         render(store.getState());
@@ -1121,7 +1244,7 @@ export function mountApp(root, store) {
       }
       if (
         event.target.closest(
-          ".floating-tool-panel, .floating-mana, .radial-menu, .tool-badge, .utility-dock, .utility-overlay, button, input, label, textarea, select, [data-permanent-card], [data-permanent], [data-tap], [data-counter]"
+          ".floating-tool-panel, .floating-mana, .radial-menu, .tool-badge, .utility-dock, .utility-overlay, .battlefield-mobile-dock, button, input, label, textarea, select, [data-permanent-card], [data-permanent], [data-tap], [data-counter]"
         )
       ) {
         return;
@@ -1133,6 +1256,317 @@ export function mountApp(root, store) {
         render(store.getState());
       }
     };
+  }
+
+  function bindDraggableHudBadges(container) {
+    container.querySelectorAll("[data-draggable-hud]").forEach((node) => {
+      const hudId = node.dataset.draggableHud;
+      if (!hudId || hudId === "tools") {
+        return;
+      }
+      const lockState = node.dataset.hudLockState;
+      if (lockState === "locked") {
+        return;
+      }
+      node.addEventListener("pointerdown", (event) => {
+        if (!isPortraitTouchMode()) {
+          return;
+        }
+        node.setPointerCapture?.(event.pointerId);
+        const current = hudBadgePositions[hudId] || HUD_BADGE_DEFAULTS[hudId] || { x: 12, y: 180 };
+        hudBadgeDrag = {
+          id: hudId,
+          startX: event.clientX,
+          startY: event.clientY,
+          originalX: current.x,
+          originalY: current.y,
+          moved: false,
+        };
+      });
+      node.addEventListener("pointermove", (event) => {
+        if (!hudBadgeDrag || hudBadgeDrag.id !== hudId || hudBadgesLocked) {
+          return;
+        }
+        const dx = event.clientX - hudBadgeDrag.startX;
+        const dy = event.clientY - hudBadgeDrag.startY;
+        hudBadgeDrag.moved = hudBadgeDrag.moved || Math.abs(dx) > HUD_DRAG_THRESHOLD || Math.abs(dy) > HUD_DRAG_THRESHOLD;
+        const next = clampHudBadgePosition(hudId, hudBadgeDrag.originalX + dx, hudBadgeDrag.originalY + dy);
+        hudBadgePositions = {
+          ...hudBadgePositions,
+          [hudId]: next,
+        };
+        node.style.left = `${next.x}px`;
+        node.style.top = `${next.y}px`;
+      });
+      node.addEventListener("pointerup", () => {
+        if (!hudBadgeDrag || hudBadgeDrag.id !== hudId) {
+          return;
+        }
+        const moved = Boolean(hudBadgeDrag.moved);
+        hudBadgeDrag = null;
+        if (moved) {
+          persistHudBadgePositions(hudBadgePositions);
+          render(store.getState());
+        }
+      });
+      ["pointercancel", "pointerleave"].forEach((eventName) =>
+        node.addEventListener(eventName, () => {
+          if (hudBadgeDrag?.id === hudId) {
+            hudBadgeDrag = null;
+          }
+        })
+      );
+    });
+  }
+
+  function clampHudBadgePosition(id, x, y) {
+    const widthMap = {
+      tools: 72,
+      utility: 110,
+      helper: 220,
+      simulation: 300,
+      floatingMana: 250,
+    };
+    const heightMap = {
+      tools: 72,
+      utility: 52,
+      helper: 68,
+      simulation: 128,
+      floatingMana: 188,
+    };
+    const width = widthMap[id] || 160;
+    const height = heightMap[id] || 80;
+    const maxX = Math.max(8, window.innerWidth - width - 8);
+    const maxY = Math.max(8, window.innerHeight - height - 8);
+    const snappedX = x < window.innerWidth / 2 ? Math.max(8, x) : Math.min(maxX, x);
+    return {
+      x: Math.round(Math.max(8, Math.min(maxX, snappedX))),
+      y: Math.round(Math.max(8, Math.min(maxY, y))),
+    };
+  }
+
+  function persistHudBadgePositions(nextPositions) {
+    store.dispatch({ type: "SET_SETTING", path: "navigation.hudBadgePositions", value: cloneHudBadgePositions(nextPositions) });
+  }
+
+  function resetHudLayout() {
+    store.dispatch({ type: "SET_SETTING", path: "navigation.hudBadgePositions", value: cloneHudBadgePositions(HUD_BADGE_DEFAULTS) });
+    store.dispatch({ type: "SET_SETTING", path: "navigation.hudBadgesLocked", value: false });
+  }
+
+  function closeSimulationSetup() {
+    simulationSetupSuppressOpenUntil = Date.now() + 450;
+    simulationSetupError = "";
+    simulationSetupOpen = false;
+    render(store.getState());
+  }
+
+  function openSyncedTurnOrderSetup() {
+    const profile = store.getState();
+    const players = getSyncedTurnOrderPlayers(profile);
+    if (players.length <= 1) {
+      syncedTurnOrderError = "At least one additional synced player is required for multiplayer turn order.";
+      syncedTurnOrderPlayers = players;
+      syncedTurnOrderOrder = players.map((player) => player.id);
+      syncedTurnOrderSuggested = [...syncedTurnOrderOrder];
+      syncedTurnOrderRolls = {};
+      syncedTurnOrderTiePlayerIds = [];
+    } else {
+      const existing = profile.activeSession?.syncedMultiplayer || {};
+      syncedTurnOrderError = "";
+      syncedTurnOrderPlayers = players;
+      syncedTurnOrderOrder = (existing.turnOrder || []).filter((id) => players.some((player) => player.id === id));
+      if (syncedTurnOrderOrder.length !== players.length) {
+        const missing = players.map((player) => player.id).filter((id) => !syncedTurnOrderOrder.includes(id));
+        syncedTurnOrderOrder = [...syncedTurnOrderOrder, ...missing];
+      }
+      syncedTurnOrderSuggested = (existing.suggestedTurnOrder || []).filter((id) => players.some((player) => player.id === id));
+      syncedTurnOrderRolls = { ...(existing.rolls || {}) };
+      syncedTurnOrderTiePlayerIds = (existing.tiePlayerIds || []).filter((id) => players.some((player) => player.id === id));
+    }
+    syncedTurnOrderSetupOpen = true;
+    render(profile);
+  }
+
+  function closeSyncedTurnOrderSetup() {
+    syncedTurnOrderSetupOpen = false;
+    syncedTurnOrderError = "";
+    render(store.getState());
+  }
+
+  function rollSyncedTurnOrder() {
+    const profile = store.getState();
+    const players = syncedTurnOrderPlayers.length ? syncedTurnOrderPlayers : getSyncedTurnOrderPlayers(profile);
+    if (players.length <= 1) {
+      syncedTurnOrderError = "At least one additional synced player is required for multiplayer turn order.";
+      render(profile);
+      return;
+    }
+    const rolls = Object.fromEntries(players.map((player) => [player.id, Math.floor(Math.random() * 20) + 1]));
+    const suggestedOrder = computeSuggestedTurnOrder(players, rolls);
+    const highestRoll = Math.max(...Object.values(rolls));
+    const tiePlayerIds = players.filter((player) => rolls[player.id] === highestRoll).map((player) => player.id);
+    syncedTurnOrderPlayers = players;
+    syncedTurnOrderRolls = rolls;
+    syncedTurnOrderSuggested = suggestedOrder;
+    syncedTurnOrderOrder = [...suggestedOrder];
+    syncedTurnOrderTiePlayerIds = tiePlayerIds;
+    syncedTurnOrderError = "";
+    store.dispatch({
+      type: "ROLL_MULTIPLAYER_TURN_ORDER",
+      players,
+      rolls,
+      summary:
+        tiePlayerIds.length > 1
+          ? "d20 turn-order roll completed with a tie for highest roll."
+          : `d20 turn-order roll completed. Suggested order: ${formatSyncedTurnOrderNames(players, suggestedOrder)}.`,
+    });
+    render(profile);
+  }
+
+  function rerollSyncedTurnOrderTies() {
+    const profile = store.getState();
+    const players = syncedTurnOrderPlayers.length ? syncedTurnOrderPlayers : getSyncedTurnOrderPlayers(profile);
+    if (!players.length) {
+      syncedTurnOrderError = "No synced players available to reroll.";
+      render(profile);
+      return;
+    }
+    const tiePlayerIds = syncedTurnOrderTiePlayerIds.length
+      ? [...syncedTurnOrderTiePlayerIds]
+      : detectHighestRollTie(players, syncedTurnOrderRolls);
+    if (!tiePlayerIds.length) {
+      syncedTurnOrderError = "No tied highest rolls detected.";
+      render(profile);
+      return;
+    }
+    const nextRolls = { ...syncedTurnOrderRolls };
+    tiePlayerIds.forEach((playerId) => {
+      nextRolls[playerId] = Math.floor(Math.random() * 20) + 1;
+    });
+    const suggestedOrder = computeSuggestedTurnOrder(players, nextRolls);
+    const highest = Math.max(...Object.values(nextRolls));
+    syncedTurnOrderRolls = nextRolls;
+    syncedTurnOrderSuggested = suggestedOrder;
+    syncedTurnOrderOrder = [...suggestedOrder];
+    syncedTurnOrderTiePlayerIds = players.filter((player) => nextRolls[player.id] === highest).map((player) => player.id);
+    syncedTurnOrderError = "";
+    store.dispatch({
+      type: "ROLL_MULTIPLAYER_TURN_ORDER",
+      players,
+      rolls: nextRolls,
+      summary:
+        syncedTurnOrderTiePlayerIds.length > 1
+          ? "Tied players rerolled, but tie persists for highest roll."
+          : `Tied players rerolled. Suggested order: ${formatSyncedTurnOrderNames(players, suggestedOrder)}.`,
+    });
+    render(profile);
+  }
+
+  function moveSyncedTurnOrderPlayer(playerId = "", direction = 0) {
+    const currentIndex = syncedTurnOrderOrder.indexOf(playerId);
+    if (currentIndex < 0) {
+      return;
+    }
+    const nextIndex = currentIndex + Number(direction || 0);
+    if (nextIndex < 0 || nextIndex >= syncedTurnOrderOrder.length) {
+      return;
+    }
+    const nextOrder = [...syncedTurnOrderOrder];
+    [nextOrder[currentIndex], nextOrder[nextIndex]] = [nextOrder[nextIndex], nextOrder[currentIndex]];
+    syncedTurnOrderOrder = nextOrder;
+    syncedTurnOrderError = "";
+    render(store.getState());
+  }
+
+  function confirmSyncedTurnOrder() {
+    const profile = store.getState();
+    const players = syncedTurnOrderPlayers.length ? syncedTurnOrderPlayers : getSyncedTurnOrderPlayers(profile);
+    if (players.length <= 1) {
+      syncedTurnOrderError = "At least one additional synced player is required for multiplayer turn order.";
+      render(profile);
+      return;
+    }
+    const orderedIds = [...syncedTurnOrderOrder].filter((id) => players.some((player) => player.id === id));
+    const missing = players.map((player) => player.id).filter((id) => !orderedIds.includes(id));
+    const finalOrder = [...orderedIds, ...missing];
+    if (!finalOrder.length) {
+      syncedTurnOrderError = "Set a valid turn order before confirming.";
+      render(profile);
+      return;
+    }
+    syncedTurnOrderError = "";
+    syncedTurnOrderSetupOpen = false;
+    store.dispatch({
+      type: "CONFIRM_MULTIPLAYER_TURN_ORDER",
+      players,
+      turnOrder: finalOrder,
+      rolls: syncedTurnOrderRolls,
+      suggestedTurnOrder: syncedTurnOrderSuggested,
+      tiePlayerIds: syncedTurnOrderTiePlayerIds,
+      summary: `Synced multiplayer turn order confirmed: ${formatSyncedTurnOrderNames(players, finalOrder)}.`,
+    });
+    render(profile);
+  }
+
+  function startSimulationFromSetup() {
+    const selectedOpponents = [...simulationSelectedOpponents].filter(Boolean);
+    if (!selectedOpponents.length) {
+      simulationSetupError = "Select at least one opponent to start a simulation.";
+      render(store.getState());
+      return;
+    }
+    simulationSetupError = "";
+    simulationSetupSuppressOpenUntil = Date.now() + 450;
+    simulationSetupOpen = false;
+    simulationStatsOpen = false;
+    setActivePage("battlefield");
+    store
+      .dispatch({
+        type: "START_SIMULATION",
+        selectedOpponents,
+        speed: simulationSelectedSpeed || "normal",
+        revengeEnabled: simulationRevengeEnabled,
+      })
+      .catch(() => {
+        simulationSetupError = "Simulation failed to start. Check setup and try again.";
+        simulationSetupOpen = true;
+        render(store.getState());
+      });
+  }
+
+  function endActiveGame() {
+    const state = store.getState();
+    const simulation = state.activeSession?.simulation || {};
+    if (simulation.enabled) {
+      store.dispatch({ type: "SIMULATION_STOP" });
+    } else if (state.activeSession?.gameTracking?.active) {
+      store.dispatch({ type: "STOP_GAME_TRACKING" });
+    }
+    optionsOpen = false;
+    render(store.getState());
+  }
+
+  function installSimulationUiHandlers() {
+    if (simulationUiHandlersInstalled) {
+      return;
+    }
+    simulationUiHandlersInstalled = true;
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      if (syncedTurnOrderSetupOpen) {
+        event.preventDefault();
+        closeSyncedTurnOrderSetup();
+        return;
+      }
+      if (!simulationSetupOpen) {
+        return;
+      }
+      event.preventDefault();
+      closeSimulationSetup();
+    });
   }
 
   function setActivePage(page) {
@@ -1169,13 +1603,56 @@ export function mountApp(root, store) {
     if (phaseAdvancePending) {
       return;
     }
+    const currentState = store.getState();
+    const simulation = currentState.activeSession?.simulation || {};
+    const currentActor = getSimulationActorName(currentState);
+    const multiplayer = getMultiplayerSettings(currentState);
+    const syncedTurn = currentState.activeSession?.syncedMultiplayer || {};
+    const syncedModeActive =
+      currentState.activeSession?.gameTracking?.active &&
+      !simulation.enabled &&
+      ["local", "wifi"].includes(multiplayer.mode);
+    if (syncedModeActive) {
+      if (!syncedTurn.confirmed || !Array.isArray(syncedTurn.turnOrder) || !syncedTurn.turnOrder.length) {
+        phaseControlMessage = "Confirm synced multiplayer turn order before advancing phases.";
+        render(store.getState());
+        return;
+      }
+      const activeTurnPlayerId = syncedTurn.currentPlayerId || syncedTurn.turnOrder[0];
+      if (activeTurnPlayerId && activeTurnPlayerId !== "local-player" && multiplayer.role === "spectator") {
+        phaseControlMessage = `${resolveSyncedPlayerName(syncedTurn.players || [], activeTurnPlayerId)} turn is active. Spectator controls are disabled.`;
+        render(store.getState());
+        return;
+      }
+      if (activeTurnPlayerId && activeTurnPlayerId !== "local-player") {
+        phaseControlMessage = `Advancing ${resolveSyncedPlayerName(syncedTurn.players || [], activeTurnPlayerId)} turn.`;
+      }
+    }
+    if (simulation.enabled && simulation.status === "running") {
+      if (simulation.currentPlayerId !== "local-player") {
+        phaseControlMessage = `${currentActor} turn is processing.`;
+        render(store.getState());
+        return;
+      }
+      if (!simulation.waitingForUser) {
+        phaseControlMessage = "Waiting for simulation priority before advancing phase.";
+        render(store.getState());
+        return;
+      }
+    }
+    phaseControlMessage = "";
     phaseAdvancePending = true;
     render(store.getState());
-    try {
-      await store.dispatch({ type: "ADVANCE_PHASE" });
-    } finally {
+    const finalize = () => {
       phaseAdvancePending = false;
       render(store.getState());
+    };
+    try {
+      const dispatchPromise = store.dispatch({ type: "ADVANCE_PHASE" });
+      requestAnimationFrame(finalize);
+      await dispatchPromise;
+    } catch {
+      finalize();
     }
   }
 
@@ -1454,6 +1931,7 @@ export function mountApp(root, store) {
   function resolveHelperSpriteMessage(profile, page) {
     const helperSettings = profile.settings?.helperSprite || {};
     if (!helperSettings.enabled) {
+      clearTimeout(helperFadeTimer);
       clearTimeout(helperHideTimer);
       helperMessage = null;
       return null;
@@ -1467,6 +1945,8 @@ export function mountApp(root, store) {
     const now = Date.now();
     const candidates = collectHelperCandidateMessages(profile, page);
     if (!candidates.length) {
+      clearTimeout(helperFadeTimer);
+      clearTimeout(helperHideTimer);
       helperMessage = null;
       return null;
     }
@@ -1491,14 +1971,28 @@ export function mountApp(root, store) {
     if (helperMessage?.key === next.key) {
       return helperMessage;
     }
+    const helperDisplayDuration = Math.max(4200, Math.min(9800, 3200 + Math.round(next.text.length * 24)));
     helperMessage = {
       ...next,
       shownAt: now,
+      fading: false,
+      ttlMs: helperDisplayDuration,
     };
+    clearTimeout(helperFadeTimer);
     clearTimeout(helperHideTimer);
+    helperFadeTimer = setTimeout(() => {
+      if (!helperMessage || helperMessage.key !== next.key) {
+        return;
+      }
+      helperMessage = {
+        ...helperMessage,
+        fading: true,
+      };
+      render(store.getState());
+    }, Math.max(2200, helperDisplayDuration - 520));
     helperHideTimer = setTimeout(() => {
       dismissHelperSpriteMessage(true);
-    }, Math.max(2800, Math.min(6400, 2300 + Math.round(next.text.length * 12))));
+    }, helperDisplayDuration);
     store.dispatch({ type: "HELPER_MARK_SHOWN", messageKey: next.key });
     return helperMessage;
   }
@@ -1572,6 +2066,19 @@ export function mountApp(root, store) {
         text: "Scryfall search is loading. You can keep typing.",
       });
     }
+    buildPredictiveActions(profile)
+      .slice(0, 2)
+      .forEach((suggestion) => {
+        if (!suggestion?.label) {
+          return;
+        }
+        messages.push({
+          key: `predictive:${session.turn}:${session.phaseIndex}:${suggestion.id || suggestion.label}`,
+          source: "predictive",
+          text: `${suggestion.label}: ${suggestion.detail || "Review suggested action."}`,
+          predictiveApply: suggestion.apply?.actionType ? suggestion.apply : null,
+        });
+      });
     return messages;
   }
 
@@ -1579,6 +2086,7 @@ export function mountApp(root, store) {
     if (!helperMessage) {
       return;
     }
+    clearTimeout(helperFadeTimer);
     clearTimeout(helperHideTimer);
     if (addCooldown && helperMessage.key) {
       helperDismissCooldown.set(helperMessage.key, Date.now() + 25000);
@@ -1851,25 +2359,27 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
         <nav class="tab-bar">
           ${tabs.map((tab) => `<button class="${page === tab ? "active" : ""}" data-page="${tab}" aria-current="${page === tab ? "page" : "false"}">${formatPageLabel(tab)}</button>`).join("")}
         </nav>
+        ${page === "battlefield" ? renderBattlefieldHeaderTurnStatus(profile) : ""}
         ${renderMobileSwipeControls(tabs, page)}
       </header>
       ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier, uiState) : ""}
-      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen) }) : ""}
+      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", isMobilePortrait: Boolean(uiState.isMobilePortrait) }) : ""}
       ${page === "profile" ? renderProfile(profile) : ""}
       ${page === "archive" ? renderArchive(profile) : ""}
       ${page === "decks" ? renderDecks(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery) : ""}
       ${page === "leaderboards" ? renderLeaderboards(profile) : ""}
-      ${page === "battlefield" ? renderBattlefieldToolBadge(profile, uiState.toolMenuOpen, uiState.floatingManaOpen, uiState.activeToolPanel, uiState.toolBadgePosition, uiState.toolContext) : ""}
-      ${page === "battlefield" ? renderUtilityDock(profile, uiState.utilityDockOpen, uiState.activeUtilityPanel) : ""}
+      ${page === "battlefield" ? renderBattlefieldToolBadge(profile, uiState.toolMenuOpen, uiState.floatingManaOpen, uiState.activeToolPanel, uiState.hudBadgePositions || HUD_BADGE_DEFAULTS, uiState.toolContext, Boolean(uiState.isMobilePortrait), Boolean(uiState.hudBadgesLocked)) : ""}
+      ${page === "battlefield" ? renderUtilityDock(profile, uiState.utilityDockOpen, uiState.activeUtilityPanel, uiState.hudBadgePositions || HUD_BADGE_DEFAULTS, Boolean(uiState.isMobilePortrait), Boolean(uiState.hudBadgesLocked), searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery) : ""}
       ${uiState.quickPanelOpen ? renderQuickAdjustmentPanel(profile, uiState.quickPanelOpen) : ""}
       ${uiState.modifierPanelOpen ? renderTrackerModifierPanel(uiState.pendingTrackerModifier) : ""}
-      ${uiState.optionsOpen ? renderGameOptions(profile) : ""}
+      ${uiState.optionsOpen ? renderGameOptions(profile, page) : ""}
       ${uiState.statsOpen ? renderStatsOverlay(profile, uiState.statsMode) : ""}
-      ${renderSimulationHud(profile, uiState.simulationLogOpen)}
+      ${renderSimulationHud(profile, uiState.simulationLogOpen, uiState.hudBadgePositions || HUD_BADGE_DEFAULTS, Boolean(uiState.isMobilePortrait), Boolean(uiState.hudBadgesLocked))}
       ${uiState.simulationSetupOpen ? renderSimulationSetupModal(uiState.simulationSelectedOpponents, uiState.simulationSelectedSpeed, uiState.simulationRevengeEnabled, uiState.simulationSetupError) : ""}
       ${uiState.simulationStatsOpen ? renderSimulationStatsOverlay(profile) : ""}
+      ${uiState.syncedTurnOrderSetupOpen ? renderSyncedTurnOrderModal(uiState.syncedTurnOrderPlayers || [], uiState.syncedTurnOrderRolls || {}, uiState.syncedTurnOrderOrder || [], uiState.syncedTurnOrderSuggested || [], uiState.syncedTurnOrderTiePlayerIds || [], uiState.syncedTurnOrderError || "") : ""}
       ${renderAdhdAssistPanel(profile, page, uiLayer.current)}
-      ${renderHelperSprite(profile, uiState.helperMessage)}
+      ${renderHelperSprite(profile, uiState.helperMessage, uiState.hudBadgePositions || HUD_BADGE_DEFAULTS, Boolean(uiState.isMobilePortrait), Boolean(uiState.hudBadgesLocked))}
       ${renderEdgeSwipeZones(profile)}
     </main>
   `;
@@ -1904,7 +2414,7 @@ function renderLifeTracker(profile, trackerModifier, uiState = {}) {
         ${renderTrackerModifierBadge(trackerModifier)}
         <div class="button-grid life-start-controls">
           <button data-start-game-tracking>${gameTracking.active ? "Game Tracking Active" : "Start Game"}</button>
-          <button data-open-simulation-setup>${simulation.enabled ? "Reconfigure Simulation" : "Start Simulation"}</button>
+          <button data-open-simulation-setup>${simulation.enabled ? "Reconfigure Simulation" : "Dry Run"}</button>
         </div>
       </aside>
       ` : ""}
@@ -1914,7 +2424,7 @@ function renderLifeTracker(profile, trackerModifier, uiState = {}) {
           <h2>${simulation.enabled ? "Simulation Active" : "Commander Test Mode"}</h2>
           <p>${simulation.enabled ? `Current: ${escapeHtml(getSimulationActorName(profile))}` : "Play against Alpha, Beta, and Omega NPC opponents."}</p>
           <div class="button-grid">
-            <button data-open-simulation-setup>${simulation.enabled ? "Reconfigure Simulation" : "Start Simulation"}</button>
+            <button data-open-simulation-setup>${simulation.enabled ? "Reconfigure Simulation" : "Dry Run"}</button>
             ${simulation.enabled ? `<button data-simulation-log-toggle>${uiState.simulationLogOpen ? "Hide Log" : "Show Log"}</button>` : ""}
             <button data-open-simulation-stats>Simulation Stats</button>
           </div>
@@ -1936,7 +2446,7 @@ function renderLifeTracker(profile, trackerModifier, uiState = {}) {
   `;
 }
 
-function renderSimulationHud(profile, simulationLogOpen = false) {
+function renderSimulationHud(profile, simulationLogOpen = false, positions = HUD_BADGE_DEFAULTS, isMobilePortrait = false, hudBadgesLocked = false) {
   const simulation = profile.activeSession?.simulation || {};
   if (!simulation.enabled) {
     return "";
@@ -1944,8 +2454,13 @@ function renderSimulationHud(profile, simulationLogOpen = false) {
   const running = simulation.status === "running";
   const currentActor = getSimulationActorName(profile);
   const logs = simulation.log || [];
+  const position = positions.simulation || HUD_BADGE_DEFAULTS.simulation;
+  const inlineStyle = isMobilePortrait ? `style="left:${Math.round(position.x)}px;top:${Math.round(position.y)}px;"` : "";
+  const draggableAttrs = isMobilePortrait
+    ? `data-draggable-hud="simulation" data-hud-lock-state="${hudBadgesLocked ? "locked" : "unlocked"}"`
+    : "";
   return `
-    <section class="simulation-hud glass" data-no-swipe>
+    <section class="simulation-hud glass ${isMobilePortrait ? "mobile-bottom-sheet" : ""}" data-no-swipe ${inlineStyle} ${draggableAttrs}>
       <div class="overlay-header compact">
         <div>
           <p class="eyebrow">Simulation status</p>
@@ -1978,14 +2493,14 @@ function renderSimulationSetupModal(selectedOpponents = [], selectedSpeed = "nor
   const betaDeck = getSimulationDeckById("beta");
   const omegaDeck = getSimulationDeckById("omega");
   return `
-    <section class="overlay-backdrop">
+    <section class="overlay-backdrop" data-simulation-setup-backdrop>
       <div class="floating-overlay glass simulation-setup">
         <div class="overlay-header">
           <div>
             <p class="eyebrow">Commander NPC Setup</p>
-            <h2>Start Simulation</h2>
+            <h2>Dry Run Setup</h2>
           </div>
-          <button data-close-simulation-setup>Cancel</button>
+          <button type="button" data-close-simulation-setup>Cancel</button>
         </div>
         <article class="option-card">
           <h3>Choose Opponents</h3>
@@ -2007,9 +2522,72 @@ function renderSimulationSetupModal(selectedOpponents = [], selectedSpeed = "nor
         </article>
         ${setupError ? `<p class="simulation-setup-error">${escapeHtml(setupError)}</p>` : ""}
         <div class="button-grid">
-          <button data-start-simulation>Start Game</button>
-          <button data-open-simulation-stats>Simulation Stats</button>
-          <button data-close-simulation-setup>Cancel</button>
+          <button type="button" data-start-simulation>Start Game</button>
+          <button type="button" data-open-simulation-stats>Simulation Stats</button>
+          <button type="button" data-close-simulation-setup>Cancel</button>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderSyncedTurnOrderModal(players = [], rolls = {}, turnOrder = [], suggestedTurnOrder = [], tiePlayerIds = [], setupError = "") {
+  const byId = Object.fromEntries(players.map((player) => [player.id, player]));
+  const hasRolls = Object.keys(rolls || {}).length > 0;
+  const highestRoll = hasRolls ? Math.max(...Object.values(rolls).map((value) => Number(value) || 0)) : 0;
+  const suggested = suggestedTurnOrder.length ? suggestedTurnOrder : turnOrder;
+  return `
+    <section class="overlay-backdrop" data-synced-turn-order-backdrop>
+      <div class="floating-overlay glass simulation-setup synced-turn-order-modal">
+        <div class="overlay-header">
+          <div>
+            <p class="eyebrow">Synced Multiplayer</p>
+            <h2>d20 Turn Order</h2>
+          </div>
+          <button type="button" data-close-synced-turn-order-setup>Close</button>
+        </div>
+        <article class="option-card">
+          <h3>Rolls</h3>
+          ${
+            players.length
+              ? players
+                  .map((player) => {
+                    const roll = Number(rolls?.[player.id] || 0);
+                    const highest = hasRolls && roll === highestRoll;
+                    return `<p><strong>${escapeHtml(resolveSyncedPlayerName(players, player.id))}</strong>: ${roll || "—"}${highest ? " (highest)" : ""}</p>`;
+                  })
+                  .join("")
+              : "<p>No synced players detected.</p>"
+          }
+          ${hasRolls ? `<p class="eyebrow">Suggested order: ${escapeHtml(formatSyncedTurnOrderNames(players, suggested))}</p>` : "<p class=\"eyebrow\">Roll d20 for each player to generate suggested order.</p>"}
+          ${tiePlayerIds.length > 1 ? `<p class="simulation-setup-error">Highest-roll tie: ${escapeHtml(formatSyncedTurnOrderNames(players, tiePlayerIds))}. Reroll tied players or confirm manual order.</p>` : ""}
+        </article>
+        <article class="option-card">
+          <h3>Confirm / Adjust</h3>
+          <div class="stacked-form">
+            ${
+              turnOrder.length
+                ? turnOrder
+                    .map((playerId, index) => `
+                      <div class="row mini">
+                        <span>${index + 1}. ${escapeHtml(resolveSyncedPlayerName(players, playerId))}</span>
+                        <div class="row mini">
+                          <button type="button" data-move-synced-turn-order="up" data-player-id="${escapeAttribute(playerId)}">↑</button>
+                          <button type="button" data-move-synced-turn-order="down" data-player-id="${escapeAttribute(playerId)}">↓</button>
+                        </div>
+                      </div>
+                    `)
+                    .join("")
+                : "<p>Roll first to populate order.</p>"
+            }
+          </div>
+        </article>
+        ${setupError ? `<p class="simulation-setup-error">${escapeHtml(setupError)}</p>` : ""}
+        <div class="button-grid">
+          <button type="button" data-roll-synced-turn-order>Roll d20</button>
+          <button type="button" data-reroll-synced-turn-ties ${tiePlayerIds.length > 1 ? "" : "disabled"}>Reroll Tied Players</button>
+          <button type="button" data-confirm-synced-turn-order>Confirm Turn Order</button>
+          <button type="button" data-close-synced-turn-order-setup>Cancel</button>
         </div>
       </div>
     </section>
@@ -2069,12 +2647,73 @@ function renderSimulationStatsOverlay(profile) {
 function getSimulationActorName(profile) {
   const simulation = profile.activeSession?.simulation || {};
   if (!simulation.enabled) {
+    const multiplayer = getMultiplayerSettings(profile);
+    const synced = profile.activeSession?.syncedMultiplayer || {};
+    const syncedMode = ["local", "wifi"].includes(multiplayer.mode);
+    if (syncedMode && synced.confirmed && Array.isArray(synced.turnOrder) && synced.turnOrder.length) {
+      return resolveSyncedPlayerName(synced.players || [], synced.currentPlayerId || synced.turnOrder[0]);
+    }
     return "No simulation";
   }
   if (simulation.currentPlayerId === "local-player") {
     return `${profile.player?.name || "Player"} (You)`;
   }
   return simulation.opponents?.[simulation.currentPlayerId]?.name || simulation.currentPlayerId || "NPC";
+}
+
+function resolveSyncedPlayerName(players = [], playerId = "") {
+  if (playerId === "local-player") {
+    const local = players.find((entry) => entry.id === "local-player");
+    return `${local?.name || "Player"} (You)`;
+  }
+  return players.find((entry) => entry.id === playerId)?.name || playerId || "Player";
+}
+
+function getSyncedTurnOrderPlayers(profile) {
+  const localName = profile.player?.name || "Player";
+  const entries = profile.settings?.multiplayer?.connectedPlayers || [];
+  const byId = new Map();
+  byId.set("local-player", { id: "local-player", name: localName });
+  entries.forEach((entry) => {
+    if (!entry?.id || entry.id === "local-player") {
+      return;
+    }
+    if (entry.id.startsWith("peer-") && (entry.name || "").trim() === localName.trim()) {
+      return;
+    }
+    byId.set(entry.id, {
+      id: entry.id,
+      name: entry.name || entry.id,
+    });
+  });
+  return [...byId.values()];
+}
+
+function computeSuggestedTurnOrder(players = [], rolls = {}) {
+  return [...players]
+    .sort((left, right) => {
+      const rightRoll = Number(rolls?.[right.id] || 0);
+      const leftRoll = Number(rolls?.[left.id] || 0);
+      if (rightRoll !== leftRoll) {
+        return rightRoll - leftRoll;
+      }
+      return left.name.localeCompare(right.name);
+    })
+    .map((player) => player.id);
+}
+
+function detectHighestRollTie(players = [], rolls = {}) {
+  const values = players.map((player) => Number(rolls?.[player.id] || 0));
+  if (!values.length) {
+    return [];
+  }
+  const highest = Math.max(...values);
+  const tied = players.filter((player) => Number(rolls?.[player.id] || 0) === highest).map((player) => player.id);
+  return tied.length > 1 ? tied : [];
+}
+
+function formatSyncedTurnOrderNames(players = [], turnOrder = []) {
+  return turnOrder.map((id) => resolveSyncedPlayerName(players, id)).join(" -> ");
 }
 
 function renderMobileSwipeControls(tabs, page) {
@@ -2098,8 +2737,10 @@ function renderTrackerModifierBadge(modifier) {
   return `
     <button class="modifier-badge" data-modifier-badge title="Long press to choose tracker modifier">
       <span>Modifier</span>
-      <strong>${escapeHtml(formatTrackerModifier(modifier))}</strong>
-      <small>${escapeHtml(formatModifierScopes(modifier))}</small>
+      <span class="modifier-value-row">
+        <strong>${escapeHtml(formatTrackerModifier(modifier))}</strong>
+        <small>${escapeHtml(formatModifierScopes(modifier))}</small>
+      </span>
     </button>
   `;
 }
@@ -2201,9 +2842,10 @@ function renderCounterControl(name, value, type) {
 
 function renderBattlefield(profile, searchResults, searchMessage, searchLoading, searchQuery, combatResolving, toolContext, expandedStackIds, activeUtilityPanel, uiLayer = "passive", uiState = {}) {
   const session = profile.activeSession;
-  const stats = buildStats(profile);
   const panels = getPagePanels(profile);
   const adhdMode = getAdhdMode(profile);
+  const isMobilePortrait = Boolean(uiState.isMobilePortrait);
+  const mobileFocusView = Boolean(profile.settings?.navigation?.mobileFocusView ?? true);
   const detailMode = profile.settings?.battlefield?.detailMode || "standard";
   const compressionMode = profile.settings?.battlefield?.compressionMode || "adaptive";
   const selectedIds = new Set(session.selectedIds || []);
@@ -2211,12 +2853,13 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
   const opponentDensityClass = getDensityClass(session.battlefield.opponent, compressionMode);
   const opponentBoards = getOpponentBoards(profile);
   const hasOpponentBoards = opponentBoards.length > 0;
+  const showOpponentZone = Boolean(panels.boardOpponent && hasOpponentBoards);
   const activeOpponentIndex = hasOpponentBoards ? Math.max(0, Math.min(opponentBoards.length - 1, Number(uiState.opponentBoardIndex) || 0)) : 0;
   const activeOpponent = hasOpponentBoards ? opponentBoards[activeOpponentIndex] : null;
   return `
-    <section class="battlefield-page battlefield-page--focused ui-layer-surface-${escapeAttribute(uiLayer)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}">
-      <section class="arena glass ${playerDensityClass} ${profile.settings?.battlefield?.focusMode && session.selectedIds?.length ? "focus-mode" : ""} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}" data-set-tool-context="empty">
-        ${panels.boardOpponent ? `
+    <section class="battlefield-page battlefield-page--focused ui-layer-surface-${escapeAttribute(uiLayer)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${isMobilePortrait && mobileFocusView ? "mobile-focus-view" : ""}">
+      <section class="arena glass ${playerDensityClass} ${profile.settings?.battlefield?.focusMode && session.selectedIds?.length ? "focus-mode" : ""} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${showOpponentZone ? "" : "arena--opponent-hidden"} ${panels.boardCombat ? "" : "arena--combat-hidden"}" data-set-tool-context="empty">
+        ${showOpponentZone ? `
         <div class="opponent-zone ${opponentDensityClass}" data-opponent-swipe data-set-tool-context="empty">
           ${renderOpponentZoneHeader(opponentBoards, activeOpponentIndex, activeOpponent)}
           ${activeOpponent ? renderBattlefieldGroups(activeOpponent.permanents, {
@@ -2235,8 +2878,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
         ` : ""}
         ${panels.boardCombat ? `
         <div class="combat-zone">
-          <h2>Combat</h2>
-          <p>${session.combat.damagePreview ? `${session.combat.damagePreview.total} damage estimated` : "Select attackers, then confirm combat."}</p>
+          ${session.combat.damagePreview ? `<p>${session.combat.damagePreview.total} damage estimated</p>` : ""}
           <div class="row">
             <button data-declare-attackers ${combatResolving ? "disabled" : ""}>Declare Attackers</button>
             <button data-resolve-combat ${combatResolving ? "disabled" : ""}>${combatResolving ? "Resolving…" : "Resolve"}</button>
@@ -2244,7 +2886,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
         </div>
         ` : ""}
         <div class="player-zone">
-          <h2>Your Battlefield</h2>
+          <h2>${showOpponentZone ? "Your Battlefield" : "Battlefield"}</h2>
           ${renderBattlefieldGroups(session.battlefield.player, {
             emptyText: "No permanents yet",
             expandedAll: profile.settings?.battlefield?.expandedAll,
@@ -2257,19 +2899,24 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
           })}
         </div>
       </section>
-      <aside class="search-panel glass">
-        ${renderBattlefieldPhaseTracker(session, stats)}
-        ${renderBattlefieldViewControls(detailMode, compressionMode, uiLayer)}
-        ${profile.settings?.helperSprite?.enabled ? "" : renderPredictiveSuggestions(profile)}
-        ${panels.archiveQuickAdd ? `<h2>Battlefield Quick Add</h2>` : ""}
-        ${panels.archiveQuickAdd ? renderSearch(searchResults, searchMessage, searchLoading, searchQuery) : ""}
+      <aside class="search-panel glass ${isMobilePortrait ? "mobile-hud-column" : ""}">
+        ${!isMobilePortrait && panels.archiveQuickAdd ? `<h2>Battlefield Quick Add</h2>` : ""}
+        ${!isMobilePortrait && panels.archiveQuickAdd ? renderSearch(searchResults, searchMessage, searchLoading, searchQuery) : ""}
       </aside>
     </section>
+    ${isMobilePortrait ? renderMobileBattlefieldDock(profile, activeUtilityPanel, uiState.utilityDockOpen, Boolean(panels.boardCombat), Boolean(combatResolving)) : ""}
     ${panels.advancedRulesHelpers || (session.pendingEffects || []).length ? renderPending(session) : ""}
     ${activeUtilityPanel === "history" ? renderActionTimeline(profile) : ""}
     ${activeUtilityPanel === "triggers" ? renderTriggerQueuePanel(profile) : ""}
     ${uiState.opponentOverlayOpen && activeOpponent ? renderOpponentBattlefieldOverlay(profile, activeOpponent, activeOpponentIndex, opponentBoards.length, detailMode, compressionMode, selectedIds, expandedStackIds) : ""}
   `;
+}
+
+function renderBattlefieldHeaderTurnStatus(profile) {
+  const session = profile.activeSession;
+  const phaseLabel = PHASES[session.phaseIndex] || "Beginning";
+  const actor = resolvePhaseTrackerActorLabel(session).replace(/^Active turn:\s*/i, "");
+  return `<p class="battlefield-header-turn-status">Turn ${session.turn} · ${escapeHtml(phaseLabel)} · ${escapeHtml(actor)}</p>`;
 }
 
 function renderOpponentZoneHeader(opponentBoards, activeIndex, activeOpponent) {
@@ -2335,7 +2982,8 @@ function getOpponentBoards(profile) {
   const byId = new Map();
   const peers = (profile.settings?.multiplayer?.connectedPlayers || []).filter((player) => player.id !== "local-player");
   peers.forEach((peer) => {
-    const snapshotPermanents = (peer.publicBoardSnapshot || []).map((entry) =>
+    const snapshotEntries = normalizePeerSnapshotEntries(peer.publicBoardSnapshot);
+    const snapshotPermanents = snapshotEntries.map((entry) =>
       createPermanent({
         id: entry.id || `snapshot-${peer.id}-${entry.name}`,
         name: entry.name || "Permanent",
@@ -2379,17 +3027,51 @@ function getOpponentBoards(profile) {
   return [...byId.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 
-function renderBattlefieldPhaseTracker(session, stats) {
+function normalizePeerSnapshotEntries(snapshot) {
+  if (Array.isArray(snapshot)) {
+    return snapshot;
+  }
+  if (Array.isArray(snapshot?.battlefield)) {
+    return snapshot.battlefield;
+  }
+  if (Array.isArray(snapshot?.publicBoardSnapshot)) {
+    return snapshot.publicBoardSnapshot;
+  }
+  return [];
+}
+
+function renderBattlefieldPhaseTracker(session, stats, phaseControlMessage = "") {
+  const activeTurnLabel = resolvePhaseTrackerActorLabel(session);
   return `
     <section class="phase-tracker-card">
       <p class="eyebrow">Turn phase</p>
       <h2>Turn ${session.turn}</h2>
       <strong>${escapeHtml(PHASES[session.phaseIndex])}</strong>
+      <p class="eyebrow">${escapeHtml(activeTurnLabel)}</p>
       <p>Board ${stats.currentBoardSize} / Triggers ${stats.triggersResolved}</p>
+      ${phaseControlMessage ? `<p class="eyebrow phase-control-message">${escapeHtml(phaseControlMessage)}</p>` : ""}
       <button class="wide" data-set-tool-context="player">Player Tool Context</button>
       <button class="wide" data-next-phase>Next Phase</button>
     </section>
   `;
+}
+
+function resolvePhaseTrackerActorLabel(session) {
+  const simulation = session?.simulation || {};
+  if (simulation.enabled) {
+    if (simulation.currentPlayerId === "local-player") {
+      return "Active turn: You";
+    }
+    return `Active turn: ${simulation.opponents?.[simulation.currentPlayerId]?.name || simulation.currentPlayerId || "NPC"}`;
+  }
+  const synced = session?.syncedMultiplayer || {};
+  if (synced.confirmed && Array.isArray(synced.turnOrder) && synced.turnOrder.length) {
+    return `Active turn: ${resolveSyncedPlayerName(synced.players || [], synced.currentPlayerId || synced.turnOrder[0])}`;
+  }
+  if (synced.pendingConfirmation) {
+    return "Active turn: confirm synced turn order";
+  }
+  return "Active turn: You";
 }
 
 function renderBattlefieldGroups(permanents, options = {}) {
@@ -2468,7 +3150,7 @@ function renderPermanentDetails(permanent, detailMode = "standard") {
       : "";
   return `
     <div class="permanent-details">
-      ${counters.length ? `<span>${counters.map(([type, value]) => `${escapeHtml(type)} ${value}`).join(" / ")}</span>` : "<span>No counters</span>"}
+      ${counters.length ? `<span>${counters.map(([type, value]) => `${escapeHtml(type)} ${value}`).join(" / ")}</span>` : ""}
       ${permanent.keywords?.length ? `<span>${permanent.keywords.map(escapeHtml).join(", ")}</span>` : ""}
       ${detailMode === "inspect" ? `<span>${escapeHtml(permanent.rulesText || permanent.oracleText || "No rules text")}</span>` : ""}
       ${triggerInfo}
@@ -2683,30 +3365,91 @@ function renderTriggerQueuePanel(profile) {
   `;
 }
 
-function renderUtilityDock(profile, open, activeUtilityPanel) {
+function renderUtilityDock(
+  profile,
+  open,
+  activeUtilityPanel,
+  hudBadgePositions = HUD_BADGE_DEFAULTS,
+  isMobilePortrait = false,
+  hudBadgesLocked = false,
+  searchResults = [],
+  searchMessage = "",
+  searchLoading = false,
+  searchQuery = ""
+) {
+  if (!open && !activeUtilityPanel) {
+    return "";
+  }
   const manaTotal = Object.values(profile.activeSession.manaPool || {}).reduce((sum, value) => sum + Number(value || 0), 0);
   return `
     <section class="utility-dock ${open ? "open" : ""}">
-      <button class="utility-dock-toggle glass" data-toggle-utility-dock>${open ? "Close" : "Utility"}</button>
       ${open ? `
         <div class="utility-dock-menu glass">
           <button data-open-utility="dice">Dice</button>
           <button data-open-utility="tokens">Token Gen</button>
           <button data-open-utility="mana">Mana ${manaTotal ? `(${manaTotal})` : ""}</button>
+          <button data-open-utility="display">Display</button>
+          <button data-open-utility="search">Search/Add</button>
           <button data-open-utility="calculator">Calculator</button>
           <button data-open-utility="notes">Notes</button>
           <button data-open-utility="phase">Phase</button>
+          <button data-open-utility="simulation">Simulation Log</button>
           <button data-open-utility="triggers">Queue</button>
           <button data-open-utility="history">History</button>
           <button data-open-utility="rules">Rules</button>
         </div>
       ` : ""}
-      ${renderUtilityPanel(profile, activeUtilityPanel)}
+      ${renderUtilityPanel(profile, activeUtilityPanel, isMobilePortrait, searchResults, searchMessage, searchLoading, searchQuery)}
     </section>
   `;
 }
 
-function renderUtilityPanel(profile, panel) {
+function renderMobileBattlefieldDock(profile, activeUtilityPanel = "", utilityDockOpen = false, includeCombat = true, combatResolving = false) {
+  const hasSimulation = Boolean(profile.activeSession?.simulation?.enabled);
+  const hasQueuedTriggers = Boolean((profile.activeSession?.triggerQueue || []).length);
+  const combatDisabled = includeCombat ? "" : "disabled";
+  return `
+    <section class="battlefield-mobile-dock glass" data-no-swipe>
+      <div class="battlefield-mobile-dock__status">
+        ${hasQueuedTriggers ? `<button data-open-utility="triggers" class="${activeUtilityPanel === "triggers" ? "active" : ""}">Queue</button>` : ""}
+        ${hasSimulation ? `<button data-open-utility="simulation">Sim Log</button>` : ""}
+      </div>
+      <div class="battlefield-mobile-wheel">
+        <button class="battlefield-wheel-action action-tools" data-open-tool-menu>
+          <span class="dock-icon" aria-hidden="true">⚒</span>
+          <span>Tools</span>
+        </button>
+        <button class="battlefield-wheel-action action-search" data-open-utility="search">
+          <span class="dock-icon" aria-hidden="true">◉</span>
+          <span>Search</span>
+        </button>
+        <button class="battlefield-wheel-action action-utility ${utilityDockOpen ? "active" : ""}" data-toggle-utility-dock>
+          <span class="dock-icon" aria-hidden="true">⛃</span>
+          <span>Utility</span>
+        </button>
+        <button class="battlefield-wheel-action action-activate" data-activate-board>
+          <span class="dock-icon" aria-hidden="true">⚡</span>
+          <span>Activate</span>
+        </button>
+        <button class="battlefield-wheel-action action-attackers" data-declare-attackers ${combatResolving ? "disabled" : combatDisabled}>
+          <span class="dock-icon" aria-hidden="true">⚔</span>
+          <span>Attackers</span>
+        </button>
+        <button class="battlefield-wheel-action action-resolve" data-resolve-combat ${combatResolving ? "disabled" : combatDisabled}>
+          <span class="dock-icon" aria-hidden="true">⛨</span>
+          <span>${combatResolving ? "Resolving..." : "Resolve"}</span>
+        </button>
+        <button class="battlefield-wheel-center" data-next-phase>
+          <span class="dock-icon" aria-hidden="true">⏭</span>
+          <span>Next</span>
+          <span>Phase</span>
+        </button>
+      </div>
+    </section>
+  `;
+}
+
+function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResults = [], searchMessage = "", searchLoading = false, searchQuery = "") {
   if (!panel || panel === "history" || panel === "triggers") {
     return "";
   }
@@ -2715,10 +3458,12 @@ function renderUtilityPanel(profile, panel) {
   const diceValue = profile.settings?.utility?.lastDice || "d20: 1";
   const calcValue = profile.settings?.utility?.calculator || "";
   const rulesText = (getSelectedPermanents(session)[0]?.rulesText || getSelectedPermanents(session)[0]?.oracleText || "Select a permanent to inspect rules.");
+  const utilityTitle = panel === "search" ? "Search/Add Card" : panel === "simulation" ? "Simulation Log" : formatLabel(panel);
+  const mobileSheetClass = isMobilePortrait ? "mobile-bottom-sheet" : "";
   return `
-    <section class="utility-overlay glass" data-no-swipe>
+    <section class="utility-overlay glass ${mobileSheetClass}" data-no-swipe>
       <div class="overlay-header compact">
-        <h2>${escapeHtml(formatLabel(panel))}</h2>
+        <h2>${escapeHtml(utilityTitle)}</h2>
         <button data-close-utility-panel>Close</button>
       </div>
       ${panel === "dice" ? `
@@ -2735,6 +3480,13 @@ function renderUtilityPanel(profile, panel) {
       ${panel === "mana" ? `
         <button class="wide" data-open-floating-mana>Open Floating Mana</button>
       ` : ""}
+      ${panel === "display" ? `
+        ${renderBattlefieldViewControls(
+          profile.settings?.battlefield?.detailMode || "standard",
+          profile.settings?.battlefield?.compressionMode || "adaptive",
+          resolveUiLayerState(profile, "battlefield").current
+        )}
+      ` : ""}
       ${panel === "calculator" ? `
         <input data-utility-calculator value="${escapeAttribute(calcValue)}" placeholder="e.g. (6+4)*2-3" />
         <button class="wide" data-run-calculator>Calculate</button>
@@ -2750,6 +3502,15 @@ function renderUtilityPanel(profile, panel) {
       ${panel === "rules" ? `
         <p>${escapeHtml(rulesText)}</p>
         <button class="wide" data-open-tool-panel="inspect">Inspect Selected Permanent</button>
+      ` : ""}
+      ${panel === "search" ? renderSearch(searchResults, searchMessage, searchLoading, searchQuery) : ""}
+      ${panel === "simulation" ? `
+        <div class="simulation-log scroll-safe">
+          ${(session.simulation?.log || [])
+            .slice(0, 26)
+            .map((entry) => `<p><strong>${escapeHtml(entry.actorId || "system")}</strong> · ${escapeHtml(entry.text || "")}</p>`)
+            .join("") || "<p>No simulation actions yet.</p>"}
+        </div>
       ` : ""}
     </section>
   `;
@@ -2795,7 +3556,14 @@ function renderSearch(results, message, loading = false, query = "") {
       <p>${escapeHtml(message || "Works offline with saved commander deck matches.")}</p>
     </form>
     <div class="search-results scroll-safe" data-no-swipe>
-      ${results.map((card, index) => `
+      ${results
+        .map((card, index) => {
+          const commanderEligible =
+            canBeCommander(card) ||
+            (/\blegendary\b/i.test(card.typeLine || "") &&
+              (/\bcreature\b/i.test(card.typeLine || "") ||
+                (/\bplaneswalker\b/i.test(card.typeLine || "") && /can be your commander/i.test(card.oracleText || ""))));
+          return `
         <article>
           <strong>${escapeHtml(card.name)}</strong>
           <span>${escapeHtml(card.typeLine || "")}</span>
@@ -2803,29 +3571,35 @@ function renderSearch(results, message, loading = false, query = "") {
             ${card.isInstant || card.isSorcery || /\b(Instant|Sorcery)\b/i.test(card.typeLine || "") ? `<button data-cast-result="${index}">Cast</button>` : `<button data-add-result="${index}">Add</button>`}
             <button data-deck-result="${index}">Deck</button>
             <button data-inspect-result="${index}">Inspect</button>
-            ${canBeCommander(card) ? `<button data-commander-result="${index}">Commander</button>` : ""}
+            ${commanderEligible ? `<button data-commander-result="${index}">Commander</button>` : ""}
           </div>
         </article>
-      `).join("")}
+      `;
+        })
+        .join("")}
     </div>
   `;
 }
 
-function renderBattlefieldToolBadge(profile, menuOpen, floatingManaOpen, activeToolPanel, position, toolContext) {
+function renderBattlefieldToolBadge(profile, menuOpen, floatingManaOpen, activeToolPanel, positions, toolContext, isMobilePortrait = false, hudBadgesLocked = false) {
   const manaPinned = Boolean(profile.settings?.battlefield?.manaPinned);
+  const position = positions.tools || HUD_BADGE_DEFAULTS.tools;
   const badgeStyle = `left:${Math.round(position.x)}px;top:${Math.round(position.y)}px;`;
+  const draggableAttrs = isMobilePortrait
+    ? `data-draggable-hud="tools" data-hud-lock-state="${hudBadgesLocked ? "locked" : "unlocked"}"`
+    : "";
   const radialActions = getContextualRadialActions(toolContext, floatingManaOpen || manaPinned);
   return `
     <div class="battlefield-tool-system">
-      <button class="tool-badge glass" style="${badgeStyle}" data-tool-badge aria-label="Battlefield tools">Tools</button>
+      <button class="tool-badge glass" style="${badgeStyle}" ${draggableAttrs} data-tool-badge aria-label="Battlefield tools">Tools</button>
       ${menuOpen ? `
       <section class="radial-menu glass" style="${badgeStyle}">
         <p class="radial-context-label">Context: ${escapeHtml(formatLabel(toolContext))}</p>
         ${radialActions.map((entry) => renderRadialAction(entry)).join("")}
       </section>
       ` : ""}
-      ${activeToolPanel ? renderBattlefieldToolPanel(profile, activeToolPanel, toolContext) : ""}
-      ${floatingManaOpen || manaPinned ? renderFloatingManaControls(profile, manaPinned) : ""}
+      ${activeToolPanel ? renderBattlefieldToolPanel(profile, activeToolPanel, toolContext, isMobilePortrait) : ""}
+      ${floatingManaOpen || manaPinned ? renderFloatingManaControls(profile, manaPinned, positions, isMobilePortrait, hudBadgesLocked) : ""}
     </div>
   `;
 }
@@ -2893,11 +3667,16 @@ function renderRadialAction(entry) {
   return `<button data-open-floating-mana>${escapeHtml(entry.label)}</button>`;
 }
 
-function renderFloatingManaControls(profile, pinned) {
+function renderFloatingManaControls(profile, pinned, positions = HUD_BADGE_DEFAULTS, isMobilePortrait = false, hudBadgesLocked = false) {
   const session = profile.activeSession;
   const colors = Object.entries(session.manaPool);
+  const position = positions.floatingMana || HUD_BADGE_DEFAULTS.floatingMana;
+  const inlineStyle = isMobilePortrait && !pinned ? `style="left:${Math.round(position.x)}px;top:${Math.round(position.y)}px;"` : "";
+  const draggableAttrs = isMobilePortrait && !pinned
+    ? `data-draggable-hud="floatingMana" data-hud-lock-state="${hudBadgesLocked ? "locked" : "unlocked"}"`
+    : "";
   return `
-    <section class="floating-mana glass ${pinned ? "pinned" : ""}">
+    <section class="floating-mana glass ${pinned ? "pinned" : ""} ${isMobilePortrait ? "mobile-bottom-sheet" : ""}" ${inlineStyle} ${draggableAttrs}>
       <div class="overlay-header compact">
         <h2>Floating Mana</h2>
         ${pinned ? `<span class="eyebrow">Pinned</span>` : ""}
@@ -2920,7 +3699,7 @@ function renderFloatingManaControls(profile, pinned) {
   `;
 }
 
-function renderBattlefieldToolPanel(profile, panel) {
+function renderBattlefieldToolPanel(profile, panel, toolContext = "empty", isMobilePortrait = false) {
   const titleMap = {
     tokens: "Token Controls",
     permanents: "Permanent Controls",
@@ -2930,7 +3709,7 @@ function renderBattlefieldToolPanel(profile, panel) {
     commander: "Commander Tools",
   };
   return `
-    <section class="floating-tool-panel glass" data-floating-tool-panel>
+    <section class="floating-tool-panel glass ${isMobilePortrait ? "mobile-bottom-sheet" : ""}" data-floating-tool-panel data-tool-context="${escapeAttribute(toolContext)}">
       <div class="overlay-header compact">
         <h2>${titleMap[panel] || "Battlefield Tool"}</h2>
         <button data-close-tool-panel>Close</button>
@@ -3088,8 +3867,12 @@ function renderInspectPanelLegacy(profile) {
           <strong>${escapeHtml(permanent.name)}</strong>
           <span>${escapeHtml(permanent.typeLine)}</span>
           <p>${permanent.isCreature ? `${permanent.currentPower}/${permanent.currentToughness}` : "Non-creature permanent"}</p>
-          <p>${Object.entries(permanent.counters || {}).filter(([, value]) => Number(value) > 0).map(([type, value]) => `${escapeHtml(type)} ${value}`).join(" / ") || "No counters"}</p>
-          <p>${permanent.keywords?.length ? permanent.keywords.map(escapeHtml).join(", ") : "No keywords"}</p>
+          ${
+            Object.entries(permanent.counters || {}).filter(([, value]) => Number(value) > 0).length
+              ? `<p>${Object.entries(permanent.counters || {}).filter(([, value]) => Number(value) > 0).map(([type, value]) => `${escapeHtml(type)} ${value}`).join(" / ")}</p>`
+              : ""
+          }
+          ${permanent.keywords?.length ? `<p>${permanent.keywords.map(escapeHtml).join(", ")}</p>` : ""}
           <p>${escapeHtml(permanent.rulesText || permanent.oracleText || "No rules text")}</p>
           <p>Triggers ${(permanent.triggeredAbilities || []).length} · Static ${(permanent.staticAbilities || []).length}</p>
           <p>${(permanent.layerBreakdown || []).map((entry) => `L${entry.layer}:${entry.operation}`).join(" · ") || "No active layer modifiers"}</p>
@@ -3193,21 +3976,33 @@ function renderDecks(profile, results, message, searchLoading, searchQuery) {
 }
 
 function renderLeaderboards(profile) {
+  const sections = Object.entries(profile.leaderboards || {});
   return `
     <section class="utility-page glass">
       <h2>Local Leaderboards</h2>
       <button class="wide" data-open-stats>Open Stats Overlay</button>
-      ${Object.entries(profile.leaderboards || {}).map(([name, records]) => `
-        <article class="log-card">
+      ${sections.map(([name, records]) => `
+        <article class="leaderboard-hud-block">
           <strong>${escapeHtml(name)}</strong>
-          ${(records || []).map((record) => `<p>${escapeHtml(record.label)}: ${record.value}</p>`).join("") || "<p>No records yet</p>"}
+          ${(records || []).length
+            ? (records || [])
+                .map(
+                  (record) => `
+              <div class="leaderboard-hud-row">
+                <span>${escapeHtml(record.label)}</span>
+                <b>${escapeHtml(record.value)}</b>
+              </div>
+            `
+                )
+                .join("")
+            : `<p class="eyebrow">No records yet</p>`}
         </article>
       `).join("")}
     </section>
   `;
 }
 
-function renderGameOptions(profile) {
+function renderGameOptions(profile, page = "life") {
   const settings = getSettings(profile);
   const panels = getPagePanels(profile);
   const multiplayer = getMultiplayerSettings(profile);
@@ -3215,6 +4010,9 @@ function renderGameOptions(profile) {
   const nextCompositionMode = compositionMode === "mobile" ? "widescreen" : "mobile";
   const compositionLabel = compositionMode === "mobile" ? "Mobile vertical" : "Standard widescreen";
   const localAuth = profile.localAuth || {};
+  const simulation = profile.activeSession?.simulation || {};
+  const gameTracking = profile.activeSession?.gameTracking || {};
+  const showEndGame = page === "battlefield" && (Boolean(simulation.enabled) || Boolean(gameTracking.active));
   return `
     <section class="overlay-backdrop">
       <div class="floating-overlay glass">
@@ -3226,6 +4024,13 @@ function renderGameOptions(profile) {
           <button data-close-overlay>Close</button>
         </div>
         <div class="overlay-grid">
+          ${showEndGame ? `
+          <article class="option-card">
+            <h3>Active Game</h3>
+            <p>Simulation: ${simulation.enabled ? "Active" : "Inactive"} · Tracking: ${gameTracking.active ? "Active" : "Inactive"}</p>
+            <button class="wide" data-end-game>End Game</button>
+          </article>
+          ` : ""}
           <article class="option-card">
             <h3>Local Login / Profile</h3>
             <p>Status: ${localAuth.mode === "protected" ? "Password profile loaded" : "Guest / fresh mode"}${localAuth.hasPassword ? " · Password profile available" : ""}</p>
@@ -3259,11 +4064,13 @@ function renderGameOptions(profile) {
               <button data-multiplayer-mode="bluetooth">Bluetooth Placeholder</button>
               <button data-multiplayer-mode="simulated">Simulated Local</button>
               <button data-multiplayer-mode="offline">Disconnect</button>
-              <button data-open-simulation-setup>Start Simulation Setup</button>
+              <button data-open-synced-turn-order-setup>d20 Turn Order</button>
+              <button data-open-simulation-setup>Dry Run Setup</button>
               <button data-open-simulation-stats>Simulation Stats</button>
             </div>
             <p>Mode: ${escapeHtml(multiplayer.mode)}</p>
             <p>Connected players: ${multiplayer.connectedPlayers.length ? multiplayer.connectedPlayers.map((player) => escapeHtml(player.name)).join(", ") : "None"}</p>
+            <p>Confirmed turn order: ${multiplayer.confirmedTurnOrder?.length ? multiplayer.confirmedTurnOrder.map((id) => escapeHtml(id === "local-player" ? `${profile.player?.name || "Player"} (You)` : id)).join(" → ") : "Not confirmed"}</p>
             ${renderToggle("Simulation Revenge Learning", "multiplayer.simulationRevenge", Boolean(multiplayer.simulationRevenge ?? true))}
             <label class="stacked-form">Room ID
               <input data-mp-setting="multiplayer.roomId" value="${escapeAttribute(multiplayer.roomId || "boardstate-room")}" />
@@ -3289,6 +4096,10 @@ function renderGameOptions(profile) {
             ${renderToggle("Life total panel", "pagePanels.lifeTrackerLife", panels.lifeTrackerLife)}
             ${renderToggle("Show Profile in Main UI", "navigation.showProfileInMainUi", Boolean(profile.settings?.navigation?.showProfileInMainUi))}
             ${renderToggle("Enable Edge Swipe Shortcuts", "navigation.edgeSwipeShortcuts", Boolean(profile.settings?.navigation?.edgeSwipeShortcuts))}
+            ${renderToggle("Compact Mobile HUD", "navigation.compactMobileHud", Boolean(profile.settings?.navigation?.compactMobileHud ?? true))}
+            ${renderToggle("Mobile Focus View", "navigation.mobileFocusView", Boolean(profile.settings?.navigation?.mobileFocusView ?? true))}
+            ${renderToggle("Lock HUD Badges", "navigation.hudBadgesLocked", Boolean(profile.settings?.navigation?.hudBadgesLocked))}
+            <button class="wide" data-reset-hud-layout>Reset HUD Layout</button>
             <p>Floating mana now lives in the Battlefield tools menu as a floating widget with pin/unpin support.</p>
             ${renderToggle("Opponent board panel", "pagePanels.boardOpponent", panels.boardOpponent)}
             ${renderToggle("Combat controls", "pagePanels.boardCombat", panels.boardCombat)}
@@ -3516,7 +4327,7 @@ function renderPermanentLayerInspector(permanent, profile) {
               .join(" · ")
           : "No active stat modifiers"
       }</p>
-      <p><strong>Counters:</strong> ${counters.length ? counters.map(escapeHtml).join(" / ") : "No counters"}</p>
+      ${counters.length ? `<p><strong>Counters:</strong> ${counters.map(escapeHtml).join(" / ")}</p>` : ""}
       <p><strong>Final stats:</strong> ${
         permanent.isCreature ? `${permanent.currentPower}/${permanent.currentToughness}` : "Non-creature permanent"
       }</p>
@@ -3592,7 +4403,8 @@ function resolveUiLayerState(profile, page, uiState = {}) {
     Boolean(uiState.optionsOpen) ||
     Boolean(uiState.statsOpen) ||
     Boolean(uiState.simulationSetupOpen) ||
-    Boolean(uiState.simulationStatsOpen);
+    Boolean(uiState.simulationStatsOpen) ||
+    Boolean(uiState.syncedTurnOrderSetupOpen);
   const current = adhdMode.enabled
     ? "adhd"
     : inspectOpen
@@ -3740,12 +4552,21 @@ function renderAdhdAssistPanel(profile, page, uiLayer) {
   `;
 }
 
-function renderHelperSprite(profile, helperMessage) {
+function renderHelperSprite(profile, helperMessage, positions = HUD_BADGE_DEFAULTS, isMobilePortrait = false, hudBadgesLocked = false) {
   if (!profile.settings?.helperSprite?.enabled || !helperMessage) {
     return "";
   }
+  const position = positions.helper || HUD_BADGE_DEFAULTS.helper;
+  const styleParts = [`--helper-ttl:${Math.round(Number(helperMessage.ttlMs) || 5200)}ms`];
+  if (isMobilePortrait) {
+    styleParts.push(`left:${Math.round(position.x)}px`, `top:${Math.round(position.y)}px`);
+  }
+  const inlineStyle = `style="${styleParts.join(";")};"`;
+  const draggableAttrs = isMobilePortrait
+    ? `data-draggable-hud="helper" data-hud-lock-state="${hudBadgesLocked ? "locked" : "unlocked"}"`
+    : "";
   return `
-    <section class="helper-sprite-widget glass" data-no-swipe>
+    <section class="helper-sprite-widget ${helperMessage.fading ? "is-fading" : ""} glass" data-no-swipe ${inlineStyle} ${draggableAttrs}>
       <button class="helper-sprite-avatar" data-helper-dismiss title="Dismiss helper sprite">✨</button>
       <button class="helper-sprite-bubble" data-helper-open>
         <strong>Helper Sprite</strong>
@@ -3753,6 +4574,33 @@ function renderHelperSprite(profile, helperMessage) {
       </button>
     </section>
   `;
+}
+
+function cloneHudBadgePositions(positions = HUD_BADGE_DEFAULTS) {
+  return Object.fromEntries(
+    Object.entries(positions || {}).map(([key, value]) => [
+      key,
+      {
+        x: Number(value?.x ?? HUD_BADGE_DEFAULTS[key]?.x ?? 12),
+        y: Number(value?.y ?? HUD_BADGE_DEFAULTS[key]?.y ?? 12),
+      },
+    ])
+  );
+}
+
+function mergeHudBadgePositions(rawPositions = {}) {
+  return Object.fromEntries(
+    Object.entries(HUD_BADGE_DEFAULTS).map(([key, defaults]) => {
+      const incoming = rawPositions?.[key] || {};
+      return [
+        key,
+        {
+          x: Number.isFinite(Number(incoming.x)) ? Number(incoming.x) : defaults.x,
+          y: Number.isFinite(Number(incoming.y)) ? Number(incoming.y) : defaults.y,
+        },
+      ];
+    })
+  );
 }
 
 function summarizeRecordEntries(record = {}, limit = 5) {
@@ -3862,14 +4710,23 @@ function formatTrackerModifier(modifier) {
 function formatModifierScopes(modifier) {
   const scopes = modifier?.scopes || {};
   const active = [
-    scopes.life ? "Life" : "",
-    scopes.poison ? "Poison" : "",
-    scopes.energy ? "Energy" : "",
+    scopes.life ? "LIFE" : "",
+    scopes.poison ? "PSN" : "",
+    scopes.energy ? "ENR" : "",
     scopes.experience ? "XP" : "",
-    scopes.tickets ? "Tickets" : "",
-    scopes.commander ? "Commander" : "",
+    scopes.tickets ? "TIX" : "",
+    scopes.commander ? "CMDR" : "",
   ].filter(Boolean);
-  return active.length ? active.join(" / ") : "Long press";
+  if (!active.length) {
+    return "LIFE";
+  }
+  if (active.length === 1) {
+    return active[0];
+  }
+  if (active.length === 2) {
+    return `${active[0]}/${active[1]}`;
+  }
+  return "MULTI";
 }
 
 function getMultiplayerSettings(profile) {
@@ -3884,6 +4741,11 @@ function getMultiplayerSettings(profile) {
     wsUrl: "ws://localhost:8787",
     role: "player",
     spectatorMode: false,
+    turnOrderRolls: {},
+    suggestedTurnOrder: [],
+    confirmedTurnOrder: [],
+    needsTurnOrderConfirmation: false,
+    lastTurnOrderConfirmedAt: 0,
     ...(profile.settings?.multiplayer || {}),
   };
 }

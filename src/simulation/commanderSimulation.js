@@ -18,6 +18,8 @@ export function createSimulationSession(profile, options = {}) {
   const selectedOpponents = (Array.isArray(options.selectedOpponents) ? options.selectedOpponents : [])
     .filter((id) => SIM_OPPONENT_IDS.includes(id));
   const safeOpponents = selectedOpponents.length ? selectedOpponents : ["alpha"];
+  const randomizedNpcOrder = shuffleSimulationOpponents(safeOpponents);
+  const turnOrder = ["local-player", ...randomizedNpcOrder];
   const revengeEnabled = options.revengeEnabled !== false;
   const format = inferSimulationFormat(safeOpponents.length);
   const speed = String(options.speed || "normal").toLowerCase();
@@ -30,7 +32,7 @@ export function createSimulationSession(profile, options = {}) {
   });
   const connectedPlayers = [
     { id: "local-player", name: profile.player?.name || "Player", authority: "host", role: "player" },
-    ...safeOpponents.map((id) => ({
+    ...randomizedNpcOrder.map((id) => ({
       id,
       name: opponents[id].name,
       authority: "guest",
@@ -52,7 +54,7 @@ export function createSimulationSession(profile, options = {}) {
     winnerId: "",
     statsRecorded: false,
     strategyAdjustmentsApplied: 0,
-    turnOrder: ["local-player", ...safeOpponents],
+    turnOrder,
     turnIndex: 0,
     currentPlayerId: "local-player",
     currentPhaseIndex: 0,
@@ -61,6 +63,7 @@ export function createSimulationSession(profile, options = {}) {
     log: [
       createSimLog("system", "Simulation started. Your turn is active."),
       createSimLog("system", `Format: ${format}. Revenge ${revengeEnabled ? "ON" : "OFF"}.`),
+      createSimLog("system", `Turn order: ${formatTurnOrderForLog(turnOrder, profile.player?.name || "Player")}`),
       createSimLog("system", `Deck integrity: ${integrityNotes.join(" | ")}`),
     ],
     createdAt: Date.now(),
@@ -77,6 +80,29 @@ export function createSimulationSession(profile, options = {}) {
     session,
     connectedPlayers,
   };
+}
+
+function shuffleSimulationOpponents(opponents = []) {
+  const shuffled = [...opponents];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+}
+
+function formatTurnOrderForLog(turnOrder = [], localName = "Player") {
+  return turnOrder
+    .map((playerId) => (playerId === "local-player" ? `${localName} (You)` : formatNpcId(playerId)))
+    .join(" -> ");
+}
+
+function formatNpcId(value = "") {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return "NPC";
+  }
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
 function inferSimulationFormat(opponentCount = 1) {

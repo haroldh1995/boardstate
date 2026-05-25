@@ -41,8 +41,17 @@ export function reduceProfile(profile, event) {
     case "SET_MULTIPLAYER_MODE":
       nextProfile = setMultiplayerMode(baseProfile, event.mode);
       break;
+    case "ROLL_MULTIPLAYER_TURN_ORDER":
+      nextProfile = rollMultiplayerTurnOrder(baseProfile, event);
+      break;
+    case "CONFIRM_MULTIPLAYER_TURN_ORDER":
+      nextProfile = confirmMultiplayerTurnOrder(baseProfile, event);
+      break;
+    case "CLEAR_MULTIPLAYER_TURN_ORDER":
+      nextProfile = clearMultiplayerTurnOrder(baseProfile);
+      break;
     case "START_GAME_TRACKING":
-      nextProfile = withSession(baseProfile, startGameTracking(baseProfile.activeSession));
+      nextProfile = withSession(baseProfile, startGameTracking(baseProfile.activeSession, baseProfile.settings || {}));
       break;
     case "STOP_GAME_TRACKING":
       nextProfile = withSession(baseProfile, stopGameTracking(baseProfile.activeSession));
@@ -108,7 +117,7 @@ export function reduceProfile(profile, event) {
       nextProfile = withSession(baseProfile, { ...baseProfile.activeSession, manaPool: createManaPool() });
       break;
     case "ADVANCE_PHASE":
-      nextProfile = withSession(baseProfile, advancePhase(withRuntimeSettings(baseProfile.activeSession, baseProfile.settings)));
+      nextProfile = withSession(baseProfile, advancePhase(withRuntimeSettings(baseProfile.activeSession, baseProfile.settings), baseProfile.settings?.multiplayer || {}));
       break;
     case "ADD_PERMANENT":
       nextProfile = addPermanent(baseProfile, event.card, event.controller || "player");
@@ -405,6 +414,20 @@ function setMultiplayerMode(profile, mode = "offline") {
               status: "stopped",
               waitingForUser: false,
             },
+      syncedMultiplayer:
+        mode === "local" || mode === "wifi"
+          ? {
+              ...(profile.activeSession?.syncedMultiplayer || {}),
+              active: true,
+              updatedAt: Date.now(),
+            }
+          : {
+              ...(profile.activeSession?.syncedMultiplayer || {}),
+              active: false,
+              pendingConfirmation: false,
+              confirmed: false,
+              updatedAt: Date.now(),
+            },
     },
     settings: {
       ...(profile.settings || {}),
@@ -415,6 +438,185 @@ function setMultiplayerMode(profile, mode = "offline") {
       },
     },
   };
+}
+
+function rollMultiplayerTurnOrder(profile, event = {}) {
+  const players = normalizeSyncedTurnPlayers(event.players || profile.settings?.multiplayer?.connectedPlayers || [], profile.player?.name || "Player");
+  if (players.length <= 1) {
+    return profile;
+  }
+  const rolls = Object.fromEntries(players.map((player) => [player.id, Math.max(1, Math.min(20, normalizeCount(event.rolls?.[player.id], Math.floor(Math.random() * 20) + 1)))]));
+  const suggestedTurnOrder = [...players]
+    .sort((left, right) => {
+      const rightRoll = rolls[right.id] || 0;
+      const leftRoll = rolls[left.id] || 0;
+      if (rightRoll !== leftRoll) {
+        return rightRoll - leftRoll;
+      }
+      return left.name.localeCompare(right.name);
+    })
+    .map((player) => player.id);
+  const highestRoll = Math.max(...Object.values(rolls));
+  const tiePlayerIds = players.filter((player) => rolls[player.id] === highestRoll).map((player) => player.id);
+  const awaitingManualTieBreak = tiePlayerIds.length > 1;
+  const syncedState = {
+    ...(profile.activeSession?.syncedMultiplayer || {}),
+    active: true,
+    players,
+    rolls,
+    suggestedTurnOrder,
+    tiePlayerIds,
+    turnOrder: suggestedTurnOrder,
+    confirmed: false,
+    pendingConfirmation: true,
+    currentPlayerId: suggestedTurnOrder[0] || "local-player",
+    currentPlayerIndex: 0,
+    updatedAt: Date.now(),
+  };
+  const withSessionUpdate = withSession(profile, {
+    ...profile.activeSession,
+    syncedMultiplayer: syncedState,
+    effectLog: [
+      {
+        id: createId("turn-order-roll"),
+        at: Date.now(),
+        sourceName: "Multiplayer",
+        summary: awaitingManualTieBreak
+          ? "Turn order rolled: tie for highest d20, reroll tied players or confirm manual ordering."
+          : `Turn order rolled: ${formatTurnOrderNames(players, suggestedTurnOrder)}.`,
+      },
+      ...(profile.activeSession?.effectLog || []),
+    ].slice(0, 180),
+  });
+  return {
+    ...withSessionUpdate,
+    settings: {
+      ...(withSessionUpdate.settings || {}),
+      multiplayer: {
+        ...(withSessionUpdate.settings?.multiplayer || {}),
+        turnOrderRolls: rolls,
+        suggestedTurnOrder,
+        confirmedTurnOrder: [],
+        needsTurnOrderConfirmation: true,
+      },
+    },
+  };
+}
+
+function confirmMultiplayerTurnOrder(profile, event = {}) {
+  const currentState = profile.activeSession?.syncedMultiplayer || {};
+  const players = normalizeSyncedTurnPlayers(currentState.players || event.players || profile.settings?.multiplayer?.connectedPlayers || [], profile.player?.name || "Player");
+  const playerIds = new Set(players.map((player) => player.id));
+  const eventOrder = Array.isArray(event.turnOrder) ? event.turnOrder : [];
+  const normalizedEventOrder = eventOrder.filter((id) => playerIds.has(id));
+  const remaining = players.map((player) => player.id).filter((id) => !normalizedEventOrder.includes(id));
+  const turnOrder = [...normalizedEventOrder, ...remaining];
+  if (!turnOrder.length) {
+    return profile;
+  }
+  const rolls = {
+    ...(currentState.rolls || {}),
+    ...(event.rolls || {}),
+  };
+  const suggestedTurnOrder = (event.suggestedTurnOrder || currentState.suggestedTurnOrder || turnOrder).filter((id) => playerIds.has(id));
+  const tiePlayerIds = (event.tiePlayerIds || currentState.tiePlayerIds || []).filter((id) => playerIds.has(id));
+  const syncedState = {
+    ...currentState,
+    active: true,
+    players,
+    rolls,
+    suggestedTurnOrder,
+    tiePlayerIds,
+    turnOrder,
+    confirmed: true,
+    pendingConfirmation: false,
+    currentPlayerId: turnOrder[0] || "local-player",
+    currentPlayerIndex: 0,
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  const withSessionUpdate = withSession(profile, {
+    ...profile.activeSession,
+    syncedMultiplayer: syncedState,
+    effectLog: [
+      {
+        id: createId("turn-order-confirm"),
+        at: Date.now(),
+        sourceName: "Multiplayer",
+        summary: `Turn order confirmed: ${formatTurnOrderNames(players, turnOrder)}.`,
+      },
+      ...(profile.activeSession?.effectLog || []),
+    ].slice(0, 180),
+  });
+  return {
+    ...withSessionUpdate,
+    settings: {
+      ...(withSessionUpdate.settings || {}),
+      multiplayer: {
+        ...(withSessionUpdate.settings?.multiplayer || {}),
+        confirmedTurnOrder: turnOrder,
+        needsTurnOrderConfirmation: false,
+        lastTurnOrderConfirmedAt: Date.now(),
+      },
+    },
+  };
+}
+
+function clearMultiplayerTurnOrder(profile) {
+  const clearedState = {
+    ...(profile.activeSession?.syncedMultiplayer || {}),
+    active: false,
+    players: [],
+    rolls: {},
+    suggestedTurnOrder: [],
+    tiePlayerIds: [],
+    turnOrder: [],
+    confirmed: false,
+    pendingConfirmation: false,
+    currentPlayerId: "local-player",
+    currentPlayerIndex: 0,
+    updatedAt: Date.now(),
+  };
+  const withSessionUpdate = withSession(profile, {
+    ...profile.activeSession,
+    syncedMultiplayer: clearedState,
+  });
+  return {
+    ...withSessionUpdate,
+    settings: {
+      ...(withSessionUpdate.settings || {}),
+      multiplayer: {
+        ...(withSessionUpdate.settings?.multiplayer || {}),
+        turnOrderRolls: {},
+        suggestedTurnOrder: [],
+        confirmedTurnOrder: [],
+        needsTurnOrderConfirmation: false,
+      },
+    },
+  };
+}
+
+function normalizeSyncedTurnPlayers(entries = [], localPlayerName = "Player") {
+  const byId = new Map();
+  byId.set("local-player", { id: "local-player", name: localPlayerName || "Player" });
+  entries.forEach((entry) => {
+    if (!entry?.id || entry.id === "local-player") {
+      return;
+    }
+    if (entry.id.startsWith("peer-") && (entry.name || "").trim() === localPlayerName.trim()) {
+      return;
+    }
+    byId.set(entry.id, {
+      id: entry.id,
+      name: entry.name || entry.id,
+    });
+  });
+  return [...byId.values()];
+}
+
+function formatTurnOrderNames(players = [], turnOrder = []) {
+  const byId = Object.fromEntries(players.map((player) => [player.id, player.name]));
+  return turnOrder.map((id) => (id === "local-player" ? `${byId[id] || "Player"} (You)` : byId[id] || id)).join(" -> ");
 }
 
 function startSimulation(profile, event = {}) {
@@ -433,6 +635,8 @@ function startSimulation(profile, event = {}) {
       multiplayer: {
         ...(profile.settings?.multiplayer || {}),
         mode: "simulated",
+        role: "player",
+        spectatorMode: false,
         connectedPlayers,
         selectedSimulatedOpponents: [...(setup.session.simulation.selectedOpponents || [])],
         simulatedSpeed: setup.session.simulation.speed || "normal",
@@ -1538,11 +1742,27 @@ function syncPublicStats(profile) {
   };
 }
 
-function startGameTracking(session) {
+function startGameTracking(session, settings = {}) {
   if (session.gameTracking?.active) {
     return session;
   }
   const now = Date.now();
+  const multiplayerMode = settings?.multiplayer?.mode || "offline";
+  const isSyncedMultiplayer = multiplayerMode === "local" || multiplayerMode === "wifi";
+  const synced = session.syncedMultiplayer || {};
+  const hasConfirmedTurnOrder = Boolean(synced.confirmed && Array.isArray(synced.turnOrder) && synced.turnOrder.length > 0);
+  const syncedMultiplayer = isSyncedMultiplayer
+    ? {
+        ...synced,
+        active: true,
+        pendingConfirmation: !hasConfirmedTurnOrder,
+        confirmed: hasConfirmedTurnOrder,
+        currentPlayerId: hasConfirmedTurnOrder ? synced.turnOrder[0] : synced.currentPlayerId || "local-player",
+        currentPlayerIndex: hasConfirmedTurnOrder ? 0 : Number(synced.currentPlayerIndex || 0),
+        startedAt: now,
+        updatedAt: now,
+      }
+    : synced;
   return {
     ...session,
     gameTracking: {
@@ -1550,12 +1770,16 @@ function startGameTracking(session) {
       startedAt: now,
       mode: "active-game",
     },
+    syncedMultiplayer,
     effectLog: [
       {
         id: createId("game-start"),
         at: now,
         sourceName: "Game Tracking",
-        summary: "Game tracking started.",
+        summary:
+          isSyncedMultiplayer && !hasConfirmedTurnOrder
+            ? "Game tracking started. Confirm multiplayer turn order before advancing phases."
+            : "Game tracking started.",
       },
       ...(session.effectLog || []),
     ].slice(0, 120),
@@ -1573,6 +1797,11 @@ function stopGameTracking(session) {
       active: false,
       startedAt: session.gameTracking?.startedAt || 0,
       mode: "training-ground",
+    },
+    syncedMultiplayer: {
+      ...(session.syncedMultiplayer || {}),
+      active: false,
+      updatedAt: now,
     },
     effectLog: [
       {
@@ -2015,8 +2244,22 @@ function syncSimulationPresence(profile) {
   };
 }
 
-function advancePhase(session) {
-  const transitioned = transitionFsm(session);
+function advancePhase(session, multiplayerSettings = {}) {
+  let transitioned = transitionFsm(session);
+  const traversedStates = [transitioned];
+  let guard = 0;
+  while (
+    guard < 24 &&
+    transitioned.turn === session.turn &&
+    transitioned.phaseIndex === session.phaseIndex
+  ) {
+    transitioned = transitionFsm(transitioned);
+    traversedStates.push(transitioned);
+    guard += 1;
+  }
+  const traversedPhases = traversedStates
+    .map((state) => PHASES[state.phaseIndex] || "Beginning")
+    .filter((phase, index, phases) => index === 0 || phase !== phases[index - 1]);
   const isNewTurn = transitioned.turn !== session.turn;
   const helperState = session.helper || {};
   const shouldReplayHelperReminder =
@@ -2050,12 +2293,61 @@ function advancePhase(session) {
   };
   const withTurnEvent = isNewTurn ? queueGameEvent(nextSession, "TURN_CHANGED", { turn: nextSession.turn }) : nextSession;
   const withReactivated = reactivateDelayedTriggers(withTurnEvent);
-  return processEventTriggers(withReactivated, {
-    type: "phase-changed",
-    phase: PHASES[withReactivated.phaseIndex],
-    eventType: "PHASE_CHANGED",
-    payload: { phase: PHASES[withReactivated.phaseIndex] },
-  });
+  const withPhaseTriggers = traversedPhases.reduce((currentSession, phase, index) =>
+    processEventTriggers(currentSession, {
+      type: "phase-changed",
+      phase,
+      eventType: "PHASE_CHANGED",
+      payload: { phase },
+      sequenceIndex: index,
+    }), withReactivated);
+  return applySyncedMultiplayerTurnProgression(withPhaseTriggers, session, isNewTurn, multiplayerSettings);
+}
+
+function applySyncedMultiplayerTurnProgression(session, previousSession, isNewTurn, multiplayerSettings = {}) {
+  if (!isNewTurn) {
+    return session;
+  }
+  if (session.simulation?.enabled) {
+    return session;
+  }
+  if (!session.gameTracking?.active) {
+    return session;
+  }
+  const mode = multiplayerSettings?.mode || previousSession?.runtime?.multiplayerMode || "offline";
+  if (!["local", "wifi"].includes(mode)) {
+    return session;
+  }
+  const synced = session.syncedMultiplayer || previousSession?.syncedMultiplayer || {};
+  const turnOrder = Array.isArray(synced.turnOrder) ? [...synced.turnOrder].filter(Boolean) : [];
+  if (!synced.confirmed || !turnOrder.length) {
+    return {
+      ...session,
+      syncedMultiplayer: {
+        ...synced,
+        active: true,
+        pendingConfirmation: true,
+        confirmed: false,
+        updatedAt: Date.now(),
+      },
+    };
+  }
+  const currentPlayerId = turnOrder.includes(synced.currentPlayerId) ? synced.currentPlayerId : turnOrder[0];
+  const currentIndex = Math.max(0, turnOrder.indexOf(currentPlayerId));
+  const nextIndex = (currentIndex + 1) % turnOrder.length;
+  const nextPlayerId = turnOrder[nextIndex] || turnOrder[0];
+  return {
+    ...session,
+    syncedMultiplayer: {
+      ...synced,
+      active: true,
+      pendingConfirmation: false,
+      confirmed: true,
+      currentPlayerId: nextPlayerId,
+      currentPlayerIndex: nextIndex,
+      updatedAt: Date.now(),
+    },
+  };
 }
 
 function attachPermanent(session, sourceId, targetId) {
@@ -2711,6 +3003,7 @@ function withRuntimeSettings(session, settings = {}) {
       confirmAmbiguousEffects: Boolean(settings.confirmAmbiguousEffects ?? true),
       adhdModeEnabled: Boolean(settings.adhdMode?.enabled),
       debugRules: Boolean(settings.developer?.rulesDebug),
+      multiplayerMode: settings.multiplayer?.mode || "offline",
     },
   };
 }

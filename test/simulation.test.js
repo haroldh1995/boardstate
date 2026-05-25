@@ -25,6 +25,8 @@ test("simulation setup starts local turn with selected NPC opponents", () => {
   let profile = createDefaultProfile();
   profile = dispatch(profile, { type: "START_SIMULATION", selectedOpponents: ["alpha", "omega"], speed: "normal" });
   assert.equal(profile.settings.multiplayer.mode, "simulated");
+  assert.equal(profile.settings.multiplayer.role, "player");
+  assert.equal(profile.settings.multiplayer.spectatorMode, false);
   assert.equal(profile.activeSession.simulation.enabled, true);
   assert.equal(profile.activeSession.simulation.status, "running");
   assert.deepEqual(profile.activeSession.simulation.selectedOpponents, ["alpha", "omega"]);
@@ -32,6 +34,17 @@ test("simulation setup starts local turn with selected NPC opponents", () => {
   assert.ok(profile.settings.multiplayer.connectedPlayers.some((entry) => entry.id === "alpha"));
   assert.ok(profile.settings.multiplayer.connectedPlayers.some((entry) => entry.id === "omega"));
   assert.equal(profile.activeSession.gameTracking.active, true);
+});
+
+test("simulation turn order initializes with user first and randomized npc order after user", () => {
+  let profile = createDefaultProfile();
+  profile = dispatch(profile, { type: "START_SIMULATION", selectedOpponents: ["alpha", "beta", "omega"], speed: "normal" });
+  const turnOrder = profile.activeSession.simulation.turnOrder || [];
+  assert.equal(turnOrder[0], "local-player");
+  assert.deepEqual([...turnOrder.slice(1)].sort(), ["alpha", "beta", "omega"]);
+  assert.ok(
+    profile.activeSession.simulation.log.some((entry) => /Turn order:/i.test(entry.text || ""))
+  );
 });
 
 test("simulation format labeling supports 1v1, 3-way, and 4-way commander setups", () => {
@@ -49,6 +62,9 @@ test("simulation format labeling supports 1v1, 3-way, and 4-way commander setups
 test("simulation pass turn hands control to npc and tick generates npc action log", () => {
   let profile = createDefaultProfile();
   profile = dispatch(profile, { type: "START_SIMULATION", selectedOpponents: ["alpha"], speed: "normal" });
+  const phaseBefore = profile.activeSession.phaseIndex;
+  profile = dispatch(profile, { type: "ADVANCE_PHASE" });
+  assert.notEqual(profile.activeSession.phaseIndex, phaseBefore);
   profile = dispatch(profile, { type: "SIMULATION_PASS_TURN" });
   assert.equal(profile.activeSession.simulation.currentPlayerId, "alpha");
   const beforeLogs = profile.activeSession.simulation.log.length;
@@ -185,4 +201,73 @@ test("simulation completion with revenge enabled updates learning state for npc 
   assert.ok((profile.simulationMemory?.npcLearning?.omega?.targetPriority?.alpha || 0) >= 2);
   assert.ok((profile.simulationMemory?.npcLearning?.alpha?.aggression || 0) >= 1);
   assert.equal(profile.simulationStats.history[0]?.revengeEnabled, true);
+});
+
+test("synced multiplayer roll and confirm turn order persists and phase wrap advances to next player", () => {
+  let profile = createDefaultProfile();
+  profile = dispatch(profile, { type: "SET_MULTIPLAYER_MODE", mode: "local" });
+  profile = dispatch(profile, { type: "START_GAME_TRACKING" });
+  profile = dispatch(profile, {
+    type: "ROLL_MULTIPLAYER_TURN_ORDER",
+    players: [
+      { id: "local-player", name: "Player" },
+      { id: "alpha-peer", name: "Alpha" },
+      { id: "beta-peer", name: "Beta" },
+    ],
+    rolls: {
+      "local-player": 11,
+      "alpha-peer": 18,
+      "beta-peer": 14,
+    },
+  });
+  assert.equal(profile.activeSession.syncedMultiplayer.confirmed, false);
+  assert.equal(profile.activeSession.syncedMultiplayer.pendingConfirmation, true);
+  assert.deepEqual(profile.activeSession.syncedMultiplayer.suggestedTurnOrder, ["alpha-peer", "beta-peer", "local-player"]);
+
+  profile = dispatch(profile, {
+    type: "CONFIRM_MULTIPLAYER_TURN_ORDER",
+    turnOrder: ["local-player", "beta-peer", "alpha-peer"],
+  });
+  assert.equal(profile.activeSession.syncedMultiplayer.confirmed, true);
+  assert.equal(profile.activeSession.syncedMultiplayer.currentPlayerId, "local-player");
+
+  const initialTurn = profile.activeSession.turn;
+  let guard = 0;
+  while (profile.activeSession.turn === initialTurn && guard < 20) {
+    profile = dispatch(profile, { type: "ADVANCE_PHASE" });
+    guard += 1;
+  }
+  assert.ok(profile.activeSession.turn > initialTurn);
+  assert.equal(profile.activeSession.syncedMultiplayer.currentPlayerId, "beta-peer");
+});
+
+test("synced multiplayer tied highest rolls are tracked and manual confirmation resolves tie", () => {
+  let profile = createDefaultProfile();
+  profile = dispatch(profile, { type: "SET_MULTIPLAYER_MODE", mode: "wifi" });
+  profile = dispatch(profile, { type: "START_GAME_TRACKING" });
+  profile = dispatch(profile, {
+    type: "ROLL_MULTIPLAYER_TURN_ORDER",
+    players: [
+      { id: "local-player", name: "Player" },
+      { id: "alpha-peer", name: "Alpha" },
+      { id: "omega-peer", name: "Omega" },
+    ],
+    rolls: {
+      "local-player": 19,
+      "alpha-peer": 19,
+      "omega-peer": 7,
+    },
+  });
+  assert.deepEqual(profile.activeSession.syncedMultiplayer.tiePlayerIds.sort(), ["alpha-peer", "local-player"]);
+  assert.equal(profile.activeSession.syncedMultiplayer.pendingConfirmation, true);
+  assert.equal(profile.settings.multiplayer.needsTurnOrderConfirmation, true);
+
+  profile = dispatch(profile, {
+    type: "CONFIRM_MULTIPLAYER_TURN_ORDER",
+    turnOrder: ["alpha-peer", "local-player", "omega-peer"],
+  });
+  assert.equal(profile.activeSession.syncedMultiplayer.confirmed, true);
+  assert.equal(profile.activeSession.syncedMultiplayer.pendingConfirmation, false);
+  assert.equal(profile.activeSession.syncedMultiplayer.currentPlayerId, "alpha-peer");
+  assert.deepEqual(profile.settings.multiplayer.confirmedTurnOrder, ["alpha-peer", "local-player", "omega-peer"]);
 });
