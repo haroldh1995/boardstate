@@ -1,0 +1,78 @@
+name: Package Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Sync Android assets
+        run: npm run android:sync-assets
+
+      - name: Build Android artifacts
+        run: |
+          chmod +x android-app/gradlew
+          npm run android:gradle -- :app:assembleDebug :app:assembleRelease :app:bundleRelease :app:exportReleaseUploadCertificate
+
+      - name: Prepare release package
+        shell: bash
+        run: |
+          TAG_NAME="${GITHUB_REF_NAME:-manual}"
+          mkdir -p release-package/web-dist
+          mkdir -p release-package/android
+          cp -R dist/* release-package/web-dist/
+          cp android-app/app/build/outputs/apk/debug/app-debug.apk release-package/android/
+          cp android-app/app/build/outputs/apk/release/app-release.apk release-package/android/
+          cp android-app/app/build/outputs/bundle/release/app-release.aab release-package/android/
+          cp android-app/release/upload_certificate.pem release-package/android/
+          cp android-app/release/INSTALL_INSTRUCTIONS.md release-package/
+          cp android-app/release/KNOWN_LIMITATIONS.md release-package/
+          cp android-app/release/PERMISSIONS.md release-package/
+          cp android-app/release/PLAY_STORE_CHECKLIST.md release-package/
+          cp android-app/release/PRIVACY_DATA_STORAGE.md release-package/
+          cp android-app/release/RELEASE_NOTES.md release-package/
+          (cd release-package && sha256sum android/* web-dist/assets/* > SHA256SUMS.txt)
+          zip -r "BoardState-${TAG_NAME}-Release-Package.zip" release-package
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            BoardState-${{ github.ref_name }}-Release-Package.zip
+            android-app/app/build/outputs/apk/debug/app-debug.apk
+            android-app/app/build/outputs/apk/release/app-release.apk
+            android-app/app/build/outputs/bundle/release/app-release.aab
+            android-app/release/upload_certificate.pem
+          generate_release_notes: true

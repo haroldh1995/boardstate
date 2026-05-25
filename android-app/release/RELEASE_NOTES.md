@@ -2,8 +2,8 @@
 
 ## App
 - Name: BoardState
-- Version: 1.9.0
-- Version code: 9
+- Version: 1.9.1
+- Version code: 10
 - Package: `com.boardstate.app`
 
 ## Summary
