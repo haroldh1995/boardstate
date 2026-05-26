@@ -778,12 +778,12 @@
           <span class="dock-icon" aria-hidden="true">⛨</span>
           <span>${i?`Resolving...`:`Resolve`}</span>
         </button>
-        <button class="battlefield-wheel-center" data-next-phase>
-          <span class="dock-icon" aria-hidden="true">⏭</span>
-          <span>Next</span>
-          <span>Phase</span>
-        </button>
       </div>
+      <button class="battlefield-wheel-center battlefield-wheel-center--raised" data-next-phase>
+        <span class="dock-icon" aria-hidden="true">⏭</span>
+        <span>Next</span>
+        <span>Phase</span>
+      </button>
     </section>
   `}function ko(e,t,n=!1,r=[],i=``,a=!1,o=``){if(!t||t===`history`||t===`triggers`)return``;let s=e.activeSession,c=e.settings?.playerNotes?.dock||``,l=e.settings?.utility?.lastDice||`d20: 1`,u=e.settings?.utility?.calculator||``,d=fs(s)[0]?.rulesText||fs(s)[0]?.oracleText||`Select a permanent to inspect rules.`,f=t===`search`?`Search/Add Card`:t===`simulation`?`Simulation Log`:bs(t);return`
     <section class="utility-overlay glass ${n?`mobile-bottom-sheet`:``}" data-no-swipe>

@@ -2,8 +2,8 @@
 
 ## App
 - Name: BoardState
-- Version: 1.9.2
-- Version code: 11
+- Version: 1.9.3
+- Version code: 12
 - Package: `com.boardstate.app`
 
 ## Summary
@@ -11,6 +11,7 @@
 - Supports remote-first loading with bundled offline fallback.
 - Keeps JavaScript + DOM storage enabled for local-first app state.
 - Uses the provided dragon icon as the official launcher/app icon set.
+- Updates the battlefield mobile dashboard with a smaller footprint, raised center phase control, and full gold filigree border treatment.
 
 ## Included behavior
 - WebView back navigation

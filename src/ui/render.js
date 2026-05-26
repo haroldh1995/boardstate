@@ -3439,12 +3439,12 @@ function renderMobileBattlefieldDock(profile, activeUtilityPanel = "", utilityDo
           <span class="dock-icon" aria-hidden="true">⛨</span>
           <span>${combatResolving ? "Resolving..." : "Resolve"}</span>
         </button>
-        <button class="battlefield-wheel-center" data-next-phase>
-          <span class="dock-icon" aria-hidden="true">⏭</span>
-          <span>Next</span>
-          <span>Phase</span>
-        </button>
       </div>
+      <button class="battlefield-wheel-center battlefield-wheel-center--raised" data-next-phase>
+        <span class="dock-icon" aria-hidden="true">⏭</span>
+        <span>Next</span>
+        <span>Phase</span>
+      </button>
     </section>
   `;
 }
