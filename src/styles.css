@@ -1984,8 +1984,8 @@ textarea {
   }
 
   .battlefield-wheel-center--raised {
-    top: -10%;
-    transform: translateX(-50%);
+    top: 52%;
+    transform: translate(-50%, -50%);
   }
 
   .battlefield-wheel-center .dock-icon {
