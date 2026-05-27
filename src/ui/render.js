@@ -5,6 +5,14 @@ import { canBeCommander } from "../game/commanderSystem.js";
 import { createPermanent, PHASES } from "../state/schema.js";
 import { buildPredictiveActions } from "../game/predictiveActions.js";
 import { getSimulationDeckById } from "../simulation/decks/index.js";
+import {
+  buildBugReport,
+  buildDebugState,
+  buildGameLog,
+  collectRulesConfidence,
+  confidenceLabel,
+  safeJson,
+} from "../support/debugExport.js";
 
 const PORTRAIT_TOUCH_QUERY = "(orientation: portrait) and (max-width: 1024px)";
 const SWIPE_DISTANCE_THRESHOLD = 72;
@@ -125,6 +133,8 @@ export function mountApp(root, store) {
   let helperFadeTimer = null;
   let helperHideTimer = null;
   let helperDismissCooldown = new Map();
+  let confirmationDialog = null;
+  let uiNotice = null;
 
   store.subscribe(render);
   render(store.getState());
@@ -240,6 +250,8 @@ export function mountApp(root, store) {
       syncedTurnOrderTiePlayerIds,
       opponentBoardIndex,
       opponentOverlayOpen,
+      confirmationDialog,
+      uiNotice,
     });
     bind(root, profile);
     installSimulationUiHandlers();
@@ -489,7 +501,13 @@ export function mountApp(root, store) {
     );
     container.querySelectorAll("[data-end-game]").forEach((button) =>
       button.addEventListener("click", () => {
-        endActiveGame();
+        openConfirmation({
+          id: "end-game",
+          title: "End active game?",
+          message: "This stops active tracking or Dry Run automation while preserving logs and stats.",
+          confirmLabel: "End Game",
+          danger: true,
+        });
       })
     );
     container.querySelectorAll("[data-simulation-pass-turn]").forEach((button) =>
@@ -682,7 +700,12 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-reset-hud-layout]").forEach((button) =>
       button.addEventListener("click", () => {
-        resetHudLayout();
+        openConfirmation({
+          id: "reset-hud-layout",
+          title: "Reset HUD layout?",
+          message: "Floating badge positions return to their safe defaults.",
+          confirmLabel: "Reset Layout",
+        });
       })
     );
     container.querySelector("[data-helper-remind]")?.addEventListener("click", () => {
@@ -894,7 +917,15 @@ export function mountApp(root, store) {
         dispatchWithFeedback({ type: "SET_LIFE", life: value }, true);
       }
     });
-    container.querySelector("[data-life-reset]")?.addEventListener("click", () => dispatchWithFeedback({ type: "RESET_PLAYER_TRACKERS" }, true));
+    container.querySelector("[data-life-reset]")?.addEventListener("click", () =>
+      openConfirmation({
+        id: "reset-life-trackers",
+        title: "Reset life and trackers?",
+        message: "Life returns to 40 and player counters/commander damage are reset.",
+        confirmLabel: "Reset Trackers",
+        danger: true,
+      })
+    );
     container.querySelector("[data-close-quick-panel]")?.addEventListener("click", () => {
       quickPanelOpen = "";
       render(store.getState());
@@ -928,6 +959,20 @@ export function mountApp(root, store) {
       button.addEventListener("click", () => {
         advancePhaseFromUi();
       });
+    });
+    container.querySelector(".battlefield-mobile-dock")?.addEventListener("click", (event) => {
+      if (event.target.closest("button")) {
+        return;
+      }
+      const centerButton = container.querySelector(".battlefield-wheel-center[data-next-phase]");
+      const bounds = centerButton?.getBoundingClientRect();
+      if (!bounds) {
+        return;
+      }
+      if (event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom) {
+        event.preventDefault();
+        advancePhaseFromUi();
+      }
     });
     container.querySelector("[data-archive-game]")?.addEventListener("click", () => store.dispatch({ type: "ARCHIVE_GAME", result: "completed" }));
     container.querySelector("[data-cast-commander]")?.addEventListener("click", () => store.dispatch({ type: "CAST_COMMANDER" }));
@@ -1012,15 +1057,117 @@ export function mountApp(root, store) {
       })
     );
 
-    container.querySelector("[data-export]")?.addEventListener("click", () => downloadProfile(profile));
-    container.querySelector("[data-import]")?.addEventListener("change", async (event) => {
+    container.querySelectorAll("[data-export]").forEach((button) => button.addEventListener("click", () => downloadProfile(profile)));
+    container.querySelectorAll("[data-import]").forEach((input) => input.addEventListener("change", async (event) => {
       const file = event.target.files?.[0];
       if (!file) {
         return;
       }
-      const text = await file.text();
-      await store.dispatch({ type: "IMPORT_PROFILE", profile: parseImportedProfile(text) });
+      try {
+        const text = await file.text();
+        const importedProfile = parseImportedProfile(text);
+        openConfirmation({
+          id: "import-profile",
+          title: "Import profile over current data?",
+          message: "This replaces the current local profile after validation.",
+          confirmLabel: "Import Profile",
+          danger: true,
+          payload: importedProfile,
+        });
+      } catch (error) {
+        addRecovery({
+          source: "Profile Import",
+          message: "Import failed because the selected file was not a valid BoardState profile.",
+          technicalMessage: error?.message || String(error),
+          severity: "error",
+          suggestedAction: "Choose a valid exported BoardState profile JSON file.",
+        });
+      } finally {
+        event.target.value = "";
+      }
+    }));
+
+    container.querySelectorAll("[data-confirm-action]").forEach((button) =>
+      button.addEventListener("click", () => runConfirmationAction(button.dataset.confirmAction))
+    );
+    container.querySelectorAll("[data-cancel-confirmation]").forEach((button) =>
+      button.addEventListener("click", () => {
+        confirmationDialog = null;
+        render(store.getState());
+      })
+    );
+    container.querySelectorAll("[data-dismiss-recovery]").forEach((button) =>
+      button.addEventListener("click", () => store.dispatch({ type: "DISMISS_RECOVERY_ENTRY", id: button.dataset.dismissRecovery }))
+    );
+    container.querySelectorAll("[data-copy-recovery]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const entry = (store.getState().activeSession?.recoveryLog || []).find((item) => item.id === button.dataset.copyRecovery);
+        await copyOrDownloadText("boardstate-recovery-entry.json", safeJson(entry || {}), "Recovery details copied.");
+      })
+    );
+    container.querySelector("[data-copy-game-log]")?.addEventListener("click", async () => {
+      await copyOrDownloadText("boardstate-game-log.json", safeJson(buildGameLog(store.getState())), "Game log copied.");
     });
+    container.querySelector("[data-copy-debug-state]")?.addEventListener("click", async () => {
+      await copyOrDownloadText("boardstate-debug-state.json", safeJson(buildDebugState(store.getState(), activePage)), "Debug state copied.");
+    });
+    container.querySelector("[data-export-bug-report]")?.addEventListener("click", async () => {
+      const text = safeJson(buildBugReport(store.getState(), activePage));
+      downloadText(`boardstate-bug-report-${new Date().toISOString().slice(0, 10)}.json`, text, "application/json");
+      await copyOrDownloadText("boardstate-bug-report.json", text, "Bug report exported.");
+    });
+    container.querySelector("[data-load-tutorial-sample]")?.addEventListener("click", () => {
+      const session = store.getState().activeSession;
+      const hasBoard = (session.battlefield?.player || []).length || (session.battlefield?.opponent || []).length || session.gameTracking?.active || session.simulation?.enabled;
+      if (hasBoard) {
+        openConfirmation({
+          id: "load-tutorial-sample",
+          title: "Load tutorial sample board?",
+          message: "This replaces the visible battlefield with a small training board. Active games are not deleted, but the current board view changes.",
+          confirmLabel: "Load Tutorial",
+          danger: true,
+        });
+        return;
+      }
+      store.dispatch({ type: "LOAD_TUTORIAL_SAMPLE_BOARD" });
+      setActivePage("battlefield");
+      showNotice("Tutorial sample board loaded.");
+    });
+    container.querySelector("[data-clear-game-history]")?.addEventListener("click", () =>
+      openConfirmation({
+        id: "clear-game-history",
+        title: "Clear game history?",
+        message: "This clears current action/effect history without clearing simulation learning.",
+        confirmLabel: "Clear History",
+        danger: true,
+      })
+    );
+    container.querySelector("[data-clear-simulation-learning]")?.addEventListener("click", () =>
+      openConfirmation({
+        id: "clear-simulation-learning",
+        title: "Clear simulation learning?",
+        message: "Dry Run revenge memory resets, but normal game history stays intact.",
+        confirmLabel: "Clear Learning",
+        danger: true,
+      })
+    );
+    container.querySelector("[data-reset-settings]")?.addEventListener("click", () =>
+      openConfirmation({
+        id: "reset-settings",
+        title: "Reset settings?",
+        message: "HUD, accessibility, and page settings return to defaults.",
+        confirmLabel: "Reset Settings",
+      })
+    );
+    container.querySelector("[data-reset-all-local-data]")?.addEventListener("click", () =>
+      openConfirmation({
+        id: "reset-all-local-data",
+        title: "Reset all local data?",
+        message: "This clears local BoardState data in this profile. Export first if you want a backup.",
+        confirmLabel: "Reset Everything",
+        danger: true,
+      })
+    );
 
     container.querySelector("[data-search-form]")?.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -1615,12 +1762,24 @@ export function mountApp(root, store) {
     if (syncedModeActive) {
       if (!syncedTurn.confirmed || !Array.isArray(syncedTurn.turnOrder) || !syncedTurn.turnOrder.length) {
         phaseControlMessage = "Confirm synced multiplayer turn order before advancing phases.";
+        addRecovery({
+          source: "Phase Controls",
+          message: phaseControlMessage,
+          severity: "warning",
+          suggestedAction: "Open Game Options and confirm synced multiplayer turn order.",
+        });
         render(store.getState());
         return;
       }
       const activeTurnPlayerId = syncedTurn.currentPlayerId || syncedTurn.turnOrder[0];
       if (activeTurnPlayerId && activeTurnPlayerId !== "local-player" && multiplayer.role === "spectator") {
         phaseControlMessage = `${resolveSyncedPlayerName(syncedTurn.players || [], activeTurnPlayerId)} turn is active. Spectator controls are disabled.`;
+        addRecovery({
+          source: "Phase Controls",
+          message: phaseControlMessage,
+          severity: "info",
+          suggestedAction: "Wait for the active player or leave spectator mode.",
+        });
         render(store.getState());
         return;
       }
@@ -1631,11 +1790,23 @@ export function mountApp(root, store) {
     if (simulation.enabled && simulation.status === "running") {
       if (simulation.currentPlayerId !== "local-player") {
         phaseControlMessage = `${currentActor} turn is processing.`;
+        addRecovery({
+          source: "Dry Run",
+          message: phaseControlMessage,
+          severity: "info",
+          suggestedAction: "Wait for NPC automation or pause the simulation.",
+        });
         render(store.getState());
         return;
       }
       if (!simulation.waitingForUser) {
         phaseControlMessage = "Waiting for simulation priority before advancing phase.";
+        addRecovery({
+          source: "Dry Run",
+          message: phaseControlMessage,
+          severity: "info",
+          suggestedAction: "Pause the simulation if you need manual control.",
+        });
         render(store.getState());
         return;
       }
@@ -1651,7 +1822,14 @@ export function mountApp(root, store) {
       const dispatchPromise = store.dispatch({ type: "ADVANCE_PHASE" });
       requestAnimationFrame(finalize);
       await dispatchPromise;
-    } catch {
+    } catch (error) {
+      addRecovery({
+        source: "Phase Controls",
+        message: "Phase could not advance.",
+        technicalMessage: error?.message || String(error),
+        severity: "error",
+        suggestedAction: "Try again, resolve pending triggers, or copy debug state from Game Options.",
+      });
       finalize();
     }
   }
@@ -2103,6 +2281,97 @@ export function mountApp(root, store) {
     vibrateFeedback(strong);
   }
 
+  function openConfirmation(dialog) {
+    confirmationDialog = {
+      id: dialog.id,
+      title: dialog.title || "Confirm action",
+      message: dialog.message || "Please confirm this action.",
+      confirmLabel: dialog.confirmLabel || "Confirm",
+      cancelLabel: dialog.cancelLabel || "Cancel",
+      danger: Boolean(dialog.danger),
+      payload: dialog.payload || null,
+    };
+    render(store.getState());
+  }
+
+  function runConfirmationAction(id = "") {
+    const payload = confirmationDialog?.payload || null;
+    confirmationDialog = null;
+    switch (id) {
+      case "end-game":
+        endActiveGame();
+        showNotice("Active game ended.");
+        break;
+      case "reset-hud-layout":
+        resetHudLayout();
+        showNotice("HUD layout reset.");
+        break;
+      case "reset-life-trackers":
+        dispatchWithFeedback({ type: "RESET_PLAYER_TRACKERS" }, true);
+        showNotice("Life and trackers reset.");
+        break;
+      case "import-profile":
+        if (payload) {
+          store.dispatch({ type: "IMPORT_PROFILE", profile: payload });
+          showNotice("Profile imported.");
+        }
+        break;
+      case "load-tutorial-sample":
+        store.dispatch({ type: "LOAD_TUTORIAL_SAMPLE_BOARD" });
+        setActivePage("battlefield");
+        showNotice("Tutorial sample board loaded.");
+        break;
+      case "clear-game-history":
+        store.dispatch({ type: "CLEAR_GAME_HISTORY" });
+        showNotice("Game history cleared.");
+        break;
+      case "clear-simulation-learning":
+        store.dispatch({ type: "CLEAR_SIMULATION_LEARNING" });
+        showNotice("Simulation learning cleared.");
+        break;
+      case "reset-settings":
+        store.dispatch({ type: "RESET_SETTINGS" });
+        showNotice("Settings reset.");
+        break;
+      case "reset-all-local-data":
+        store.dispatch({ type: "RESET_ALL_LOCAL_DATA" });
+        showNotice("Local data reset.");
+        break;
+      default:
+        showNotice("Action cancelled.");
+        break;
+    }
+    render(store.getState());
+  }
+
+  function showNotice(message, severity = "success") {
+    uiNotice = {
+      id: `notice-${Date.now()}`,
+      message,
+      severity,
+      timestamp: Date.now(),
+    };
+    clearTimeout(showNotice.timer);
+    showNotice.timer = setTimeout(() => {
+      uiNotice = null;
+      render(store.getState());
+    }, 3800);
+  }
+
+  function addRecovery(entry) {
+    store.dispatch({ type: "ADD_RECOVERY_ENTRY", entry });
+  }
+
+  async function copyOrDownloadText(filename, text, successMessage = "Copied.") {
+    try {
+      await navigator.clipboard.writeText(text);
+      showNotice(successMessage);
+    } catch {
+      downloadText(filename, text, "application/json");
+      showNotice(`${successMessage} Download fallback created.`);
+    }
+  }
+
   function resolveStackRemovalRequest(stackedPermanents = [], requestedMode = "custom") {
     const mode = String(requestedMode || "custom").toLowerCase();
     const totals = Object.fromEntries(stackedPermanents.map((permanent) => [permanent.id, Math.max(1, Number(permanent.quantity || 1))]));
@@ -2246,11 +2515,19 @@ export function mountApp(root, store) {
       }
       searchResults = results;
       searchMessage = searchResults.length ? `${searchResults.length} result(s)` : "No results found.";
-    } catch {
+    } catch (error) {
       if (token !== searchRequestToken) {
         return;
       }
       searchMessage = "Search unavailable right now.";
+      addRecovery({
+        source: "Scryfall Search",
+        message: "Scryfall search is unavailable right now.",
+        technicalMessage: error?.message || String(error),
+        severity: "warning",
+        suggestedAction: "Keep typing, retry search, or add from cached commander deck results if available.",
+        action: "retry-search",
+      });
     } finally {
       if (token === searchRequestToken) {
         searchLoading = false;
@@ -2380,6 +2657,8 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       ${uiState.syncedTurnOrderSetupOpen ? renderSyncedTurnOrderModal(uiState.syncedTurnOrderPlayers || [], uiState.syncedTurnOrderRolls || {}, uiState.syncedTurnOrderOrder || [], uiState.syncedTurnOrderSuggested || [], uiState.syncedTurnOrderTiePlayerIds || [], uiState.syncedTurnOrderError || "") : ""}
       ${renderAdhdAssistPanel(profile, page, uiLayer.current)}
       ${renderHelperSprite(profile, uiState.helperMessage, uiState.hudBadgePositions || HUD_BADGE_DEFAULTS, Boolean(uiState.isMobilePortrait), Boolean(uiState.hudBadgesLocked))}
+      ${renderRecoveryToasts(profile, uiState.uiNotice)}
+      ${uiState.confirmationDialog ? renderConfirmationDialog(uiState.confirmationDialog) : ""}
       ${renderEdgeSwipeZones(profile)}
     </main>
   `;
@@ -3346,7 +3625,7 @@ function renderTriggerQueuePanel(profile) {
           <article class="log-card ${entry.status === "pending" ? "pending-trigger" : ""}">
             <strong>${escapeHtml(entry.sourceName)}</strong>
             <span>${escapeHtml(entry.eventType)} · Chain ${escapeHtml(entry.chainId)}</span>
-            <p>Status: ${escapeHtml(entry.status)}</p>
+            <p>Status: ${escapeHtml(entry.status)} <span class="confidence-pill ${confidenceClass(entry.rulesConfidence)}">${escapeHtml(confidenceLabel(entry.rulesConfidence))}</span></p>
             ${entry.effectDefinitions?.some((effect) => effect.manual) ? `<p><strong>manual choice required</strong></p>` : ""}
             <p>Effects: ${(entry.effectDefinitions || []).map((effect) => escapeHtml(effect.action || "effect")).join(", ")}</p>
             <p>Modifiers: ${(entry.generatedModifiers || []).map((modifier) => `L${modifier.layer}:${modifier.operation}`).join(" · ") || "none"}</p>
@@ -3917,7 +4196,7 @@ function renderPending(session) {
       ${session.pendingEffects.map((effect) => `
         <article>
           <strong>${escapeHtml(effect.sourceName)}</strong>
-          <span>${escapeHtml(effect.status === "pending" ? "manual choice required" : effect.status)}</span>
+          <span>${escapeHtml(effect.status === "pending" ? "manual choice required" : effect.status)} <i class="confidence-pill ${confidenceClass(effect.rulesConfidence)}">${escapeHtml(confidenceLabel(effect.rulesConfidence))}</i></span>
           <p>${escapeHtml(effect.summary || effect.effect?.summary || effect.effect?.reason || effect.effect?.action || "Manual decision required.")}</p>
           <button data-pending-effect="${effect.id}" data-status="resolved">Resolved</button>
           <button data-pending-effect="${effect.id}" data-status="skipped">Skipped</button>
@@ -4129,6 +4408,78 @@ function renderGameOptions(profile, page = "life") {
             ${renderToggle("Enable Advanced Gestures", "gestures.advanced", Boolean(profile.settings?.gestures?.advanced))}
             ${renderToggle("Focus mode", "battlefield.focusMode", Boolean(profile.settings?.battlefield?.focusMode))}
           </article>
+          <article class="option-card">
+            <h3>Support / Debug</h3>
+            <p>Copy clean diagnostics without passwords or private tokens.</p>
+            <div class="button-grid">
+              <button data-copy-game-log>Copy Game Log</button>
+              <button data-copy-debug-state>Copy Debug State</button>
+              <button data-export-bug-report>Export Bug Report</button>
+              <button data-load-tutorial-sample>Load Tutorial Sample Board</button>
+            </div>
+            <div class="rules-confidence-mini">
+              ${collectRulesConfidence(profile)
+                .slice(0, 4)
+                .map((entry) => `<span class="confidence-pill ${confidenceClass(entry.rulesConfidence)}">${escapeHtml(confidenceLabel(entry.rulesConfidence))}</span>`)
+                .join("") || `<span class="confidence-pill info">No rules events yet</span>`}
+            </div>
+          </article>
+          <article class="option-card">
+            <h3>Data Safety</h3>
+            <p>Destructive actions ask before changing local data.</p>
+            <div class="button-grid">
+              <button data-export>Export Profile</button>
+              <label class="file-pill">Import Profile<input type="file" accept="application/json" data-import /></label>
+              <button data-clear-game-history>Clear Game History</button>
+              <button data-clear-simulation-learning>Clear Simulation Learning</button>
+              <button data-reset-settings>Reset Settings</button>
+              <button class="danger-soft" data-reset-all-local-data>Reset All Local Data</button>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderRecoveryToasts(profile, notice = null) {
+  const entries = (profile.activeSession?.recoveryLog || []).filter((entry) => !entry.dismissed).slice(0, 3);
+  if (!entries.length && !notice) {
+    return "";
+  }
+  return `
+    <section class="recovery-toast-stack" data-no-swipe>
+      ${notice ? `
+        <article class="recovery-toast ${escapeAttribute(notice.severity || "success")}">
+          <strong>${escapeHtml(notice.severity === "error" ? "Needs attention" : "BoardState")}</strong>
+          <p>${escapeHtml(notice.message)}</p>
+        </article>
+      ` : ""}
+      ${entries.map((entry) => `
+        <article class="recovery-toast ${escapeAttribute(entry.severity || "info")}">
+          <strong>${escapeHtml(entry.source || "Recovery")}</strong>
+          <p>${escapeHtml(entry.message || "Something needs attention.")}</p>
+          ${entry.suggestedAction ? `<span>${escapeHtml(entry.suggestedAction)}</span>` : ""}
+          <div class="row mini">
+            <button data-copy-recovery="${escapeAttribute(entry.id)}">Copy Details</button>
+            <button data-dismiss-recovery="${escapeAttribute(entry.id)}">Dismiss</button>
+          </div>
+        </article>
+      `).join("")}
+    </section>
+  `;
+}
+
+function renderConfirmationDialog(dialog) {
+  return `
+    <section class="overlay-backdrop confirm-backdrop" data-no-swipe>
+      <div class="confirm-dialog glass">
+        <p class="eyebrow">${dialog.danger ? "Safety confirmation" : "Please confirm"}</p>
+        <h2>${escapeHtml(dialog.title)}</h2>
+        <p>${escapeHtml(dialog.message)}</p>
+        <div class="row">
+          <button data-cancel-confirmation>${escapeHtml(dialog.cancelLabel || "Cancel")}</button>
+          <button class="${dialog.danger ? "danger-soft" : ""}" data-confirm-action="${escapeAttribute(dialog.id)}">${escapeHtml(dialog.confirmLabel || "Confirm")}</button>
         </div>
       </div>
     </section>
@@ -4771,6 +5122,15 @@ function formatLabel(value) {
   return String(value || "").replace(/^\w/, (letter) => letter.toUpperCase());
 }
 
+function confidenceClass(value = "") {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("auto")) return "success";
+  if (normalized.includes("manual") || normalized.includes("partial")) return "warning";
+  if (normalized.includes("ignored") || normalized.includes("review")) return "info";
+  if (normalized.includes("failed")) return "error";
+  return "info";
+}
+
 function formatManaLabel(value) {
   const labels = { W: "White", U: "Blue", B: "Black", R: "Red", G: "Green", C: "Colorless", Generic: "Generic" };
   return labels[value] || value;
@@ -4781,11 +5141,15 @@ function formatPageLabel(value) {
 }
 
 function downloadProfile(profile) {
-  const blob = new Blob([exportProfile(profile)], { type: "application/json" });
+  downloadText(`boardstate-profile-${new Date().toISOString().slice(0, 10)}.json`, exportProfile(profile), "application/json");
+}
+
+function downloadText(filename, text, type = "text/plain") {
+  const blob = new Blob([text], { type });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `boardstate-profile-${new Date().toISOString().slice(0, 10)}.json`;
+  link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
 }

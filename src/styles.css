@@ -1743,6 +1743,7 @@ textarea {
     isolation: isolate;
     overflow: visible;
     clip-path: polygon(2.2% 8%, 8.5% 2.2%, 91.5% 2.2%, 97.8% 8%, 100% 22%, 100% 78%, 97.8% 92%, 91.5% 97.8%, 8.5% 97.8%, 2.2% 92%, 0% 78%, 0% 22%);
+    pointer-events: auto;
   }
 
   .battlefield-mobile-dock::before,
@@ -1796,6 +1797,7 @@ textarea {
     letter-spacing: 0.06em;
     text-transform: uppercase;
     box-shadow: inset 0 1px 0 rgba(255, 235, 188, 0.2);
+    pointer-events: auto;
   }
 
   .battlefield-mobile-wheel {
@@ -1812,6 +1814,7 @@ textarea {
       inset 0 -1px 0 rgba(114, 63, 178, 0.2);
     overflow: visible;
     clip-path: polygon(2.4% 8%, 9% 2.4%, 91% 2.4%, 97.6% 8%, 100% 22%, 100% 78%, 97.6% 92%, 91% 97.6%, 9% 97.6%, 2.4% 92%, 0% 78%, 0% 22%);
+    pointer-events: none;
   }
 
   .battlefield-mobile-wheel::before,
@@ -1858,6 +1861,7 @@ textarea {
       0 0 14px rgba(241, 192, 107, 0.2);
     isolation: isolate;
     overflow: hidden;
+    pointer-events: auto;
   }
 
   .battlefield-wheel-action::before {
@@ -1957,10 +1961,11 @@ textarea {
   }
 
   .battlefield-wheel-center {
-    position: absolute;
+    position: fixed;
     left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
+    top: auto;
+    bottom: calc(42px + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
     width: 120px;
     height: 120px;
     border-radius: 999px;
@@ -1980,12 +1985,13 @@ textarea {
     letter-spacing: 0.08em;
     text-transform: uppercase;
     line-height: 1;
-    z-index: 4;
+    z-index: 20;
+    pointer-events: auto;
   }
 
   .battlefield-wheel-center--raised {
-    top: 52%;
-    transform: translate(-50%, -50%);
+    top: auto;
+    transform: translateX(-50%);
   }
 
   .battlefield-wheel-center .dock-icon {
@@ -2509,6 +2515,108 @@ textarea {
 
 .simulation-stats-overlay {
   max-width: min(48rem, calc(100vw - 1rem));
+}
+
+.recovery-toast-stack {
+  position: fixed;
+  right: 0.8rem;
+  top: calc(5.5rem + env(safe-area-inset-top));
+  z-index: 75;
+  width: min(24rem, calc(100vw - 1.2rem));
+  display: grid;
+  gap: 0.55rem;
+  pointer-events: none;
+}
+
+.recovery-toast {
+  pointer-events: auto;
+  padding: 0.7rem 0.8rem;
+  border-radius: 1rem;
+  color: #fff8ff;
+  background: rgba(24, 10, 48, 0.76);
+  border: 1px solid rgba(227, 184, 94, 0.45);
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.36), inset 0 0 18px rgba(126, 63, 255, 0.12);
+  backdrop-filter: blur(14px);
+}
+
+.recovery-toast strong,
+.recovery-toast p,
+.recovery-toast span {
+  display: block;
+  margin: 0 0 0.24rem;
+}
+
+.recovery-toast.success {
+  border-color: rgba(132, 244, 168, 0.54);
+}
+
+.recovery-toast.warning {
+  border-color: rgba(255, 192, 84, 0.65);
+}
+
+.recovery-toast.error {
+  border-color: rgba(255, 105, 132, 0.72);
+}
+
+.confirm-backdrop {
+  z-index: 180;
+  place-items: center;
+}
+
+.confirm-dialog {
+  width: min(28rem, calc(100vw - 1.2rem));
+  margin: min(18svh, 7rem) auto 0;
+  padding: 1rem;
+  border: 1px solid rgba(227, 184, 94, 0.58);
+  border-radius: 1.2rem;
+  background: rgba(18, 8, 35, 0.84);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.danger-soft {
+  border-color: rgba(255, 136, 118, 0.72) !important;
+  color: #ffe3da !important;
+}
+
+.confidence-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.25rem;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(227, 184, 94, 0.42);
+  font-size: 0.68rem;
+  line-height: 1.1;
+  color: #fff8ff;
+  background: rgba(20, 10, 45, 0.35);
+}
+
+.confidence-pill.success {
+  border-color: rgba(132, 244, 168, 0.55);
+  color: #d9ffe5;
+}
+
+.confidence-pill.warning {
+  border-color: rgba(255, 188, 78, 0.72);
+  color: #ffe7b7;
+}
+
+.confidence-pill.error {
+  border-color: rgba(255, 105, 132, 0.72);
+  color: #ffd5df;
+}
+
+.confidence-pill.info {
+  border-color: rgba(154, 136, 255, 0.62);
+  color: #ece7ff;
+}
+
+.rules-confidence-mini {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
 }
 
 .life-start-controls {

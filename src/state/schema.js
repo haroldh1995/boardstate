@@ -177,6 +177,8 @@ export function createGameSession() {
     pendingEffects: [],
     triggerQueue: [],
     effectLog: [],
+    recoveryLog: [],
+    rulesConfidenceLog: [],
     history: [],
     undoStack: [],
     redoStack: [],
@@ -193,6 +195,12 @@ export function createGameSession() {
       active: false,
       startedAt: 0,
       mode: "training-ground",
+    },
+    tutorial: {
+      active: false,
+      loadedAt: 0,
+      step: 0,
+      canClear: false,
     },
     helper: {
       reminderRequested: false,

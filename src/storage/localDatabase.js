@@ -295,6 +295,10 @@ function normalizeProfile(profile) {
         ...defaults.activeSession.simulation,
         ...(profile.activeSession?.simulation || {}),
       },
+      tutorial: {
+        ...defaults.activeSession.tutorial,
+        ...(profile.activeSession?.tutorial || {}),
+      },
       syncedMultiplayer: {
         ...defaults.activeSession.syncedMultiplayer,
         ...(profile.activeSession?.syncedMultiplayer || {}),
@@ -307,6 +311,11 @@ function normalizeProfile(profile) {
       actionHistory: profile.activeSession?.actionHistory || defaults.activeSession.actionHistory,
       eventHistory: profile.activeSession?.eventHistory || defaults.activeSession.eventHistory,
       eventQueue: profile.activeSession?.eventQueue || defaults.activeSession.eventQueue,
+      recoveryLog: profile.activeSession?.recoveryLog || defaults.activeSession.recoveryLog,
+      rulesConfidenceLog: profile.activeSession?.rulesConfidenceLog || defaults.activeSession.rulesConfidenceLog,
+      pendingEffects: profile.activeSession?.pendingEffects || defaults.activeSession.pendingEffects,
+      triggerQueue: profile.activeSession?.triggerQueue || defaults.activeSession.triggerQueue,
+      effectLog: profile.activeSession?.effectLog || defaults.activeSession.effectLog,
       undoStack: profile.activeSession?.undoStack || defaults.activeSession.undoStack,
       redoStack: profile.activeSession?.redoStack || defaults.activeSession.redoStack,
     },

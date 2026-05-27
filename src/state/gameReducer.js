@@ -2,7 +2,7 @@ import { archiveCurrentGame } from "../archive/archiveService.js";
 import { hydratePermanentEffects, processEventTriggers, recalculateContinuousEffects, resolveQueuedTrigger, resolveSpell } from "../effects/effectEngine.js";
 import { addCardToCommanderDeck, assignCommander, castCommander, recordCommanderCardUsage } from "../game/commanderSystem.js";
 import { assignBlocker, declareAttackers, resolveCombat } from "../game/combatSystem.js";
-import { createEmptySimulationStats, createGameSession, createManaPool, createPermanent, PHASES } from "./schema.js";
+import { createDefaultProfile, createEmptySimulationStats, createGameSession, createManaPool, createPermanent, PHASES } from "./schema.js";
 import { clone, createId, normalizeCount } from "./ids.js";
 import { drainGameEvents, mapActionTypeToGameEvent, queueGameEvent, runGameEventObservers } from "../game/eventBus.js";
 import { transitionFsm } from "../game/fsm.js";
@@ -13,6 +13,7 @@ import {
   createSimulationSession,
   toOpponentPermanent,
 } from "../simulation/commanderSimulation.js";
+import { RULES_CONFIDENCE, createRecoveryEntry } from "../support/debugExport.js";
 
 export function reduceProfile(profile, event) {
   const actionType = event.actionType || event.type;
@@ -25,6 +26,15 @@ export function reduceProfile(profile, event) {
   switch (actionType) {
     case "IMPORT_PROFILE":
       return event.profile;
+    case "ADD_RECOVERY_ENTRY":
+      nextProfile = withSession(baseProfile, addRecoveryEntry(baseProfile.activeSession, event.entry || event));
+      break;
+    case "DISMISS_RECOVERY_ENTRY":
+      nextProfile = withSession(baseProfile, dismissRecoveryEntry(baseProfile.activeSession, event.id));
+      break;
+    case "CLEAR_RECOVERY_ENTRIES":
+      nextProfile = withSession(baseProfile, { ...baseProfile.activeSession, recoveryLog: [] });
+      break;
     case "UNDO":
       return popUndo(profile);
     case "REDO":
@@ -97,6 +107,21 @@ export function reduceProfile(profile, event) {
       break;
     case "RESET_PLAYER_TRACKERS":
       nextProfile = withSession(baseProfile, resetPlayerTrackers(baseProfile.activeSession));
+      break;
+    case "CLEAR_GAME_HISTORY":
+      nextProfile = withSession(baseProfile, clearGameHistory(baseProfile.activeSession));
+      break;
+    case "CLEAR_SIMULATION_LEARNING":
+      nextProfile = clearSimulationLearning(baseProfile);
+      break;
+    case "RESET_ALL_LOCAL_DATA":
+      nextProfile = resetAllLocalData(baseProfile);
+      break;
+    case "RESET_SETTINGS":
+      nextProfile = resetProfileSettings(baseProfile);
+      break;
+    case "LOAD_TUTORIAL_SAMPLE_BOARD":
+      nextProfile = withSession(baseProfile, loadTutorialSampleBoard(baseProfile.activeSession));
       break;
     case "SET_LIFE":
       nextProfile = withSession(baseProfile, { ...baseProfile.activeSession, life: normalizeCount(event.life, 40) });
@@ -2800,6 +2825,14 @@ function reorderPermanent(session, id, direction = 1) {
 function updatePendingEffect(session, id, status) {
   const entry = (session.pendingEffects || []).find((effect) => effect.id === id);
   const normalizedStatus = String(status || "pending").toLowerCase();
+  const rulesConfidence =
+    normalizedStatus === "resolved"
+      ? RULES_CONFIDENCE.AUTO_RESOLVED
+      : normalizedStatus === "ignored"
+        ? RULES_CONFIDENCE.IGNORED
+        : normalizedStatus === "skipped"
+          ? RULES_CONFIDENCE.NEEDS_REVIEW
+          : RULES_CONFIDENCE.MANUAL_CHOICE;
   const summaryLabel =
     normalizedStatus === "resolved"
       ? "resolved"
@@ -2810,7 +2843,20 @@ function updatePendingEffect(session, id, status) {
           : normalizedStatus;
   return {
     ...session,
-    pendingEffects: session.pendingEffects.map((effect) => (effect.id === id ? { ...effect, status: normalizedStatus, updatedAt: Date.now() } : effect)),
+    pendingEffects: session.pendingEffects.map((effect) =>
+      effect.id === id ? { ...effect, status: normalizedStatus, rulesConfidence, updatedAt: Date.now() } : effect
+    ),
+    rulesConfidenceLog: [
+      {
+        id: createId("confidence"),
+        at: Date.now(),
+        sourceName: entry?.sourceName || "Manual Effect",
+        summary: entry?.summary || entry?.effect?.summary || "Manual effect status changed",
+        status: normalizedStatus,
+        rulesConfidence,
+      },
+      ...(session.rulesConfidenceLog || []),
+    ].slice(0, 120),
     effectLog: entry
       ? [
           {
@@ -2819,11 +2865,228 @@ function updatePendingEffect(session, id, status) {
             sourceName: entry.sourceName || "Manual Effect",
             summary: `Manual effect ${summaryLabel}: ${entry.summary || entry.effect?.summary || entry.effect?.action || "effect"}`,
             status: normalizedStatus,
+            rulesConfidence,
           },
           ...(session.effectLog || []),
         ].slice(0, 80)
       : session.effectLog,
   };
+}
+
+function addRecoveryEntry(session, entry = {}) {
+  const recoveryEntry = {
+    ...createRecoveryEntry(entry),
+    ...entry,
+    id: entry.id || createRecoveryEntry(entry).id,
+    timestamp: entry.timestamp || Date.now(),
+    dismissed: false,
+  };
+  return {
+    ...session,
+    recoveryLog: [recoveryEntry, ...(session.recoveryLog || [])].slice(0, 80),
+    effectLog: [
+      {
+        id: createId("effect"),
+        at: recoveryEntry.timestamp,
+        sourceName: recoveryEntry.source || "Recovery",
+        summary: recoveryEntry.message || "Recovery notice created.",
+        status: recoveryEntry.severity || "info",
+        rulesConfidence: recoveryEntry.severity === "error" ? RULES_CONFIDENCE.FAILED : RULES_CONFIDENCE.NEEDS_REVIEW,
+      },
+      ...(session.effectLog || []),
+    ].slice(0, 80),
+  };
+}
+
+function dismissRecoveryEntry(session, id = "") {
+  return {
+    ...session,
+    recoveryLog: (session.recoveryLog || []).map((entry) =>
+      entry.id === id ? { ...entry, dismissed: true, dismissedAt: Date.now() } : entry
+    ),
+  };
+}
+
+function clearGameHistory(session) {
+  return {
+    ...session,
+    history: [],
+    actionHistory: [],
+    eventHistory: [],
+    effectLog: [
+      {
+        id: createId("effect"),
+        at: Date.now(),
+        sourceName: "Data Management",
+        summary: "Game history cleared.",
+        status: "resolved",
+        rulesConfidence: RULES_CONFIDENCE.AUTO_RESOLVED,
+      },
+    ],
+    recoveryLog: [],
+    rulesConfidenceLog: [],
+  };
+}
+
+function clearSimulationLearning(profile) {
+  const defaults = createDefaultProfile();
+  return {
+    ...profile,
+    simulationMemory: defaults.simulationMemory,
+    activeSession: addRecoveryEntry(profile.activeSession, {
+      source: "Data Management",
+      message: "Simulation learning cleared. Normal game history was preserved.",
+      severity: "success",
+      suggestedAction: "Start a new Dry Run when you are ready.",
+    }),
+  };
+}
+
+function resetAllLocalData(profile) {
+  const fresh = createDefaultProfile();
+  return {
+    ...fresh,
+    localAuth: {
+      ...fresh.localAuth,
+      hasPassword: Boolean(profile.localAuth?.hasPassword),
+    },
+    activeSession: addRecoveryEntry(fresh.activeSession, {
+      source: "Data Management",
+      message: "Local data reset complete.",
+      severity: "success",
+      suggestedAction: "Start fresh or import a saved profile.",
+    }),
+  };
+}
+
+function resetProfileSettings(profile) {
+  const defaults = createDefaultProfile();
+  return {
+    ...profile,
+    settings: defaults.settings,
+    activeSession: addRecoveryEntry(profile.activeSession, {
+      source: "Settings",
+      message: "Settings reset to BoardState defaults.",
+      severity: "success",
+    }),
+  };
+}
+
+function loadTutorialSampleBoard(session) {
+  const now = Date.now();
+  const tutorialCreature = hydratePermanentEffects(
+    createPermanent({
+      id: createId("tutorial"),
+      name: "Tutorial Vanguard",
+      typeLine: "Creature - Soldier",
+      oracleText: "When this creature enters, you gain 1 life.",
+      basePower: 2,
+      baseToughness: 2,
+      controller: "player",
+      owner: "player",
+      counters: { "+1/+1": 1 },
+    })
+  );
+  const tutorialToken = hydratePermanentEffects(
+    createPermanent({
+      id: createId("tutorial"),
+      name: "Practice Gnome",
+      typeLine: "Token Artifact Creature - Gnome",
+      oracleText: "A sample token for stack and token controls.",
+      basePower: 1,
+      baseToughness: 1,
+      controller: "player",
+      owner: "player",
+      quantity: 2,
+      isToken: true,
+    })
+  );
+  const tutorialEngine = hydratePermanentEffects(
+    createPermanent({
+      id: createId("tutorial"),
+      name: "Choice Beacon",
+      typeLine: "Enchantment",
+      oracleText: "When a creature enters, choose a target creature. Manual choice required.",
+      controller: "player",
+      owner: "player",
+    })
+  );
+  const manualEntry = {
+    id: createId("pending"),
+    sourceId: tutorialEngine.id,
+    sourceName: tutorialEngine.name,
+    summary: "Tutorial: choose a target creature, then mark this resolved/skipped/ignored.",
+    effect: {
+      action: "choose-target",
+      summary: "Choose a target creature for the tutorial manual-choice example.",
+      manual: true,
+    },
+    status: "pending",
+    rulesConfidence: RULES_CONFIDENCE.MANUAL_CHOICE,
+    createdAt: now,
+    eventType: "TUTORIAL",
+  };
+  return recalculateContinuousEffects({
+    ...session,
+    selectedIds: [tutorialCreature.id],
+    battlefield: {
+      ...session.battlefield,
+      player: [tutorialCreature, tutorialToken, tutorialEngine],
+    },
+    pendingEffects: [manualEntry, ...(session.pendingEffects || [])].slice(0, 60),
+    triggerQueue: [
+      {
+        id: createId("trigger"),
+        chainId: createId("chain"),
+        sourceId: tutorialCreature.id,
+        sourceName: tutorialCreature.name,
+        eventType: "ENTER_BATTLEFIELD",
+        targetSelector: "you",
+        optional: false,
+        oncePerTurn: false,
+        triggerCondition: "tutorial",
+        effectDefinitions: [{ action: "life", amount: 1, target: "you", summary: "Tutorial auto-resolved life gain." }],
+        status: "resolved",
+        rulesConfidence: RULES_CONFIDENCE.AUTO_RESOLVED,
+        createdAt: now,
+        resolvedAt: now,
+      },
+      ...(session.triggerQueue || []),
+    ].slice(0, 120),
+    effectLog: [
+      {
+        id: createId("effect"),
+        at: now,
+        sourceName: "Tutorial Sample Board",
+        summary: "Loaded a safe sample board with a creature, token stack, automatic trigger, and manual-choice example.",
+        status: "resolved",
+        rulesConfidence: RULES_CONFIDENCE.AUTO_RESOLVED,
+      },
+      ...(session.effectLog || []),
+    ].slice(0, 80),
+    tutorial: {
+      active: true,
+      loadedAt: now,
+      step: 1,
+      canClear: true,
+    },
+    gameTracking: {
+      ...(session.gameTracking || {}),
+      active: false,
+      mode: "training-ground",
+    },
+    helper: {
+      ...(session.helper || {}),
+      reminderQueue: [
+        {
+          key: `tutorial:${now}`,
+          text: "Tutorial board loaded: inspect the token stack, open Pending Effects, then try Activate Board.",
+          source: "tutorial",
+        },
+        ...(session.helper?.reminderQueue || []),
+      ].slice(0, 8),
+    },
+  });
 }
 
 function requestHelperReminder(session, messages = []) {
@@ -3013,6 +3276,9 @@ function withHistory(profile, event) {
     return profile;
   }
   const actionType = event.actionType || event.type || "UNKNOWN";
+  if (actionType === "CLEAR_GAME_HISTORY") {
+    return profile;
+  }
   const actionRecord = {
     actionId: event.actionId || createId("action"),
     timestamp: event.timestamp || Date.now(),
@@ -3127,6 +3393,8 @@ function createReplaySnapshot(session) {
   snapshot.effectLog = (snapshot.effectLog || []).slice(0, 120);
   snapshot.pendingEffects = (snapshot.pendingEffects || []).slice(0, 60);
   snapshot.triggerQueue = (snapshot.triggerQueue || []).slice(0, 180);
+  snapshot.recoveryLog = (snapshot.recoveryLog || []).slice(0, 80);
+  snapshot.rulesConfidenceLog = (snapshot.rulesConfidenceLog || []).slice(0, 120);
   if (snapshot.helper) {
     snapshot.helper = {
       ...snapshot.helper,

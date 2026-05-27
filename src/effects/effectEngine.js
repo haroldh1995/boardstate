@@ -4,6 +4,7 @@ import { parseCardEffects } from "./effectParser.js";
 import { getTargets } from "./targeting.js";
 import { applyLayerSystem } from "./layerSystem.js";
 import { createCardDefinition } from "./cardDefinition.js";
+import { RULES_CONFIDENCE } from "../support/debugExport.js";
 
 export function hydratePermanentEffects(permanent) {
   const definition = createCardDefinition(permanent);
@@ -115,6 +116,7 @@ export function resolveQueuedTrigger(session, { triggerId, command = "resolve", 
     queue[index] = {
       ...entry,
       status: "skipped",
+      rulesConfidence: RULES_CONFIDENCE.NEEDS_REVIEW,
       resolvedAt: Date.now(),
       resolution: { command, requestedBy },
     };
@@ -124,6 +126,7 @@ export function resolveQueuedTrigger(session, { triggerId, command = "resolve", 
     queue[index] = {
       ...entry,
       status: "delayed",
+      rulesConfidence: RULES_CONFIDENCE.NEEDS_REVIEW,
       delayedUntilTurn: session.turn + 1,
       delayedUntilPhase: (session.phaseIndex + 1) % 5,
       resolution: { command, requestedBy },
@@ -154,6 +157,7 @@ export function resolveQueuedTrigger(session, { triggerId, command = "resolve", 
     nextQueue[nextIndex] = {
       ...nextQueue[nextIndex],
       status: "resolved",
+      rulesConfidence: RULES_CONFIDENCE.AUTO_RESOLVED,
       resolvedAt: Date.now(),
       generatedModifiers,
       resolution: { command, requestedBy },
@@ -209,6 +213,7 @@ export function resolveEffect(session, effect, source, event = {}) {
       effect,
       summary: effect.summary || effect.reason || "Manual choice required",
       status: "pending",
+      rulesConfidence: RULES_CONFIDENCE.MANUAL_CHOICE,
       createdAt: Date.now(),
       triggerId: event.payload?.triggerId || event.triggerId || "",
       eventType: event.eventType || event.type || "",
@@ -217,7 +222,7 @@ export function resolveEffect(session, effect, source, event = {}) {
       ...session,
       pendingEffects: [pendingEntry, ...session.pendingEffects].slice(0, 60),
       effectLog: [
-        createLog(source.name, `Manual choice required: ${effect.summary || effect.reason || effect.action || "effect"}.`),
+        createLog(source.name, `Manual choice required: ${effect.summary || effect.reason || effect.action || "effect"}.`, RULES_CONFIDENCE.MANUAL_CHOICE),
         ...session.effectLog,
       ].slice(0, 80),
     };
@@ -237,7 +242,7 @@ export function resolveEffect(session, effect, source, event = {}) {
     case "damage":
       return applyDamageEffect(session, effect, source, event);
     default:
-      return session;
+      return queueUnsupportedEffect(session, effect, source, event);
   }
 }
 
@@ -330,6 +335,44 @@ function createTokens(session, effect, source, event) {
     cause: event.type || event.eventType || "effect",
     chainId: event.chainId,
   });
+}
+
+function queueUnsupportedEffect(session, effect = {}, source = {}, event = {}) {
+  const summary = effect.summary || effect.reason || effect.action || "Unrecognized card effect";
+  const pendingEntry = {
+    id: createId("pending"),
+    sourceId: source.id,
+    sourceName: source.name || "Unknown source",
+    effect,
+    summary: `Needs review: ${summary}`,
+    status: "pending",
+    rulesConfidence: RULES_CONFIDENCE.NEEDS_REVIEW,
+    createdAt: Date.now(),
+    triggerId: event.payload?.triggerId || event.triggerId || "",
+    eventType: event.eventType || event.type || "",
+  };
+  return {
+    ...session,
+    pendingEffects: [pendingEntry, ...(session.pendingEffects || [])].slice(0, 60),
+    recoveryLog: [
+      {
+        id: createId("recovery"),
+        source: source.name || "Rules Engine",
+        message: "This effect needs manual review instead of being ignored.",
+        technicalMessage: `Unsupported effect action: ${effect.action || "unknown"}`,
+        severity: "warning",
+        timestamp: Date.now(),
+        suggestedAction: "Open Manual Choice Required and resolve, skip, or ignore this game.",
+        action: "open-manual-choice",
+        dismissed: false,
+      },
+      ...(session.recoveryLog || []),
+    ].slice(0, 80),
+    effectLog: [
+      createLog(source.name || "Rules Engine", `Needs review: ${summary}.`, RULES_CONFIDENCE.NEEDS_REVIEW, "needs-review"),
+      ...(session.effectLog || []),
+    ].slice(0, 80),
+  };
 }
 
 function addCounters(session, effect, source, event) {
@@ -622,6 +665,9 @@ function enqueueTrigger(session, { source, event, chainId, optional, oncePerTurn
     triggerCondition,
     effectDefinitions: effectDefinitions || [],
     status: "pending",
+    rulesConfidence: (effectDefinitions || []).some((effect) => effect.manual || effect.optional)
+      ? RULES_CONFIDENCE.MANUAL_CHOICE
+      : RULES_CONFIDENCE.AUTO_RESOLVED,
     createdAt: Date.now(),
     generatedModifiers: [],
   };
@@ -799,12 +845,14 @@ function normalizeStackMembers(permanent) {
   };
 }
 
-function createLog(sourceName, summary) {
+function createLog(sourceName, summary, rulesConfidence = RULES_CONFIDENCE.AUTO_RESOLVED, status = "resolved") {
   return {
     id: createId("log"),
     at: Date.now(),
     sourceName,
     summary,
+    status,
+    rulesConfidence,
   };
 }
 
