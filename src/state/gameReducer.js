@@ -123,6 +123,16 @@ export function reduceProfile(profile, event) {
     case "LOAD_TUTORIAL_SAMPLE_BOARD":
       nextProfile = withSession(baseProfile, loadTutorialSampleBoard(baseProfile.activeSession));
       break;
+    case "CLEAR_TUTORIAL":
+      nextProfile = withSession(baseProfile, {
+        ...baseProfile.activeSession,
+        tutorial: {
+          ...(baseProfile.activeSession.tutorial || {}),
+          active: false,
+          canClear: false,
+        },
+      });
+      break;
     case "SET_LIFE":
       nextProfile = withSession(baseProfile, { ...baseProfile.activeSession, life: normalizeCount(event.life, 40) });
       break;

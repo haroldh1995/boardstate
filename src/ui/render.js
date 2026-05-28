@@ -902,8 +902,11 @@ export function mountApp(root, store) {
       const note = String(container.querySelector("[data-player-note-input]")?.value || "").trim();
       store.dispatch({ type: "SET_SETTING", path: "playerNotes.session", value: note });
     });
-    container.querySelector("[data-activate-board]")?.addEventListener("click", () => {
-      store.dispatch({ type: "ACTIVATE_BOARD" });
+    container.querySelectorAll("[data-activate-board]").forEach((button) => {
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "ACTIVATE_BOARD" });
+        showNotice("Board activation check complete. Review the queue for any available effects.", "info");
+      });
     });
 
     container.querySelectorAll("[data-life-delta]").forEach((button) => {
@@ -1025,21 +1028,52 @@ export function mountApp(root, store) {
     container.querySelectorAll("[data-counter]").forEach((button) => {
       button.addEventListener("click", () => store.dispatch({ type: "ADD_COUNTER", id: button.dataset.counter, counterType: "+1/+1", amount: 1 }));
     });
-    container.querySelector("[data-declare-attackers]")?.addEventListener("click", () =>
-      store.dispatch({ type: "DECLARE_ATTACKERS", ids: profile.activeSession.selectedIds })
-    );
-    container.querySelector("[data-resolve-combat]")?.addEventListener("click", () => {
-      if (combatResolving) {
-        return;
-      }
-      combatResolving = true;
-      render(store.getState());
-      requestAnimationFrame(() => {
-        setTimeout(() => {
-          store.dispatch({ type: "RESOLVE_COMBAT" });
-          combatResolving = false;
-          render(store.getState());
-        }, 0);
+    container.querySelectorAll("[data-declare-attackers]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const selectedIds = profile.activeSession.selectedIds || [];
+        if (button.dataset.dashboardAction === "attackers" && !selectedIds.length) {
+          showNotice("Select one or more attacking creatures, then tap Attackers.", "info");
+          return;
+        }
+        store.dispatch({ type: "DECLARE_ATTACKERS", ids: selectedIds });
+      });
+    });
+    container.querySelectorAll("[data-resolve-combat]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (combatResolving) {
+          return;
+        }
+        const session = profile.activeSession;
+        const queued = session.triggerQueue || [];
+        const pending = session.pendingEffects || [];
+        const hasCombatToResolve = Boolean((session.combat?.attackers || []).length || session.combat?.damagePreview);
+        if (button.dataset.dashboardAction === "resolve") {
+          if (queued.length) {
+            activeUtilityPanel = "stack";
+            utilityDockOpen = false;
+            showNotice("Stack and trigger queue opened for resolution.", "info");
+            render(store.getState());
+            return;
+          }
+          if (pending.length) {
+            showNotice("Manual choice required before this effect can resolve.", "warning");
+            render(store.getState());
+            return;
+          }
+          if (!hasCombatToResolve) {
+            showNotice("Nothing is pending to resolve right now.", "info");
+            return;
+          }
+        }
+        combatResolving = true;
+        render(store.getState());
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            store.dispatch({ type: "RESOLVE_COMBAT" });
+            combatResolving = false;
+            render(store.getState());
+          }, 0);
+        });
       });
     });
 
@@ -1099,6 +1133,18 @@ export function mountApp(root, store) {
     container.querySelectorAll("[data-dismiss-recovery]").forEach((button) =>
       button.addEventListener("click", () => store.dispatch({ type: "DISMISS_RECOVERY_ENTRY", id: button.dataset.dismissRecovery }))
     );
+    container.querySelectorAll("[data-recovery-retry]").forEach((button) =>
+      button.addEventListener("click", () => {
+        if (searchQuery) {
+          runScryfallSearch(searchQuery, store.getState(), true);
+        } else {
+          showNotice("Retry requested.");
+        }
+      })
+    );
+    container.querySelectorAll("[data-recovery-cached]").forEach((button) =>
+      button.addEventListener("click", () => showNotice("Using available cached data."))
+    );
     container.querySelectorAll("[data-copy-recovery]").forEach((button) =>
       button.addEventListener("click", async () => {
         const entry = (store.getState().activeSession?.recoveryLog || []).find((item) => item.id === button.dataset.copyRecovery);
@@ -1132,6 +1178,10 @@ export function mountApp(root, store) {
       store.dispatch({ type: "LOAD_TUTORIAL_SAMPLE_BOARD" });
       setActivePage("battlefield");
       showNotice("Tutorial sample board loaded.");
+    });
+    container.querySelector("[data-exit-tutorial]")?.addEventListener("click", () => {
+      store.dispatch({ type: "CLEAR_TUTORIAL" });
+      showNotice("Tutorial closed.");
     });
     container.querySelector("[data-clear-game-history]")?.addEventListener("click", () =>
       openConfirmation({
@@ -1217,6 +1267,7 @@ export function mountApp(root, store) {
         keepSearchInputFocus = false;
         suppressSearchRefocusUntil = Date.now() + 600;
         store.dispatch({ type: "ADD_PERMANENT", card: searchResults[Number(button.dataset.addResult)] });
+        showNotice("Card put onto battlefield.");
       });
     });
     container.querySelectorAll("[data-cast-result]").forEach((button) => {
@@ -1224,6 +1275,7 @@ export function mountApp(root, store) {
         keepSearchInputFocus = false;
         suppressSearchRefocusUntil = Date.now() + 600;
         store.dispatch({ type: "CAST_SPELL", card: searchResults[Number(button.dataset.castResult)] });
+        showNotice("Card cast.");
       });
     });
     container.querySelectorAll("[data-commander-result]").forEach((button) => {
@@ -1231,6 +1283,7 @@ export function mountApp(root, store) {
         keepSearchInputFocus = false;
         suppressSearchRefocusUntil = Date.now() + 600;
         store.dispatch({ type: "SET_COMMANDER", card: searchResults[Number(button.dataset.commanderResult)] });
+        showNotice("Commander updated.");
       });
     });
     container.querySelectorAll("[data-deck-result]").forEach((button) => {
@@ -1238,6 +1291,7 @@ export function mountApp(root, store) {
         keepSearchInputFocus = false;
         suppressSearchRefocusUntil = Date.now() + 600;
         store.dispatch({ type: "ADD_DECK_CARD", card: searchResults[Number(button.dataset.deckResult)] });
+        showNotice("Card added to deck.");
       });
     });
     container.querySelectorAll("[data-inspect-result]").forEach((button) => {
@@ -1265,6 +1319,32 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-trigger-skip]").forEach((button) => {
       button.addEventListener("click", () => store.dispatch({ type: "TRIGGER_QUEUE_SKIP", id: button.dataset.triggerSkip }));
+    });
+    container.querySelectorAll("[data-trigger-resolve-all]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const queue = store.getState().activeSession?.triggerQueue || [];
+        queue
+          .filter((entry) => entry.status === "pending")
+          .forEach((entry) => store.dispatch({ type: "TRIGGER_QUEUE_RESOLVE", id: entry.id }));
+        showNotice(queue.length ? "Resolved available trigger queue." : "No trigger queue entries.");
+      });
+    });
+    container.querySelectorAll("[data-stack-resolve-next]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const next = (store.getState().activeSession?.triggerQueue || []).find((entry) => entry.status === "pending");
+        if (next) {
+          store.dispatch({ type: "TRIGGER_QUEUE_RESOLVE", id: next.id });
+          showNotice("Resolved next stack item.");
+        } else {
+          showNotice("Stack is clear.");
+        }
+      });
+    });
+    container.querySelectorAll("[data-pass-priority]").forEach((button) => {
+      button.addEventListener("click", () => showNotice("Priority passed."));
+    });
+    container.querySelectorAll("[data-respond-stack]").forEach((button) => {
+      button.addEventListener("click", () => showNotice("Response window noted."));
     });
     container.querySelectorAll("[data-trigger-inspect]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -1368,6 +1448,11 @@ export function mountApp(root, store) {
     container.querySelector("[data-save-utility-note]")?.addEventListener("click", () => {
       const note = String(container.querySelector("[data-utility-note]")?.value || "");
       store.dispatch({ type: "SET_SETTING", path: "playerNotes.dock", value: note });
+    });
+    container.querySelector("[data-mulligan-tracker]")?.addEventListener("click", () => {
+      const current = Number(store.getState().settings?.utility?.mulligans || 0);
+      store.dispatch({ type: "SET_SETTING", path: "utility.mulligans", value: current + 1 });
+      showNotice(`Mulligan count ${current + 1}.`);
     });
     bindPermanentGestures(container, profile);
 
@@ -1820,6 +1905,7 @@ export function mountApp(root, store) {
     };
     try {
       const dispatchPromise = store.dispatch({ type: "ADVANCE_PHASE" });
+      showNotice("Phase advanced.");
       requestAnimationFrame(finalize);
       await dispatchPromise;
     } catch (error) {
@@ -3137,6 +3223,13 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
   const activeOpponent = hasOpponentBoards ? opponentBoards[activeOpponentIndex] : null;
   return `
     <section class="battlefield-page battlefield-page--focused ui-layer-surface-${escapeAttribute(uiLayer)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${isMobilePortrait && mobileFocusView ? "mobile-focus-view" : ""}">
+      <div class="battlefield-state-strip">
+        <div>
+          <strong>Turn ${escapeHtml(session.turn)} · ${escapeHtml(PHASES[session.phaseIndex] || "Beginning")} · ${escapeHtml(resolvePhaseTrackerActorLabel(session).replace(/^Active turn:\s*/i, ""))}</strong>
+          <span>${escapeHtml(resolveBattlefieldActionHint(session))}</span>
+        </div>
+        <button data-setting-button="battlefield.focusMode" data-value="${profile.settings?.battlefield?.focusMode ? "false" : "true"}">Focus View</button>
+      </div>
       <section class="arena glass ${playerDensityClass} ${profile.settings?.battlefield?.focusMode && session.selectedIds?.length ? "focus-mode" : ""} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${showOpponentZone ? "" : "arena--opponent-hidden"} ${panels.boardCombat ? "" : "arena--combat-hidden"}" data-set-tool-context="empty">
         ${showOpponentZone ? `
         <div class="opponent-zone ${opponentDensityClass}" data-opponent-swipe data-set-tool-context="empty">
@@ -3183,12 +3276,33 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
         ${!isMobilePortrait && panels.archiveQuickAdd ? renderSearch(searchResults, searchMessage, searchLoading, searchQuery) : ""}
       </aside>
     </section>
-    ${isMobilePortrait ? renderMobileBattlefieldDock(profile, activeUtilityPanel, uiState.utilityDockOpen, Boolean(panels.boardCombat), Boolean(combatResolving)) : ""}
+    ${renderMobileBattlefieldDock(profile, activeUtilityPanel, uiState.utilityDockOpen, Boolean(panels.boardCombat), Boolean(combatResolving), isMobilePortrait)}
     ${panels.advancedRulesHelpers || (session.pendingEffects || []).length ? renderPending(session) : ""}
+    ${session.tutorial?.active ? renderTutorialSamplePanel(session) : ""}
     ${activeUtilityPanel === "history" ? renderActionTimeline(profile) : ""}
     ${activeUtilityPanel === "triggers" ? renderTriggerQueuePanel(profile) : ""}
     ${uiState.opponentOverlayOpen && activeOpponent ? renderOpponentBattlefieldOverlay(profile, activeOpponent, activeOpponentIndex, opponentBoards.length, detailMode, compressionMode, selectedIds, expandedStackIds) : ""}
   `;
+}
+
+function resolveBattlefieldActionHint(session) {
+  const phaseLabel = String(PHASES[session.phaseIndex] || "").toLowerCase();
+  if ((session.triggerQueue || []).some((entry) => entry.status === "pending")) {
+    return "Resolve queued triggers, respond, or use the stack tools.";
+  }
+  if ((session.pendingEffects || []).length) {
+    return "Manual choice required before this effect can finish.";
+  }
+  if (phaseLabel.includes("combat")) {
+    return "Declare attackers, resolve combat, or move to the next phase.";
+  }
+  if (phaseLabel.includes("main")) {
+    return "Cast spells, activate abilities, or play lands.";
+  }
+  if (phaseLabel.includes("draw")) {
+    return "Draw, review triggers, then continue when ready.";
+  }
+  return "Review the board, use tools, or advance when ready.";
 }
 
 function renderBattlefieldHeaderTurnStatus(profile) {
@@ -3208,12 +3322,30 @@ function renderOpponentZoneHeader(opponentBoards, activeIndex, activeOpponent) {
         <h2>${escapeHtml(activeOpponent?.name || "Opponent Battlefield")}</h2>
         <p class="eyebrow">${activeIndex + 1}/${opponentBoards.length} · ${escapeHtml(activeOpponent?.deckName || "Opponent")}</p>
       </div>
+      <div class="opponent-swipe-rail" aria-label="Opponent battlefield selector">
+        ${opponentBoards.map((opponent, index) => `
+          <button class="${index === activeIndex ? "active" : ""}" data-opponent-nav="${index < activeIndex ? "prev" : index > activeIndex ? "next" : "current"}" ${index === activeIndex ? "disabled" : ""}>
+            <strong>${escapeHtml(getInitials(opponent.name || "OP"))}</strong>
+            <span>${escapeHtml(opponent.name || "Opponent")}</span>
+            <b>${escapeHtml(opponent.life ?? 40)}</b>
+          </button>
+        `).join("")}
+      </div>
       <div class="row mini">
         ${opponentBoards.length > 1 ? `<button data-opponent-nav="prev">‹</button><button data-opponent-nav="next">›</button>` : ""}
         <button data-open-opponent-overlay>Expand Battlefield</button>
       </div>
     </div>
   `;
+}
+
+function getInitials(name = "") {
+  return String(name)
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("") || "OP";
 }
 
 function renderOpponentBattlefieldOverlay(profile, opponentBoard, activeIndex, totalOpponents, detailMode, compressionMode, selectedIds, expandedStackIds) {
@@ -3613,7 +3745,7 @@ function renderActionTimeline(profile) {
 function renderTriggerQueuePanel(profile) {
   const queue = profile.activeSession.triggerQueue || [];
   return `
-    <section class="utility-overlay glass trigger-queue-panel" data-no-swipe>
+    <section class="utility-overlay glass trigger-queue-panel mockup-panel" data-no-swipe>
       <div class="overlay-header compact">
         <h2>Trigger Queue</h2>
         <button data-close-utility-panel>Close</button>
@@ -3622,7 +3754,9 @@ function renderTriggerQueuePanel(profile) {
         ${queue
           .map(
             (entry) => `
-          <article class="log-card ${entry.status === "pending" ? "pending-trigger" : ""}">
+          <article class="log-card trigger-row ${entry.status === "pending" ? "pending-trigger" : ""}">
+            <b class="trigger-index"></b>
+            <div>
             <strong>${escapeHtml(entry.sourceName)}</strong>
             <span>${escapeHtml(entry.eventType)} · Chain ${escapeHtml(entry.chainId)}</span>
             <p>Status: ${escapeHtml(entry.status)} <span class="confidence-pill ${confidenceClass(entry.rulesConfidence)}">${escapeHtml(confidenceLabel(entry.rulesConfidence))}</span></p>
@@ -3635,10 +3769,79 @@ function renderTriggerQueuePanel(profile) {
               <button data-trigger-skip="${entry.id}">Skip</button>
               <button data-trigger-inspect="${entry.id}">Inspect</button>
             </div>
+            </div>
           </article>
         `
           )
           .join("") || "<p>No queued triggers.</p>"}
+      </div>
+      <button class="wide resolve-button" data-trigger-resolve-all>Resolve All Possible</button>
+    </section>
+  `;
+}
+
+function renderStackPriorityPanel(profile) {
+  const queue = profile.activeSession.triggerQueue || [];
+  const stackItems = queue.length ? queue : profile.activeSession.pendingEffects || [];
+  return `
+    <section class="stack-priority-panel">
+      <p class="eyebrow">The Stack</p>
+      <div class="timeline-list scroll-safe">
+        ${stackItems
+          .slice(0, 8)
+          .map((entry, index) => `
+            <article class="stack-priority-row">
+              <div class="stack-thumb">${index + 1}</div>
+              <div>
+                <strong>${escapeHtml(entry.sourceName || entry.summary || "Stack item")}</strong>
+                <span>${escapeHtml(entry.eventType || entry.status || "Pending")} ${entry.controller ? `(${escapeHtml(entry.controller)})` : ""}</span>
+                <p>${escapeHtml(entry.summary || entry.effect?.summary || "Waiting for priority.")}</p>
+              </div>
+            </article>
+          `)
+          .join("") || `<article class="stack-priority-row"><div class="stack-thumb">0</div><div><strong>Stack is empty</strong><span>No spells or abilities waiting.</span></div></article>`}
+      </div>
+      <article class="priority-message">
+        <strong>Priority: You</strong>
+        <span>Waiting for your action...</span>
+      </article>
+      <div class="stack-priority-actions">
+        <button data-pass-priority>Pass Priority</button>
+        <button data-respond-stack>Respond...</button>
+        <button class="resolve-button" data-stack-resolve-next>Resolve Next</button>
+      </div>
+    </section>
+  `;
+}
+
+function renderTutorialSamplePanel(session) {
+  const sampleCards = (session.battlefield?.player || []).slice(0, 4);
+  return `
+    <section class="tutorial-sample-panel glass" data-no-swipe>
+      <div class="tutorial-hero">
+        <p class="eyebrow">Tutorial</p>
+        <strong>Welcome to BoardState!</strong>
+        <span>This sample board shows the core features.</span>
+        <small>Step ${escapeHtml(session.tutorial?.step || 1)} of 7</small>
+        <button data-helper-remind>Let's Begin</button>
+      </div>
+      <div class="tutorial-sample-board">
+        <p class="eyebrow">Sample Board</p>
+        <div class="tutorial-card-grid">
+          ${sampleCards
+            .map(
+              (card) => `
+                <article>
+                  <strong>${escapeHtml(card.name)}</strong>
+                  <span>${escapeHtml(card.typeLine || card.type || "Permanent")}</span>
+                  ${card.power || card.toughness ? `<b>${escapeHtml(card.power || "0")}/${escapeHtml(card.toughness || "0")}</b>` : ""}
+                </article>
+              `
+            )
+            .join("")}
+        </div>
+        <label class="tutorial-check"><input type="checkbox" /> Don't show tips</label>
+        <button data-exit-tutorial>Exit Tutorial</button>
       </div>
     </section>
   `;
@@ -3669,6 +3872,7 @@ function renderUtilityDock(
           <button data-open-utility="mana">Mana ${manaTotal ? `(${manaTotal})` : ""}</button>
           <button data-open-utility="display">Display</button>
           <button data-open-utility="search">Search/Add</button>
+          <button data-open-utility="stack">Stack/Priority</button>
           <button data-open-utility="calculator">Calculator</button>
           <button data-open-utility="notes">Notes</button>
           <button data-open-utility="phase">Phase</button>
@@ -3683,47 +3887,50 @@ function renderUtilityDock(
   `;
 }
 
-function renderMobileBattlefieldDock(profile, activeUtilityPanel = "", utilityDockOpen = false, includeCombat = true, combatResolving = false) {
+function renderMobileBattlefieldDock(profile, activeUtilityPanel = "", utilityDockOpen = false, includeCombat = true, combatResolving = false, isMobilePortrait = true) {
   const hasSimulation = Boolean(profile.activeSession?.simulation?.enabled);
   const hasQueuedTriggers = Boolean((profile.activeSession?.triggerQueue || []).length);
-  const combatDisabled = includeCombat ? "" : "disabled";
   return `
-    <section class="battlefield-mobile-dock glass" data-no-swipe>
+    <section class="battlefield-mobile-dock battlefield-command-console ${isMobilePortrait ? "is-mobile" : "is-desktop"} glass" data-no-swipe>
       <div class="battlefield-mobile-dock__status">
         ${hasQueuedTriggers ? `<button data-open-utility="triggers" class="${activeUtilityPanel === "triggers" ? "active" : ""}">Queue</button>` : ""}
         ${hasSimulation ? `<button data-open-utility="simulation">Sim Log</button>` : ""}
       </div>
-      <div class="battlefield-mobile-wheel">
-        <button class="battlefield-wheel-action action-tools" data-open-tool-menu>
-          <span class="dock-icon" aria-hidden="true">⚒</span>
-          <span>Tools</span>
+      <div class="battlefield-mobile-wheel battlefield-command-grid">
+        <div class="battlefield-command-column battlefield-command-column--left" aria-label="Left battlefield dashboard commands">
+          <button class="battlefield-wheel-action action-tools" data-open-tool-menu aria-label="Open tools">
+            <span class="dock-icon" aria-hidden="true">&#9874;</span>
+            <span>Tools</span>
+          </button>
+          <button class="battlefield-wheel-action action-utility ${utilityDockOpen ? "active" : ""}" data-toggle-utility-dock aria-label="Open utility menu">
+            <span class="dock-icon" aria-hidden="true">&#9881;</span>
+            <span>Utility</span>
+          </button>
+          <button class="battlefield-wheel-action action-attackers ${includeCombat ? "" : "is-unavailable"}" data-dashboard-action="attackers" data-combat-available="${includeCombat ? "true" : "false"}" data-declare-attackers aria-label="Declare attackers">
+            <span class="dock-icon" aria-hidden="true">&#9876;</span>
+            <span>Attackers</span>
+          </button>
+        </div>
+        <button class="battlefield-wheel-center battlefield-wheel-center--raised" data-next-phase aria-label="Next phase">
+          <span class="dock-icon" aria-hidden="true">&#9193;</span>
+          <span>Next</span>
+          <span>Phase</span>
         </button>
-        <button class="battlefield-wheel-action action-search" data-open-utility="search">
-          <span class="dock-icon" aria-hidden="true">◉</span>
-          <span>Search</span>
-        </button>
-        <button class="battlefield-wheel-action action-utility ${utilityDockOpen ? "active" : ""}" data-toggle-utility-dock>
-          <span class="dock-icon" aria-hidden="true">⛃</span>
-          <span>Utility</span>
-        </button>
-        <button class="battlefield-wheel-action action-activate" data-activate-board>
-          <span class="dock-icon" aria-hidden="true">⚡</span>
-          <span>Activate</span>
-        </button>
-        <button class="battlefield-wheel-action action-attackers" data-declare-attackers ${combatResolving ? "disabled" : combatDisabled}>
-          <span class="dock-icon" aria-hidden="true">⚔</span>
-          <span>Attackers</span>
-        </button>
-        <button class="battlefield-wheel-action action-resolve" data-resolve-combat ${combatResolving ? "disabled" : combatDisabled}>
-          <span class="dock-icon" aria-hidden="true">⛨</span>
-          <span>${combatResolving ? "Resolving..." : "Resolve"}</span>
-        </button>
+        <div class="battlefield-command-column battlefield-command-column--right" aria-label="Right battlefield dashboard commands">
+          <button class="battlefield-wheel-action action-search" data-open-utility="search" aria-label="Search Scryfall">
+            <span class="dock-icon" aria-hidden="true">&#128269;</span>
+            <span>Search</span>
+          </button>
+          <button class="battlefield-wheel-action action-activate" data-activate-board aria-label="Activate board">
+            <span class="dock-icon" aria-hidden="true">&#9889;</span>
+            <span>Activate</span>
+          </button>
+          <button class="battlefield-wheel-action action-resolve" data-dashboard-action="resolve" data-combat-available="${includeCombat ? "true" : "false"}" data-resolve-combat ${combatResolving ? "disabled" : ""} aria-label="Resolve stack or combat">
+            <span class="dock-icon" aria-hidden="true">&#128737;</span>
+            <span>${combatResolving ? "Resolving..." : "Resolve"}</span>
+          </button>
+        </div>
       </div>
-      <button class="battlefield-wheel-center battlefield-wheel-center--raised" data-next-phase>
-        <span class="dock-icon" aria-hidden="true">⏭</span>
-        <span>Next</span>
-        <span>Phase</span>
-      </button>
     </section>
   `;
 }
@@ -3737,7 +3944,7 @@ function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResu
   const diceValue = profile.settings?.utility?.lastDice || "d20: 1";
   const calcValue = profile.settings?.utility?.calculator || "";
   const rulesText = (getSelectedPermanents(session)[0]?.rulesText || getSelectedPermanents(session)[0]?.oracleText || "Select a permanent to inspect rules.");
-  const utilityTitle = panel === "search" ? "Search/Add Card" : panel === "simulation" ? "Simulation Log" : formatLabel(panel);
+  const utilityTitle = panel === "search" ? "Search/Add Card" : panel === "simulation" ? "Simulation Log" : panel === "stack" ? "Stack & Priority" : formatLabel(panel);
   const mobileSheetClass = isMobilePortrait ? "mobile-bottom-sheet" : "";
   return `
     <section class="utility-overlay glass ${mobileSheetClass}" data-no-swipe>
@@ -3778,6 +3985,7 @@ function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResu
         <p>FSM ${escapeHtml(session.fsm?.current || "setup")} · Turn ${session.turn}</p>
         <button class="wide" data-next-phase>Advance Phase</button>
       ` : ""}
+      ${panel === "stack" ? renderStackPriorityPanel(profile) : ""}
       ${panel === "rules" ? `
         <p>${escapeHtml(rulesText)}</p>
         <button class="wide" data-open-tool-panel="inspect">Inspect Selected Permanent</button>
@@ -3826,14 +4034,20 @@ function getDensityClass(permanents = [], compressionMode = "adaptive") {
 
 function renderSearch(results, message, loading = false, query = "") {
   return `
-    <form class="search-box" data-search-form>
-      <label>Scryfall Search</label>
-      <div class="row">
-        <input name="query" data-search-query value="${escapeAttribute(query)}" placeholder="Card, token, land, spell" />
-        <button ${loading ? "disabled" : ""}>${loading ? "Searching…" : "Search"}</button>
+    <form class="search-box search-box--mockup" data-search-form>
+      <label><span class="search-label-icon" aria-hidden="true">&#128269;</span>Scryfall Search</label>
+      <div class="search-input-row">
+        <input name="query" data-search-query value="${escapeAttribute(query)}" placeholder="Search for a card..." />
+        <button aria-label="Search Scryfall" ${loading ? "disabled" : ""}>${loading ? "Searching…" : "Search"}</button>
+      </div>
+      <div class="search-tabs" aria-label="Search result categories">
+        <span class="active">Search Results</span>
+        <span>Recent</span>
+        <span>Favorites</span>
       </div>
       <p>${escapeHtml(message || "Works offline with saved commander deck matches.")}</p>
     </form>
+    <div class="search-layout">
     <div class="search-results scroll-safe" data-no-swipe>
       ${results
         .map((card, index) => {
@@ -3843,11 +4057,15 @@ function renderSearch(results, message, loading = false, query = "") {
               (/\bcreature\b/i.test(card.typeLine || "") ||
                 (/\bplaneswalker\b/i.test(card.typeLine || "") && /can be your commander/i.test(card.oracleText || ""))));
           return `
-        <article>
+        <article class="search-result-card">
+          ${card.imageSmall ? `<img class="search-card-thumb" src="${escapeAttribute(card.imageSmall)}" alt="" loading="lazy" />` : `<div class="search-card-thumb placeholder" aria-hidden="true"></div>`}
+          <div class="search-card-copy">
           <strong>${escapeHtml(card.name)}</strong>
           <span>${escapeHtml(card.typeLine || "")}</span>
-          <div class="row mini">
-            ${card.isInstant || card.isSorcery || /\b(Instant|Sorcery)\b/i.test(card.typeLine || "") ? `<button data-cast-result="${index}">Cast</button>` : `<button data-add-result="${index}">Add</button>`}
+          <p>${escapeHtml(truncateText(card.oracleText || "", 84))}</p>
+          </div>
+          <div class="row mini search-result-actions">
+            ${card.isInstant || card.isSorcery || /\b(Instant|Sorcery)\b/i.test(card.typeLine || "") ? `<button class="cast-badge" data-cast-result="${index}">Cast</button>` : `<button class="cast-badge" data-add-result="${index}" title="Open battlefield placement">Cast</button>`}
             <button data-deck-result="${index}">Deck</button>
             <button data-inspect-result="${index}">Inspect</button>
             ${commanderEligible ? `<button data-commander-result="${index}">Commander</button>` : ""}
@@ -3856,6 +4074,18 @@ function renderSearch(results, message, loading = false, query = "") {
       `;
         })
         .join("")}
+    </div>
+    <aside class="cast-options-card">
+      <strong>Cast Options</strong>
+      <div class="cast-option-list">
+        <span><b aria-hidden="true">&#9995;</b>Cast from Hand</span>
+        <span><b aria-hidden="true">&#9760;</b>Cast from Graveyard</span>
+        <span><b aria-hidden="true">&#128274;</b>Cast from Exile</span>
+        <span><b aria-hidden="true">&#128737;</b>Cast from Command Zone</span>
+        <span class="cast-option-battlefield"><b aria-hidden="true">&#10148;</b>Put onto Battlefield <small>(Not Casting)</small></span>
+        <label class="cast-option-toggle"><span>Card belongs to opponent</span><input type="checkbox" disabled /></label>
+      </div>
+    </aside>
     </div>
   `;
 }
@@ -4006,6 +4236,7 @@ function renderBattlefieldToolPanel(profile, panel, toolContext = "empty", isMob
 function renderPlayerControls(profile) {
   const session = profile.activeSession;
   const note = profile.settings?.playerNotes?.session || "";
+  const zoneCounts = session.zoneCounts || session.hiddenZones?.localPlayer || {};
   return `
     <div class="player-control-widget">
       <article class="phase-tracker-card">
@@ -4013,32 +4244,53 @@ function renderPlayerControls(profile) {
         <h2>Turn ${session.turn}</h2>
         <strong>${escapeHtml(PHASES[session.phaseIndex])}</strong>
       </article>
-      <div class="button-grid">
-        <button data-open-life-quick>Life</button>
-        <button data-open-commander-quick>Commander Damage</button>
-        <button data-player-counter-delta="poison" data-delta="1">Poison +1</button>
-        <button data-player-counter-delta="energy" data-delta="1">Energy +1</button>
+      <div class="zone-count-grid">
+        <article><span>Hand</span><strong>${escapeHtml(formatZoneCount(zoneCounts.hand))}</strong></article>
+        <article><span>Library</span><strong>${escapeHtml(formatZoneCount(zoneCounts.library))}</strong></article>
+        <article><span>Graveyard</span><strong>${escapeHtml(formatZoneCount(zoneCounts.graveyard))}</strong></article>
+        <article><span>Exile</span><strong>${escapeHtml(formatZoneCount(zoneCounts.exile))}</strong></article>
       </div>
-      <div class="button-grid">
-        <button data-player-life-delta="-1">Life -1</button>
-        <button data-player-life-delta="1">Life +1</button>
-        <button data-player-life-delta="-5">Life -5</button>
-        <button data-player-life-delta="5">Life +5</button>
+      <div class="tool-action-section">
+        <strong>Actions</strong>
+        <div class="player-action-grid">
+          <button data-mulligan-tracker><span class="action-icon">&#128400;</span>Mulligan Tracker</button>
+          <button data-open-tool-panel="commander"><span class="action-icon">&#9812;</span>Commander Tax</button>
+          <button data-next-phase><span class="action-icon">&#128228;</span>End Step</button>
+          <button data-next-phase><span class="action-icon">&#8635;</span>Pass Turn</button>
+        </div>
       </div>
-      <label class="stacked-form">Notes
-        <textarea rows="3" data-player-note-input placeholder="Table notes, reminders, politics...">${escapeHtml(note)}</textarea>
-      </label>
-      <button class="wide" data-save-player-note>Save notes</button>
-      <div class="button-grid">
-        <button data-cast-commander>Cast Commander</button>
-        <button data-next-phase>Next Phase</button>
-        <button data-activate-board>Activate Board</button>
-        <button data-archive-game>Archive Game</button>
-        <button data-life-reset>Reset Player Trackers</button>
-        <button data-undo>Undo</button>
+      <div class="tool-action-section">
+        <strong>Game</strong>
+        <div class="player-action-grid">
+          <button data-undo><span class="action-icon">&#8630;</span>Undo</button>
+          <button data-open-utility="history"><span class="action-icon">&#128203;</span>History Log</button>
+          <button data-open-utility="triggers"><span class="action-icon">&#9888;</span>Manual Choice</button>
+          <button data-setting-button="battlefield.locked" data-value="true"><span class="action-icon">&#128274;</span>Lock Board</button>
+        </div>
       </div>
+      <details class="player-extra-controls">
+        <summary>Life, counters, and notes</summary>
+        <div class="button-grid">
+          <button data-open-life-quick>Life</button>
+          <button data-open-commander-quick>Commander Damage</button>
+          <button data-player-counter-delta="poison" data-delta="1">Poison +1</button>
+          <button data-player-counter-delta="energy" data-delta="1">Energy +1</button>
+          <button data-player-life-delta="-1">Life -1</button>
+          <button data-player-life-delta="1">Life +1</button>
+          <button data-player-life-delta="-5">Life -5</button>
+          <button data-player-life-delta="5">Life +5</button>
+        </div>
+        <label class="stacked-form">Notes
+          <textarea rows="3" data-player-note-input placeholder="Table notes, reminders, politics...">${escapeHtml(note)}</textarea>
+        </label>
+        <button class="wide" data-save-player-note>Save notes</button>
+      </details>
     </div>
   `;
+}
+
+function formatZoneCount(value) {
+  return Number.isFinite(Number(value)) ? String(Number(value)) : "-";
 }
 
 function renderTokenControls() {
@@ -4191,8 +4443,11 @@ function renderPending(session) {
     return "";
   }
   return `
-    <section class="pending-strip glass">
-      <h2>Pending Effects</h2>
+    <section class="pending-strip glass manual-choice-panel">
+      <div class="overlay-header compact">
+        <h2>Manual Choice Required</h2>
+        <button data-helper-remind>Remind Me</button>
+      </div>
       ${session.pendingEffects.map((effect) => `
         <article>
           <strong>${escapeHtml(effect.sourceName)}</strong>
@@ -4201,6 +4456,7 @@ function renderPending(session) {
           <button data-pending-effect="${effect.id}" data-status="resolved">Resolved</button>
           <button data-pending-effect="${effect.id}" data-status="skipped">Skipped</button>
           <button data-pending-effect="${effect.id}" data-status="ignored">Ignored</button>
+          <button data-helper-remind>Remind Me</button>
         </article>
       `).join("")}
     </section>
@@ -4302,7 +4558,7 @@ function renderGameOptions(profile, page = "life") {
           </div>
           <button data-close-overlay>Close</button>
         </div>
-        <div class="overlay-grid">
+        <div class="overlay-grid options-menu-grid">
           ${showEndGame ? `
           <article class="option-card">
             <h3>Active Game</h3>
@@ -4311,7 +4567,7 @@ function renderGameOptions(profile, page = "life") {
           </article>
           ` : ""}
           <article class="option-card">
-            <h3>Local Login / Profile</h3>
+            <h3>Profile & Local Storage</h3>
             <p>Status: ${localAuth.mode === "protected" ? "Password profile loaded" : "Guest / fresh mode"}${localAuth.hasPassword ? " · Password profile available" : ""}</p>
             <div class="button-grid">
               <button data-open-profile-page>Open Profile Page</button>
@@ -4336,7 +4592,7 @@ function renderGameOptions(profile, page = "life") {
             <p>Local device protection only. No cloud authentication, and plaintext passwords are never stored.</p>
           </article>
           <article class="option-card">
-            <h3>Multiplayer</h3>
+            <h3>Gameplay / Multiplayer</h3>
             <div class="button-grid">
               <button data-multiplayer-mode="local">Local Multiplayer</button>
               <button data-multiplayer-mode="wifi">Connect via WiFi</button>
@@ -4367,7 +4623,7 @@ function renderGameOptions(profile, page = "life") {
             ${renderToggle("Multiplayer authority confirmations", "multiplayer.confirmAuthority", multiplayer.confirmAuthority)}
           </article>
           <article class="option-card">
-            <h3>Page Customization</h3>
+            <h3>HUD Layout</h3>
             <p>Wallpaper composition: ${escapeHtml(compositionLabel)}</p>
             <button class="wide" data-setting-button="appearance.compositionMode" data-value="${nextCompositionMode}">
               Switch to ${nextCompositionMode === "mobile" ? "Mobile Vertical" : "Standard Widescreen"}
@@ -4388,7 +4644,7 @@ function renderGameOptions(profile, page = "life") {
             ${renderToggle("Stats / timer widgets", "pagePanels.statsTimerWidgets", panels.statsTimerWidgets)}
           </article>
           <article class="option-card">
-            <h3>Rules / Accessibility</h3>
+            <h3>Accessibility</h3>
             <p>ADHD Mode is a companion assistance layer for reminders and clarity, not official judging or full rules enforcement.</p>
             ${renderToggle("Helper Sprite", "helperSprite.enabled", Boolean(profile.settings?.helperSprite?.enabled))}
             <button class="wide" data-helper-remind>Remind me</button>
@@ -4409,7 +4665,7 @@ function renderGameOptions(profile, page = "life") {
             ${renderToggle("Focus mode", "battlefield.focusMode", Boolean(profile.settings?.battlefield?.focusMode))}
           </article>
           <article class="option-card">
-            <h3>Support / Debug</h3>
+            <h3>Diagnostics & Support</h3>
             <p>Copy clean diagnostics without passwords or private tokens.</p>
             <div class="button-grid">
               <button data-copy-game-log>Copy Game Log</button>
@@ -4423,9 +4679,10 @@ function renderGameOptions(profile, page = "life") {
                 .map((entry) => `<span class="confidence-pill ${confidenceClass(entry.rulesConfidence)}">${escapeHtml(confidenceLabel(entry.rulesConfidence))}</span>`)
                 .join("") || `<span class="confidence-pill info">No rules events yet</span>`}
             </div>
+            ${renderRulesConfidenceLegend()}
           </article>
           <article class="option-card">
-            <h3>Data Safety</h3>
+            <h3>Data Management</h3>
             <p>Destructive actions ask before changing local data.</p>
             <div class="button-grid">
               <button data-export>Export Profile</button>
@@ -4435,6 +4692,11 @@ function renderGameOptions(profile, page = "life") {
               <button data-reset-settings>Reset Settings</button>
               <button class="danger-soft" data-reset-all-local-data>Reset All Local Data</button>
             </div>
+          </article>
+          <article class="option-card">
+            <h3>About BoardState</h3>
+            <p>BoardState is a local-first MTG companion for life tracking, battlefield testing, Dry Run simulation, manual-choice reminders, and debug-friendly game history.</p>
+            ${renderImportantNotes()}
           </article>
         </div>
       </div>
@@ -4460,12 +4722,43 @@ function renderRecoveryToasts(profile, notice = null) {
           <strong>${escapeHtml(entry.source || "Recovery")}</strong>
           <p>${escapeHtml(entry.message || "Something needs attention.")}</p>
           ${entry.suggestedAction ? `<span>${escapeHtml(entry.suggestedAction)}</span>` : ""}
-          <div class="row mini">
+          <div class="recovery-actions mini">
+            <button data-recovery-retry="${escapeAttribute(entry.id)}">Retry</button>
+            <button data-recovery-cached="${escapeAttribute(entry.id)}">Use Cached Data</button>
+            <button data-open-game-options>Open Game Options</button>
             <button data-copy-recovery="${escapeAttribute(entry.id)}">Copy Details</button>
             <button data-dismiss-recovery="${escapeAttribute(entry.id)}">Dismiss</button>
           </div>
         </article>
       `).join("")}
+    </section>
+  `;
+}
+
+function renderRulesConfidenceLegend() {
+  return `
+    <section class="rules-legend-card">
+      <p class="eyebrow">Rules Confidence Legend</p>
+      <div class="rules-confidence-mini">
+        <span class="confidence-pill success">Auto-resolved</span>
+        <span class="confidence-pill warning">Manual choice required</span>
+        <span class="confidence-pill info">Partially supported</span>
+        <span class="confidence-pill warning">Needs review</span>
+        <span class="confidence-pill error">Failed / recovery needed</span>
+      </div>
+    </section>
+  `;
+}
+
+function renderImportantNotes() {
+  return `
+    <section class="important-notes-card">
+      <p class="eyebrow">Important Notes</p>
+      <div class="important-notes-grid">
+        <article><strong>&#10067;</strong><span>All destructive actions require confirmation.</span></article>
+        <article><strong>&#10022;</strong><span>All zones are tracked invisibly in the background.</span></article>
+        <article><strong>&#128221;</strong><span>You can export logs or a debug report anytime.</span></article>
+      </div>
     </section>
   `;
 }
@@ -5120,6 +5413,14 @@ function parseSettingValue(value) {
 
 function formatLabel(value) {
   return String(value || "").replace(/^\w/, (letter) => letter.toUpperCase());
+}
+
+function truncateText(value, maxLength = 80) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trim()}...`;
 }
 
 function confidenceClass(value = "") {
