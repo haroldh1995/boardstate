@@ -25,8 +25,8 @@ const PERMANENT_DRAG_REORDER_THRESHOLD = 46;
 const ATTACK_DRAG_TOP_RATIO = 0.34;
 const EDGE_ZONE_SIZE = 26;
 const HUD_DRAG_THRESHOLD = 7;
+const OUTSIDE_DISMISS_DRAG_THRESHOLD = 10;
 const HUD_BADGE_DEFAULTS = {
-  tools: { x: 18, y: 520 },
   utility: { x: 98, y: 520 },
   helper: { x: 14, y: 420 },
   simulation: { x: 14, y: 182 },
@@ -135,6 +135,10 @@ export function mountApp(root, store) {
   let helperDismissCooldown = new Map();
   let confirmationDialog = null;
   let uiNotice = null;
+  let manualChoicePanelCollapsed = false;
+  let globalDismissHandlersInstalled = false;
+  let outsideDismissPointerStart = null;
+  let suppressNextOutsideDismissClickUntil = 0;
 
   store.subscribe(render);
   render(store.getState());
@@ -192,6 +196,9 @@ export function mountApp(root, store) {
     if (profile.activeSession?.simulation?.enabled && profile.activeSession?.simulation?.status !== "idle") {
       simulationSetupOpen = false;
       simulationSetupError = "";
+    }
+    if (!(profile.activeSession?.pendingEffects || []).some((entry) => entry.status === "pending")) {
+      manualChoicePanelCollapsed = false;
     }
     const navigationSettings = profile.settings?.navigation || {};
     hudBadgePositions = mergeHudBadgePositions(navigationSettings.hudBadgePositions);
@@ -252,8 +259,10 @@ export function mountApp(root, store) {
       opponentOverlayOpen,
       confirmationDialog,
       uiNotice,
+      manualChoicePanelCollapsed,
     });
     bind(root, profile);
+    installGlobalDismissHandlers();
     installSimulationUiHandlers();
     scheduleManaAutoClose(profile);
     installLifeZoomGuards();
@@ -368,19 +377,17 @@ export function mountApp(root, store) {
     container.querySelector("[data-open-floating-mana]")?.addEventListener("click", () => {
       const manaPinned = Boolean(profile.settings?.battlefield?.manaPinned);
       const shouldClose = floatingManaOpen || manaPinned;
+      closeAllTemporaryUi({ renderAfter: false });
       floatingManaOpen = !shouldClose;
       if (manaPinned && shouldClose) {
         store.dispatch({ type: "SET_SETTING", path: "battlefield.manaPinned", value: false });
       }
-      activeToolPanel = "";
-      toolMenuOpen = false;
       render(store.getState());
     });
     container.querySelectorAll("[data-open-tool-panel]").forEach((button) => {
       button.addEventListener("click", () => {
+        closeAllTemporaryUi({ renderAfter: false });
         activeToolPanel = button.dataset.openToolPanel;
-        floatingManaOpen = false;
-        toolMenuOpen = false;
         render(store.getState());
       });
     });
@@ -405,9 +412,8 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-open-game-options]").forEach((button) =>
       button.addEventListener("click", () => {
+        closeAllTemporaryUi({ renderAfter: false });
         optionsOpen = true;
-        activeToolPanel = "";
-        toolMenuOpen = false;
         render(store.getState());
       })
     );
@@ -418,6 +424,7 @@ export function mountApp(root, store) {
           event.stopPropagation();
           return;
         }
+        closeAllTemporaryUi({ renderAfter: false });
         simulationSetupError = "";
         simulationSetupOpen = true;
         render(store.getState());
@@ -570,65 +577,12 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-tool-menu], [data-open-tool-menu]").forEach((button) =>
       button.addEventListener("click", () => {
-        toolMenuOpen = !toolMenuOpen;
+        const nextOpen = !toolMenuOpen;
+        closeAllTemporaryUi({ renderAfter: false });
+        toolMenuOpen = nextOpen;
         render(store.getState());
       })
     );
-    const toolBadge = container.querySelector("[data-tool-badge]");
-    if (toolBadge) {
-      toolBadge.addEventListener("pointerdown", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        const toolPosition = hudBadgePositions.tools || HUD_BADGE_DEFAULTS.tools;
-        toolBadge.setPointerCapture?.(event.pointerId);
-        hudBadgeDrag = {
-          id: "tools",
-          startX: event.clientX,
-          startY: event.clientY,
-          originalX: toolPosition.x,
-          originalY: toolPosition.y,
-          moved: false,
-        };
-      });
-      toolBadge.addEventListener("pointermove", (event) => {
-        if (!hudBadgeDrag || hudBadgeDrag.id !== "tools" || hudBadgesLocked) {
-          return;
-        }
-        event.preventDefault();
-        const dx = event.clientX - hudBadgeDrag.startX;
-        const dy = event.clientY - hudBadgeDrag.startY;
-        hudBadgeDrag.moved = hudBadgeDrag.moved || Math.abs(dx) > HUD_DRAG_THRESHOLD || Math.abs(dy) > HUD_DRAG_THRESHOLD;
-        const next = clampHudBadgePosition("tools", hudBadgeDrag.originalX + dx, hudBadgeDrag.originalY + dy);
-        hudBadgePositions = {
-          ...hudBadgePositions,
-          tools: next,
-        };
-        toolBadge.style.left = `${next.x}px`;
-        toolBadge.style.top = `${next.y}px`;
-      });
-      toolBadge.addEventListener("pointerup", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (hudBadgeDrag?.id !== "tools") {
-          hudBadgeDrag = null;
-          return;
-        }
-        const wasMoved = Boolean(hudBadgeDrag.moved && !hudBadgesLocked);
-        hudBadgeDrag = null;
-        if (wasMoved) {
-          persistHudBadgePositions(hudBadgePositions);
-          render(store.getState());
-          return;
-        }
-        toolMenuOpen = !toolMenuOpen;
-        render(store.getState());
-      });
-      ["pointercancel", "pointerleave"].forEach((eventName) =>
-        toolBadge.addEventListener(eventName, () => {
-          hudBadgeDrag = null;
-        })
-      );
-    }
     bindDraggableHudBadges(container);
     container.querySelector("[data-app-shell]")?.addEventListener("pointerdown", (event) => {
       if (!isPortraitTouchMode() || isSwipeBlockedTarget(event.target)) {
@@ -651,9 +605,8 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-game-options]").forEach((button) =>
       button.addEventListener("click", () => {
+        closeAllTemporaryUi({ renderAfter: false });
         optionsOpen = true;
-        activeToolPanel = "";
-        toolMenuOpen = false;
         render(store.getState());
       })
     );
@@ -1401,21 +1354,25 @@ export function mountApp(root, store) {
       }
       render(store.getState());
     });
+    container.querySelectorAll("[data-open-manual-choice-panel]").forEach((button) =>
+      button.addEventListener("click", () => {
+        manualChoicePanelCollapsed = false;
+        render(store.getState());
+      })
+    );
 
     container.querySelector("[data-toggle-utility-dock]")?.addEventListener("click", () => {
-      utilityDockOpen = !utilityDockOpen;
-      if (!utilityDockOpen) {
-        activeUtilityPanel = "";
-      }
+      const nextOpen = !utilityDockOpen;
+      closeAllTemporaryUi({ renderAfter: false });
+      utilityDockOpen = nextOpen;
       render(store.getState());
     });
     container.querySelectorAll("[data-open-utility]").forEach((button) => {
       button.addEventListener("click", () => {
+        closeAllTemporaryUi({ renderAfter: false });
         activeUtilityPanel = button.dataset.openUtility || "";
         // Open the selected utility panel without forcing the dock menu to stay expanded behind it.
         utilityDockOpen = false;
-        toolMenuOpen = false;
-        activeToolPanel = "";
         render(store.getState());
       });
     });
@@ -1458,36 +1415,229 @@ export function mountApp(root, store) {
 
     container.querySelector(".floating-mana")?.addEventListener("pointerdown", () => scheduleManaAutoClose(store.getState()));
     bindEdgeSwipeZones(container, profile);
-    document.onkeydown = (event) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-      if (activeToolPanel || floatingManaOpen || toolMenuOpen) {
+  }
+
+  function installGlobalDismissHandlers() {
+    if (globalDismissHandlersInstalled) {
+      return;
+    }
+    globalDismissHandlersInstalled = true;
+    document.addEventListener("pointerdown", handleGlobalDismissPointerDown, true);
+    document.addEventListener("pointerup", handleGlobalDismissPointerUp, true);
+    document.addEventListener("click", handleGlobalDismissClick, true);
+    document.addEventListener("keydown", handleGlobalDismissKeydown, true);
+  }
+
+  function handleGlobalDismissPointerDown(event) {
+    if (event.button && event.button !== 0) {
+      outsideDismissPointerStart = null;
+      return;
+    }
+    const topLayer = getTopTemporaryLayer();
+    if (!topLayer) {
+      outsideDismissPointerStart = null;
+      return;
+    }
+    const inside = isInsideLayer(event.target, topLayer);
+    const draggable = Boolean(event.target?.closest?.("[data-draggable-hud]"));
+    outsideDismissPointerStart = {
+      x: event.clientX,
+      y: event.clientY,
+      layerName: topLayer.name,
+      inside,
+      draggable,
+    };
+    if (!inside && !draggable) {
+      // Capture outside taps before edge-swipe zones or buried controls can
+      // react underneath the menu that is about to be dismissed.
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+    }
+  }
+
+  function handleGlobalDismissPointerUp(event) {
+    if (!outsideDismissPointerStart) {
+      return;
+    }
+    const pointerStart = outsideDismissPointerStart;
+    outsideDismissPointerStart = null;
+    if (hudBadgeDrag || pointerStart.draggable) {
+      return;
+    }
+    const dx = Math.abs(event.clientX - pointerStart.x);
+    const dy = Math.abs(event.clientY - pointerStart.y);
+    if (dx > OUTSIDE_DISMISS_DRAG_THRESHOLD || dy > OUTSIDE_DISMISS_DRAG_THRESHOLD) {
+      return;
+    }
+    const topLayer = getTopTemporaryLayer();
+    if (!topLayer || topLayer.name !== pointerStart.layerName) {
+      return;
+    }
+    if (pointerStart.inside || isInsideLayer(event.target, topLayer)) {
+      return;
+    }
+    if (closeTopTemporaryLayer(topLayer, "outside")) {
+      suppressNextOutsideDismissClickUntil = Date.now() + 350;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      render(store.getState());
+    }
+  }
+
+  function handleGlobalDismissClick(event) {
+    if (Date.now() > suppressNextOutsideDismissClickUntil) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+    suppressNextOutsideDismissClickUntil = 0;
+  }
+
+  function handleGlobalDismissKeydown(event) {
+    if (event.key !== "Escape") {
+      return;
+    }
+    const topLayer = getTopTemporaryLayer();
+    if (!topLayer) {
+      return;
+    }
+    if (closeTopTemporaryLayer(topLayer, "escape")) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      render(store.getState());
+    }
+  }
+
+  function getTopTemporaryLayer() {
+    if (confirmationDialog) return { name: "confirmation", selectors: [".confirm-dialog"] };
+    if (simulationStatsOpen) return { name: "simulation-stats", selectors: [".simulation-stats-overlay"] };
+    if (syncedTurnOrderSetupOpen) return { name: "synced-turn-order", selectors: [".synced-turn-order-modal"] };
+    if (simulationSetupOpen) return { name: "simulation-setup", selectors: [".simulation-setup"] };
+    if (opponentOverlayOpen) return { name: "opponent-overlay", selectors: [".opponent-battlefield-overlay"] };
+    if (statsOpen) return { name: "stats", selectors: [".stats-overlay"] };
+    if (optionsOpen) return { name: "options", selectors: [".floating-overlay"] };
+    if (modifierPanelOpen) return { name: "modifier", selectors: [".modifier-panel"] };
+    if (quickPanelOpen) return { name: "quick-panel", selectors: [".quick-adjust-panel"] };
+    if (activeToolPanel) return { name: "tool-panel", selectors: [".floating-tool-panel"] };
+    if (floatingManaOpen && !store.getState().settings?.battlefield?.manaPinned) return { name: "floating-mana", selectors: [".floating-mana"] };
+    if (activeUtilityPanel) return { name: "utility-panel", selectors: [".utility-overlay"] };
+    if (utilityDockOpen) return { name: "utility-menu", selectors: [".utility-dock"] };
+    if (toolMenuOpen) return { name: "radial-menu", selectors: [".radial-menu"] };
+    if (simulationLogOpen) return { name: "simulation-log", selectors: [".simulation-hud"] };
+    if (!manualChoicePanelCollapsed && (store.getState().activeSession?.pendingEffects || []).some((entry) => entry.status === "pending")) {
+      return { name: "manual-choice", selectors: [".manual-choice-panel", ".pending-strip"] };
+    }
+    return null;
+  }
+
+  function isInsideLayer(target, layer) {
+    if (!target?.closest || !layer?.selectors?.length) {
+      return false;
+    }
+    return Boolean(target.closest(layer.selectors.join(",")));
+  }
+
+  function closeTopTemporaryLayer(layer = getTopTemporaryLayer(), reason = "outside") {
+    if (!layer) {
+      return false;
+    }
+    switch (layer.name) {
+      case "confirmation":
+        confirmationDialog = null;
+        return true;
+      case "simulation-stats":
+        simulationStatsOpen = false;
+        return true;
+      case "synced-turn-order":
+        syncedTurnOrderSetupOpen = false;
+        syncedTurnOrderError = "";
+        return true;
+      case "simulation-setup":
+        simulationSetupSuppressOpenUntil = Date.now() + 450;
+        simulationSetupError = "";
+        simulationSetupOpen = false;
+        return true;
+      case "opponent-overlay":
+        opponentOverlayOpen = false;
+        return true;
+      case "stats":
+        statsOpen = false;
+        return true;
+      case "options":
+        optionsOpen = false;
+        return true;
+      case "modifier":
+        pendingTrackerModifier = cloneTrackerModifier(trackerModifier);
+        modifierPanelOpen = false;
+        return true;
+      case "quick-panel":
+        quickPanelOpen = "";
+        return true;
+      case "tool-panel":
         activeToolPanel = "";
         floatingManaOpen = false;
+        return true;
+      case "floating-mana":
+        floatingManaOpen = false;
+        return true;
+      case "utility-panel":
+        activeUtilityPanel = "";
+        return true;
+      case "utility-menu":
+        utilityDockOpen = false;
+        return true;
+      case "radial-menu":
         toolMenuOpen = false;
-        activeUtilityPanel = "";
-        render(store.getState());
-      }
-    };
-    document.onpointerdown = (event) => {
-      if (!activeToolPanel && !floatingManaOpen && !activeUtilityPanel) {
-        return;
-      }
-      if (
-        event.target.closest(
-          ".floating-tool-panel, .floating-mana, .radial-menu, .tool-badge, .utility-dock, .utility-overlay, .battlefield-mobile-dock, button, input, label, textarea, select, [data-permanent-card], [data-permanent], [data-tap], [data-counter]"
-        )
-      ) {
-        return;
-      }
-      if (!profile.settings?.battlefield?.manaPinned) {
-        activeToolPanel = "";
-        floatingManaOpen = false;
-        activeUtilityPanel = "";
-        render(store.getState());
-      }
-    };
+        return true;
+      case "simulation-log":
+        simulationLogOpen = false;
+        return true;
+      case "manual-choice":
+        manualChoicePanelCollapsed = true;
+        uiNotice = {
+          id: `notice-${Date.now()}`,
+          message: reason === "escape" ? "Manual choice remains queued." : "Manual choice minimized. It remains queued for resolution.",
+          severity: "info",
+          timestamp: Date.now(),
+        };
+        return true;
+      case "notice":
+        uiNotice = null;
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  function closeAllTemporaryUi(options = {}) {
+    const { renderAfter = true, keepSimulationSetup = false } = options;
+    optionsOpen = false;
+    statsOpen = false;
+    quickPanelOpen = "";
+    modifierPanelOpen = false;
+    toolMenuOpen = false;
+    activeToolPanel = "";
+    utilityDockOpen = false;
+    activeUtilityPanel = "";
+    opponentOverlayOpen = false;
+    simulationStatsOpen = false;
+    syncedTurnOrderSetupOpen = false;
+    syncedTurnOrderError = "";
+    confirmationDialog = null;
+    if (!keepSimulationSetup) {
+      simulationSetupOpen = false;
+      simulationSetupError = "";
+    }
+    if (!store.getState().settings?.battlefield?.manaPinned) {
+      floatingManaOpen = false;
+    }
+    if (renderAfter) {
+      render(store.getState());
+    }
   }
 
   function bindDraggableHudBadges(container) {
@@ -1553,14 +1703,12 @@ export function mountApp(root, store) {
 
   function clampHudBadgePosition(id, x, y) {
     const widthMap = {
-      tools: 72,
       utility: 110,
       helper: 220,
       simulation: 300,
       floatingMana: 250,
     };
     const heightMap = {
-      tools: 72,
       utility: 52,
       helper: 68,
       simulation: 128,
@@ -1775,7 +1923,7 @@ export function mountApp(root, store) {
     } else if (state.activeSession?.gameTracking?.active) {
       store.dispatch({ type: "STOP_GAME_TRACKING" });
     }
-    optionsOpen = false;
+    closeAllTemporaryUi({ renderAfter: false });
     render(store.getState());
   }
 
@@ -1811,14 +1959,8 @@ export function mountApp(root, store) {
     }
     activePage = page;
     history.replaceState(null, "", `#${activePage}`);
-    optionsOpen = false;
-    statsOpen = false;
-    quickPanelOpen = "";
+    closeAllTemporaryUi({ renderAfter: false });
     toolContextOverride = "";
-    toolMenuOpen = false;
-    activeToolPanel = "";
-    utilityDockOpen = false;
-    activeUtilityPanel = "";
     render(store.getState());
   }
 
@@ -2165,6 +2307,9 @@ export function mountApp(root, store) {
     }
     container.querySelectorAll("[data-edge-zone]").forEach((zone) => {
       zone.addEventListener("pointerdown", (event) => {
+        if (getTopTemporaryLayer()) {
+          return;
+        }
         const edge = zone.dataset.edgeZone;
         if (edge === "left") {
           movePage(-1);
@@ -3277,7 +3422,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
       </aside>
     </section>
     ${renderMobileBattlefieldDock(profile, activeUtilityPanel, uiState.utilityDockOpen, Boolean(panels.boardCombat), Boolean(combatResolving), isMobilePortrait)}
-    ${panels.advancedRulesHelpers || (session.pendingEffects || []).length ? renderPending(session) : ""}
+    ${panels.advancedRulesHelpers || (session.pendingEffects || []).length ? renderPending(session, Boolean(uiState.manualChoicePanelCollapsed)) : ""}
     ${session.tutorial?.active ? renderTutorialSamplePanel(session) : ""}
     ${activeUtilityPanel === "history" ? renderActionTimeline(profile) : ""}
     ${activeUtilityPanel === "triggers" ? renderTriggerQueuePanel(profile) : ""}
@@ -3990,7 +4135,7 @@ function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResu
         <p>${escapeHtml(rulesText)}</p>
         <button class="wide" data-open-tool-panel="inspect">Inspect Selected Permanent</button>
       ` : ""}
-      ${panel === "search" ? renderSearch(searchResults, searchMessage, searchLoading, searchQuery) : ""}
+      ${panel === "search" ? renderSearch(searchResults, searchMessage, searchLoading, searchQuery, "battlefield") : ""}
       ${panel === "simulation" ? `
         <div class="simulation-log scroll-safe">
           ${(session.simulation?.log || [])
@@ -4032,7 +4177,8 @@ function getDensityClass(permanents = [], compressionMode = "adaptive") {
   return "density-low";
 }
 
-function renderSearch(results, message, loading = false, query = "") {
+function renderSearch(results, message, loading = false, query = "", mode = "battlefield") {
+  const deckMode = mode === "decks";
   return `
     <form class="search-box search-box--mockup" data-search-form>
       <label><span class="search-label-icon" aria-hidden="true">&#128269;</span>Scryfall Search</label>
@@ -4065,17 +4211,22 @@ function renderSearch(results, message, loading = false, query = "") {
           <p>${escapeHtml(truncateText(card.oracleText || "", 84))}</p>
           </div>
           <div class="row mini search-result-actions">
-            ${card.isInstant || card.isSorcery || /\b(Instant|Sorcery)\b/i.test(card.typeLine || "") ? `<button class="cast-badge" data-cast-result="${index}">Cast</button>` : `<button class="cast-badge" data-add-result="${index}" title="Open battlefield placement">Cast</button>`}
-            <button data-deck-result="${index}">Deck</button>
-            <button data-inspect-result="${index}">Inspect</button>
-            ${commanderEligible ? `<button data-commander-result="${index}">Commander</button>` : ""}
+            ${deckMode ? `
+              <button data-deck-result="${index}">Add to deck</button>
+              ${commanderEligible ? `<button data-commander-result="${index}">Make commander</button>` : ""}
+            ` : `
+              ${card.isInstant || card.isSorcery || /\b(Instant|Sorcery)\b/i.test(card.typeLine || "") ? `<button class="cast-badge" data-cast-result="${index}">Cast</button>` : `<button class="cast-badge" data-add-result="${index}" title="Open battlefield placement">Cast</button>`}
+              <button data-deck-result="${index}">Deck</button>
+              <button data-inspect-result="${index}">Inspect</button>
+              ${commanderEligible ? `<button data-commander-result="${index}">Commander</button>` : ""}
+            `}
           </div>
         </article>
       `;
         })
         .join("")}
     </div>
-    <aside class="cast-options-card">
+    ${deckMode ? "" : `<aside class="cast-options-card">
       <strong>Cast Options</strong>
       <div class="cast-option-list">
         <span><b aria-hidden="true">&#9995;</b>Cast from Hand</span>
@@ -4085,24 +4236,18 @@ function renderSearch(results, message, loading = false, query = "") {
         <span class="cast-option-battlefield"><b aria-hidden="true">&#10148;</b>Put onto Battlefield <small>(Not Casting)</small></span>
         <label class="cast-option-toggle"><span>Card belongs to opponent</span><input type="checkbox" disabled /></label>
       </div>
-    </aside>
+    </aside>`}
     </div>
   `;
 }
 
 function renderBattlefieldToolBadge(profile, menuOpen, floatingManaOpen, activeToolPanel, positions, toolContext, isMobilePortrait = false, hudBadgesLocked = false) {
   const manaPinned = Boolean(profile.settings?.battlefield?.manaPinned);
-  const position = positions.tools || HUD_BADGE_DEFAULTS.tools;
-  const badgeStyle = `left:${Math.round(position.x)}px;top:${Math.round(position.y)}px;`;
-  const draggableAttrs = isMobilePortrait
-    ? `data-draggable-hud="tools" data-hud-lock-state="${hudBadgesLocked ? "locked" : "unlocked"}"`
-    : "";
   const radialActions = getContextualRadialActions(toolContext, floatingManaOpen || manaPinned);
   return `
     <div class="battlefield-tool-system">
-      <button class="tool-badge glass" style="${badgeStyle}" ${draggableAttrs} data-tool-badge aria-label="Battlefield tools">Tools</button>
       ${menuOpen ? `
-      <section class="radial-menu glass" style="${badgeStyle}">
+      <section class="radial-menu glass">
         <p class="radial-context-label">Context: ${escapeHtml(formatLabel(toolContext))}</p>
         ${radialActions.map((entry) => renderRadialAction(entry)).join("")}
       </section>
@@ -4438,9 +4583,17 @@ function renderCommanderTools(profile) {
   `;
 }
 
-function renderPending(session) {
+function renderPending(session, collapsed = false) {
   if (!session.pendingEffects.length) {
     return "";
+  }
+  if (collapsed) {
+    const pendingCount = session.pendingEffects.filter((effect) => effect.status === "pending").length || session.pendingEffects.length;
+    return `
+    <section class="pending-strip glass manual-choice-panel manual-choice-panel--collapsed" data-no-swipe>
+      <button class="wide" data-open-manual-choice-panel>Manual choice required (${pendingCount}) · Open</button>
+    </section>
+  `;
   }
   return `
     <section class="pending-strip glass manual-choice-panel">
@@ -4498,7 +4651,7 @@ function renderDecks(profile, results, message, searchLoading, searchQuery) {
   return `
     <section class="utility-page glass">
       <h2>Commander Decks</h2>
-      ${renderSearch(results, message, searchLoading, searchQuery)}
+      ${renderSearch(results, message, searchLoading, searchQuery, "decks")}
       ${decks.map((deck) => `
         <article class="log-card">
           <strong>${escapeHtml(deck.commanderName)}</strong>

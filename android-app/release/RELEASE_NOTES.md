@@ -2,8 +2,8 @@
 
 ## App
 - Name: BoardState
-- Version: 1.10.0
-- Version code: 14
+- Version: 1.10.1
+- Version code: 15
 - Package: `com.boardstate.app`
 
 ## Summary
@@ -15,6 +15,11 @@
 - Fixes the center Next Phase badge position so the full button stays visible and centered inside the compact dashboard.
 - Adds release QOL systems: friendly error recovery, rules confidence indicators, copy/export debug tools, tutorial sample board, and safer confirmations for destructive local-data actions.
 - Fixes modal confirmation stacking and mobile dashboard hit-testing discovered during visual browser audit.
+- Adds the animated BoardState dragon loading screen with real startup checkpoints, blue glowing progress bar, reduced-motion support, and smooth fade into the app.
+- Keeps startup from flashing half-loaded UI while profile/settings, route state, rules systems, Scryfall cache, deck data, and visual assets initialize.
+- Updates the bundled Android WebView assets so the direct-download package includes the latest loader, Battlefield dashboard, and Decks search action fixes.
+- Fixes non-blocking toast behavior so phase/status notices no longer consume the next Battlefield dashboard tap.
+- Restores Decks-page search actions to Add to deck and Make commander instead of Battlefield Cast actions.
 
 ## Included behavior
 - WebView back navigation
