@@ -10,6 +10,7 @@ const PROTECTED_FALLBACK_KEY = "boardstate-protected-profile";
 const AUTH_FALLBACK_KEY = "boardstate-auth-meta";
 const GUEST_SESSION_KEY = "boardstate-guest-session";
 const LEGACY_FALLBACK_KEYS = ["boardstate-hybrid-profile"];
+const DATABASE_TIMEOUT_MS = 1800;
 
 function openDatabase() {
   if (!("indexedDB" in globalThis)) {
@@ -17,12 +18,40 @@ function openDatabase() {
   }
 
   return new Promise((resolve) => {
-    const request = indexedDB.open(DB_NAME, 1);
+    let settled = false;
+    let request = null;
+    const timeout = globalThis.setTimeout(() => settle(null), DATABASE_TIMEOUT_MS);
+
+    function settle(value) {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      globalThis.clearTimeout(timeout);
+      resolve(value);
+    }
+
+    try {
+      request = indexedDB.open(DB_NAME, 1);
+    } catch {
+      settle(null);
+      return;
+    }
+
+    request.onblocked = () => settle(null);
     request.onupgradeneeded = () => {
-      request.result.createObjectStore(STORE_NAME);
+      if (!request.result.objectStoreNames.contains(STORE_NAME)) {
+        request.result.createObjectStore(STORE_NAME);
+      }
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => resolve(null);
+    request.onsuccess = () => {
+      if (settled) {
+        request.result.close();
+        return;
+      }
+      settle(request.result);
+    };
+    request.onerror = () => settle(null);
   });
 }
 

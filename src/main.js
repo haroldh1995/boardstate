@@ -28,8 +28,8 @@ async function bootstrap() {
     const store = createStore();
     await loading.runStep(62, "Mounting BoardState HUD...", () => {
       mountApp(root, store);
-    });
-    await loading.runStep(76, "Restoring profile and settings...", () => store.init());
+    }, { critical: true });
+    await loading.runStep(76, "Restoring profile and settings...", () => store.init(), { timeoutMs: 2800 });
     await loading.runStep(88, "Preparing rules engine...", () => Promise.resolve());
     await loading.runStep(96, "Preparing the battlefield...", () => Promise.resolve());
     await loading.complete("Entering BoardState...");

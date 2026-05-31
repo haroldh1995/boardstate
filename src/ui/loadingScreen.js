@@ -1,5 +1,7 @@
 const STARTUP_TIMEOUT_MS = 11000;
-const MIN_VISIBLE_MS = 620;
+const MIN_VISIBLE_MS = 1250;
+const DEFAULT_STEP_TIMEOUT_MS = 3500;
+const PROGRESS_STEP_MS = 16;
 
 export function createLoadingScreenController({ assets = [] } = {}) {
   const node = document.querySelector("#boardstate-loader");
@@ -10,6 +12,7 @@ export function createLoadingScreenController({ assets = [] } = {}) {
   const details = node?.querySelector("[data-loading-details]");
   let progress = 0;
   let ready = false;
+  let progressAnimation = Promise.resolve();
   const startedAt = performance.now();
   const stallTimer = window.setTimeout(() => {
     if (!ready) {
@@ -30,19 +33,26 @@ export function createLoadingScreenController({ assets = [] } = {}) {
     await delay(160);
   }
 
-  async function runStep(target, message, task) {
-    setProgress(Math.max(progress, target - 8), message);
+  async function runStep(target, message, task, options = {}) {
+    const { critical = false, timeoutMs = DEFAULT_STEP_TIMEOUT_MS } = options;
+    await setProgress(Math.max(progress, target - 8), message);
     if (typeof task === "function") {
-      await task();
+      const result = await runStartupTask(task, { message, timeoutMs });
+      if (result.status === "error" && critical) {
+        throw result.error;
+      }
+      if (result.status !== "ok") {
+        console.warn(`BoardState startup continued after ${message.toLowerCase()}:`, result.error?.message || result.reason);
+      }
     }
-    setProgress(target, message);
+    await setProgress(target, message);
     await nextFrame();
   }
 
   async function complete(message = "Entering BoardState...") {
     ready = true;
     window.clearTimeout(stallTimer);
-    setProgress(100, message);
+    await setProgress(100, message, { durationMs: 560 });
     const elapsed = performance.now() - startedAt;
     if (elapsed < MIN_VISIBLE_MS) {
       await delay(MIN_VISIBLE_MS - elapsed);
@@ -72,8 +82,21 @@ export function createLoadingScreenController({ assets = [] } = {}) {
     actions?.removeAttribute("hidden");
   }
 
-  function setProgress(target, message) {
-    progress = Math.max(progress, Math.min(100, Math.round(target)));
+  function setProgress(target, message, options = {}) {
+    const nextProgress = Math.max(progress, Math.min(100, Math.round(target)));
+    const distance = nextProgress - progress;
+    const durationMs = Number.isFinite(options.durationMs)
+      ? Math.max(0, options.durationMs)
+      : Math.max(180, Math.min(420, distance * 18));
+    if (status && message) {
+      status.textContent = message;
+    }
+    progressAnimation = progressAnimation.then(() => animateProgress(nextProgress, durationMs));
+    return progressAnimation;
+  }
+
+  function renderProgress(value) {
+    progress = Math.max(progress, Math.min(100, Math.round(value)));
     node?.style.setProperty("--load-progress", `${progress}%`);
     if (fill) {
       fill.style.width = `${progress}%`;
@@ -81,9 +104,31 @@ export function createLoadingScreenController({ assets = [] } = {}) {
     if (percent) {
       percent.textContent = `${progress}%`;
     }
-    if (status && message) {
-      status.textContent = message;
+  }
+
+  function animateProgress(target, durationMs) {
+    if (target <= progress || durationMs <= 0) {
+      renderProgress(target);
+      return Promise.resolve();
     }
+    const from = progress;
+    const distance = target - from;
+    const started = performance.now();
+    return new Promise((resolve) => {
+      function tick(now) {
+        const elapsed = now - started;
+        const ratio = Math.min(1, elapsed / durationMs);
+        const eased = 1 - Math.pow(1 - ratio, 3);
+        renderProgress(from + distance * eased);
+        if (ratio < 1) {
+          requestAnimationFrame(tick);
+          return;
+        }
+        renderProgress(target);
+        resolve();
+      }
+      window.setTimeout(() => requestAnimationFrame(tick), PROGRESS_STEP_MS);
+    });
   }
 
   function wireRecoveryActions() {
@@ -126,6 +171,28 @@ function preloadImage(src) {
       resolve(src);
     }
   });
+}
+
+function runStartupTask(task, { message, timeoutMs }) {
+  let timedOut = false;
+  const taskPromise = Promise.resolve()
+    .then(task)
+    .then(() => ({ status: timedOut ? "late" : "ok" }))
+    .catch((error) => ({ status: "error", error }));
+
+  taskPromise.then((result) => {
+    if (timedOut && result.status === "error") {
+      console.warn(`BoardState startup task later failed after timeout (${message}):`, result.error);
+    }
+  });
+
+  return Promise.race([
+    taskPromise,
+    delay(timeoutMs).then(() => {
+      timedOut = true;
+      return { status: "timeout", reason: `Timed out after ${timeoutMs}ms` };
+    }),
+  ]);
 }
 
 function delay(ms) {

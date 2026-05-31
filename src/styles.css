@@ -294,10 +294,10 @@ body:not(.boardstate-app-ready) #app {
 
 .loading-bar-shell {
   position: absolute;
-  bottom: max(5.4rem, calc(env(safe-area-inset-bottom) + 5.4rem));
+  bottom: max(clamp(1.35rem, 3.4vh, 2.35rem), calc(env(safe-area-inset-bottom) + clamp(1.35rem, 3.4vh, 2.35rem)));
   left: 50%;
   z-index: 6;
-  width: min(78vw, 41rem);
+  width: min(76vw, 39rem);
   transform: translateX(-50%);
 }
 
