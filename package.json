@@ -1,6 +1,6 @@
 {
   "name": "boardstate",
-  "version": "1.10.3",
+  "version": "1.10.4",
   "private": true,
   "type": "module",
   "description": "Local-first hybrid MTG battlefield companion rebuilt with layered gameplay systems.",

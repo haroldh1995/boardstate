@@ -2,8 +2,8 @@
 
 ## App
 - Name: BoardState
-- Version: 1.10.3
-- Version code: 17
+- Version: 1.10.4
+- Version code: 18
 - Package: `com.boardstate.app`
 
 ## Summary
@@ -25,6 +25,7 @@
 - Updates the bundled Android WebView assets so the direct-download package includes the latest loader, Battlefield dashboard, and Decks search action fixes.
 - Fixes non-blocking toast behavior so phase/status notices no longer consume the next Battlefield dashboard tap.
 - Restores Decks-page search actions to Add to deck and Make commander instead of Battlefield Cast actions.
+- Removes the baked sample loading bar from the splash wallpaper so only the live animated loading bar is shown during startup.
 
 ## Included behavior
 - WebView back navigation
