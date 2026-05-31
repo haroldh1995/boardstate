@@ -71,7 +71,7 @@ const STATUS_ICON_META = {
 
 export function mountApp(root, store) {
   const allPages = ["life", "battlefield", "profile", "archive", "decks", "leaderboards"];
-  let activePage = allPages.includes(location.hash.replace("#", "")) ? location.hash.replace("#", "") : "life";
+  let activePage = normalizePageFromHash(location.hash);
   let searchResults = [];
   let searchMessage = "";
   let searchQuery = "";
@@ -140,6 +140,8 @@ export function mountApp(root, store) {
   let outsideDismissPointerStart = null;
   let suppressNextOutsideDismissClickUntil = 0;
 
+  normalizeCurrentHash();
+  window.addEventListener("hashchange", handleHashChange);
   store.subscribe(render);
   render(store.getState());
 
@@ -1958,7 +1960,41 @@ export function mountApp(root, store) {
       return;
     }
     activePage = page;
-    history.replaceState(null, "", `#${activePage}`);
+    normalizeCurrentHash();
+    closeAllTemporaryUi({ renderAfter: false });
+    toolContextOverride = "";
+    render(store.getState());
+  }
+
+  function normalizePageFromHash(hashValue = "") {
+    const rawPage = String(hashValue || "")
+      .replace(/^#/, "")
+      .split(/[?&/]/)[0]
+      .trim()
+      .toLowerCase();
+    return allPages.includes(rawPage) ? rawPage : "life";
+  }
+
+  function normalizeCurrentHash() {
+    const canonicalHash = `#${activePage}`;
+    if (location.hash !== canonicalHash) {
+      history.replaceState(null, "", canonicalHash);
+    }
+  }
+
+  function handleHashChange() {
+    const nextPage = normalizePageFromHash(location.hash);
+    if (nextPage === activePage) {
+      normalizeCurrentHash();
+      return;
+    }
+    const visiblePages = getVisiblePages(store.getState());
+    if (nextPage !== "profile" && !visiblePages.includes(nextPage)) {
+      normalizeCurrentHash();
+      return;
+    }
+    activePage = nextPage;
+    normalizeCurrentHash();
     closeAllTemporaryUi({ renderAfter: false });
     toolContextOverride = "";
     render(store.getState());
@@ -2587,6 +2623,7 @@ export function mountApp(root, store) {
       uiNotice = null;
       render(store.getState());
     }, 3800);
+    render(store.getState());
   }
 
   function addRecovery(entry) {
@@ -4043,11 +4080,11 @@ function renderMobileBattlefieldDock(profile, activeUtilityPanel = "", utilityDo
       </div>
       <div class="battlefield-mobile-wheel battlefield-command-grid">
         <div class="battlefield-command-column battlefield-command-column--left" aria-label="Left battlefield dashboard commands">
-          <button class="battlefield-wheel-action action-tools" data-open-tool-menu aria-label="Open tools">
+          <button class="battlefield-wheel-action action-tools" data-dashboard-action="tools" data-open-tool-menu aria-label="Open tools">
             <span class="dock-icon" aria-hidden="true">&#9874;</span>
             <span>Tools</span>
           </button>
-          <button class="battlefield-wheel-action action-utility ${utilityDockOpen ? "active" : ""}" data-toggle-utility-dock aria-label="Open utility menu">
+          <button class="battlefield-wheel-action action-utility ${utilityDockOpen ? "active" : ""}" data-dashboard-action="utility" data-toggle-utility-dock aria-label="Open utility menu">
             <span class="dock-icon" aria-hidden="true">&#9881;</span>
             <span>Utility</span>
           </button>
@@ -4056,17 +4093,17 @@ function renderMobileBattlefieldDock(profile, activeUtilityPanel = "", utilityDo
             <span>Attackers</span>
           </button>
         </div>
-        <button class="battlefield-wheel-center battlefield-wheel-center--raised" data-next-phase aria-label="Next phase">
+        <button class="battlefield-wheel-center battlefield-wheel-center--raised" data-next-phase aria-label="Next Phase">
           <span class="dock-icon" aria-hidden="true">&#9193;</span>
           <span>Next</span>
           <span>Phase</span>
         </button>
         <div class="battlefield-command-column battlefield-command-column--right" aria-label="Right battlefield dashboard commands">
-          <button class="battlefield-wheel-action action-search" data-open-utility="search" aria-label="Search Scryfall">
+          <button class="battlefield-wheel-action action-search" data-dashboard-action="search" data-open-utility="search" aria-label="Search Scryfall">
             <span class="dock-icon" aria-hidden="true">&#128269;</span>
             <span>Search</span>
           </button>
-          <button class="battlefield-wheel-action action-activate" data-activate-board aria-label="Activate board">
+          <button class="battlefield-wheel-action action-activate" data-dashboard-action="activate" data-activate-board aria-label="Activate board">
             <span class="dock-icon" aria-hidden="true">&#9889;</span>
             <span>Activate</span>
           </button>
