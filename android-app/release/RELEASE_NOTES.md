@@ -2,8 +2,8 @@
 
 ## App
 - Name: BoardState
-- Version: 1.10.4
-- Version code: 18
+- Version: 1.10.5
+- Version code: 19
 - Package: `com.boardstate.app`
 
 ## Summary
@@ -26,6 +26,7 @@
 - Fixes non-blocking toast behavior so phase/status notices no longer consume the next Battlefield dashboard tap.
 - Restores Decks-page search actions to Add to deck and Make commander instead of Battlefield Cast actions.
 - Removes the baked sample loading bar from the splash wallpaper so only the live animated loading bar is shown during startup.
+- Speeds up the splash screen asset load, keeps the app hidden until the active page finishes painting, and prevents half-loaded pages from showing during startup.
 
 ## Included behavior
 - WebView back navigation

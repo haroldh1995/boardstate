@@ -1,6 +1,8 @@
 const STARTUP_TIMEOUT_MS = 11000;
-const MIN_VISIBLE_MS = 1250;
+const MIN_VISIBLE_MS = 900;
 const DEFAULT_STEP_TIMEOUT_MS = 3500;
+const APP_STABLE_TIMEOUT_MS = 6000;
+const APP_SETTLE_MS = 180;
 const PROGRESS_STEP_MS = 16;
 
 export function createLoadingScreenController({ assets = [] } = {}) {
@@ -33,6 +35,25 @@ export function createLoadingScreenController({ assets = [] } = {}) {
     await delay(160);
   }
 
+  async function waitForAppStable(root = document.querySelector("#app")) {
+    const started = performance.now();
+    await waitForCondition(() => isAppShellPainted(root), APP_STABLE_TIMEOUT_MS);
+    if (document.fonts?.ready) {
+      await Promise.race([document.fonts.ready.catch(() => undefined), delay(1200)]);
+    }
+    await nextFrame();
+    await nextFrame();
+    await delay(APP_SETTLE_MS);
+    await nextFrame();
+    if (!isAppShellPainted(root)) {
+      throw new Error("BoardState app shell did not finish painting before loader handoff.");
+    }
+    const elapsed = Math.round(performance.now() - started);
+    if (elapsed > 900) {
+      console.info(`BoardState startup handoff waited ${elapsed}ms for a stable app paint.`);
+    }
+  }
+
   async function runStep(target, message, task, options = {}) {
     const { critical = false, timeoutMs = DEFAULT_STEP_TIMEOUT_MS } = options;
     await setProgress(Math.max(progress, target - 8), message);
@@ -52,7 +73,7 @@ export function createLoadingScreenController({ assets = [] } = {}) {
   async function complete(message = "Entering BoardState...") {
     ready = true;
     window.clearTimeout(stallTimer);
-    await setProgress(100, message, { durationMs: 560 });
+    await setProgress(100, message, { durationMs: 380 });
     const elapsed = performance.now() - startedAt;
     if (elapsed < MIN_VISIBLE_MS) {
       await delay(MIN_VISIBLE_MS - elapsed);
@@ -87,7 +108,7 @@ export function createLoadingScreenController({ assets = [] } = {}) {
     const distance = nextProgress - progress;
     const durationMs = Number.isFinite(options.durationMs)
       ? Math.max(0, options.durationMs)
-      : Math.max(180, Math.min(420, distance * 18));
+      : Math.max(90, Math.min(240, distance * 9));
     if (status && message) {
       status.textContent = message;
     }
@@ -156,6 +177,7 @@ export function createLoadingScreenController({ assets = [] } = {}) {
     preloadVisualAssets,
     runStep,
     setProgress,
+    waitForAppStable,
     waitForFirstPaint,
   };
 }
@@ -201,4 +223,36 @@ function delay(ms) {
 
 function nextFrame() {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+function waitForCondition(predicate, timeoutMs) {
+  const started = performance.now();
+  return new Promise((resolve, reject) => {
+    function check() {
+      if (predicate()) {
+        resolve();
+        return;
+      }
+      if (performance.now() - started >= timeoutMs) {
+        reject(new Error("Timed out waiting for BoardState to finish painting."));
+        return;
+      }
+      requestAnimationFrame(check);
+    }
+    check();
+  });
+}
+
+function isAppShellPainted(root) {
+  if (!root || !root.childElementCount) {
+    return false;
+  }
+  const shell = root.querySelector(".app-shell");
+  const activePage = document.body.dataset.page;
+  if (!shell || !activePage) {
+    return false;
+  }
+  const page = root.querySelector(`.${activePage}-page`) || root.querySelector("main");
+  const rect = shell.getBoundingClientRect();
+  return Boolean(page && rect.width > 0 && rect.height > 0);
 }

@@ -5,9 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#120c1b" />
     <title>BoardState</title>
-    <link rel="preload" as="image" href="/boardstate/assets/boardstate-loading-dragon-BpZ_Xhvl.png" />
-    <script type="module" crossorigin src="/boardstate/assets/index-WdhRNwE-.js"></script>
-    <link rel="stylesheet" crossorigin href="/boardstate/assets/index-BNj6gyxf.css">
+    <link rel="preload" as="image" href="/boardstate/assets/boardstate-loading-dragon-A3IaZ8nV.jpg" type="image/jpeg" fetchpriority="high" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #05030a;
+      }
+
+      #boardstate-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: grid;
+        background-color: #05030a;
+      }
+
+      body:not(.boardstate-app-ready) #app {
+        visibility: hidden;
+      }
+    </style>
+    <script type="module" crossorigin src="/boardstate/assets/index-DXx2hBMb.js"></script>
+    <link rel="stylesheet" crossorigin href="/boardstate/assets/index-xMx1WtU7.css">
   </head>
   <body>
     <div id="boardstate-loader" class="boardstate-loading-screen" role="status" aria-live="polite" aria-label="BoardState loading">

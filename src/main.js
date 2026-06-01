@@ -1,13 +1,15 @@
 import { createStore } from "./state/store.js";
 import { createLoadingScreenController } from "./ui/loadingScreen.js";
 import { mountApp } from "./ui/render.js";
-import loadingDragonUrl from "../assets/boardstate-loading-dragon.png";
+import loadingDragonUrl from "../assets/boardstate-loading-dragon.jpg";
 import landscapeWallpaperUrl from "../assets/boardstate-bg-landscape.png";
 import portraitWallpaperUrl from "../assets/boardstate-bg-portrait.png";
 
 const root = document.querySelector("#app");
+const initialWallpaperUrl = getLikelyInitialWallpaperUrl();
+const deferredWallpaperUrl = initialWallpaperUrl === portraitWallpaperUrl ? landscapeWallpaperUrl : portraitWallpaperUrl;
 const loading = createLoadingScreenController({
-  assets: [loadingDragonUrl, portraitWallpaperUrl, landscapeWallpaperUrl],
+  assets: [loadingDragonUrl, initialWallpaperUrl],
 });
 
 bootstrap();
@@ -31,10 +33,29 @@ async function bootstrap() {
     }, { critical: true });
     await loading.runStep(76, "Restoring profile and settings...", () => store.init(), { timeoutMs: 2800 });
     await loading.runStep(88, "Preparing rules engine...", () => Promise.resolve());
-    await loading.runStep(96, "Preparing the battlefield...", () => Promise.resolve());
+    await loading.runStep(96, "Preparing the battlefield...", () => loading.waitForAppStable(root), { critical: true });
     await loading.complete("Entering BoardState...");
+    preloadAfterStartup(deferredWallpaperUrl);
   } catch (error) {
     console.error("BoardState startup failed", error);
     loading.fail(error);
   }
+}
+
+function getLikelyInitialWallpaperUrl() {
+  return window.matchMedia?.("(orientation: portrait) and (max-width: 1024px)").matches
+    ? portraitWallpaperUrl
+    : landscapeWallpaperUrl;
+}
+
+function preloadAfterStartup(assetUrl) {
+  const schedule = window.requestIdleCallback || ((callback) => window.setTimeout(callback, 1000));
+  schedule(() => {
+    if (!assetUrl) {
+      return;
+    }
+    const image = new Image();
+    image.decoding = "async";
+    image.src = assetUrl;
+  });
 }
