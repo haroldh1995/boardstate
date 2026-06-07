@@ -171,4 +171,3 @@ const SPELLS = {
 export function getSimulationSpellDefinition(name = "") {
   return SPELLS[String(name || "").trim().toLowerCase()] || null;
 }
-
