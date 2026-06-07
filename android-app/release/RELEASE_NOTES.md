@@ -2,8 +2,8 @@
 
 ## App
 - Name: BoardState
-- Version: 1.10.6
-- Version code: 20
+- Version: 1.10.7
+- Version code: 21
 - Package: `com.boardstate.app`
 
 ## Summary
@@ -34,6 +34,12 @@
 - Replaces static Battlefield search cast controls with a contextual Cast popup that closes immediately after an action while preserving search focus and scroll position.
 - Removes the blocking Dry Run status window from the Battlefield and moves real simulation controls into the Tools menu.
 - Prevents the Battlefield or page behind a menu from scrolling while Scryfall Search, Tools, Player Controls, Manual Choice, Stack, Trigger Queue, or other temporary panels are open.
+- Fits complete Scryfall card images inside compact Battlefield tiles instead of cropping their frames.
+- Adds final battlefield graphic polish for tapped, attacking, blocking, selected, targeted, summoning-sick, commander, stacked-token, counter, damage, and pending-trigger states.
+- Adds a compact selected-card action HUD and a scan-style card detail inspector without changing core gameplay actions.
+- Adds typed battlefield zone cues, themed empty states, standardized rules-confidence chips, improved toasts, phase-advance feedback, and pending Resolve emphasis.
+- Fixes a mobile command-console overflow found during final visual QA so all six dashboard actions and Next Phase stay inside the viewport.
+- Fixes selected-card action buttons being swallowed by advanced permanent gesture handling.
 
 ## Included behavior
 - WebView back navigation

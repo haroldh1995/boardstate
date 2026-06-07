@@ -459,7 +459,8 @@ export function mountApp(root, store) {
       render(store.getState());
     });
     container.querySelectorAll("[data-open-tool-panel]").forEach((button) => {
-      button.addEventListener("click", () => {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
         closeAllTemporaryUi({ renderAfter: false });
         activeToolPanel = button.dataset.openToolPanel;
         render(store.getState());
@@ -2288,7 +2289,8 @@ export function mountApp(root, store) {
     };
     try {
       const dispatchPromise = store.dispatch({ type: "ADVANCE_PHASE" });
-      showNotice("Phase advanced.");
+      pulsePhaseUi();
+      showNotice(`Phase advanced: ${PHASES[(store.getState().activeSession?.phaseIndex ?? 0)] || "Next phase"}.`);
       requestAnimationFrame(finalize);
       await dispatchPromise;
     } catch (error) {
@@ -2301,6 +2303,15 @@ export function mountApp(root, store) {
       });
       finalize();
     }
+  }
+
+  function pulsePhaseUi() {
+    document.body.classList.remove("phase-advance-celebration");
+    requestAnimationFrame(() => {
+      document.body.classList.add("phase-advance-celebration");
+      clearTimeout(pulsePhaseUi.timer);
+      pulsePhaseUi.timer = setTimeout(() => document.body.classList.remove("phase-advance-celebration"), 760);
+    });
   }
 
   function bindTouchAction(button, actionFactory, strong = false) {
@@ -2431,6 +2442,9 @@ export function mountApp(root, store) {
       card.addEventListener(
         "touchstart",
         (event) => {
+          if (event.target.closest("button:not([data-permanent])")) {
+            return;
+          }
           if (event.touches.length === 2) {
             event.preventDefault();
             store.dispatch({ type: "SELECT_PERMANENT", id: permanentId });
@@ -2443,7 +2457,7 @@ export function mountApp(root, store) {
       );
 
       card.addEventListener("pointerdown", (event) => {
-        if (event.target.closest("[data-tap], [data-counter], .mini button")) {
+        if (event.target.closest("[data-tap], [data-counter], [data-toggle-stack], .mini button, .card-action-ring button")) {
           return;
         }
         const startedAt = Date.now();
@@ -3971,12 +3985,42 @@ function renderPermanentGroup(label, permanents, options = {}) {
     <section class="battlefield-group ${options.tappedGroup ? "tapped-zone" : "untapped-zone"}">
       <div class="battlefield-group-header">
         <span>${label}</span>
+        ${renderBattlefieldZoneSummary(permanents)}
         <strong>${count}</strong>
       </div>
       <div class="tile-grid ${options.readonly ? "readonly" : ""} ${options.compressionMode === "compact" ? "density-high" : ""}">
         ${permanents.map((permanent) => renderPermanent(permanent, options)).join("")}
       </div>
     </section>
+  `;
+}
+
+function renderBattlefieldZoneSummary(permanents = []) {
+  const zoneCounts = new Map();
+  permanents.forEach((permanent) => {
+    const label = permanent.isCommander
+      ? "Commanders"
+      : permanent.isToken
+        ? "Tokens"
+        : permanent.isCreature
+          ? "Creatures"
+          : permanent.isLand
+            ? "Lands"
+            : permanent.isPlaneswalker
+              ? "Planeswalkers"
+              : permanent.isArtifact
+                ? "Artifacts"
+                : permanent.isEnchantment
+                  ? "Enchantments"
+                  : /\bbattle\b/i.test(permanent.typeLine || "")
+                    ? "Battles"
+                    : "Other";
+    zoneCounts.set(label, Number(zoneCounts.get(label) || 0) + Number(permanent.quantity || 1));
+  });
+  return `
+    <span class="battlefield-zone-summary" aria-label="Permanent types">
+      ${[...zoneCounts.entries()].map(([label, count]) => `<i>${escapeHtml(label)} ${count}</i>`).join("")}
+    </span>
   `;
 }
 
@@ -3988,15 +4032,31 @@ function renderPermanent(permanent, options = {}) {
   const statusIcons = collectPermanentStatusIcons(permanent, options.session, options.settings);
   const imageUrl = getBattlefieldCardImageUrl(permanent);
   const fallbackClass = getBattlefieldCardFallbackClass(permanent);
+  const damageMarked = Math.max(0, Number(permanent.damageMarked || permanent.damage || 0));
+  const lethalDamage = Boolean(permanent.isCreature && damageMarked >= Math.max(0, Number(permanent.currentToughness || 0)));
+  const stateClasses = [
+    selected ? "selected" : "",
+    permanent.targeted || permanent.isTargeted ? "targeted" : "",
+    permanent.tapped ? "tapped" : "",
+    permanent.attacking ? "attacking" : "",
+    permanent.blocking ? "blocking" : "",
+    permanent.summoningSick ? "summoning-sick" : "",
+    permanent.locked || permanent.disabled ? "locked" : "",
+    permanent.isCommander ? "commander-spotlight" : "",
+    permanent.quantity > 1 ? "stacked-permanent" : "",
+    lethalDamage ? "lethal-damage" : "",
+    permanent.manualStatus === "pending" ? "pending" : "",
+  ].filter(Boolean).join(" ");
   const targetAttr = options.readonly
     ? options.allowTargeting
       ? `data-opponent-permanent="${escapeAttribute(permanent.id)}"`
       : ""
     : `data-permanent="${permanent.id}"`;
   return `
-    <article class="permanent detail-${detailMode} ${selected ? "selected" : ""} ${permanent.tapped ? "tapped" : ""} ${permanent.attacking ? "attacking" : ""} ${permanent.manualStatus === "pending" ? "pending" : ""}" data-permanent-card data-permanent-id="${permanent.id}" data-readonly="${options.readonly ? "true" : "false"}">
-      <div class="permanent-art-layer ${fallbackClass} ${imageUrl ? "has-card-art" : "uses-fallback"}" ${imageUrl ? `style="background-image:url(&quot;${escapeAttribute(imageUrl)}&quot;)"` : ""} data-card-image="${imageUrl ? "available" : "fallback"}" aria-hidden="true"></div>
+    <article class="permanent detail-${detailMode} ${stateClasses}" data-permanent-card data-permanent-id="${permanent.id}" data-readonly="${options.readonly ? "true" : "false"}">
+      <div class="permanent-art-layer ${fallbackClass} ${imageUrl ? "has-card-art" : "uses-fallback"}" ${imageUrl ? `style="--card-image:url(&quot;${escapeAttribute(imageUrl)}&quot;)"` : ""} data-card-image="${imageUrl ? "available" : "fallback"}" aria-hidden="true"></div>
       <div class="permanent-readability-layer" aria-hidden="true"></div>
+      ${permanent.quantity > 1 ? `<i class="stack-silhouette stack-silhouette--one" aria-hidden="true"></i><i class="stack-silhouette stack-silhouette--two" aria-hidden="true"></i>` : ""}
       <div class="permanent-content">
         <button ${targetAttr}>
           <strong>${escapeHtml(permanent.name)}</strong>
@@ -4009,6 +4069,7 @@ function renderPermanent(permanent, options = {}) {
           ${permanent.isCopy ? "<em>COPY</em>" : ""}
           ${permanent.isCommander ? "<em>COMMANDER</em>" : ""}
         </button>
+        ${renderPermanentStateBadges(permanent, damageMarked, lethalDamage)}
         ${renderStatusIconRow(statusIcons)}
         ${detailMode !== "compact" ? renderPermanentDetails(permanent, detailMode) : ""}
         ${permanent.quantity > 1 ? `<button class="stack-toggle" type="button" data-toggle-stack="${permanent.id}">${stackExpanded ? "Collapse Stack" : "Expand Stack"}</button>` : ""}
@@ -4017,19 +4078,56 @@ function renderPermanent(permanent, options = {}) {
           <button data-tap="${permanent.id}">${permanent.tapped ? "Untap" : "Tap"}</button>
           <button data-counter="${permanent.id}">+1/+1</button>
         </div>`}
+        ${selected && !options.readonly ? renderSelectedPermanentActions(permanent) : ""}
       </div>
     </article>
   `;
 }
 
+function renderPermanentStateBadges(permanent = {}, damageMarked = 0, lethalDamage = false) {
+  const counters = Object.entries(permanent.counters || {}).filter(([, value]) => Number(value) > 0);
+  const commanderTax = Number(permanent.commanderTax || permanent.metadata?.commanderTax || 0);
+  return `
+    <div class="permanent-state-badges" aria-label="Permanent state">
+      ${permanent.isCommander ? `<span class="state-badge state-badge--commander" title="Commander">&#9812; Commander${commanderTax ? ` · Tax ${commanderTax}` : ""}</span>` : ""}
+      ${permanent.attacking ? `<span class="state-badge state-badge--attacking">&#9876; Attacking</span>` : ""}
+      ${permanent.blocking ? `<span class="state-badge state-badge--blocking">&#128737; Blocking</span>` : ""}
+      ${permanent.summoningSick ? `<span class="state-badge state-badge--sick">&#9203; Summoning sick</span>` : ""}
+      ${damageMarked ? `<span class="state-badge state-badge--damage ${lethalDamage ? "is-lethal" : ""}">&#9585; ${damageMarked} damage</span>` : ""}
+      ${counters.slice(0, 3).map(([type, value]) => `<span class="state-badge state-badge--counter" title="${escapeAttribute(type)}">${escapeHtml(counterGlyph(type))} ${escapeHtml(type)} ${value}</span>`).join("")}
+    </div>
+  `;
+}
+
+function counterGlyph(type = "") {
+  const normalized = String(type).toLowerCase();
+  if (normalized.includes("+1/+1")) return "◆";
+  if (normalized.includes("shield")) return "◇";
+  if (normalized.includes("stun")) return "⌁";
+  if (normalized.includes("charge")) return "✦";
+  if (normalized.includes("loyalty")) return "♢";
+  return "●";
+}
+
+function renderSelectedPermanentActions(permanent = {}) {
+  return `
+    <div class="card-action-ring" aria-label="Selected card actions">
+      <button data-tap="${escapeAttribute(permanent.id)}" title="${permanent.tapped ? "Untap" : "Tap"}">${permanent.tapped ? "Untap" : "Tap"}</button>
+      <button data-open-tool-panel="counters" title="Counters">Counters</button>
+      <button data-open-tool-panel="permanents" title="Move or remove">Move</button>
+      <button data-open-tool-panel="inspect" title="Details">Details</button>
+    </div>
+  `;
+}
+
 function getBattlefieldCardImageUrl(card = {}) {
   const direct =
-    card.imageArt ||
-    card.metadata?.imageArt ||
-    card.imageUrl ||
-    card.metadata?.imageUrl ||
     card.imageSmall ||
     card.metadata?.imageSmall ||
+    card.imageUrl ||
+    card.metadata?.imageUrl ||
+    card.imageArt ||
+    card.metadata?.imageArt ||
     "";
   if (direct) {
     return direct;
@@ -4041,7 +4139,7 @@ function getBattlefieldCardImageUrl(card = {}) {
   if (!name || /^unknown|generic token|token$/i.test(name)) {
     return "";
   }
-  return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=art_crop`;
+  return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=small`;
 }
 
 function getBattlefieldCardFallbackClass(card = {}) {
@@ -4164,7 +4262,7 @@ function renderStackMemberDetails(stackMembers = [], detailMode = "standard", pe
     <div class="stack-member-list">
       ${stackMembers.map((member) => `
         <span class="stack-member-card">
-          <i class="stack-member-art" ${imageUrl ? `style="background-image:url(&quot;${escapeAttribute(imageUrl)}&quot;)"` : ""} aria-hidden="true"></i>
+          <i class="stack-member-art" ${imageUrl ? `style="--card-image:url(&quot;${escapeAttribute(imageUrl)}&quot;)"` : ""} aria-hidden="true"></i>
           <b>${escapeHtml(permanent.name || "Permanent")}</b>
           <small>${escapeHtml(member.instanceId)}${member.tapped ? " · tapped" : ""}${Object.keys(member.counters || {}).length ? ` · ${Object.entries(member.counters).map(([counter, value]) => `${escapeHtml(counter)} ${value}`).join(", ")}` : ""}</small>
         </span>
@@ -4408,11 +4506,15 @@ function renderUtilityDock(
 }
 
 function renderMobileBattlefieldDock(profile, activeUtilityPanel = "", utilityDockOpen = false, includeCombat = true, combatResolving = false, isMobilePortrait = true) {
-  const hasQueuedTriggers = Boolean((profile.activeSession?.triggerQueue || []).length);
+  const pendingCount =
+    (profile.activeSession?.triggerQueue || []).filter((entry) => entry.status === "pending").length +
+    (profile.activeSession?.stack || []).length +
+    (profile.activeSession?.pendingEffects || []).filter((entry) => !["resolved", "skipped", "ignored"].includes(entry.status)).length;
+  const hasQueuedTriggers = pendingCount > 0;
   return `
     <section class="battlefield-mobile-dock battlefield-command-console ${isMobilePortrait ? "is-mobile" : "is-desktop"} glass" data-no-swipe>
       <div class="battlefield-mobile-dock__status">
-        ${hasQueuedTriggers ? `<button data-open-utility="triggers" class="${activeUtilityPanel === "triggers" ? "active" : ""}">Queue</button>` : ""}
+        ${hasQueuedTriggers ? `<button data-open-utility="triggers" class="pending-queue-alert ${activeUtilityPanel === "triggers" ? "active" : ""}"><span aria-hidden="true">&#9889;</span>${pendingCount} Pending</button>` : ""}
       </div>
       <div class="battlefield-mobile-wheel battlefield-command-grid">
         <div class="battlefield-command-column battlefield-command-column--left" aria-label="Left battlefield dashboard commands">
@@ -4443,7 +4545,7 @@ function renderMobileBattlefieldDock(profile, activeUtilityPanel = "", utilityDo
             <span class="dock-icon" aria-hidden="true">&#9889;</span>
             <span>Activate</span>
           </button>
-          <button class="battlefield-wheel-action action-resolve" data-dashboard-action="resolve" data-combat-available="${includeCombat ? "true" : "false"}" data-resolve-combat ${combatResolving ? "disabled" : ""} aria-label="Resolve stack or combat">
+          <button class="battlefield-wheel-action action-resolve ${hasQueuedTriggers ? "has-pending" : ""}" data-dashboard-action="resolve" data-combat-available="${includeCombat ? "true" : "false"}" data-resolve-combat ${combatResolving ? "disabled" : ""} aria-label="Resolve stack or combat">
             <span class="dock-icon" aria-hidden="true">&#128737;</span>
             <span>${combatResolving ? "Resolving..." : "Resolve"}</span>
           </button>
@@ -5396,11 +5498,12 @@ function renderRulesConfidenceLegend() {
     <section class="rules-legend-card">
       <p class="eyebrow">Rules Confidence Legend</p>
       <div class="rules-confidence-mini">
-        <span class="confidence-pill success">Auto-resolved</span>
-        <span class="confidence-pill warning">Manual choice required</span>
-        <span class="confidence-pill info">Partially supported</span>
-        <span class="confidence-pill warning">Needs review</span>
-        <span class="confidence-pill error">Failed / recovery needed</span>
+        <span class="confidence-pill success" data-confidence-icon="check">Auto-resolved</span>
+        <span class="confidence-pill warning" data-confidence-icon="choice">Manual choice required</span>
+        <span class="confidence-pill info" data-confidence-icon="partial">Partially supported</span>
+        <span class="confidence-pill review" data-confidence-icon="review">Needs review</span>
+        <span class="confidence-pill error" data-confidence-icon="failed">Failed / recovery needed</span>
+        <span class="confidence-pill ignored" data-confidence-icon="ignored">Ignored this game</span>
       </div>
     </section>
   `;
@@ -5542,10 +5645,19 @@ function renderInspectPanel(profile) {
     <div class="stacked-form">
       ${selected
         .map(
-          (permanent) => `
-        <article class="log-card">
-          <strong>${escapeHtml(permanent.name)}</strong>
-          <span>${escapeHtml(permanent.typeLine)}</span>
+          (permanent) => {
+            const imageUrl = getBattlefieldCardImageUrl(permanent);
+            return `
+        <article class="log-card permanent-inspect-card">
+          <div class="permanent-inspect-hero ${imageUrl ? "has-card-art" : getBattlefieldCardFallbackClass(permanent)}" ${imageUrl ? `style="--card-image:url(&quot;${escapeAttribute(imageUrl)}&quot;)"` : ""}>
+            <span class="permanent-inspect-scanline" aria-hidden="true"></span>
+            <div>
+              <p class="eyebrow">${permanent.isCommander ? "Commander scan" : "Battlefield scan"}</p>
+              <strong>${escapeHtml(permanent.name)}</strong>
+              <span>${escapeHtml(permanent.typeLine)}</span>
+              ${permanent.isCreature ? `<b>${escapeHtml(`${permanent.currentPower}/${permanent.currentToughness}`)}</b>` : ""}
+            </div>
+          </div>
           ${renderPermanentLayerInspector(permanent, profile)}
           ${
             adhdMode.enabled
@@ -5559,7 +5671,8 @@ function renderInspectPanel(profile) {
               : ""
           }
         </article>
-      `
+      `;
+          }
         )
         .join("")}
       <article class="log-card">
@@ -6082,8 +6195,10 @@ function truncateText(value, maxLength = 80) {
 function confidenceClass(value = "") {
   const normalized = String(value || "").toLowerCase();
   if (normalized.includes("auto")) return "success";
-  if (normalized.includes("manual") || normalized.includes("partial")) return "warning";
-  if (normalized.includes("ignored") || normalized.includes("review")) return "info";
+  if (normalized.includes("manual")) return "warning";
+  if (normalized.includes("partial")) return "info";
+  if (normalized.includes("ignored")) return "ignored";
+  if (normalized.includes("review")) return "review";
   if (normalized.includes("failed")) return "error";
   return "info";
 }
@@ -6112,7 +6227,7 @@ function downloadText(filename, text, type = "text/plain") {
 }
 
 function empty(text) {
-  return `<p class="empty">${escapeHtml(text)}</p>`;
+  return `<div class="empty-state"><span class="empty-state__sigil" aria-hidden="true">&#10022;</span><p class="empty">${escapeHtml(text)}</p></div>`;
 }
 
 function escapeHtml(value) {
