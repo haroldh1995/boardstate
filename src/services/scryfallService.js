@@ -121,6 +121,7 @@ export function mapScryfallCard(card) {
     manaCost: face?.mana_cost || card.mana_cost || "",
     typeLine,
     oracleText: face?.oracle_text || card.oracle_text || "",
+    imageArt: card.image_uris?.art_crop || face?.image_uris?.art_crop || "",
     imageUrl: card.image_uris?.normal || face?.image_uris?.normal || "",
     imageSmall: card.image_uris?.small || face?.image_uris?.small || "",
     legalities: card.legalities || {},

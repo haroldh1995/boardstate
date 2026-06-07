@@ -15,6 +15,16 @@ export function getTargets(session, target, source = null, context = {}) {
         return permanent.id === source?.attachedToId;
       case "selected":
         return selected.has(permanent.id);
+      case "selected-creature":
+        return selected.has(permanent.id) && permanent.isCreature;
+      case "selected-artifact":
+        return selected.has(permanent.id) && permanent.isArtifact;
+      case "selected-enchantment":
+        return selected.has(permanent.id) && permanent.isEnchantment;
+      case "selected-artifact-enchantment":
+        return selected.has(permanent.id) && (permanent.isArtifact || permanent.isEnchantment);
+      case "selected-artifact-creature":
+        return selected.has(permanent.id) && (permanent.isArtifact || permanent.isCreature);
       case "all-creatures":
         return permanent.isCreature;
       case "your-creatures":
@@ -47,6 +57,12 @@ export function getTargets(session, target, source = null, context = {}) {
         return permanent.isLand && !/\bBasic\b/i.test(permanent.typeLine);
       case "all-permanents":
         return true;
+      case "all-nonland-permanents":
+        return !permanent.isLand;
+      case "all-nonland-mana-value-x":
+        return !permanent.isLand && Number(permanent.manaValue || 0) <= Number(context.xValue || 0);
+      case "all-artifacts-enchantments":
+        return permanent.isArtifact || permanent.isEnchantment;
       case "all-vehicles":
         return /\bVehicle\b/i.test(permanent.typeLine);
       case "all-mounts":

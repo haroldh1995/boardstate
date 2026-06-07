@@ -14,3 +14,16 @@ android-app/local.properties
 android-app/release/download-package
 android-app/release/*.zip
 android-app/release/upload_certificate.pem
+flutter-app/.dart_tool/
+flutter-app/.flutter-plugins
+flutter-app/.flutter-plugins-dependencies
+flutter-app/build/
+flutter-app/ios/Flutter/Generated.xcconfig
+flutter-app/ios/Flutter/flutter_export_environment.sh
+flutter-app/ios/Pods/
+flutter-app/ios/Runner.xcworkspace/xcuserdata/
+flutter-app/ios/Runner.xcodeproj/xcuserdata/
+flutter-app/ios/Runner.xcodeproj/project.xcworkspace/xcuserdata/
+flutter-app/android/.gradle/
+flutter-app/android/local.properties
+flutter-app/android/app/build/

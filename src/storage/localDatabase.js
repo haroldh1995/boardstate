@@ -312,6 +312,19 @@ function normalizeProfile(profile) {
         ...defaults.activeSession.battlefield,
         ...(profile.activeSession?.battlefield || {}),
       },
+      zones: {
+        ...defaults.activeSession.zones,
+        ...(profile.activeSession?.zones || {}),
+        unknownCounts: {
+          ...defaults.activeSession.zones.unknownCounts,
+          ...(profile.activeSession?.zones?.unknownCounts || {}),
+        },
+      },
+      stack: profile.activeSession?.stack || defaults.activeSession.stack,
+      priority: {
+        ...defaults.activeSession.priority,
+        ...(profile.activeSession?.priority || {}),
+      },
       fsm: {
         ...defaults.activeSession.fsm,
         ...(profile.activeSession?.fsm || {}),

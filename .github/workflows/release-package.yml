@@ -52,11 +52,13 @@ jobs:
           TAG_NAME="${GITHUB_REF_NAME:-manual}"
           mkdir -p release-package/web-dist
           mkdir -p release-package/android
+          mkdir -p release-package/flutter-wrapper
           cp -R dist/* release-package/web-dist/
           cp android-app/app/build/outputs/apk/debug/app-debug.apk release-package/android/
           cp android-app/app/build/outputs/apk/release/app-release.apk release-package/android/
           cp android-app/app/build/outputs/bundle/release/app-release.aab release-package/android/
           cp android-app/release/upload_certificate.pem release-package/android/
+          cp -R flutter-app/* release-package/flutter-wrapper/
           cp android-app/release/INSTALL_INSTRUCTIONS.md release-package/
           cp android-app/release/KNOWN_LIMITATIONS.md release-package/
           cp android-app/release/PERMISSIONS.md release-package/
@@ -64,6 +66,7 @@ jobs:
           cp android-app/release/PRIVACY_DATA_STORAGE.md release-package/
           cp android-app/release/RELEASE_NOTES.md release-package/
           (cd release-package && sha256sum android/* web-dist/assets/* > SHA256SUMS.txt)
+          zip -r "BoardState-${TAG_NAME}-Flutter-Wrapper.zip" flutter-app scripts/flutter-create-platforms.mjs scripts/sync-flutter-assets.mjs
           zip -r "BoardState-${TAG_NAME}-Release-Package.zip" release-package
 
       - name: Publish GitHub Release
@@ -75,4 +78,5 @@ jobs:
             android-app/app/build/outputs/apk/release/app-release.apk
             android-app/app/build/outputs/bundle/release/app-release.aab
             android-app/release/upload_certificate.pem
+            BoardState-${{ github.ref_name }}-Flutter-Wrapper.zip
           generate_release_notes: true

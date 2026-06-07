@@ -2,6 +2,7 @@ import { createId } from "../state/ids.js";
 import { createGameSession, createPermanent, PHASES } from "../state/schema.js";
 import { hydratePermanentEffects } from "../effects/effectEngine.js";
 import { getDeckMainboardCount, getSimulationDeckById, SIM_OPPONENT_IDS, summarizeDeckIntegrity } from "./decks/index.js";
+import { getSimulationSpellDefinition } from "./spellCatalog.js";
 
 export const SIMULATION_SPEEDS = {
   step: { label: "Step", intervalMs: 250 },
@@ -234,23 +235,25 @@ function createNpcStateFromDeck(id) {
 }
 
 export function toDeckCard(card, ownerId = "npc") {
-  const inferredTypeLine = inferSimulationTypeLine(card);
-  const inferredRole = card.role || inferRoleFromType(inferredTypeLine);
-  const inferredManaValue = Number.isFinite(Number(card.manaValue))
-    ? Number(card.manaValue)
-    : inferManaValueFromCard(card, inferredTypeLine);
-  const inferredStats = inferCreatureStats(card, inferredTypeLine, inferredManaValue, inferredRole);
-  const unresolvedDefinition = Boolean(card.unresolvedDefinition || !card.typeLine);
+  const spellDefinition = getSimulationSpellDefinition(card.name);
+  const enrichedCard = spellDefinition ? { ...card, ...spellDefinition, unresolvedDefinition: false } : card;
+  const inferredTypeLine = inferSimulationTypeLine(enrichedCard);
+  const inferredRole = enrichedCard.role || inferRoleFromType(inferredTypeLine);
+  const inferredManaValue = Number.isFinite(Number(enrichedCard.manaValue))
+    ? Number(enrichedCard.manaValue)
+    : inferManaValueFromCard(enrichedCard, inferredTypeLine);
+  const inferredStats = inferCreatureStats(enrichedCard, inferredTypeLine, inferredManaValue, inferredRole);
+  const unresolvedDefinition = Boolean(enrichedCard.unresolvedDefinition || !enrichedCard.typeLine);
   return {
-    cardId: card.cardId || createId("simcard"),
-    name: card.name || "Simulation Card Placeholder",
-    manaCost: card.manaCost || "",
+    cardId: enrichedCard.cardId || createId("simcard"),
+    name: enrichedCard.name || "Simulation Card Placeholder",
+    manaCost: enrichedCard.manaCost || "",
     manaValue: inferredManaValue,
     typeLine: inferredTypeLine || "Permanent",
     power: inferredStats.power,
     toughness: inferredStats.toughness,
-    oracleText: card.oracleText || "",
-    keywords: Array.isArray(card.keywords) ? card.keywords : [],
+    oracleText: enrichedCard.oracleText || "",
+    keywords: Array.isArray(enrichedCard.keywords) ? enrichedCard.keywords : [],
     role: inferredRole,
     quantity: 1,
     owner: ownerId,

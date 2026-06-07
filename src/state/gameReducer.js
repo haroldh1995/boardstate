@@ -1,5 +1,14 @@
 import { archiveCurrentGame } from "../archive/archiveService.js";
-import { hydratePermanentEffects, processEventTriggers, recalculateContinuousEffects, resolveQueuedTrigger, resolveSpell } from "../effects/effectEngine.js";
+import {
+  castSpellToStack,
+  hydratePermanentEffects,
+  passStackPriority,
+  processEventTriggers,
+  recalculateContinuousEffects,
+  resolveQueuedTrigger,
+  resolveSpell,
+  resolveTopOfStack,
+} from "../effects/effectEngine.js";
 import { addCardToCommanderDeck, assignCommander, castCommander, recordCommanderCardUsage } from "../game/commanderSystem.js";
 import { assignBlocker, declareAttackers, resolveCombat } from "../game/combatSystem.js";
 import { createDefaultProfile, createEmptySimulationStats, createGameSession, createManaPool, createPermanent, PHASES } from "./schema.js";
@@ -161,8 +170,30 @@ export function reduceProfile(profile, event) {
       nextProfile = addPermanent(baseProfile, createTokenCard(event), event.controller || "player");
       break;
     case "CAST_SPELL":
-      nextProfile = withSession(baseProfile, resolveSpell(withRuntimeSettings(baseProfile.activeSession, baseProfile.settings), event.card));
+      nextProfile = withSession(
+        baseProfile,
+        castSpellToStack(withRuntimeSettings(baseProfile.activeSession, baseProfile.settings), event.card, {
+          controller: event.controller || "player",
+          owner: event.owner || event.controller || "player",
+          sourceZone: event.sourceZone || "hand",
+          targetIds: event.targetIds || baseProfile.activeSession.selectedIds || [],
+          targetStackId: event.targetStackId || "",
+          selectedModes: event.selectedModes || [],
+          xValue: event.xValue,
+          additionalCosts: event.additionalCosts || {},
+          castPermission: event.castPermission || "",
+        })
+      );
       nextProfile = recordCommanderCardUsage(nextProfile, { ...event.card, owner: "player", controller: "player" });
+      break;
+    case "RESOLVE_TOP_SPELL":
+      nextProfile = withSession(baseProfile, resolveTopOfStack(withRuntimeSettings(baseProfile.activeSession, baseProfile.settings), {
+        stackId: event.stackId || "",
+        autoChoose: Boolean(event.autoChoose),
+      }));
+      break;
+    case "PASS_PRIORITY":
+      nextProfile = withSession(baseProfile, passStackPriority(baseProfile.activeSession, event.playerId || "local-player"));
       break;
     case "ATTACH_PERMANENT":
       nextProfile = withSession(baseProfile, attachPermanent(baseProfile.activeSession, event.sourceId, event.targetId));
@@ -208,6 +239,9 @@ export function reduceProfile(profile, event) {
       break;
     case "MARK_PENDING_EFFECT":
       nextProfile = withSession(baseProfile, updatePendingEffect(baseProfile.activeSession, event.id, event.status));
+      break;
+    case "SET_SPELL_TARGET":
+      nextProfile = withSession(baseProfile, setSpellTargetChoice(baseProfile.activeSession, event.pendingId, event.targetId));
       break;
     case "HELPER_REMIND_ME":
       nextProfile = withSession(baseProfile, requestHelperReminder(baseProfile.activeSession, event.messages || []));
@@ -1080,47 +1114,38 @@ function advanceSimulationTurn(session, reason = "end-step") {
 function resolveNpcCast(session, npc, card, simulationMemory = {}) {
   if (isType(card, "Instant") || isType(card, "Sorcery")) {
     const targetId = chooseThreatTargetId(session, simulationMemory, npc.id);
-    if (targetId) {
-      const selected = new Set([targetId]);
-      const removed = removeSelectedPermanents(
-        {
-          ...session,
-          selectedIds: [...selected],
+    const preparedSession = {
+      ...session,
+      selectedIds: targetId ? [targetId] : [],
+      simulation: {
+        ...session.simulation,
+        opponents: {
+          ...(session.simulation?.opponents || {}),
+          [npc.id]: npc,
         },
-        {
-          mode: "destroy",
-          countMode: "single",
-        }
-      );
-      return {
-        session: {
-          ...removed,
-          effectLog: [
-            {
-              id: createId("sim-effect"),
-              at: Date.now(),
-              sourceName: npc.name,
-              summary: `${npc.name} uses ${card.name} on a high-threat target.`,
-            },
-            ...(removed.effectLog || []),
-          ].slice(0, 120),
-        },
-        npc: {
-          ...npc,
-          zones: {
-            ...npc.zones,
-            graveyard: [...(npc.zones?.graveyard || []), card],
-          },
-        },
-      };
-    }
+      },
+    };
+    const resolved = resolveSpell(preparedSession, { ...card, controller: npc.id, owner: npc.id, zone: "hand" }, {
+      controller: npc.id,
+      sourceZone: "hand",
+      targetIds: targetId ? [targetId] : [],
+      autoChoose: true,
+      xValue: chooseNpcXValue(session, npc, card),
+    });
+    const resolvedNpc = resolved.simulation?.opponents?.[npc.id] || npc;
     return {
-      session,
+      session: appendSimulationEffectLog(
+        {
+          ...resolved,
+          selectedIds: [],
+        },
+        `${npc.name} resolves ${card.name}${targetId ? " against a high-threat target" : ""}.`
+      ),
       npc: {
-        ...npc,
+        ...resolvedNpc,
         zones: {
-          ...npc.zones,
-          graveyard: [...(npc.zones?.graveyard || []), card],
+          ...resolvedNpc.zones,
+          hand: (resolvedNpc.zones?.hand || []).filter((entry) => entry.cardId !== card.cardId),
         },
       },
     };
@@ -1135,6 +1160,15 @@ function resolveNpcCast(session, npc, card, simulationMemory = {}) {
       },
     },
   };
+}
+
+function chooseNpcXValue(session, npc, card) {
+  if (!/\{x\}|\bx\b/i.test(`${card.manaCost || ""} ${card.oracleText || ""}`)) {
+    return undefined;
+  }
+  const available = getNpcAvailableMana(session, npc.id);
+  const fixedCost = Math.max(0, Number(card.manaValue || 0) - 1);
+  return Math.max(0, available - fixedCost);
 }
 
 function chooseNpcCastIndex(npc, session, simulationMemory = {}, options = {}) {
@@ -1152,7 +1186,7 @@ function chooseNpcCastIndex(npc, session, simulationMemory = {}, options = {}) {
   const scored = castable
     .map((entry) => ({
       ...entry,
-      score: getNpcCardPriority(entry.card, simulationMemory, { ...options, npc }),
+      score: getNpcCardPriority(entry.card, simulationMemory, { ...options, npc, session }),
     }))
     .sort((left, right) => right.score - left.score);
   return scored[0]?.index ?? -1;
@@ -1224,6 +1258,26 @@ function getNpcCardPriority(card, simulationMemory = {}, options = {}) {
   }
   if (strategyTags.has("spellslinger") && (isType(card, "Instant") || isType(card, "Sorcery"))) {
     score += 3;
+  }
+  const oracle = String(card.oracleText || "").toLowerCase();
+  const ownBoardCount = (options.session?.battlefield?.opponent || []).filter((permanent) => permanent.controller === options.npc?.id).length;
+  const opposingBoardCount =
+    (options.session?.battlefield?.player || []).length +
+    (options.session?.battlefield?.opponent || []).filter((permanent) => permanent.controller !== options.npc?.id).length;
+  if (/search your library for .*(?:land|forest|island|swamp|mountain|plains)/.test(oracle) && getNpcAvailableMana(options.session || {}, options.npc?.id) <= 5) {
+    score += 6;
+  }
+  if (/\bdraw\b/.test(oracle) && (options.npc?.zones?.hand || []).length <= 4) {
+    score += 5;
+  }
+  if (/destroy target|exile target|return target/.test(oracle) && opposingBoardCount > 0) {
+    score += 5;
+  }
+  if (/all creatures|all nonland permanents|all colored permanents/.test(oracle) && opposingBoardCount >= ownBoardCount + 2) {
+    score += 8;
+  }
+  if (/copy target|copy that spell/.test(oracle) && (options.session?.stack || []).length) {
+    score += 7;
   }
   if (strategyTags.has("colorless-ramp") && (isType(card, "Artifact") || /eldrazi|kozilek|ugin/i.test(card.name || ""))) {
     score += 4;
@@ -2314,6 +2368,16 @@ function advancePhase(session, multiplayerSettings = {}) {
         summoningSick: isNewTurn ? false : permanent.summoningSick,
         attacking: false,
         blocking: false,
+        markedDamage: isNewTurn ? 0 : permanent.markedDamage,
+        temporaryModifiers: transitioned.phaseIndex === 0 ? [] : permanent.temporaryModifiers,
+      })),
+      opponent: transitioned.battlefield.opponent.map((permanent) => ({
+        ...permanent,
+        tapped: isNewTurn ? false : permanent.tapped,
+        summoningSick: isNewTurn ? false : permanent.summoningSick,
+        attacking: false,
+        blocking: false,
+        markedDamage: isNewTurn ? 0 : permanent.markedDamage,
         temporaryModifiers: transitioned.phaseIndex === 0 ? [] : permanent.temporaryModifiers,
       })),
     },
@@ -2880,6 +2944,32 @@ function updatePendingEffect(session, id, status) {
           ...(session.effectLog || []),
         ].slice(0, 80)
       : session.effectLog,
+  };
+}
+
+function setSpellTargetChoice(session, pendingId, targetId) {
+  const pending = (session.pendingEffects || []).find((entry) => entry.id === pendingId);
+  if (!pending?.stackObjectId || !targetId) {
+    return session;
+  }
+  const updated = updatePendingEffect(session, pendingId, "resolved");
+  const battlefieldIds = new Set([
+    ...(session.battlefield?.player || []).map((entry) => entry.id),
+    ...(session.battlefield?.opponent || []).map((entry) => entry.id),
+  ]);
+  return {
+    ...updated,
+    selectedIds: battlefieldIds.has(targetId) ? [targetId] : [],
+    stack: (updated.stack || []).map((entry) =>
+      entry.id === pending.stackObjectId
+        ? {
+            ...entry,
+            targetIds: [targetId],
+            status: "pending",
+            rulesConfidence: RULES_CONFIDENCE.AUTO_RESOLVED,
+          }
+        : entry
+    ),
   };
 }
 

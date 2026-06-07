@@ -148,7 +148,7 @@ export function createLoadingScreenController({ assets = [] } = {}) {
         renderProgress(target);
         resolve();
       }
-      window.setTimeout(() => requestAnimationFrame(tick), PROGRESS_STEP_MS);
+      window.setTimeout(() => tick(performance.now()), PROGRESS_STEP_MS);
     });
   }
 
@@ -222,7 +222,22 @@ function delay(ms) {
 }
 
 function nextFrame() {
-  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  return new Promise((resolve) => {
+    let resolved = false;
+    const finish = () => {
+      if (resolved) {
+        return;
+      }
+      resolved = true;
+      resolve();
+    };
+    window.setTimeout(finish, 80);
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(finish);
+      return;
+    }
+    finish();
+  });
 }
 
 function waitForCondition(predicate, timeoutMs) {
@@ -237,7 +252,7 @@ function waitForCondition(predicate, timeoutMs) {
         reject(new Error("Timed out waiting for BoardState to finish painting."));
         return;
       }
-      requestAnimationFrame(check);
+      window.setTimeout(check, 50);
     }
     check();
   });

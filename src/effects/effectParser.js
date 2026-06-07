@@ -142,7 +142,8 @@ export function parseTriggeredEffects(text, card = {}) {
 }
 
 export function parseSpellEffects(text, card = {}) {
-  if (!card.isInstant && !card.isSorcery) {
+  const typeLine = String(card.typeLine || "").toLowerCase();
+  if (!card.isInstant && !card.isSorcery && !typeLine.includes("instant") && !typeLine.includes("sorcery")) {
     return [];
   }
   return parseActions(text, card.name).map((action) => ({
@@ -166,6 +167,7 @@ export function parseActions(text, sourceName = "") {
       token: parseToken(normalizedText),
       tapped: normalizedText.includes("tapped"),
       attacking: normalizedText.includes("attacking"),
+      controller: /that creatures controller creates|its controller creates/.test(normalizedText) ? "target-controller" : "",
       countFrom: parseCountFrom(normalizedText),
       copySelfAtLandCount: copyThreshold,
       copySelf: normalizedText.includes("copy of this creature"),
@@ -228,13 +230,150 @@ export function parseActions(text, sourceName = "") {
     actions.push({ action: "life", amount: parseCountToken(gain[1]), manual: false });
   }
 
-  const damage = normalizedText.match(/(?:deals?|deal) (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) damage to (each opponent|target opponent|opponent|any target|target creature|target player)/);
+  const lifeLoss = normalizedText.match(/(each opponent|target opponent|target player|each player) loses (x|a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) life/);
+  if (lifeLoss) {
+    actions.push({
+      action: "life-loss",
+      amount: lifeLoss[2] === "x" ? 0 : parseCountToken(lifeLoss[2]),
+      amountFrom: lifeLoss[2] === "x" ? "x" : "",
+      target: normalizePlayerTarget(lifeLoss[1]),
+      manual: /target/.test(lifeLoss[1]),
+    });
+  }
+  const selfLifeLoss = normalizedText.match(/(?:you |and )lose (x|a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) life/);
+  if (selfLifeLoss) {
+    actions.push({
+      action: "life-loss",
+      amount: selfLifeLoss[1] === "x" ? 0 : parseCountToken(selfLifeLoss[1]),
+      amountFrom: selfLifeLoss[1] === "x" ? "x" : "",
+      target: "you",
+      manual: false,
+    });
+  }
+
+  const damage = normalizedText.match(/(?:deals?|deal) (x|a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) damage to (each creature|each opponent|target opponent|opponent|any target|target creature|target player|each player)/);
   if (damage) {
     actions.push({
       action: "damage",
-      amount: parseCountToken(damage[1]),
+      amount: damage[1] === "x" ? 0 : parseCountToken(damage[1]),
+      amountFrom: damage[1] === "x" ? "x" : "",
       target: inferDamageTarget(damage[2]),
       manual: /target/.test(damage[2]),
+    });
+  }
+
+  const draw = normalizedText.match(/(?:(target player|each player|you) )?draws? (x|a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) cards?/);
+  if (draw) {
+    actions.push({
+      action: "draw",
+      count: draw[2] === "x" ? 0 : parseCountToken(draw[2]),
+      countFrom: draw[2] === "x" ? "x" : "",
+      target: normalizePlayerTarget(draw[1] || "you"),
+      manual: /target/.test(draw[1] || ""),
+    });
+  }
+
+  const discard = normalizedText.match(/(?:(target player|each opponent|each player|you) )?discards? (?:their hand|x|a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)(?: cards?)?/);
+  if (discard) {
+    const discardToken = normalizedText.match(/discards? (their hand|x|a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)/)?.[1] || "one";
+    actions.push({
+      action: discardToken === "their hand" ? "discard-hand" : "discard",
+      count: discardToken === "x" ? 0 : discardToken === "their hand" ? 0 : parseCountToken(discardToken),
+      countFrom: discardToken === "x" ? "x" : "",
+      target: normalizePlayerTarget(discard[1] || "you"),
+      random: normalizedText.includes("at random"),
+      manual: /target/.test(discard[1] || "") || (!normalizedText.includes("at random") && discardToken !== "their hand"),
+    });
+  }
+
+  const mill = normalizedText.match(/(?:(target player|each opponent|each player|you) )?mills? (x|a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) cards?/);
+  if (mill) {
+    actions.push({
+      action: "mill",
+      count: mill[2] === "x" ? 0 : parseCountToken(mill[2]),
+      countFrom: mill[2] === "x" ? "x" : "",
+      target: normalizePlayerTarget(mill[1] || "you"),
+      manual: /target/.test(mill[1] || ""),
+    });
+  }
+
+  const removalAction = inferRemovalAction(normalizedText);
+  if (removalAction) {
+    actions.push(removalAction);
+  }
+
+  if (/counter target (?:spell|instant or sorcery spell|noncreature spell|activated or triggered ability)/.test(normalizedText)) {
+    actions.push({
+      action: "counter-stack-object",
+      target: "target-stack-object",
+      unlessPay: parseUnlessPay(normalizedText),
+      manual: true,
+    });
+  }
+
+  if (/copy target (?:instant or sorcery spell|spell)/.test(normalizedText)) {
+    actions.push({
+      action: "copy-stack-object",
+      target: "target-stack-object",
+      allowNewTargets: /choose new targets/.test(normalizedText),
+      manual: true,
+    });
+  }
+
+  if (/search your library for/.test(normalizedText)) {
+    const isLandSearch = /(?:basic )?land card|forest card|island card|swamp card|mountain card|plains card/.test(normalizedText);
+    actions.push({
+      action: isLandSearch ? "search-land" : "search-library",
+      count: parseSearchCount(normalizedText),
+      destination: inferSearchDestination(normalizedText),
+      secondaryDestination: /put one onto the battlefield tapped and the other into your hand/.test(normalizedText) ? "hand" : "",
+      primaryCount: /put one onto the battlefield tapped and the other into your hand/.test(normalizedText) ? 1 : 0,
+      tapped: /onto the battlefield tapped/.test(normalizedText),
+      query: inferSearchQuery(normalizedText),
+      manual: true,
+    });
+  }
+
+  if (/return target .+ card from (?:your |a )?graveyard to (?:your )?hand/.test(normalizedText)) {
+    actions.push({
+      action: "return-from-graveyard",
+      destination: "hand",
+      query: inferGraveyardQuery(normalizedText),
+      manual: true,
+    });
+  } else if (/return target creature card from (?:your |a )?graveyard to the battlefield/.test(normalizedText)) {
+    actions.push({
+      action: "return-from-graveyard",
+      destination: "battlefield",
+      query: "creature",
+      manual: true,
+    });
+  }
+
+  if (/return all land cards from your graveyard to the battlefield/.test(normalizedText)) {
+    actions.push({
+      action: "return-all-lands-from-graveyard",
+      destination: "battlefield",
+      manual: false,
+    });
+  }
+
+  if (/take an extra turn|additional turn/.test(normalizedText)) {
+    actions.push({ action: "extra-turn", manual: true, reason: "Extra-turn scheduling requires confirmation" });
+  }
+  if (/additional combat phase|extra combat phase/.test(normalizedText)) {
+    actions.push({ action: "extra-combat", manual: true, reason: "Extra-combat scheduling requires confirmation" });
+  }
+  if (/as an additional cost to cast this spell/.test(normalizedText)) {
+    actions.push({ action: "additional-cost", manual: true, reason: "Additional casting cost must be confirmed" });
+  }
+
+  if (requiresRulesReview(normalizedText) && !actions.some((entry) => entry.action === "manual-choice")) {
+    actions.push({
+      action: "manual-choice",
+      manual: true,
+      reason: "Partially supported spell text needs review",
+      summary: `Partially supported: ${normalizedText.slice(0, 180)}`,
     });
   }
 
@@ -259,8 +398,95 @@ export function parseActions(text, sourceName = "") {
   return actions;
 }
 
+function normalizePlayerTarget(raw = "you") {
+  const value = String(raw || "you").toLowerCase();
+  if (value.includes("each opponent")) return "each-opponent";
+  if (value.includes("each player")) return "each-player";
+  if (value.includes("target opponent")) return "target-opponent";
+  if (value.includes("target player")) return "target-player";
+  return "you";
+}
+
+function inferRemovalAction(text) {
+  const patterns = [
+    { regex: /destroy all nonland permanents/, mode: "destroy", target: "all-nonland-permanents", manual: false },
+    { regex: /destroy all creatures/, mode: "destroy", target: "all-creatures", manual: false },
+    { regex: /destroy all artifacts and enchantments/, mode: "destroy", target: "all-artifacts-enchantments", manual: false },
+    { regex: /exile all creatures/, mode: "exile", target: "all-creatures", manual: false },
+    { regex: /exile all graveyards/, mode: "exile-graveyards", target: "each-player", manual: false },
+    { regex: /return all creatures to their owners hands/, mode: "bounce", target: "all-creatures", manual: false },
+    { regex: /destroy target artifact or enchantment/, mode: "destroy", target: "selected-artifact-enchantment", manual: true },
+    { regex: /destroy target artifact or creature/, mode: "destroy", target: "selected-artifact-creature", manual: true },
+    { regex: /destroy each nonland permanent with mana value x or less/, mode: "destroy", target: "all-nonland-mana-value-x", manual: false },
+    { regex: /destroy target artifact/, mode: "destroy", target: "selected-artifact", manual: true },
+    { regex: /destroy target enchantment/, mode: "destroy", target: "selected-enchantment", manual: true },
+    { regex: /destroy target creature/, mode: "destroy", target: "selected-creature", manual: true },
+    { regex: /destroy target permanent/, mode: "destroy", target: "selected", manual: true },
+    { regex: /exile target card from (?:a|target players|your) graveyard/, mode: "exile-graveyard-card", target: "graveyard-card", manual: true },
+    { regex: /exile target creature/, mode: "exile", target: "selected-creature", manual: true },
+    { regex: /exile target (?:nonland )?permanent/, mode: "exile", target: "selected", manual: true },
+    { regex: /return target creature to its owners hand/, mode: "bounce", target: "selected-creature", manual: true },
+    { regex: /return target (?:nonland )?permanent to its owners hand/, mode: "bounce", target: "selected", manual: true },
+    { regex: /target (?:player|opponent) sacrifices a creature/, mode: "sacrifice", target: "target-player-creature", manual: true },
+    { regex: /each opponent sacrifices a creature/, mode: "sacrifice", target: "each-opponent-creature", manual: true },
+  ];
+  const match = patterns.find((entry) => entry.regex.test(text));
+  return match ? { action: "remove-permanent", mode: match.mode, target: match.target, manual: match.manual } : null;
+}
+
+function parseUnlessPay(text) {
+  const match = text.match(/unless its controller pays (x|one|two|three|four|five|six|seven|eight|nine|ten|\d+)/);
+  if (!match) return 0;
+  return match[1] === "x" ? "x" : parseCountToken(match[1]);
+}
+
+function parseSearchCount(text) {
+  if (/for up to (two|three|four|\d+)/.test(text)) {
+    return parseCountToken(text.match(/for up to (two|three|four|\d+)/)[1]);
+  }
+  if (/for (two|three|four|\d+) .+ cards?/.test(text)) {
+    return parseCountToken(text.match(/for (two|three|four|\d+) .+ cards?/)[1]);
+  }
+  return 1;
+}
+
+function inferSearchDestination(text) {
+  if (/onto the battlefield/.test(text)) return "battlefield";
+  if (/into your graveyard/.test(text)) return "graveyard";
+  if (/on top of your library/.test(text)) return "library-top";
+  return "hand";
+}
+
+function inferSearchQuery(text) {
+  if (/basic land/.test(text)) return "basic-land";
+  if (/land card/.test(text)) return "land";
+  if (/creature card/.test(text)) return "creature";
+  if (/instant or sorcery/.test(text)) return "instant-sorcery";
+  if (/artifact or enchantment/.test(text)) return "artifact-enchantment";
+  if (/artifact/.test(text)) return "artifact";
+  if (/enchantment/.test(text)) return "enchantment";
+  return "card";
+}
+
+function inferGraveyardQuery(text) {
+  if (/creature card/.test(text)) return "creature";
+  if (/instant or sorcery/.test(text)) return "instant-sorcery";
+  if (/land card/.test(text)) return "land";
+  return "card";
+}
+
 function parseToken(text) {
   const pt = text.match(/(\d+)\/(\d+)/);
+  const nonCreatureType = text.match(/\b(treasure|food|clue|blood|map|powerstone) tokens?\b/);
+  if (nonCreatureType) {
+    const tokenName = capitalize(nonCreatureType[1]);
+    return {
+      name: `${tokenName} Token`,
+      typeLine: `Token Artifact - ${tokenName}`,
+      power: 0,
+      toughness: 0,
+    };
+  }
   const type = text.match(/(?:white|blue|black|red|green|colorless|artifact|enchantment|\s)*([a-z]+) creature token/);
   return {
     name: type ? `${capitalize(type[1])} Token` : "Token",
@@ -342,8 +568,14 @@ function extractKeywords(text) {
 
 function inferDamageTarget(raw) {
   const value = String(raw || "").toLowerCase();
+  if (value.includes("each creature")) {
+    return "all-creatures";
+  }
   if (value.includes("each opponent")) {
     return "each-opponent";
+  }
+  if (value.includes("each player")) {
+    return "each-player";
   }
   if (value.includes("opponent")) {
     return "opponent";
@@ -383,6 +615,37 @@ function requiresManualChoice(text) {
     /\bdistribute\b/,
     /\border\b/,
     /\bunless\b/,
+  ].some((pattern) => pattern.test(text));
+}
+
+function requiresRulesReview(text) {
+  return [
+    /\bscry\b/,
+    /\bsurveil\b/,
+    /\blook at the top\b/,
+    /\breveal the top\b/,
+    /\bdelve\b/,
+    /\bcascade\b/,
+    /\bstorm\b/,
+    /\breplicate\b/,
+    /\bsuspend\b/,
+    /\bforetell\b/,
+    /\badventure\b/,
+    /\bflashback\b/,
+    /\bjump-start\b/,
+    /\bretrace\b/,
+    /\bescape\b/,
+    /\brebound\b/,
+    /\bbuyback\b/,
+    /\bkicker\b/,
+    /\boverload\b/,
+    /\bat the beginning of the next\b/,
+    /\bdraws? cards equal to\b/,
+    /\bsacrifices all colored permanents\b/,
+    /\bshuffle it into their library\b/,
+    /\bdivided as you choose\b/,
+    /\bprevent all\b/,
+    /\bprotection from\b/,
   ].some((pattern) => pattern.test(text));
 }
 

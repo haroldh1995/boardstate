@@ -43,7 +43,7 @@ async function bootstrap() {
 }
 
 function getLikelyInitialWallpaperUrl() {
-  return window.matchMedia?.("(orientation: portrait) and (max-width: 1024px)").matches
+  return window.matchMedia?.("(max-width: 1279px)").matches
     ? portraitWallpaperUrl
     : landscapeWallpaperUrl;
 }

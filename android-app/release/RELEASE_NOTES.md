@@ -2,8 +2,8 @@
 
 ## App
 - Name: BoardState
-- Version: 1.10.5
-- Version code: 19
+- Version: 1.10.6
+- Version code: 20
 - Package: `com.boardstate.app`
 
 ## Summary
@@ -27,6 +27,13 @@
 - Restores Decks-page search actions to Add to deck and Make commander instead of Battlefield Cast actions.
 - Removes the baked sample loading bar from the splash wallpaper so only the live animated loading bar is shown during startup.
 - Speeds up the splash screen asset load, keeps the app hidden until the active page finishes painting, and prevents half-loaded pages from showing during startup.
+- Adds a safer instant/sorcery resolution pipeline with stack placement, targeting, common effect handling, hidden-zone updates, NPC Dry Run decisions, and Manual Choice fallback for unsupported rules text.
+- Stabilizes Dry Run menus and searches so simulation updates no longer force scrollable panels back to the top.
+- Forces tablets and iPads to use the same streamlined mobile layout as phones.
+- Adds real Scryfall card-art backgrounds to compact Battlefield tiles while preserving readable HUD information, token fallbacks, stacked copies, and tapped/attacking/targeted states.
+- Replaces static Battlefield search cast controls with a contextual Cast popup that closes immediately after an action while preserving search focus and scroll position.
+- Removes the blocking Dry Run status window from the Battlefield and moves real simulation controls into the Tools menu.
+- Prevents the Battlefield or page behind a menu from scrolling while Scryfall Search, Tools, Player Controls, Manual Choice, Stack, Trigger Queue, or other temporary panels are open.
 
 ## Included behavior
 - WebView back navigation

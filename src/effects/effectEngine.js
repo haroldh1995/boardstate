@@ -181,73 +181,776 @@ export function resolveQueuedTrigger(session, { triggerId, command = "resolve", 
   });
 }
 
-export function resolveSpell(session, spell) {
-  const source = hydratePermanentEffects({ ...spell, isInstant: spell.isInstant, isSorcery: spell.isSorcery });
+export function castSpellToStack(session, spell, options = {}) {
+  const source = hydratePermanentEffects({
+    ...spell,
+    owner: options.owner || spell.owner || options.controller || spell.controller || "player",
+    controller: options.controller || spell.controller || "player",
+    zone: options.sourceZone || spell.zone || "hand",
+  });
+  if (!source.isInstant && !source.isSorcery) {
+    return queueSpellRecovery(session, source, "Only instant and sorcery cards use the non-permanent spell stack pipeline.");
+  }
+
+  const stackObject = {
+    id: createId("spell"),
+    objectType: options.isCopy ? "copy-of-spell" : "spell",
+    card: source,
+    name: source.name,
+    typeLine: source.typeLine,
+    oracleText: source.oracleText,
+    controller: source.controller,
+    owner: source.owner,
+    sourceZone: options.sourceZone || source.zone || "hand",
+    targetIds: Array.isArray(options.targetIds) ? [...options.targetIds] : [...(session.selectedIds || [])],
+    targetStackId: options.targetStackId || "",
+    selectedModes: Array.isArray(options.selectedModes) ? [...options.selectedModes] : [],
+    xValue: Number.isFinite(Number(options.xValue)) ? Math.max(0, Number(options.xValue)) : null,
+    additionalCosts: options.additionalCosts || {},
+    castPermission: options.castPermission || "",
+    isCopy: Boolean(options.isCopy),
+    copiedFromStackId: options.copiedFromStackId || "",
+    status: "pending",
+    rulesConfidence: RULES_CONFIDENCE.AUTO_RESOLVED,
+    createdAt: Date.now(),
+    effectsApplied: false,
+  };
+  const missingChoices = collectSpellCastingChoices(stackObject, session);
+  const pendingEntries = missingChoices.map((choice) => createSpellChoiceEntry(stackObject, choice));
+  const nextStackObject = missingChoices.length
+    ? { ...stackObject, status: "awaiting-choice", rulesConfidence: RULES_CONFIDENCE.MANUAL_CHOICE }
+    : stackObject;
+  const nextSession = {
+    ...removeKnownZoneCard(session, source.controller, stackObject.sourceZone, source),
+    stack: [nextStackObject, ...(session.stack || [])],
+    priority: {
+      activePlayerId: source.controller,
+      passedPlayerIds: [],
+      waiting: true,
+    },
+    pendingEffects: [...pendingEntries, ...(session.pendingEffects || [])].slice(0, 120),
+    rulesConfidenceLog: [
+      createRulesConfidenceEntry(source.name, missingChoices.length ? "Spell cast with choices pending." : "Spell placed on the stack.", nextStackObject.rulesConfidence),
+      ...(session.rulesConfidenceLog || []),
+    ].slice(0, 160),
+    effectLog: [
+      createLog(
+        source.name,
+        missingChoices.length ? `Spell placed on stack; ${missingChoices.length} choice(s) required.` : "Spell placed on the stack.",
+        nextStackObject.rulesConfidence,
+        nextStackObject.status
+      ),
+      ...(session.effectLog || []),
+    ].slice(0, 120),
+  };
+  return processEventTriggers(nextSession, {
+    type: "spell-cast",
+    eventType: "SPELL_CAST",
+    source,
+    payload: { spell: nextStackObject, controller: source.controller },
+  });
+}
+
+export function resolveTopOfStack(session, options = {}) {
+  const stack = [...(session.stack || [])];
+  const spell = options.stackId ? stack.find((entry) => entry.id === options.stackId) : stack[0];
+  if (!spell) {
+    return queueSpellRecovery(session, { name: "Stack" }, "There is no spell on the stack to resolve.", "info");
+  }
+  const unresolvedChoices = (session.pendingEffects || []).filter(
+    (entry) => entry.stackObjectId === spell.id && !["resolved", "skipped", "ignored"].includes(entry.status)
+  );
+  if (unresolvedChoices.length) {
+    return queueSpellRecovery(
+      {
+        ...session,
+        stack: stack.map((entry) => entry.id === spell.id ? { ...entry, status: "awaiting-choice", rulesConfidence: RULES_CONFIDENCE.MANUAL_CHOICE } : entry),
+      },
+      spell,
+      `${spell.name} cannot resolve until ${unresolvedChoices.length} pending choice(s) are handled.`
+    );
+  }
+
+  let nextSession = session;
+  if (!spell.effectsApplied) {
+    nextSession = resolveSpell(nextSession, spell.card, {
+      stackObjectId: spell.id,
+      targetIds: spell.targetIds,
+      targetStackId: spell.targetStackId,
+      selectedModes: spell.selectedModes,
+      xValue: spell.xValue,
+      controller: spell.controller,
+      autoChoose: Boolean(options.autoChoose),
+      deferDestination: true,
+    });
+  }
+  const generatedChoices = (nextSession.pendingEffects || []).filter(
+    (entry) => entry.stackObjectId === spell.id && !["resolved", "skipped", "ignored"].includes(entry.status)
+  );
+  if (generatedChoices.length) {
+    return {
+      ...nextSession,
+      stack: (nextSession.stack || stack).map((entry) =>
+        entry.id === spell.id
+          ? { ...entry, status: "awaiting-choice", effectsApplied: true, rulesConfidence: RULES_CONFIDENCE.MANUAL_CHOICE }
+          : entry
+      ),
+    };
+  }
+  return finalizeSpellResolution(nextSession, { ...spell, effectsApplied: true });
+}
+
+export function passStackPriority(session, playerId = "local-player") {
+  const passed = new Set(session.priority?.passedPlayerIds || []);
+  passed.add(playerId);
+  return {
+    ...session,
+    priority: {
+      ...(session.priority || {}),
+      activePlayerId: playerId,
+      passedPlayerIds: [...passed],
+      waiting: true,
+    },
+    effectLog: [createLog("Priority", `${playerId} passed priority.`, RULES_CONFIDENCE.AUTO_RESOLVED), ...(session.effectLog || [])].slice(0, 120),
+  };
+}
+
+export function counterStackObject(session, stackId = "", sourceName = "Counterspell") {
+  const stack = [...(session.stack || [])];
+  const target = stack.find((entry) => entry.id === stackId) || stack[0];
+  if (!target) {
+    return queueSpellRecovery(session, { name: sourceName }, "Counterspell needs a valid spell or ability on the stack.");
+  }
+  const withoutTarget = stack.filter((entry) => entry.id !== target.id);
+  const moved = target.isCopy ? session : moveSpellCardToDestination(session, target, "graveyard");
+  return {
+    ...moved,
+    stack: withoutTarget,
+    priority: { activePlayerId: target.controller || "local-player", passedPlayerIds: [], waiting: Boolean(withoutTarget.length) },
+    effectLog: [
+      createLog(sourceName, `${target.name} was countered${target.isCopy ? " and ceased to exist" : " and moved to graveyard"}.`),
+      ...(moved.effectLog || []),
+    ].slice(0, 120),
+  };
+}
+
+export function resolveSpell(session, spell, options = {}) {
+  const source = hydratePermanentEffects({
+    ...spell,
+    controller: options.controller || spell.controller || "player",
+    owner: spell.owner || options.controller || spell.controller || "player",
+    isInstant: spell.isInstant,
+    isSorcery: spell.isSorcery,
+  });
   let nextSession = session;
   let resolved = 0;
-  source.parsedEffects
-    .filter((effect) => effect.kind === "spell")
-    .forEach((effect) => {
+  const spellEffects = source.parsedEffects.filter((effect) => effect.kind === "spell");
+  if (!spellEffects.length) {
+    nextSession = queueUnsupportedEffect(
+      nextSession,
+      {
+        action: "unparsed-spell",
+        manual: true,
+        summary: source.oracleText
+          ? `No safe automatic resolution was found for: ${source.oracleText}`
+          : "Card rules text is unavailable; resolve this spell manually.",
+      },
+      source,
+      {
+        type: "spell-resolution",
+        stackObjectId: options.stackObjectId || "",
+      }
+    );
+  }
+  spellEffects.forEach((effect) => {
       const before = JSON.stringify(nextSession);
-      nextSession = resolveEffect(nextSession, effect, source, { type: "spell-cast", source });
+      nextSession = resolveEffect(nextSession, effect, source, {
+        type: "spell-resolution",
+        source,
+        stackObjectId: options.stackObjectId || "",
+        targetIds: options.targetIds || [],
+        targetStackId: options.targetStackId || "",
+        selectedModes: options.selectedModes || [],
+        xValue: options.xValue,
+        autoChoose: Boolean(options.autoChoose),
+      });
       if (JSON.stringify(nextSession) !== before) {
         resolved += 1;
       }
     });
 
-  return {
+  const resolvedSession = {
     ...recalculateContinuousEffects(nextSession),
     effectLog: [
-      createLog(source.name, resolved > 0 ? "Spell resolved with supported automated effects." : "Spell logged for manual resolution."),
+      createLog(
+        source.name,
+        resolved > 0 ? "Spell processed supported effects; review any pending choices." : "Spell logged for manual resolution.",
+        (nextSession.pendingEffects || []).some((entry) => entry.stackObjectId === options.stackObjectId && entry.status === "pending")
+          ? RULES_CONFIDENCE.PARTIAL
+          : RULES_CONFIDENCE.AUTO_RESOLVED
+      ),
       ...nextSession.effectLog,
     ].slice(0, 60),
   };
+  if (options.deferDestination) {
+    return resolvedSession;
+  }
+  return moveSpellCardToDestination(resolvedSession, {
+    card: source,
+    name: source.name,
+    controller: source.controller,
+    owner: source.owner,
+    sourceZone: options.sourceZone || source.zone || "hand",
+    isCopy: Boolean(options.isCopy),
+  }, determineSpellDestination(source, options));
 }
 
 export function resolveEffect(session, effect, source, event = {}) {
-  if (effect.manual) {
+  const effectiveEffect = effect.manual && canResolveManualEffect(session, effect, event)
+    ? { ...effect, manual: false }
+    : effect;
+  if (effectiveEffect.manual) {
     const pendingEntry = {
       id: createId("pending"),
       sourceId: source.id,
       sourceName: source.name,
-      effect,
-      summary: effect.summary || effect.reason || "Manual choice required",
+      effect: effectiveEffect,
+      summary: effectiveEffect.summary || effectiveEffect.reason || "Manual choice required",
       status: "pending",
       rulesConfidence: RULES_CONFIDENCE.MANUAL_CHOICE,
       createdAt: Date.now(),
       triggerId: event.payload?.triggerId || event.triggerId || "",
       eventType: event.eventType || event.type || "",
+      stackObjectId: event.stackObjectId || "",
+      oracleText: source.oracleText || "",
+      controller: source.controller || "player",
     };
     return {
       ...session,
       pendingEffects: [pendingEntry, ...session.pendingEffects].slice(0, 60),
       effectLog: [
-        createLog(source.name, `Manual choice required: ${effect.summary || effect.reason || effect.action || "effect"}.`, RULES_CONFIDENCE.MANUAL_CHOICE),
+        createLog(source.name, `Manual choice required: ${effectiveEffect.summary || effectiveEffect.reason || effectiveEffect.action || "effect"}.`, RULES_CONFIDENCE.MANUAL_CHOICE),
         ...session.effectLog,
       ].slice(0, 80),
     };
   }
 
-  switch (effect.action) {
+  switch (effectiveEffect.action) {
     case "create-token":
-      return createTokens(session, effect, source, event);
+      return createTokens(session, effectiveEffect, source, event);
     case "add-counters":
-      return addCounters(session, effect, source, event);
+      return addCounters(session, effectiveEffect, source, event);
     case "double-counters":
-      return doubleCounters(session, effect, source, event);
+      return doubleCounters(session, effectiveEffect, source, event);
     case "temporary-buff":
-      return applyTemporaryBuff(session, effect, source);
+      return applyTemporaryBuff(session, effectiveEffect, source);
     case "life":
-      return applyLifeEffect(session, effect, source, event);
+      return applyLifeEffect(session, effectiveEffect, source, event);
+    case "life-loss":
+      return applyLifeLossEffect(session, effectiveEffect, source, event);
     case "damage":
-      return applyDamageEffect(session, effect, source, event);
+      return applyDamageEffect(session, effectiveEffect, source, event);
+    case "draw":
+    case "discard":
+    case "discard-hand":
+    case "mill":
+      return applyHiddenZoneEffect(session, effectiveEffect, source, event);
+    case "remove-permanent":
+      return applyRemovalEffect(session, effectiveEffect, source, event);
+    case "search-land":
+    case "search-library":
+      return applySearchEffect(session, effectiveEffect, source, event);
+    case "return-from-graveyard":
+    case "return-all-lands-from-graveyard":
+      return applyGraveyardEffect(session, effectiveEffect, source, event);
+    case "counter-stack-object":
+      return counterStackObject(session, event.targetStackId || session.stack?.[1]?.id || session.stack?.[0]?.id, source.name);
+    case "copy-stack-object":
+      return copyStackObject(session, event.targetStackId || session.stack?.[1]?.id || session.stack?.[0]?.id, source, effectiveEffect, event);
     default:
-      return queueUnsupportedEffect(session, effect, source, event);
+      return queueUnsupportedEffect(session, effectiveEffect, source, event);
   }
 }
 
+function collectSpellCastingChoices(spell, session = {}) {
+  const text = String(spell.oracleText || "").toLowerCase();
+  const choices = [];
+  if ((/\{x\}/i.test(spell.card?.manaCost || "") || /\bx\b/.test(text)) && spell.xValue === null) {
+    choices.push({ kind: "x-value", summary: "Choose and record X before resolving this spell." });
+  }
+  if (/\bchoose (?:one|two|one or both|one or more|up to one|up to two)\b/.test(text) && !spell.selectedModes.length) {
+    choices.push({ kind: "modes", summary: "Choose the spell mode(s)." });
+  }
+  const requiresStackTarget = (spell.card?.parsedEffects || []).some((effect) => effect.target === "target-stack-object");
+  const requiresVisibleTarget = (spell.card?.parsedEffects || []).some(
+    (effect) =>
+      effect.target !== "target-stack-object" &&
+      effect.manual &&
+      (/^(selected|target)/i.test(String(effect.target || "")) ||
+        /\btarget\b/i.test(`${effect.reason || ""} ${effect.summary || ""} ${text}`))
+  );
+  if (requiresStackTarget && !spell.targetStackId) {
+    choices.push({ kind: "stack-target", summary: "Choose a spell or ability on the stack." });
+  } else if (requiresVisibleTarget && !spell.targetIds.length) {
+    choices.push({ kind: "targets", summary: "Choose target(s) manually." });
+  }
+  if (/\bas an additional cost\b|\bbuyback\b|\bkicker\b|\bmultikicker\b|\bentwine\b|\bescalate\b|\boverload\b|\breplicate\b/.test(text)) {
+    choices.push({ kind: "additional-cost", summary: "Confirm optional or additional costs paid." });
+  }
+  const sourceZone = String(spell.sourceZone || "hand").toLowerCase();
+  const graveyardPermission = /\bflashback\b|\bjump-start\b|\bretrace\b|\bescape\b|\baftermath\b/.test(text);
+  const exilePermission = /\badventure\b|\bforetell\b|\bsuspend\b|\brebound\b|cast .* from exile/.test(text);
+  if (
+    !spell.castPermission &&
+    ((sourceZone === "graveyard" && !graveyardPermission) ||
+      (sourceZone === "exile" && !exilePermission) ||
+      sourceZone === "command")
+  ) {
+    choices.push({ kind: "zone-permission", summary: `Confirm permission to cast this spell from ${sourceZone}.` });
+  }
+  const isActiveGame = Boolean(session.gameTracking?.active || session.simulation?.enabled);
+  const legalSorceryPhase = [1, 3].includes(Number(session.phaseIndex));
+  if (spell.card?.isSorcery && isActiveGame && (!legalSorceryPhase || (session.stack || []).length > 0)) {
+    choices.push({ kind: "timing-override", summary: "Sorcery timing is not currently legal. Confirm a permission or manual override." });
+  }
+  if (isActiveGame && (spell.controller === "player" || spell.controller === "local-player")) {
+    const availableMana = Object.values(session.manaPool || {}).reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
+    const requiredMana = Math.max(0, Number(spell.card?.manaValue || 0) - (/\{x\}/i.test(spell.card?.manaCost || "") ? 1 : 0)) + Math.max(0, Number(spell.xValue) || 0);
+    if (requiredMana > availableMana) {
+      choices.push({ kind: "mana-payment", summary: `Insufficient tracked mana (${availableMana}/${requiredMana}). Confirm payment or manual override.` });
+    }
+  }
+  return dedupeChoices(choices);
+}
+
+function dedupeChoices(choices) {
+  const seen = new Set();
+  return choices.filter((choice) => {
+    const key = `${choice.kind}:${choice.summary}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function createSpellChoiceEntry(spell, choice) {
+  return {
+    id: createId("pending"),
+    sourceId: spell.card?.id || spell.id,
+    sourceName: spell.name,
+    effect: {
+      action: "spell-casting-choice",
+      manual: true,
+      choiceKind: choice.kind,
+      summary: choice.summary,
+    },
+    summary: choice.summary,
+    status: "pending",
+    rulesConfidence: RULES_CONFIDENCE.MANUAL_CHOICE,
+    createdAt: Date.now(),
+    eventType: "SPELL_CAST",
+    stackObjectId: spell.id,
+    oracleText: spell.oracleText,
+    controller: spell.controller,
+  };
+}
+
+function canResolveManualEffect(session, effect, event = {}) {
+  if (effect.unlessPay) {
+    return typeof event.paymentDecision === "boolean";
+  }
+  if (event.autoChoose) {
+    return true;
+  }
+  if (effect.target === "target-stack-object") {
+    return Boolean(event.targetStackId);
+  }
+  if (/selected|target/.test(String(effect.target || ""))) {
+    return Boolean((event.targetIds || []).length || (session.selectedIds || []).length);
+  }
+  return false;
+}
+
+function finalizeSpellResolution(session, spell) {
+  const destination = determineSpellDestination(spell.card || {}, spell);
+  const moved = spell.isCopy ? session : moveSpellCardToDestination(session, spell, destination);
+  const remainingStack = (moved.stack || []).filter((entry) => entry.id !== spell.id);
+  return {
+    ...moved,
+    stack: remainingStack,
+    priority: {
+      activePlayerId: spell.controller || "local-player",
+      passedPlayerIds: [],
+      waiting: Boolean(remainingStack.length),
+    },
+    rulesConfidenceLog: [
+      createRulesConfidenceEntry(
+        spell.name,
+        spell.isCopy ? "Spell copy resolved and ceased to exist." : `Spell resolved to ${destination}.`,
+        RULES_CONFIDENCE.AUTO_RESOLVED
+      ),
+      ...(moved.rulesConfidenceLog || []),
+    ].slice(0, 160),
+    effectLog: [
+      createLog(
+        spell.name,
+        spell.isCopy ? "Spell copy resolved and ceased to exist." : `Spell resolved and moved to ${destination}.`,
+        RULES_CONFIDENCE.AUTO_RESOLVED
+      ),
+      ...(moved.effectLog || []),
+    ].slice(0, 120),
+  };
+}
+
+function determineSpellDestination(card = {}, options = {}) {
+  if (options.isCopy) return "cease";
+  const text = String(card.oracleText || "").toLowerCase();
+  const sourceZone = String(options.sourceZone || card.zone || "").toLowerCase();
+  if (options.buybackPaid) return "hand";
+  if ((/\bflashback\b|\bjump-start\b/.test(text) && sourceZone === "graveyard") || /\bexile (?:this spell|it) instead\b/.test(text)) return "exile";
+  if (/\brebound\b/.test(text) && sourceZone === "hand") return "exile";
+  if (/\badventure\b/.test(String(card.typeLine || "").toLowerCase())) return "exile";
+  return "graveyard";
+}
+
+function removeKnownZoneCard(session, controller, zoneName, card) {
+  if (!zoneName || zoneName === "stack") return session;
+  return updateControllerZones(session, controller, (zones) => {
+    const zone = [...(zones[zoneName] || [])];
+    const index = zone.findIndex((entry) => entry.cardId === card.cardId || entry.name === card.name);
+    if (index >= 0) zone.splice(index, 1);
+    return { ...zones, [zoneName]: zone };
+  });
+}
+
+function moveSpellCardToDestination(session, spell, destination) {
+  if (destination === "cease") return session;
+  const card = {
+    ...(spell.card || {}),
+    id: spell.card?.id || spell.card?.cardId || createId("zone-card"),
+    zone: destination,
+    controller: spell.owner || spell.controller,
+  };
+  return updateControllerZones(session, spell.owner || spell.controller || "player", (zones) => ({
+    ...zones,
+    [destination]: [...(zones[destination] || []), card],
+  }));
+}
+
+function updateControllerZones(session, controller, updater) {
+  if (controller && controller !== "player" && controller !== "local-player" && session.simulation?.opponents?.[controller]) {
+    const npc = session.simulation.opponents[controller];
+    const zones = updater({
+      library: [...(npc.zones?.library || [])],
+      hand: [...(npc.zones?.hand || [])],
+      graveyard: [...(npc.zones?.graveyard || [])],
+      exile: [...(npc.zones?.exile || [])],
+      command: [...(npc.zones?.command || [])],
+      battlefield: [...(npc.zones?.battlefield || [])],
+    });
+    return {
+      ...session,
+      simulation: {
+        ...session.simulation,
+        opponents: {
+          ...session.simulation.opponents,
+          [controller]: { ...npc, zones, updatedAt: Date.now() },
+        },
+        updatedAt: Date.now(),
+      },
+    };
+  }
+  return {
+    ...session,
+    zones: updater({
+      hand: [...(session.zones?.hand || [])],
+      library: [...(session.zones?.library || [])],
+      graveyard: [...(session.zones?.graveyard || [])],
+      exile: [...(session.zones?.exile || [])],
+      command: [...(session.zones?.command || [])],
+      unknownCounts: { ...(session.zones?.unknownCounts || {}) },
+    }),
+  };
+}
+
+function applyHiddenZoneEffect(session, effect, source, event) {
+  const controllers = resolvePlayerTargets(session, source.controller, effect.target);
+  const count = Math.max(0, resolveVariableNumber(effect.count, effect.countFrom, event));
+  let next = session;
+  controllers.forEach((controller) => {
+    next = updateControllerZones(next, controller, (zones) => {
+      if (effect.action === "draw") return drawCardsFromZones(zones, count);
+      if (effect.action === "mill") return millCardsFromZones(zones, count);
+      return discardCardsFromZones(zones, effect.action === "discard-hand" ? Infinity : count);
+    });
+  });
+  return appendEffectResult(next, source.name, `${effect.action} processed for ${controllers.length} player(s).`);
+}
+
+function drawCardsFromZones(zones, count) {
+  const library = [...(zones.library || [])];
+  const hand = [...(zones.hand || [])];
+  const drawn = library.splice(0, count);
+  hand.push(...drawn);
+  const unknownCounts = { ...(zones.unknownCounts || {}) };
+  const remaining = Math.max(0, count - drawn.length);
+  if (remaining) {
+    unknownCounts.library = Math.max(0, Number(unknownCounts.library || 0) - remaining);
+    unknownCounts.hand = Number(unknownCounts.hand || 0) + remaining;
+  }
+  return { ...zones, library, hand, unknownCounts };
+}
+
+function discardCardsFromZones(zones, requestedCount) {
+  const hand = [...(zones.hand || [])];
+  const graveyard = [...(zones.graveyard || [])];
+  const unknownCounts = { ...(zones.unknownCounts || {}) };
+  const count = requestedCount === Infinity ? hand.length + Number(unknownCounts.hand || 0) : requestedCount;
+  const discardedKnown = hand.splice(Math.max(0, hand.length - count), count);
+  graveyard.push(...discardedKnown);
+  const remaining = Math.max(0, count - discardedKnown.length);
+  const unknownDiscard = Math.min(Number(unknownCounts.hand || 0), remaining);
+  unknownCounts.hand = Math.max(0, Number(unknownCounts.hand || 0) - unknownDiscard);
+  unknownCounts.graveyard = Number(unknownCounts.graveyard || 0) + unknownDiscard;
+  return { ...zones, hand, graveyard, unknownCounts };
+}
+
+function millCardsFromZones(zones, count) {
+  const library = [...(zones.library || [])];
+  const graveyard = [...(zones.graveyard || [])];
+  const milled = library.splice(0, count);
+  graveyard.push(...milled);
+  const unknownCounts = { ...(zones.unknownCounts || {}) };
+  const remaining = Math.max(0, count - milled.length);
+  if (remaining) {
+    unknownCounts.library = Math.max(0, Number(unknownCounts.library || 0) - remaining);
+    unknownCounts.graveyard = Number(unknownCounts.graveyard || 0) + remaining;
+  }
+  return { ...zones, library, graveyard, unknownCounts };
+}
+
+function applySearchEffect(session, effect, source, event) {
+  const controller = source.controller || "player";
+  if (!event.autoChoose && (controller === "player" || controller === "local-player")) {
+    return queueUnsupportedEffect(session, { ...effect, summary: "Choose a card from your library and confirm its destination." }, source, event);
+  }
+  let foundNames = [];
+  const battlefieldCards = [];
+  let next = updateControllerZones(session, controller, (zones) => {
+    const library = [...(zones.library || [])];
+    const destination = [...(zones[effect.destination] || [])];
+    const secondaryDestination = effect.secondaryDestination ? [...(zones[effect.secondaryDestination] || [])] : null;
+    const count = Math.max(1, Number(effect.count || 1));
+    for (let index = 0; index < count; index += 1) {
+      const foundIndex = library.findIndex((card) => cardMatchesQuery(card, effect.query));
+      if (foundIndex < 0) break;
+      const [card] = library.splice(foundIndex, 1);
+      foundNames.push(card.name);
+      const useSecondary = secondaryDestination && index >= Number(effect.primaryCount || 1);
+      const targetDestination = useSecondary ? effect.secondaryDestination : effect.destination;
+      (useSecondary ? secondaryDestination : destination).push({
+        ...card,
+        tapped: useSecondary ? false : Boolean(effect.tapped),
+        zone: targetDestination,
+      });
+      if (targetDestination === "battlefield") {
+        battlefieldCards.push({ ...card, tapped: Boolean(effect.tapped), zone: "battlefield" });
+      }
+    }
+    return {
+      ...zones,
+      library,
+      [effect.destination]: destination,
+      ...(secondaryDestination ? { [effect.secondaryDestination]: secondaryDestination } : {}),
+    };
+  });
+  battlefieldCards.forEach((card) => {
+    const permanent = hydratePermanentEffects({ ...card, controller, owner: controller });
+    const side = controller === "player" || controller === "local-player" ? "player" : "opponent";
+    next = emitPermanentEntryEvents({
+      ...next,
+      battlefield: { ...next.battlefield, [side]: stackPermanent(next.battlefield[side] || [], permanent) },
+    }, permanent, { cause: "library-search" });
+  });
+  return appendEffectResult(next, source.name, foundNames.length ? `Searched for ${foundNames.join(", ")}.` : "Library search found no matching known card.", foundNames.length ? RULES_CONFIDENCE.AUTO_RESOLVED : RULES_CONFIDENCE.PARTIAL);
+}
+
+function applyGraveyardEffect(session, effect, source, event) {
+  const controller = source.controller || "player";
+  if (!event.autoChoose && effect.action === "return-from-graveyard") {
+    return queueUnsupportedEffect(session, { ...effect, summary: "Choose a card from the graveyard." }, source, event);
+  }
+  let moved = [];
+  let next = updateControllerZones(session, controller, (zones) => {
+    const graveyard = [...(zones.graveyard || [])];
+    const destination = [...(zones[effect.destination || "hand"] || [])];
+    if (effect.action === "return-all-lands-from-graveyard") {
+      moved = graveyard.filter((card) => /\bLand\b/i.test(card.typeLine || ""));
+    } else {
+      const index = graveyard.findIndex((card) => cardMatchesQuery(card, effect.query));
+      moved = index >= 0 ? graveyard.splice(index, 1) : [];
+    }
+    const remaining = effect.action === "return-all-lands-from-graveyard"
+      ? graveyard.filter((card) => !moved.includes(card))
+      : graveyard;
+    destination.push(...moved.map((card) => ({ ...card, zone: effect.destination || "hand" })));
+    return { ...zones, graveyard: remaining, [effect.destination || "hand"]: destination };
+  });
+  if ((effect.destination || "") === "battlefield") {
+    moved.forEach((card) => {
+      const permanent = hydratePermanentEffects({ ...card, controller, owner: controller, zone: "battlefield" });
+      const side = controller === "player" || controller === "local-player" ? "player" : "opponent";
+      next = emitPermanentEntryEvents({
+        ...next,
+        battlefield: { ...next.battlefield, [side]: stackPermanent(next.battlefield[side], permanent) },
+      }, permanent, { cause: "graveyard-return" });
+    });
+  }
+  return appendEffectResult(next, source.name, `Returned ${moved.length} card(s) from graveyard.`, moved.length ? RULES_CONFIDENCE.AUTO_RESOLVED : RULES_CONFIDENCE.PARTIAL);
+}
+
+function applyRemovalEffect(session, effect, source, event) {
+  if (effect.mode === "exile-graveyards") {
+    let next = session;
+    resolvePlayerTargets(session, source.controller, "each-player").forEach((controller) => {
+      next = updateControllerZones(next, controller, (zones) => ({
+        ...zones,
+        exile: [...(zones.exile || []), ...(zones.graveyard || [])],
+        graveyard: [],
+        unknownCounts: {
+          ...(zones.unknownCounts || {}),
+          exile: Number(zones.unknownCounts?.exile || 0) + Number(zones.unknownCounts?.graveyard || 0),
+          graveyard: 0,
+        },
+      }));
+    });
+    return appendEffectResult(next, source.name, "Exiled all tracked graveyards.");
+  }
+  const targetIds = new Set((event.targetIds || []).length ? event.targetIds : getTargets(session, effect.target, source, event).map((target) => target.id));
+  const removed = [];
+  const mapSide = (side) => side.filter((permanent) => {
+    if (!targetIds.has(permanent.id)) return true;
+    if (effect.mode === "destroy" && (permanent.keywords || []).includes("indestructible")) return true;
+    removed.push(permanent);
+    return false;
+  });
+  let next = {
+    ...session,
+    battlefield: {
+      ...session.battlefield,
+      player: mapSide(session.battlefield.player || []),
+      opponent: mapSide(session.battlefield.opponent || []),
+    },
+    selectedIds: (session.selectedIds || []).filter((id) => !targetIds.has(id)),
+  };
+  removed.forEach((permanent) => {
+    const destination = effect.mode === "exile" ? "exile" : effect.mode === "bounce" ? "hand" : "graveyard";
+    next = updateControllerZones(next, permanent.owner || permanent.controller || "player", (zones) => ({
+      ...zones,
+      [destination]: [...(zones[destination] || []), { ...permanent, zone: destination }],
+    }));
+    next = processEventTriggers(next, {
+      type: effect.mode === "destroy" || effect.mode === "sacrifice" ? "permanent-died" : "permanent-left",
+      eventType: effect.mode === "exile" ? "EXILE" : effect.mode === "sacrifice" ? "SACRIFICE" : effect.mode === "destroy" ? "DESTROY" : "LEAVE_BATTLEFIELD",
+      permanent,
+      payload: { permanent, cause: effect.mode, controller: permanent.controller },
+    });
+  });
+  return appendEffectResult(next, source.name, `${effect.mode} affected ${removed.length} permanent(s).`, removed.length ? RULES_CONFIDENCE.AUTO_RESOLVED : RULES_CONFIDENCE.PARTIAL);
+}
+
+function copyStackObject(session, targetStackId, source, effect, event) {
+  const target = (session.stack || []).find((entry) => entry.id === targetStackId);
+  if (!target) return queueSpellRecovery(session, source, "Copy effect needs a valid spell on the stack.");
+  const copy = {
+    ...target,
+    id: createId("spell-copy"),
+    objectType: "copy-of-spell",
+    isCopy: true,
+    copiedFromStackId: target.id,
+    controller: source.controller || target.controller,
+    owner: source.controller || target.owner,
+    sourceZone: "stack",
+    targetIds: effect.allowNewTargets && (event.targetIds || []).length ? [...event.targetIds] : [...(target.targetIds || [])],
+    status: "pending",
+    rulesConfidence: RULES_CONFIDENCE.AUTO_RESOLVED,
+    createdAt: Date.now(),
+    effectsApplied: false,
+  };
+  return appendEffectResult({ ...session, stack: [copy, ...(session.stack || [])] }, source.name, `Copied ${target.name}; the copy is on the stack.`);
+}
+
+function resolvePlayerTargets(session, controller = "player", target = "you") {
+  const simulationIds = Object.keys(session.simulation?.players || {});
+  const allIds = simulationIds.length ? simulationIds : ["local-player", "opponent"];
+  const normalizedController = controller === "player" ? "local-player" : controller;
+  if (target === "each-player") return allIds;
+  if (target === "each-opponent") return allIds.filter((id) => id !== normalizedController);
+  if (target === "target-player" || target === "target-opponent") return [normalizedController === "local-player" ? "opponent" : "local-player"];
+  return [normalizedController];
+}
+
+function resolveVariableNumber(value, countFrom, event = {}) {
+  if (countFrom === "x") return Math.max(0, Number(event.xValue) || 0);
+  return Math.max(0, Number(value) || 0);
+}
+
+function cardMatchesQuery(card = {}, query = "card") {
+  const typeLine = String(card.typeLine || "");
+  if (query === "card") return true;
+  if (query === "basic-land") return (/\bBasic\b/i.test(typeLine) && /\bLand\b/i.test(typeLine)) || /^(Plains|Island|Swamp|Mountain|Forest|Wastes)$/i.test(card.name || "");
+  if (query === "land") return /\bLand\b/i.test(typeLine);
+  if (query === "creature") return /\bCreature\b/i.test(typeLine);
+  if (query === "instant-sorcery") return /\bInstant\b|\bSorcery\b/i.test(typeLine);
+  if (query === "artifact-enchantment") return /\bArtifact\b|\bEnchantment\b/i.test(typeLine);
+  return new RegExp(`\\b${query}\\b`, "i").test(typeLine);
+}
+
+function appendEffectResult(session, sourceName, summary, rulesConfidence = RULES_CONFIDENCE.AUTO_RESOLVED) {
+  return {
+    ...session,
+    effectLog: [createLog(sourceName, summary, rulesConfidence), ...(session.effectLog || [])].slice(0, 120),
+    rulesConfidenceLog: [createRulesConfidenceEntry(sourceName, summary, rulesConfidence), ...(session.rulesConfidenceLog || [])].slice(0, 160),
+  };
+}
+
+function queueSpellRecovery(session, source = {}, message = "Spell resolution needs attention.", severity = "warning") {
+  return {
+    ...session,
+    recoveryLog: [
+      {
+        id: createId("recovery"),
+        source: source.name || "Spell Stack",
+        message,
+        technicalMessage: message,
+        severity,
+        timestamp: Date.now(),
+        suggestedAction: "Open Stack/Priority or Manual Choice Required.",
+        action: "open-manual-choice",
+        dismissed: false,
+      },
+      ...(session.recoveryLog || []),
+    ].slice(0, 80),
+  };
+}
+
+function createRulesConfidenceEntry(sourceName, summary, rulesConfidence) {
+  return {
+    id: createId("confidence"),
+    at: Date.now(),
+    sourceName,
+    summary,
+    status: rulesConfidence === RULES_CONFIDENCE.AUTO_RESOLVED ? "resolved" : "pending",
+    rulesConfidence,
+  };
+}
+
 function createTokens(session, effect, source, event) {
-  const controller = effect.controller || source.controller || "player";
+  const targetController =
+    effect.controller === "target-controller"
+      ? getAllPermanents(session).find((permanent) => (event.targetIds || session.selectedIds || []).includes(permanent.id))?.controller
+      : "";
+  const controller = targetController || effect.controller || source.controller || "player";
   const repeats = Math.max(1, normalizeCount(event.payload?.instances ?? event.instances, 1));
   const replacementCount = getReplacementEffects(session, controller, "double-tokens").length;
   const multiplier = getTokenMultiplierForController(session, controller);
@@ -350,6 +1053,9 @@ function queueUnsupportedEffect(session, effect = {}, source = {}, event = {}) {
     createdAt: Date.now(),
     triggerId: event.payload?.triggerId || event.triggerId || "",
     eventType: event.eventType || event.type || "",
+    stackObjectId: event.stackObjectId || "",
+    oracleText: source.oracleText || "",
+    controller: source.controller || "player",
   };
   return {
     ...session,
@@ -458,33 +1164,135 @@ function doubleCounters(session, effect, source, event = {}) {
 
 function applyLifeEffect(session, effect, source, event = {}) {
   const repeats = Math.max(1, normalizeCount(event.payload?.instances ?? event.instances, 1));
-  const amount = Number(effect.amount) || 0;
+  const amount = resolveVariableNumber(effect.amount, effect.amountFrom, event);
   const total = amount * repeats;
-  const next = {
-    ...session,
-    life: Math.max(0, session.life + total),
-    effectLog: [createLog(source.name, `Life changed by ${total}.`), ...session.effectLog].slice(0, 60),
-  };
+  const controller = source.controller || "player";
+  let next = session;
+  if (controller === "player" || controller === "local-player") {
+    next = { ...next, life: Math.max(0, next.life + total) };
+  } else if (next.simulation?.players?.[controller]) {
+    next = updateSimulationPlayerLife(next, controller, total);
+  }
+  next = { ...next, effectLog: [createLog(source.name, `Life changed by ${total}.`), ...(next.effectLog || [])].slice(0, 60) };
   return appendDebugTrace(next, "life-applied", { source: source.name, amount: total, repeats });
+}
+
+function applyLifeLossEffect(session, effect, source, event = {}) {
+  const amount = resolveVariableNumber(effect.amount, effect.amountFrom, event);
+  let next = session;
+  const targets = resolvePlayerTargets(session, source.controller, effect.target);
+  targets.forEach((playerId) => {
+    if (playerId === "local-player" || playerId === "player") {
+      next = { ...next, life: Math.max(0, Number(next.life || 0) - amount) };
+    } else if (next.simulation?.players?.[playerId]) {
+      next = updateSimulationPlayerLife(next, playerId, -amount);
+    }
+  });
+  return appendEffectResult(next, source.name, `${targets.length} player(s) lost ${amount} life.`);
 }
 
 function applyDamageEffect(session, effect, source, event = {}) {
   const repeats = Math.max(1, normalizeCount(event.payload?.instances ?? event.instances, 1));
-  const amount = Math.max(0, Number(effect.amount) || 0);
+  const amount = resolveVariableNumber(effect.amount, effect.amountFrom, event);
   const total = amount * repeats;
-  const current = normalizeCount(session.commander?.damageByOpponent?.opponent, 0);
-  const next = {
-    ...session,
-    commander: {
-      ...session.commander,
-      damageByOpponent: {
-        ...(session.commander?.damageByOpponent || {}),
-        opponent: current + total,
+  let next = session;
+  const selectedPlayerIds =
+    effect.target === "selected"
+      ? (event.targetIds || []).filter(
+          (id) => id === "local-player" || id === "player" || id === "opponent" || Boolean(session.simulation?.players?.[id])
+        )
+      : [];
+  if (selectedPlayerIds.length) {
+    selectedPlayerIds.forEach((playerId) => {
+      if (playerId === "local-player" || playerId === "player") {
+        next = { ...next, life: Math.max(0, Number(next.life || 0) - total) };
+      } else if (next.simulation?.players?.[playerId]) {
+        next = updateSimulationPlayerLife(next, playerId, -total);
+      } else {
+        const current = normalizeCount(next.commander?.damageByOpponent?.opponent, 0);
+        next = {
+          ...next,
+          commander: {
+            ...next.commander,
+            damageByOpponent: { ...(next.commander?.damageByOpponent || {}), opponent: current + total },
+          },
+        };
+      }
+    });
+    next = appendEffectResult(next, source.name, `Dealt ${total} damage to ${selectedPlayerIds.length} player(s).`);
+  }
+  const selectedPermanentIds = (event.targetIds || []).filter((id) => !selectedPlayerIds.includes(id));
+  if (
+    String(effect.target || "").includes("creature") ||
+    (effect.target === "selected" && selectedPermanentIds.length) ||
+    effect.target === "all-creatures"
+  ) {
+    const targets = getTargets(
+      next,
+      effect.target === "selected-creature" ? "selected-creature" : effect.target,
+      source,
+      effect.target === "selected" ? { ...event, targetIds: selectedPermanentIds } : event
+    );
+    const ids = new Set(targets.map((target) => target.id));
+    const lethalIds = [];
+    const mark = (permanent) => {
+      if (!ids.has(permanent.id)) return permanent;
+      const markedDamage = Number(permanent.markedDamage || 0) + total;
+      if (permanent.isCreature && markedDamage >= Number(permanent.currentToughness || permanent.baseToughness || 0)) {
+        lethalIds.push(permanent.id);
+      }
+      return createPermanent({ ...permanent, markedDamage });
+    };
+    next = {
+      ...next,
+      battlefield: {
+        ...next.battlefield,
+        player: (next.battlefield.player || []).map(mark),
+        opponent: (next.battlefield.opponent || []).map(mark),
       },
-    },
-    effectLog: [createLog(source.name, `Dealt ${total} damage to opponent.`), ...session.effectLog].slice(0, 60),
-  };
+    };
+    if (lethalIds.length) {
+      next = applyRemovalEffect(next, { action: "remove-permanent", mode: "destroy", target: "selected", manual: false }, source, { ...event, targetIds: lethalIds });
+    }
+    next = appendEffectResult(next, source.name, `Dealt ${total} damage to ${targets.length} creature(s).`);
+  } else if (!selectedPlayerIds.length) {
+    const playerTargets = resolvePlayerTargets(next, source.controller, effect.target === "opponent" ? "target-opponent" : effect.target);
+    playerTargets.forEach((playerId) => {
+      if (playerId === "local-player" || playerId === "player") {
+        next = { ...next, life: Math.max(0, Number(next.life || 0) - total) };
+      } else if (next.simulation?.players?.[playerId]) {
+        next = updateSimulationPlayerLife(next, playerId, -total);
+      } else {
+        const current = normalizeCount(next.commander?.damageByOpponent?.opponent, 0);
+        next = {
+          ...next,
+          commander: {
+            ...next.commander,
+            damageByOpponent: { ...(next.commander?.damageByOpponent || {}), opponent: current + total },
+          },
+        };
+      }
+    });
+    next = appendEffectResult(next, source.name, `Dealt ${total} damage to ${playerTargets.length} player target(s).`);
+  }
   return appendDebugTrace(next, "damage-applied", { source: source.name, amount: total, target: effect.target, repeats });
+}
+
+function updateSimulationPlayerLife(session, playerId, delta) {
+  const player = session.simulation?.players?.[playerId];
+  if (!player) return session;
+  const life = Math.max(0, Number(player.life || 0) + Number(delta || 0));
+  const players = {
+    ...session.simulation.players,
+    [playerId]: { ...player, life, eliminated: life <= 0 || Boolean(player.eliminated) },
+  };
+  const opponents = { ...(session.simulation.opponents || {}) };
+  if (opponents[playerId]) opponents[playerId] = { ...opponents[playerId], life, updatedAt: Date.now() };
+  return {
+    ...session,
+    life: playerId === "local-player" ? life : session.life,
+    simulation: { ...session.simulation, players, opponents, updatedAt: Date.now() },
+  };
 }
 
 function resolveTokenCount(session, effect, source) {
@@ -600,7 +1408,7 @@ function applyTemporaryBuff(session, effect, source) {
     });
   };
 
-  return {
+  const modified = {
     ...session,
     battlefield: {
       ...session.battlefield,
@@ -609,6 +1417,13 @@ function applyTemporaryBuff(session, effect, source) {
     },
     effectLog: [createLog(source.name, `Applied ${effect.power}/${effect.toughness} temporary modifier.`), ...session.effectLog].slice(0, 60),
   };
+  const recalculated = recalculateContinuousEffects(modified);
+  const zeroToughnessIds = getAllPermanents(recalculated)
+    .filter((permanent) => permanent.isCreature && Number(permanent.currentToughness || 0) <= 0)
+    .map((permanent) => permanent.id);
+  return zeroToughnessIds.length
+    ? applyRemovalEffect(recalculated, { action: "remove-permanent", mode: "state-based", target: "selected", manual: false }, source, { targetIds: zeroToughnessIds })
+    : recalculated;
 }
 
 function resetComputedStats(permanent) {
