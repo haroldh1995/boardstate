@@ -284,6 +284,7 @@ export function mountApp(root, store) {
     document.body.dataset.compositionPreference = profile.settings?.appearance?.compositionMode || "auto";
     document.body.dataset.page = activePage;
     document.body.dataset.uiLayer = uiLayerState.current;
+    document.body.dataset.simulationActive = profile.activeSession?.simulation?.enabled ? "true" : "false";
     root.innerHTML = layout(profile, activePage, searchResults, searchMessage, {
       optionsOpen,
       statsOpen,
@@ -3345,9 +3346,18 @@ function renderSimulationSetupModal(selectedOpponents = [], selectedSpeed = "nor
         </div>
         <article class="option-card">
           <h3>Choose Opponents</h3>
-          <label class="toggle-row"><span>Alpha · ${escapeHtml(alphaDeck?.deckName || "Deck")}</span><input type="checkbox" data-sim-opponent="alpha" ${selected.has("alpha") ? "checked" : ""} /></label>
-          <label class="toggle-row"><span>Beta · ${escapeHtml(betaDeck?.deckName || "Deck")}</span><input type="checkbox" data-sim-opponent="beta" ${selected.has("beta") ? "checked" : ""} /></label>
-          <label class="toggle-row"><span>Omega · ${escapeHtml(omegaDeck?.deckName || "Deck")}</span><input type="checkbox" data-sim-opponent="omega" ${selected.has("omega") ? "checked" : ""} /></label>
+          <label class="toggle-row npc-identity-card npc-identity-card--alpha">
+            <span><b>Alpha · ${escapeHtml(alphaDeck?.deckName || "Deck")}</b><small>Landfall / Graveyard / Jund Value</small></span>
+            <input type="checkbox" data-sim-opponent="alpha" ${selected.has("alpha") ? "checked" : ""} />
+          </label>
+          <label class="toggle-row npc-identity-card npc-identity-card--beta">
+            <span><b>Beta · ${escapeHtml(betaDeck?.deckName || "Deck")}</b><small>Spellslinger / Copy / Storm Value</small></span>
+            <input type="checkbox" data-sim-opponent="beta" ${selected.has("beta") ? "checked" : ""} />
+          </label>
+          <label class="toggle-row npc-identity-card npc-identity-card--omega">
+            <span><b>Omega · ${escapeHtml(omegaDeck?.deckName || "Deck")}</b><small>Colorless Eldrazi / Ramp / Big Threats</small></span>
+            <input type="checkbox" data-sim-opponent="omega" ${selected.has("omega") ? "checked" : ""} />
+          </label>
           <p class="eyebrow">Deck status: ${escapeHtml(alphaDeck?.status || "unknown")} / ${escapeHtml(betaDeck?.status || "unknown")} / ${escapeHtml(omegaDeck?.status || "unknown")}</p>
         </article>
         <article class="option-card">
@@ -3442,6 +3452,18 @@ function renderSimulationStatsOverlay(profile) {
   const topThreats = summarizeRecordEntries(stats.mostThreateningCards, 5);
   const topTargets = summarizeRecordEntries(stats.mostTargetedCards, 5);
   const topValue = summarizeRecordEntries(stats.mostValuableCards, 5);
+  const podium = [
+    { id: "user", label: profile.profileName || "You", wins: Number(stats.user?.wins || 0), losses: Number(stats.user?.losses || 0) },
+    { id: "alpha", label: "Alpha", wins: Number(stats.alpha?.wins || 0), losses: Number(stats.alpha?.losses || 0) },
+    { id: "beta", label: "Beta", wins: Number(stats.beta?.wins || 0), losses: Number(stats.beta?.losses || 0) },
+    { id: "omega", label: "Omega", wins: Number(stats.omega?.wins || 0), losses: Number(stats.omega?.losses || 0) },
+  ]
+    .sort((left, right) => right.wins - left.wins || left.losses - right.losses || left.label.localeCompare(right.label))
+    .map((entry, index, entries) => ({
+      ...entry,
+      place: entries.findIndex((candidate) => candidate.wins === entry.wins) + 1,
+    }))
+    .slice(0, 3);
   return `
     <section class="overlay-backdrop">
       <div class="floating-overlay glass simulation-stats-overlay">
@@ -3452,6 +3474,25 @@ function renderSimulationStatsOverlay(profile) {
           </div>
           <button data-close-simulation-stats>Close</button>
         </div>
+        <article class="simulation-podium" aria-label="Simulation win leaders">
+          <div class="simulation-podium__header">
+            <p class="eyebrow">Current Simulation Leaders</p>
+            <strong>${latest ? `Latest winner · ${escapeHtml(latest.winnerName || latest.winnerId || "Unknown")}` : "Complete a Dry Run to record a winner"}</strong>
+          </div>
+          <div class="simulation-podium__grid">
+            ${podium
+              .map(
+                (entry) => `
+              <div class="simulation-podium__place simulation-podium__place--${entry.place} npc-${entry.id}">
+                <span>${entry.place === 1 ? "&#9819;" : entry.place === 2 ? "&#9671;" : "&#9670;"} ${entry.place === 1 ? "1st" : entry.place === 2 ? "2nd" : "3rd"}</span>
+                <strong>${escapeHtml(entry.label)}</strong>
+                <small>${entry.wins}-${entry.losses} W-L</small>
+              </div>
+            `
+              )
+              .join("")}
+          </div>
+        </article>
         <div class="stats-grid">
           <article class="stat-card"><span>Games played</span><strong>${escapeHtml(Number(stats.gamesPlayed || 0))}</strong></article>
           <article class="stat-card"><span>Average game length (turns)</span><strong>${escapeHtml(Number(stats.averageTurnCount || 0).toFixed(2))}</strong></article>
@@ -4090,9 +4131,12 @@ function renderPermanentStateBadges(permanent = {}, damageMarked = 0, lethalDama
   return `
     <div class="permanent-state-badges" aria-label="Permanent state">
       ${permanent.isCommander ? `<span class="state-badge state-badge--commander" title="Commander">&#9812; Commander${commanderTax ? ` · Tax ${commanderTax}` : ""}</span>` : ""}
+      ${permanent.tapped ? `<span class="state-badge state-badge--tapped">&#8635; Tapped</span>` : ""}
       ${permanent.attacking ? `<span class="state-badge state-badge--attacking">&#9876; Attacking</span>` : ""}
       ${permanent.blocking ? `<span class="state-badge state-badge--blocking">&#128737; Blocking</span>` : ""}
+      ${permanent.targeted || permanent.isTargeted ? `<span class="state-badge state-badge--targeted">&#8982; Targeted</span>` : ""}
       ${permanent.summoningSick ? `<span class="state-badge state-badge--sick">&#9203; Summoning sick</span>` : ""}
+      ${permanent.locked || permanent.disabled ? `<span class="state-badge state-badge--locked">&#128274; Locked</span>` : ""}
       ${damageMarked ? `<span class="state-badge state-badge--damage ${lethalDamage ? "is-lethal" : ""}">&#9585; ${damageMarked} damage</span>` : ""}
       ${counters.slice(0, 3).map(([type, value]) => `<span class="state-badge state-badge--counter" title="${escapeAttribute(type)}">${escapeHtml(counterGlyph(type))} ${escapeHtml(type)} ${value}</span>`).join("")}
     </div>
@@ -4114,7 +4158,9 @@ function renderSelectedPermanentActions(permanent = {}) {
     <div class="card-action-ring" aria-label="Selected card actions">
       <button data-tap="${escapeAttribute(permanent.id)}" title="${permanent.tapped ? "Untap" : "Tap"}">${permanent.tapped ? "Untap" : "Tap"}</button>
       <button data-open-tool-panel="counters" title="Counters">Counters</button>
-      <button data-open-tool-panel="permanents" title="Move or remove">Move</button>
+      ${permanent.isCreature ? `<button data-declare-attackers title="Declare selected creature as attacker">Attack</button>` : `<button disabled title="Only creatures can attack">Attack</button>`}
+      <button data-open-tool-panel="permanents" title="Move, exile, sacrifice, or remove">Move</button>
+      <button class="danger" data-selected-action="destroy" title="Destroy selected permanent">Remove</button>
       <button data-open-tool-panel="inspect" title="Details">Details</button>
     </div>
   `;

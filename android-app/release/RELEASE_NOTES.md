@@ -2,8 +2,8 @@
 
 ## App
 - Name: BoardState
-- Version: 1.10.7
-- Version code: 21
+- Version: 1.10.8
+- Version code: 22
 - Package: `com.boardstate.app`
 
 ## Summary
@@ -40,6 +40,11 @@
 - Adds typed battlefield zone cues, themed empty states, standardized rules-confidence chips, improved toasts, phase-advance feedback, and pending Resolve emphasis.
 - Fixes a mobile command-console overflow found during final visual QA so all six dashboard actions and Next Phase stay inside the viewport.
 - Fixes selected-card action buttons being swallowed by advanced permanent gesture handling.
+- Completes the selected-card action HUD with existing Tap/Untap, Counters, Attack, Move, Remove, and Details flows, including clear disabled attack states for noncreatures.
+- Adds explicit Tapped, Targeted, and Locked battlefield state badges so critical card state remains readable over card art.
+- Gives Alpha, Beta, and Omega distinct strategy identity cards in Dry Run setup.
+- Adds an honest simulation-results podium using recorded Dry Run win/loss data without introducing a separate tournament rules system.
+- Stops Dry Run simulation ticks from replaying page and panel entrance animations, eliminating the recurring UI blink while preserving normal transitions outside simulation.
 
 ## Included behavior
 - WebView back navigation
