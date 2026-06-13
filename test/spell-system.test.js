@@ -31,6 +31,69 @@ test("instant cast uses the stack, resolves damage, and moves to graveyard", () 
   assert.ok(session.zones.graveyard.some((card) => card.name === "Lightning Bolt"));
 });
 
+test("permanent spell uses the stack and resolves onto the battlefield", () => {
+  let session = castSpellToStack(createGameSession(), {
+    name: "Llanowar Elves",
+    typeLine: "Creature - Elf Druid",
+    oracleText: "{T}: Add {G}.",
+    power: 1,
+    toughness: 1,
+  });
+
+  assert.equal(session.stack.length, 1);
+  assert.equal(session.stack[0].objectType, "permanent-spell");
+  assert.equal(session.battlefield.player.length, 0);
+
+  session = resolveTopOfStack(session);
+  assert.equal(session.stack.length, 0);
+  assert.ok(session.battlefield.player.some((card) => card.name === "Llanowar Elves"));
+  assert.ok(!session.zones.graveyard.some((card) => card.name === "Llanowar Elves"));
+});
+
+test("countered permanent spell moves to graveyard instead of battlefield", () => {
+  let session = castSpellToStack(createGameSession(), {
+    name: "Bear Cub",
+    typeLine: "Creature - Bear",
+    power: 2,
+    toughness: 2,
+  });
+  const targetId = session.stack[0].id;
+  session = castSpellToStack(session, {
+    name: "Counterspell",
+    typeLine: "Instant",
+    oracleText: "Counter target spell.",
+  }, { targetStackId: targetId });
+  session = resolveTopOfStack(session);
+
+  assert.equal(session.stack.length, 0);
+  assert.ok(!session.battlefield.player.some((card) => card.name === "Bear Cub"));
+  assert.ok(session.zones.graveyard.some((card) => card.name === "Bear Cub"));
+});
+
+test("planeswalker spell enters with printed loyalty", () => {
+  let session = castSpellToStack(createGameSession(), {
+    name: "Test Walker",
+    typeLine: "Legendary Planeswalker - Tester",
+    loyalty: 4,
+    oracleText: "+1: Draw a card.",
+  });
+  session = resolveTopOfStack(session);
+
+  const walker = session.battlefield.player.find((card) => card.name === "Test Walker");
+  assert.equal(walker.counters.Loyalty, 4);
+  assert.equal(walker.startingLoyalty, 4);
+});
+
+test("lands are not placed on the spell stack", () => {
+  const session = castSpellToStack(createGameSession(), {
+    name: "Forest",
+    typeLine: "Basic Land - Forest",
+  });
+
+  assert.equal(session.stack.length, 0);
+  assert.ok(session.recoveryLog.some((entry) => /played, not cast/i.test(entry.message)));
+});
+
 test("targeted instant without a selected target waits for manual choice", () => {
   const session = castSpellToStack(createGameSession(), {
     name: "Lightning Bolt",

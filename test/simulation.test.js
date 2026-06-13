@@ -90,6 +90,15 @@ test("simulation pause and stop update runtime status safely", () => {
   assert.equal(profile.activeSession.gameTracking.active, false);
 });
 
+test("waiting local-player simulation tick is a true no-op", () => {
+  let profile = dispatch(createDefaultProfile(), { type: "START_SIMULATION", selectedOpponents: ["alpha"], speed: "normal" });
+  profile = dispatch(profile, { type: "SIMULATION_TICK", internalOnly: true, remote: true });
+  assert.equal(profile.activeSession.simulation.waitingForUser, true);
+
+  const next = dispatch(profile, { type: "SIMULATION_TICK", internalOnly: true, remote: true });
+  assert.equal(next, profile);
+});
+
 test("full triple-opponent simulation tick produces alpha beta omega turn progression", () => {
   let profile = createDefaultProfile();
   profile = dispatch(profile, { type: "START_SIMULATION", selectedOpponents: ["alpha", "beta", "omega"], speed: "normal" });

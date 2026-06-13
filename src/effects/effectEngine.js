@@ -188,13 +188,14 @@ export function castSpellToStack(session, spell, options = {}) {
     controller: options.controller || spell.controller || "player",
     zone: options.sourceZone || spell.zone || "hand",
   });
-  if (!source.isInstant && !source.isSorcery) {
-    return queueSpellRecovery(session, source, "Only instant and sorcery cards use the non-permanent spell stack pipeline.");
+  if (source.isLand) {
+    return queueSpellRecovery(session, source, "Lands are played, not cast. Use Put onto Battlefield or a land-play action.");
   }
+  const isPermanentSpell = !source.isInstant && !source.isSorcery;
 
   const stackObject = {
     id: createId("spell"),
-    objectType: options.isCopy ? "copy-of-spell" : "spell",
+    objectType: options.isCopy ? (isPermanentSpell ? "copy-of-permanent-spell" : "copy-of-spell") : isPermanentSpell ? "permanent-spell" : "spell",
     card: source,
     name: source.name,
     typeLine: source.typeLine,
@@ -210,6 +211,7 @@ export function castSpellToStack(session, spell, options = {}) {
     castPermission: options.castPermission || "",
     isCopy: Boolean(options.isCopy),
     copiedFromStackId: options.copiedFromStackId || "",
+    isPermanentSpell,
     status: "pending",
     rulesConfidence: RULES_CONFIDENCE.AUTO_RESOLVED,
     createdAt: Date.now(),
@@ -272,6 +274,9 @@ export function resolveTopOfStack(session, options = {}) {
   }
 
   let nextSession = session;
+  if (spell.isPermanentSpell) {
+    return finalizePermanentSpellResolution(nextSession, spell);
+  }
   if (!spell.effectsApplied) {
     nextSession = resolveSpell(nextSession, spell.card, {
       stackObjectId: spell.id,
@@ -481,6 +486,9 @@ function collectSpellCastingChoices(spell, session = {}) {
   if (/\bchoose (?:one|two|one or both|one or more|up to one|up to two)\b/.test(text) && !spell.selectedModes.length) {
     choices.push({ kind: "modes", summary: "Choose the spell mode(s)." });
   }
+  if (/\bAura\b/i.test(spell.typeLine || "") && !spell.targetIds.length) {
+    choices.push({ kind: "targets", summary: "Choose what this Aura will enchant." });
+  }
   const requiresStackTarget = (spell.card?.parsedEffects || []).some((effect) => effect.target === "target-stack-object");
   const requiresVisibleTarget = (spell.card?.parsedEffects || []).some(
     (effect) =>
@@ -600,6 +608,57 @@ function finalizeSpellResolution(session, spell) {
       ...(moved.effectLog || []),
     ].slice(0, 120),
   };
+}
+
+function finalizePermanentSpellResolution(session, spell) {
+  const controller = spell.controller || "player";
+  const side = controller === "player" || controller === "local-player" ? "player" : "opponent";
+  const permanent = hydratePermanentEffects({
+    ...(spell.card || {}),
+    id: createId("perm"),
+    controller,
+    owner: spell.owner || controller,
+    zone: "battlefield",
+    isCopy: Boolean(spell.isCopy),
+    isToken: Boolean(spell.isCopy),
+    attachedToId: /\bAura\b/i.test(spell.typeLine || "") ? spell.targetIds?.[0] || "" : spell.card?.attachedToId || "",
+  });
+  const entered = emitPermanentEntryEvents({
+    ...session,
+    battlefield: {
+      ...session.battlefield,
+      [side]: stackPermanent(session.battlefield?.[side] || [], permanent),
+    },
+  }, permanent, {
+    instances: permanent.quantity || 1,
+    cause: spell.isCopy ? "permanent-spell-copy-resolved" : "permanent-spell-resolved",
+  });
+  const remainingStack = (entered.stack || []).filter((entry) => entry.id !== spell.id);
+  return recalculateContinuousEffects({
+    ...entered,
+    stack: remainingStack,
+    priority: {
+      activePlayerId: controller,
+      passedPlayerIds: [],
+      waiting: Boolean(remainingStack.length),
+    },
+    rulesConfidenceLog: [
+      createRulesConfidenceEntry(
+        spell.name,
+        spell.isCopy ? "Permanent spell copy resolved as a token permanent." : "Permanent spell resolved onto the battlefield.",
+        RULES_CONFIDENCE.AUTO_RESOLVED
+      ),
+      ...(entered.rulesConfidenceLog || []),
+    ].slice(0, 160),
+    effectLog: [
+      createLog(
+        spell.name,
+        spell.isCopy ? "Permanent spell copy resolved as a token permanent." : "Permanent spell resolved onto the battlefield.",
+        RULES_CONFIDENCE.AUTO_RESOLVED
+      ),
+      ...(entered.effectLog || []),
+    ].slice(0, 120),
+  });
 }
 
 function determineSpellDestination(card = {}, options = {}) {

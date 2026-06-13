@@ -187,6 +187,7 @@ export function mountApp(root, store) {
   let lastRenderedSearchQuery = searchQuery;
   let castActionPopup = null;
   let backgroundScrollLockY = null;
+  let lastSimulationVisualSignature = "";
 
   normalizeCurrentHash();
   window.addEventListener("hashchange", handleHashChange);
@@ -195,7 +196,10 @@ export function mountApp(root, store) {
   store.subscribe(render);
   render(store.getState());
 
-  function render(profile) {
+  function render(profile, action = null) {
+    if (shouldDeferSimulationVisualUpdate(profile, action)) {
+      return;
+    }
     const searchFocusSnapshot = captureSearchFocusState();
     const preserveSearchResultsScroll = searchQuery === lastRenderedSearchQuery;
     const searchResultsScrollTop = preserveSearchResultsScroll ? captureSearchResultsScrollTop(root) : 0;
@@ -343,6 +347,31 @@ export function mountApp(root, store) {
     restoreSearchInputFocus(root, searchFocusSnapshot, searchResultsScrollTop);
     syncBackgroundScrollLock();
     lastRenderedSearchQuery = searchQuery;
+    lastSimulationVisualSignature = getSimulationVisualSignature(profile);
+  }
+
+  function shouldDeferSimulationVisualUpdate(profile, action = null) {
+    const actionType = action?.actionType || action?.type || "";
+    if (actionType !== "SIMULATION_TICK" || !profile.activeSession?.simulation?.enabled) {
+      return false;
+    }
+    const nextSignature = getSimulationVisualSignature(profile);
+    return Boolean(lastSimulationVisualSignature && nextSignature === lastSimulationVisualSignature);
+  }
+
+  function getSimulationVisualSignature(profile) {
+    const simulation = profile.activeSession?.simulation;
+    if (!simulation?.enabled) {
+      return "";
+    }
+    return [
+      simulation.status || "",
+      simulation.currentPlayerId || "",
+      profile.activeSession?.turn || 0,
+      simulation.round || 0,
+      simulation.winnerId || "",
+      simulation.waitingForUser ? "waiting" : "acting",
+    ].join(":");
   }
 
   function bind(container, profile) {
@@ -906,6 +935,34 @@ export function mountApp(root, store) {
         counterType: form.get("counterType"),
         amount: form.get("quantity"),
       });
+    });
+    container.querySelectorAll("[data-loyalty-adjust]").forEach((button) => {
+      button.addEventListener("click", () => store.dispatch({
+        type: "ADJUST_LOYALTY",
+        id: button.dataset.loyaltyAdjust,
+        amount: Number(button.dataset.delta || 0),
+      }));
+    });
+    container.querySelector("[data-tap-cost-form]")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      store.dispatch({
+        type: "TAP_SELECTED_FOR_COST",
+        mechanic: form.get("mechanic"),
+        requiredValue: form.get("requiredValue"),
+      });
+      showNotice("Selected permanents were checked for the tap cost.");
+    });
+    container.querySelector("[data-manual-trigger-form]")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      store.dispatch({
+        type: "ADD_MANUAL_TRIGGER",
+        sourceName: form.get("sourceName"),
+        summary: form.get("summary"),
+        optional: form.get("optional") === "on",
+      });
+      showNotice("Manual trigger added to the queue.");
     });
     container.querySelectorAll("[data-counter-recent]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -3187,7 +3244,7 @@ export function mountApp(root, store) {
       targetIds: store.getState().activeSession?.selectedIds || [],
       xValue,
     });
-    showNotice(`${controller === "opponent" ? "Opponent " : ""}spell cast from ${formatLabel(sourceZone)} and placed on the stack.`);
+    showNotice(`${controller === "opponent" ? "Opponent " : ""}${/\bLand\b/i.test(card.typeLine || "") ? "land action routed for review" : "card cast and placed on the stack"} from ${formatLabel(sourceZone)}.`);
   }
 
   function captureSearchResultsScrollTop(container) {
@@ -4007,12 +4064,15 @@ function renderBattlefieldGroups(permanents, options = {}) {
     return empty(options.emptyText || "No permanents yet");
   }
 
-  const untapped = permanents.filter((permanent) => !permanent.tapped);
-  const tapped = permanents.filter((permanent) => permanent.tapped);
+  const zones = BATTLEFIELD_ZONE_ORDER
+    .map((zone) => ({
+      ...zone,
+      permanents: permanents.filter((permanent) => getBattlefieldZoneKey(permanent) === zone.key),
+    }))
+    .filter((zone) => zone.permanents.length);
   return `
     <div class="battlefield-groups">
-      ${renderPermanentGroup("Untapped", untapped, options)}
-      ${renderPermanentGroup("Tapped", tapped, { ...options, tappedGroup: true })}
+      ${zones.map((zone) => renderPermanentGroup(zone.label, zone.permanents, { ...options, zoneKey: zone.key })).join("")}
     </div>
   `;
 }
@@ -4022,11 +4082,16 @@ function renderPermanentGroup(label, permanents, options = {}) {
     return "";
   }
   const count = permanents.reduce((total, permanent) => total + (Number(permanent.quantity) || 1), 0);
+  const untappedCount = permanents.filter((permanent) => !permanent.tapped).reduce((total, permanent) => total + (Number(permanent.quantity) || 1), 0);
+  const tappedCount = Math.max(0, count - untappedCount);
   return `
-    <section class="battlefield-group ${options.tappedGroup ? "tapped-zone" : "untapped-zone"}">
+    <section class="battlefield-group battlefield-zone-${escapeAttribute(options.zoneKey || "other")}">
       <div class="battlefield-group-header">
         <span>${label}</span>
-        ${renderBattlefieldZoneSummary(permanents)}
+        <span class="battlefield-zone-summary" aria-label="Permanent states">
+          ${untappedCount ? `<i>Ready ${untappedCount}</i>` : ""}
+          ${tappedCount ? `<i>Tapped ${tappedCount}</i>` : ""}
+        </span>
         <strong>${count}</strong>
       </div>
       <div class="tile-grid ${options.readonly ? "readonly" : ""} ${options.compressionMode === "compact" ? "density-high" : ""}">
@@ -4036,33 +4101,28 @@ function renderPermanentGroup(label, permanents, options = {}) {
   `;
 }
 
-function renderBattlefieldZoneSummary(permanents = []) {
-  const zoneCounts = new Map();
-  permanents.forEach((permanent) => {
-    const label = permanent.isCommander
-      ? "Commanders"
-      : permanent.isToken
-        ? "Tokens"
-        : permanent.isCreature
-          ? "Creatures"
-          : permanent.isLand
-            ? "Lands"
-            : permanent.isPlaneswalker
-              ? "Planeswalkers"
-              : permanent.isArtifact
-                ? "Artifacts"
-                : permanent.isEnchantment
-                  ? "Enchantments"
-                  : /\bbattle\b/i.test(permanent.typeLine || "")
-                    ? "Battles"
-                    : "Other";
-    zoneCounts.set(label, Number(zoneCounts.get(label) || 0) + Number(permanent.quantity || 1));
-  });
-  return `
-    <span class="battlefield-zone-summary" aria-label="Permanent types">
-      ${[...zoneCounts.entries()].map(([label, count]) => `<i>${escapeHtml(label)} ${count}</i>`).join("")}
-    </span>
-  `;
+const BATTLEFIELD_ZONE_ORDER = [
+  { key: "commanders", label: "Commanders" },
+  { key: "creatures", label: "Creatures" },
+  { key: "tokens", label: "Tokens" },
+  { key: "artifacts", label: "Artifacts" },
+  { key: "enchantments", label: "Enchantments" },
+  { key: "planeswalkers", label: "Planeswalkers" },
+  { key: "battles", label: "Battles" },
+  { key: "lands", label: "Lands" },
+  { key: "other", label: "Other Permanents" },
+];
+
+function getBattlefieldZoneKey(permanent = {}) {
+  if (permanent.isCommander) return "commanders";
+  if (permanent.isToken) return "tokens";
+  if (permanent.isCreature) return "creatures";
+  if (permanent.isPlaneswalker) return "planeswalkers";
+  if (/\bBattle\b/i.test(permanent.typeLine || "")) return "battles";
+  if (permanent.isArtifact) return "artifacts";
+  if (permanent.isEnchantment) return "enchantments";
+  if (permanent.isLand) return "lands";
+  return "other";
 }
 
 function renderPermanent(permanent, options = {}) {
@@ -4117,7 +4177,9 @@ function renderPermanent(permanent, options = {}) {
         ${stackExpanded ? renderStackMemberDetails(stackMembers, detailMode, permanent) : ""}
         ${options.readonly ? "" : `<div class="row mini">
           <button data-tap="${permanent.id}">${permanent.tapped ? "Untap" : "Tap"}</button>
-          <button data-counter="${permanent.id}">+1/+1</button>
+          ${permanent.isPlaneswalker
+            ? `<button data-loyalty-adjust="${permanent.id}" data-delta="-1">Loyalty -1</button><button data-loyalty-adjust="${permanent.id}" data-delta="1">Loyalty +1</button>`
+            : `<button data-counter="${permanent.id}">+1/+1</button>`}
         </div>`}
         ${selected && !options.readonly ? renderSelectedPermanentActions(permanent) : ""}
       </div>
@@ -4434,6 +4496,13 @@ function renderTriggerQueuePanel(profile) {
           )
           .join("") || "<p>No queued triggers.</p>"}
       </div>
+      <form class="stacked-form manual-trigger-form" data-manual-trigger-form>
+        <p class="eyebrow">Add Manual Trigger</p>
+        <label>Source<input name="sourceName" placeholder="Selected permanent or source name" /></label>
+        <label>Trigger summary<textarea name="summary" rows="2" required placeholder="Describe the trigger and choices that still need resolution."></textarea></label>
+        <label class="toggle-row"><span>Optional trigger</span><input name="optional" type="checkbox" /></label>
+        <button class="wide">Queue Manual Trigger</button>
+      </form>
       <button class="wide resolve-button" data-trigger-resolve-all>Resolve All Possible</button>
     </section>
   `;
@@ -5083,6 +5152,21 @@ function renderPermanentControls(profile) {
         <button data-setting-button="battlefield.expandedAll" data-value="${expanded ? "false" : "true"}">${expanded ? "Collapse all permanents" : "Expand all permanents"}</button>
         <button data-selected-action="clear">Clear selected permanents</button>
       </div>
+      <form class="stacked-form tap-cost-card" data-tap-cost-form>
+        <p class="eyebrow">Tap Cost Helper</p>
+        <label>Mechanic
+          <select name="mechanic">
+            <option value="convoke">Convoke</option>
+            <option value="improvise">Improvise</option>
+            <option value="crew">Crew</option>
+            <option value="saddle">Saddle</option>
+            <option value="station">Station</option>
+          </select>
+        </label>
+        <label>Required contribution<input name="requiredValue" type="number" min="0" inputmode="numeric" value="1" /></label>
+        <button class="wide">Tap Selected for Cost</button>
+        <small>BoardState validates selected eligible permanents, taps them, then keeps final payment/effect confirmation in Manual Choice Required.</small>
+      </form>
       ${
         selectedStacks.length
           ? `

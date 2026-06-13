@@ -1140,6 +1140,30 @@ body[data-composition="mobile"] .mobile-swipe-controls small {
   margin-top: 0;
 }
 
+@media (min-width: 1280px) {
+  body[data-composition="widescreen"] .battlefield-groups {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(18rem, 28rem);
+    grid-template-columns: none;
+    align-items: start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    padding: 0.2rem 0.2rem 0.7rem;
+    scrollbar-color: rgba(236, 200, 122, 0.7) rgba(5, 8, 20, 0.45);
+  }
+
+  body[data-composition="widescreen"] .battlefield-group {
+    align-content: start;
+    min-height: 100%;
+  }
+
+  body[data-composition="widescreen"] .battlefield-group .tile-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+  }
+}
+
 .permanent {
   position: relative;
   isolation: isolate;
@@ -5048,6 +5072,13 @@ body[data-simulation-active="true"] .radial-menu,
 body[data-simulation-active="true"] .cast-action-popup,
 body[data-simulation-active="true"] .recovery-toast {
   animation: none !important;
+}
+
+body[data-simulation-active="true"] .permanent,
+body[data-simulation-active="true"] .permanent-art-layer,
+body[data-simulation-active="true"] .phase-tracker button,
+body[data-simulation-active="true"] .battlefield-mobile-dock button {
+  transition: none !important;
 }
 
 .battlefield-group {

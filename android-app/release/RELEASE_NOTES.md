@@ -2,8 +2,8 @@
 
 ## App
 - Name: BoardState
-- Version: 1.10.8
-- Version code: 22
+- Version: 1.10.9
+- Version code: 23
 - Package: `com.boardstate.app`
 
 ## Summary
@@ -45,6 +45,11 @@
 - Gives Alpha, Beta, and Omega distinct strategy identity cards in Dry Run setup.
 - Adds an honest simulation-results podium using recorded Dry Run win/loss data without introducing a separate tournament rules system.
 - Stops Dry Run simulation ticks from replaying page and panel entrance animations, eliminating the recurring UI blink while preserving normal transitions outside simulation.
+- Coalesces hidden NPC phase updates into a single visual refresh per NPC turn and emits no repaint while Dry Run waits for the local player.
+- Adds permanent spells to the stack/casting pipeline, including countering, Aura target review, battlefield resolution, and safe land-play routing.
+- Adds planeswalker starting loyalty, loyalty controls, and zero-loyalty state-based removal.
+- Adds Manual Trigger entry and safe Convoke, Improvise, Crew, Saddle, and Station tap-cost helpers that preserve Manual Choice confirmation.
+- Organizes battlefield permanents by card type and adds a horizontal widescreen battlefield lane layout without changing mobile/tablet composition.
 
 ## Included behavior
 - WebView back navigation

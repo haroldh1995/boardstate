@@ -168,6 +168,61 @@ test("adding a counter to one stacked permanent splits modified duplicates", () 
   assert.equal(modified.currentToughness, 2);
 });
 
+test("planeswalker loyalty controls apply state-based zero-loyalty removal", () => {
+  const walker = createPermanent({
+    id: "walker",
+    name: "Test Walker",
+    typeLine: "Legendary Planeswalker - Tester",
+    loyalty: 2,
+  });
+  let profile = {
+    ...createDefaultProfile(),
+    activeSession: {
+      ...createGameSession(),
+      battlefield: { ...createGameSession().battlefield, player: [walker] },
+    },
+  };
+
+  profile = reduceProfile(profile, { type: "ADJUST_LOYALTY", id: "walker", amount: -1 });
+  assert.equal(profile.activeSession.battlefield.player[0].counters.Loyalty, 1);
+  profile = reduceProfile(profile, { type: "ADJUST_LOYALTY", id: "walker", amount: -1 });
+  assert.equal(profile.activeSession.battlefield.player.length, 0);
+  assert.ok(profile.activeSession.zones.graveyard.some((card) => card.name === "Test Walker"));
+});
+
+test("tap cost helper validates eligibility and preserves manual confirmation", () => {
+  const creature = createPermanent({ id: "creature", name: "Crewmate", typeLine: "Creature", basePower: 3, baseToughness: 3 });
+  const artifact = createPermanent({ id: "artifact", name: "Tool", typeLine: "Artifact" });
+  let profile = {
+    ...createDefaultProfile(),
+    activeSession: {
+      ...createGameSession(),
+      selectedIds: ["creature", "artifact"],
+      battlefield: { ...createGameSession().battlefield, player: [creature, artifact] },
+    },
+  };
+
+  profile = reduceProfile(profile, { type: "TAP_SELECTED_FOR_COST", mechanic: "crew", requiredValue: 3 });
+  assert.equal(profile.activeSession.battlefield.player.find((card) => card.id === "creature").tapped, true);
+  assert.equal(profile.activeSession.battlefield.player.find((card) => card.id === "artifact").tapped, false);
+  assert.ok(profile.activeSession.pendingEffects.some((entry) => entry.effect?.choiceKind === "crew"));
+});
+
+test("manual trigger entry is queued without auto-resolving choices", () => {
+  let profile = createDefaultProfile();
+  profile = reduceProfile(profile, {
+    type: "ADD_MANUAL_TRIGGER",
+    sourceName: "Table Trigger",
+    summary: "Choose a target creature, then draw a card.",
+  });
+
+  const trigger = profile.activeSession.triggerQueue[0];
+  assert.equal(trigger.sourceName, "Table Trigger");
+  assert.equal(trigger.status, "pending");
+  assert.equal(trigger.rulesConfidence, "manual-choice-required");
+  assert.equal(trigger.effectDefinitions[0].manual, true);
+});
+
 test("layer system exposes layer breakdown for static modifiers", () => {
   const anthem = hydratePermanentEffects(
     createPermanent({

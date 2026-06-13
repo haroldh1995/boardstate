@@ -97,7 +97,13 @@ export function reduceProfile(profile, event) {
       nextProfile = withSession(baseProfile, advanceSimulationTurn(baseProfile.activeSession, "manual-pass"));
       break;
     case "SIMULATION_TICK":
-      nextProfile = withSession(baseProfile, runSimulationTick(baseProfile.activeSession, baseProfile.simulationMemory || {}));
+      {
+        const tickSession = runSimulationTick(baseProfile.activeSession, baseProfile.simulationMemory || {});
+        if (tickSession === baseProfile.activeSession) {
+          return baseProfile;
+        }
+        nextProfile = withSession(baseProfile, tickSession);
+      }
       break;
     case "LIFE_DELTA":
       nextProfile = withSession(baseProfile, {
@@ -147,6 +153,9 @@ export function reduceProfile(profile, event) {
       break;
     case "ADD_COUNTER":
       nextProfile = withSession(baseProfile, applyCounterToSession(baseProfile.activeSession, event));
+      break;
+    case "ADJUST_LOYALTY":
+      nextProfile = withSession(baseProfile, adjustPlaneswalkerLoyalty(baseProfile.activeSession, event.id, event.amount));
       break;
     case "ADD_COUNTER_SELECTED":
       nextProfile = withSession(baseProfile, applyCounterToSelected(baseProfile.activeSession, event));
@@ -203,6 +212,9 @@ export function reduceProfile(profile, event) {
       break;
     case "SET_SELECTED_TAPPED":
       nextProfile = withSession(baseProfile, setSelectedTapped(baseProfile.activeSession, Boolean(event.tapped)));
+      break;
+    case "TAP_SELECTED_FOR_COST":
+      nextProfile = withSession(baseProfile, tapSelectedForCost(baseProfile.activeSession, event));
       break;
     case "REMOVE_SELECTED":
       nextProfile = withSession(baseProfile, removeSelectedPermanents(baseProfile.activeSession, event));
@@ -263,6 +275,9 @@ export function reduceProfile(profile, event) {
       break;
     case "TRIGGER_QUEUE_REACTIVATE_DELAYED":
       nextProfile = withSession(baseProfile, reactivateDelayedTriggers(baseProfile.activeSession));
+      break;
+    case "ADD_MANUAL_TRIGGER":
+      nextProfile = withSession(baseProfile, addManualTrigger(baseProfile.activeSession, event));
       break;
     case "ARCHIVE_GAME":
       nextProfile = archiveCurrentGame(baseProfile, event.result || "completed");
@@ -1401,6 +1416,7 @@ function ensureSimulationPlayerState(session) {
   const existingPlayers = simulation.players || {};
   const nextPlayers = {};
   const nextOpponents = { ...(simulation.opponents || {}) };
+  let changed = !sameOrderedValues(turnOrder, simulation.turnOrder || []);
 
   turnOrder.forEach((playerId) => {
     const previous = existingPlayers[playerId] || {};
@@ -1411,7 +1427,7 @@ function ensureSimulationPlayerState(session) {
     const commanderDamageBy = { ...(previous.commanderDamageBy || {}) };
     const eliminatedByCommander = Object.values(commanderDamageFrom).some((value) => Number(value || 0) >= 21);
     const eliminated = Boolean(previous.eliminated || baseLife <= 0 || eliminatedByCommander);
-    nextPlayers[playerId] = {
+    const normalizedPlayer = {
       id: playerId,
       name: isLocal ? previous.name || "Player" : previous.name || npc?.name || playerId,
       life: Number.isFinite(baseLife) ? baseLife : 40,
@@ -1420,22 +1436,38 @@ function ensureSimulationPlayerState(session) {
       commanderDamageFrom,
       commanderDamageBy,
     };
+    nextPlayers[playerId] = sameSimulationPlayer(previous, normalizedPlayer) ? previous : normalizedPlayer;
+    changed ||= nextPlayers[playerId] !== previous;
     if (!isLocal && npc) {
-      nextOpponents[playerId] = {
-        ...npc,
-        life: nextPlayers[playerId].life,
-        commanderDamageFrom,
-      };
+      const npcNeedsUpdate =
+        Number(npc.life ?? 40) !== nextPlayers[playerId].life ||
+        !sameNumericRecord(npc.commanderDamageFrom || {}, commanderDamageFrom);
+      if (npcNeedsUpdate) {
+        nextOpponents[playerId] = {
+          ...npc,
+          life: nextPlayers[playerId].life,
+          commanderDamageFrom,
+        };
+        changed = true;
+      }
     }
   });
 
   const eliminatedPlayerIds = Object.values(nextPlayers)
     .filter((player) => player.eliminated)
     .map((player) => player.id);
+  const nextLife = Math.max(0, Number(nextPlayers["local-player"]?.life ?? session.life ?? 40));
+  changed ||= nextLife !== session.life;
+  changed ||= !sameOrderedValues(eliminatedPlayerIds, simulation.eliminatedPlayerIds || []);
+  changed ||= Object.keys(existingPlayers).length !== Object.keys(nextPlayers).length;
+
+  if (!changed) {
+    return session;
+  }
 
   return {
     ...session,
-    life: Math.max(0, Number(nextPlayers["local-player"]?.life ?? session.life ?? 40)),
+    life: nextLife,
     simulation: {
       ...simulation,
       turnOrder,
@@ -1444,6 +1476,27 @@ function ensureSimulationPlayerState(session) {
       eliminatedPlayerIds,
     },
   };
+}
+
+function sameSimulationPlayer(left = {}, right = {}) {
+  return (
+    left.id === right.id &&
+    left.name === right.name &&
+    Number(left.life) === Number(right.life) &&
+    Boolean(left.eliminated) === Boolean(right.eliminated) &&
+    Boolean(left.isNpc) === Boolean(right.isNpc) &&
+    sameNumericRecord(left.commanderDamageFrom || {}, right.commanderDamageFrom || {}) &&
+    sameNumericRecord(left.commanderDamageBy || {}, right.commanderDamageBy || {})
+  );
+}
+
+function sameNumericRecord(left = {}, right = {}) {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  return [...keys].every((key) => Number(left[key] || 0) === Number(right[key] || 0));
+}
+
+function sameOrderedValues(left = [], right = []) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function getActiveSimulationTurnOrder(simulation = {}) {
@@ -2477,6 +2530,166 @@ function applyCounterToSession(session, event) {
       [event.counterType || "+1/+1"]: normalizeCount(permanent.counters?.[event.counterType || "+1/+1"]) + normalizeCount(event.amount, 1),
     },
   }));
+}
+
+function adjustPlaneswalkerLoyalty(session, id, amount = 0) {
+  const walker = [...(session.battlefield?.player || []), ...(session.battlefield?.opponent || [])]
+    .find((permanent) => permanent.id === id);
+  if (!walker?.isPlaneswalker) {
+    return addRecoveryEntry(session, {
+      source: "Planeswalker Controls",
+      message: "Select a planeswalker before adjusting loyalty.",
+      severity: "warning",
+    });
+  }
+  const nextLoyalty = Math.max(0, Number(walker.counters?.Loyalty || 0) + Number(amount || 0));
+  const adjusted = updateOnePermanentInstance(session, id, (permanent) => ({
+    ...permanent,
+    counters: {
+      ...(permanent.counters || {}),
+      Loyalty: nextLoyalty,
+    },
+  }));
+  if (nextLoyalty > 0) {
+    return adjusted;
+  }
+  const removed = [...(adjusted.battlefield?.player || []), ...(adjusted.battlefield?.opponent || [])]
+    .find((permanent) => permanent.id === id) || walker;
+  const controllerSide = (adjusted.battlefield?.player || []).some((permanent) => permanent.id === id) ? "player" : "opponent";
+  return {
+    ...adjusted,
+    selectedIds: (adjusted.selectedIds || []).filter((entry) => entry !== id),
+    battlefield: {
+      ...adjusted.battlefield,
+      [controllerSide]: (adjusted.battlefield?.[controllerSide] || []).filter((permanent) => permanent.id !== id),
+    },
+    zones: controllerSide === "player"
+      ? {
+          ...(adjusted.zones || {}),
+          graveyard: [...(adjusted.zones?.graveyard || []), { ...removed, zone: "graveyard" }],
+        }
+      : adjusted.zones,
+    effectLog: [
+      {
+        id: createId("effect"),
+        at: Date.now(),
+        sourceName: removed.name,
+        summary: "Planeswalker reached zero loyalty and was moved to its owner's graveyard.",
+        status: "resolved",
+        rulesConfidence: RULES_CONFIDENCE.AUTO_RESOLVED,
+      },
+      ...(adjusted.effectLog || []),
+    ].slice(0, 120),
+  };
+}
+
+function tapSelectedForCost(session, event = {}) {
+  const mechanic = String(event.mechanic || "tap-cost").toLowerCase();
+  const requiredValue = Math.max(0, Number(event.requiredValue || 0));
+  const selected = [...(session.battlefield?.player || [])].filter((permanent) => (session.selectedIds || []).includes(permanent.id));
+  const eligible = selected.filter((permanent) => {
+    if (permanent.tapped) return false;
+    if (mechanic === "improvise") return permanent.isArtifact;
+    if (["convoke", "crew", "saddle", "station"].includes(mechanic)) return permanent.isCreature;
+    return true;
+  });
+  const contributed = eligible.reduce((sum, permanent) => {
+    if (["crew", "saddle", "station"].includes(mechanic)) {
+      return sum + Math.max(0, Number(permanent.currentPower ?? permanent.basePower ?? 0));
+    }
+    return sum + Math.max(1, Number(permanent.quantity || 1));
+  }, 0);
+  if (!eligible.length || contributed < requiredValue) {
+    return addRecoveryEntry(session, {
+      source: `${formatMechanicLabel(mechanic)} Cost`,
+      message: `Selected eligible permanents provide ${contributed}; ${requiredValue || 1} is required. Nothing was tapped.`,
+      severity: "warning",
+      suggestedAction: "Select additional eligible untapped permanents and try again.",
+    });
+  }
+  const eligibleIds = new Set(eligible.map((permanent) => permanent.id));
+  const mapSide = (side) => side.map((permanent) =>
+    eligibleIds.has(permanent.id)
+      ? hydratePermanentEffects({ ...permanent, tapped: true, attacking: false, blocking: false })
+      : permanent
+  );
+  return {
+    ...recalculateContinuousEffects({
+      ...session,
+      battlefield: {
+        ...session.battlefield,
+        player: mapSide(session.battlefield.player || []),
+        opponent: mapSide(session.battlefield.opponent || []),
+      },
+    }),
+    pendingEffects: [
+      {
+        id: createId("pending"),
+        sourceId: eligible[0]?.id || "",
+        sourceName: `${formatMechanicLabel(mechanic)} payment`,
+        summary: `Confirm ${formatMechanicLabel(mechanic)} payment (${contributed} contributed by ${eligible.length} selected permanent(s)).`,
+        effect: {
+          action: "tap-cost-payment",
+          manual: true,
+          choiceKind: mechanic,
+          contributed,
+          requiredValue,
+        },
+        status: "pending",
+        rulesConfidence: RULES_CONFIDENCE.MANUAL_CHOICE,
+        createdAt: Date.now(),
+        eventType: "ABILITY_ACTIVATED",
+        controller: "player",
+      },
+      ...(session.pendingEffects || []),
+    ].slice(0, 120),
+  };
+}
+
+function formatMechanicLabel(mechanic = "") {
+  return String(mechanic || "tap cost").replace(/(^|-)([a-z])/g, (_, separator, letter) => `${separator ? " " : ""}${letter.toUpperCase()}`);
+}
+
+function addManualTrigger(session, event = {}) {
+  const selectedSource = [...(session.battlefield?.player || []), ...(session.battlefield?.opponent || [])]
+    .find((permanent) => permanent.id === event.sourceId || (session.selectedIds || []).includes(permanent.id));
+  const sourceName = String(event.sourceName || selectedSource?.name || "Manual Trigger").trim();
+  const summary = String(event.summary || "Resolve this manually entered trigger.").trim();
+  const trigger = {
+    id: createId("trigger"),
+    chainId: createId("chain"),
+    sourceId: selectedSource?.id || event.sourceId || "",
+    sourceName,
+    eventType: String(event.eventType || "MANUAL_TRIGGER"),
+    targetSelector: "manual",
+    optional: Boolean(event.optional),
+    oncePerTurn: false,
+    triggerCondition: "manual-entry",
+    effectDefinitions: [{
+      action: "manual-choice",
+      manual: true,
+      summary,
+      reason: "User-entered trigger requires manual resolution.",
+    }],
+    status: "pending",
+    rulesConfidence: RULES_CONFIDENCE.MANUAL_CHOICE,
+    createdAt: Date.now(),
+  };
+  return {
+    ...session,
+    triggerQueue: [trigger, ...(session.triggerQueue || [])].slice(0, 120),
+    rulesConfidenceLog: [
+      {
+        id: createId("confidence"),
+        at: Date.now(),
+        sourceName,
+        summary,
+        status: "pending",
+        rulesConfidence: RULES_CONFIDENCE.MANUAL_CHOICE,
+      },
+      ...(session.rulesConfidenceLog || []),
+    ].slice(0, 160),
+  };
 }
 
 function addMana(session, color, amount = 1) {

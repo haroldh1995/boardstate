@@ -39,8 +39,8 @@ export function createStore() {
     },
   });
 
-  function emit() {
-    listeners.forEach((listener) => listener(state));
+  function emit(action = null) {
+    listeners.forEach((listener) => listener(state, action));
   }
 
   function refreshSimulationLoop() {
@@ -111,8 +111,13 @@ export function createStore() {
       if (isSpectatorBlocked(state, action)) {
         return;
       }
+      const previousState = state;
       state = reduceProfile(state, action);
-      emit();
+      if (state === previousState) {
+        refreshSimulationLoop();
+        return;
+      }
+      emit(action);
       await saveProfile(state);
       if (!event?.remote && !event?.internalOnly) {
         syncManager.sendAction(action, state);

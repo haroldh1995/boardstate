@@ -348,6 +348,13 @@ export function createPermanent(source = {}) {
   const isInstant = source.isInstant ?? /\bInstant\b/i.test(typeLine);
   const isSorcery = source.isSorcery ?? /\bSorcery\b/i.test(typeLine);
   const isToken = Boolean(source.isToken);
+  const startingLoyalty = normalizeCount(source.startingLoyalty ?? source.loyalty);
+  const counters = {
+    ...(source.counters || {}),
+    ...(isPlaneswalker && source.counters?.Loyalty === undefined && startingLoyalty > 0
+      ? { Loyalty: startingLoyalty }
+      : {}),
+  };
   const basePower = normalizeSigned(source.basePower ?? source.power);
   const baseToughness = normalizeSigned(source.baseToughness ?? source.toughness);
   const stackMembers =
@@ -359,7 +366,7 @@ export function createPermanent(source = {}) {
           attacking: Boolean(source.attacking),
           blocking: Boolean(source.blocking),
           summoningSick: source.summoningSick ?? Boolean(isCreature),
-          counters: { ...(source.counters || {}) },
+          counters: { ...counters },
           attachments: Array.isArray(source.attachments) ? [...source.attachments] : [],
           temporaryModifiers: Array.isArray(source.temporaryModifiers) ? [...source.temporaryModifiers] : [],
           metadata: {
@@ -410,12 +417,13 @@ export function createPermanent(source = {}) {
     isToken,
     isCopy: Boolean(source.isCopy),
     isCommander: Boolean(source.isCommander),
+    startingLoyalty,
     basePower,
     baseToughness,
     currentPower: normalizeSigned(source.currentPower, basePower),
     currentToughness: normalizeSigned(source.currentToughness, baseToughness),
     markedDamage: Math.max(0, normalizeCount(source.markedDamage)),
-    counters: source.counters || {},
+    counters,
     keywords: Array.isArray(source.keywords) ? source.keywords : [],
     tapped: Boolean(source.tapped),
     summoningSick: source.summoningSick ?? Boolean(isCreature),
