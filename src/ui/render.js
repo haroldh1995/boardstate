@@ -2,6 +2,7 @@ import { buildStats } from "../analytics/statsService.js";
 import { exportProfile, parseImportedProfile } from "../storage/localDatabase.js";
 import { fetchScryfallCardDetails, searchScryfall } from "../services/scryfallService.js";
 import { canBeCommander } from "../game/commanderSystem.js";
+import { getPermanentManaOptions } from "../game/manaSystem.js";
 import { createPermanent, PHASES } from "../state/schema.js";
 import { buildPredictiveActions } from "../game/predictiveActions.js";
 import { getSimulationDeckById } from "../simulation/decks/index.js";
@@ -43,6 +44,8 @@ const TEMPORARY_SCROLL_SELECTORS = [
   ".search-results",
   ".cast-action-popup",
   ".simulation-log",
+  ".battlefield-groups",
+  ".selected-permanent-menu",
   ".manual-choice-panel",
   ".trigger-queue-panel",
   ".history-timeline",
@@ -1232,7 +1235,48 @@ export function mountApp(root, store) {
       });
     });
     container.querySelectorAll("[data-tap]").forEach((button) => {
-      button.addEventListener("click", () => store.dispatch({ type: "TOGGLE_TAPPED", id: button.dataset.tap }));
+      button.addEventListener("click", () => {
+        const permanent = [...(store.getState().activeSession?.battlefield?.player || []), ...(store.getState().activeSession?.battlefield?.opponent || [])]
+          .find((entry) => entry.id === button.dataset.tap);
+        const manaOptions = permanent && !permanent.tapped ? getPermanentManaOptions(permanent) : [];
+        let manaColor = "";
+        if (manaOptions.length > 1) {
+          const choice = prompt(`Choose mana for ${permanent.name}: ${manaOptions.join(", ")}`, manaOptions[0]);
+          if (choice === null) {
+            return;
+          }
+          manaColor = String(choice || "").trim().toUpperCase();
+          if (!manaOptions.includes(manaColor)) {
+            showNotice(`${manaColor || "That choice"} is not a supported mana option for ${permanent.name}.`, "warning");
+            return;
+          }
+        }
+        store.dispatch({ type: "TOGGLE_TAPPED", id: button.dataset.tap, manaColor });
+      });
+    });
+    container.querySelectorAll("[data-add-land-copy]").forEach((button) => {
+      button.addEventListener("click", () => store.dispatch({ type: "ADD_LAND_COPY", id: button.dataset.addLandCopy }));
+    });
+    container.querySelectorAll("[data-selected-menu-counter]").forEach((button) => {
+      button.addEventListener("click", () => store.dispatch({
+        type: "ADD_COUNTER_SELECTED",
+        counterType: button.dataset.selectedMenuCounter || "Charge",
+        amount: 1,
+      }));
+    });
+    container.querySelectorAll("[data-permanent-mechanic]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const mechanic = button.dataset.permanentMechanic;
+        if (mechanic === "max-speed") {
+          store.dispatch({ type: "ADVANCE_MAX_SPEED", id: button.dataset.permanentId, amount: 1 });
+          return;
+        }
+        const answer = prompt(`Required ${formatLabel(mechanic)} contribution`, "1");
+        if (answer === null) {
+          return;
+        }
+        store.dispatch({ type: "TAP_SELECTED_FOR_COST", mechanic, requiredValue: Math.max(1, Number(answer) || 1) });
+      });
     });
     container.querySelectorAll("[data-counter]").forEach((button) => {
       button.addEventListener("click", () => store.dispatch({ type: "ADD_COUNTER", id: button.dataset.counter, counterType: "+1/+1", amount: 1 }));
@@ -3405,13 +3449,17 @@ export function mountApp(root, store) {
     if (!snapshot) {
       return;
     }
-    if (Math.abs((window.scrollY || 0) - (snapshot.pageY || 0)) > 1) {
-      window.scrollTo({ top: snapshot.pageY || 0, left: 0, behavior: "auto" });
-    }
-    const shell = container.querySelector?.(".app-shell");
-    if (shell && Number.isFinite(snapshot.shellY) && Math.abs((shell.scrollTop || 0) - snapshot.shellY) > 1) {
-      shell.scrollTop = snapshot.shellY;
-    }
+    const restore = () => {
+      if (backgroundScrollLockY === null && Math.abs((window.scrollY || 0) - (snapshot.pageY || 0)) > 1) {
+        window.scrollTo({ top: snapshot.pageY || 0, left: 0, behavior: "auto" });
+      }
+      const shell = container.querySelector?.(".app-shell");
+      if (shell && Number.isFinite(snapshot.shellY) && Math.abs((shell.scrollTop || 0) - snapshot.shellY) > 1) {
+        shell.scrollTop = snapshot.shellY;
+      }
+    };
+    restore();
+    requestAnimationFrame(restore);
   }
 
   function captureSearchFocusState() {
@@ -4107,6 +4155,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
           })}
         </div>
       </section>
+      ${renderSelectedPermanentMenu(session)}
       <aside class="search-panel glass ${isMobilePortrait ? "mobile-hud-column" : ""}">
         ${!isMobilePortrait && panels.archiveQuickAdd ? `<h2>Battlefield Quick Add</h2>` : ""}
         ${!isMobilePortrait && panels.archiveQuickAdd ? renderSearch(searchResults, searchMessage, searchLoading, searchQuery, "battlefield", activeUtilityPanel === "search" ? null : uiState.castActionPopup) : ""}
@@ -4516,15 +4565,60 @@ function renderPermanent(permanent, options = {}) {
         ${showStatsOverlay && detailMode !== "compact" ? renderPermanentDetails(permanent, detailMode) : ""}
         ${permanent.quantity > 1 ? `<button class="stack-toggle" type="button" data-toggle-stack="${permanent.id}">${stackExpanded ? "Collapse Stack" : "Expand Stack"}</button>` : ""}
         ${stackExpanded ? renderStackMemberDetails(stackMembers, detailMode, permanent) : ""}
-        ${options.readonly ? "" : `<div class="row mini">
-          <button data-tap="${permanent.id}">${permanent.tapped ? "Untap" : "Tap"}</button>
-          ${permanent.isPlaneswalker
-            ? `<button data-loyalty-adjust="${permanent.id}" data-delta="-1">Loyalty -1</button><button data-loyalty-adjust="${permanent.id}" data-delta="1">Loyalty +1</button>`
-            : `<button data-counter="${permanent.id}">+1/+1</button>`}
-        </div>`}
-        ${selected && !options.readonly ? renderSelectedPermanentActions(permanent) : ""}
+        ${options.readonly ? "" : renderPermanentSurfaceActions(permanent)}
       </div>
     </article>
+  `;
+}
+
+function renderPermanentSurfaceActions(permanent = {}) {
+  if (permanent.isLand) {
+    return `
+      <div class="row mini permanent-surface-actions permanent-surface-actions--land">
+        <button data-add-land-copy="${escapeAttribute(permanent.id)}" title="Add one matching land">+1</button>
+        <button data-tap="${escapeAttribute(permanent.id)}" ${permanent.tapped ? "disabled" : ""} title="Tap for mana">Tap</button>
+      </div>
+    `;
+  }
+  if (!permanent.isCreature) {
+    return "";
+  }
+  return `
+    <div class="row mini permanent-surface-actions permanent-surface-actions--creature">
+      <button data-tap="${escapeAttribute(permanent.id)}">${permanent.tapped ? "Untap" : "Tap"}</button>
+      <button data-counter="${escapeAttribute(permanent.id)}">+1/+1</button>
+    </div>
+  `;
+}
+
+function renderSelectedPermanentMenu(session = {}) {
+  const selected = [...(session.battlefield?.player || [])]
+    .find((permanent) => (session.selectedIds || []).includes(permanent.id));
+  if (!selected) {
+    return "";
+  }
+  const isSimpleLand = selected.isLand && !selected.supportsStation && !selected.supportsMaxSpeed;
+  return `
+    <aside class="selected-permanent-menu glass scroll-safe" role="dialog" aria-label="${escapeAttribute(`${selected.name} actions`)}">
+      <div class="overlay-header compact">
+        <div><p class="eyebrow">Selected permanent</p><strong>${escapeHtml(selected.name)}</strong><small>${escapeHtml(selected.typeLine)}</small></div>
+        <button data-selected-action="clear" aria-label="Close selected permanent actions">Close</button>
+      </div>
+      ${isSimpleLand ? `<p>Use +1 or Tap directly on the land tile.</p>${selected.tapped ? `<button data-tap="${escapeAttribute(selected.id)}">Untap</button>` : ""}` : `
+      <div class="button-grid selected-permanent-menu__actions">
+        ${selected.isLand ? "" : `<button data-selected-menu-counter="Charge">Add counter</button><button data-selected-menu-counter="+1/+1">Add +1/+1 counter</button>`}
+        ${selected.isLand ? "" : `<button data-tap="${escapeAttribute(selected.id)}">${selected.tapped ? "Untap" : "Tap"}</button>`}
+        ${selected.isCreature ? `<button data-declare-attackers>Attack</button>` : ""}
+        ${selected.isLand ? "" : `<button data-manual-trigger-permanent="${escapeAttribute(selected.id)}">Trigger Ability</button>`}
+        ${selected.isPlaneswalker ? `<button data-loyalty-adjust="${escapeAttribute(selected.id)}" data-delta="-1">Loyalty -1</button><button data-loyalty-adjust="${escapeAttribute(selected.id)}" data-delta="1">Loyalty +1</button>` : ""}
+        ${selected.isLand ? "" : `<button data-selected-action="sacrifice">Sacrifice</button><button data-selected-action="exile">Exile</button><button class="danger" data-selected-action="destroy">Destroy</button>`}
+        ${selected.supportsStation ? `<button data-permanent-mechanic="station" data-permanent-id="${escapeAttribute(selected.id)}">Station</button>` : ""}
+        ${selected.isMount || /\bSaddle\b/i.test(selected.oracleText || "") ? `<button data-permanent-mechanic="saddle" data-permanent-id="${escapeAttribute(selected.id)}">Mount / Saddle</button>` : ""}
+        ${selected.isVehicle || /\bCrew\b/i.test(selected.oracleText || "") ? `<button data-permanent-mechanic="crew" data-permanent-id="${escapeAttribute(selected.id)}">Crew</button>` : ""}
+        ${selected.supportsMaxSpeed ? `<button data-permanent-mechanic="max-speed" data-permanent-id="${escapeAttribute(selected.id)}">Max Speed +1</button>` : ""}
+        <button data-open-tool-panel="inspect">Details</button>
+      </div>`}
+    </aside>
   `;
 }
 
@@ -4534,6 +4628,12 @@ function renderPermanentStateBadges(permanent = {}, damageMarked = 0, lethalDama
   return `
     <div class="permanent-state-badges" aria-label="Permanent state">
       ${permanent.isCommander ? `<span class="state-badge state-badge--commander" title="Commander">&#9812; Commander${commanderTax ? ` · Tax ${commanderTax}` : ""}</span>` : ""}
+      ${permanent.isVehicle ? `<span class="state-badge">Vehicle</span>` : ""}
+      ${permanent.isMount ? `<span class="state-badge">Mount</span>` : ""}
+      ${permanent.isSpacecraft ? `<span class="state-badge">Spacecraft</span>` : ""}
+      ${permanent.isPlanet ? `<span class="state-badge">Planet</span>` : ""}
+      ${permanent.supportsStation ? `<span class="state-badge">Station ${Number(permanent.counters?.Station || 0)}</span>` : ""}
+      ${permanent.supportsMaxSpeed ? `<span class="state-badge">Speed ${Number(permanent.metadata?.maxSpeed || 0)}${permanent.metadata?.maxSpeedReached ? " · MAX" : ""}</span>` : ""}
       ${permanent.tapped ? `<span class="state-badge state-badge--tapped">&#8635; Tapped</span>` : ""}
       ${permanent.attacking ? `<span class="state-badge state-badge--attacking">&#9876; Attacking</span>` : ""}
       ${permanent.blocking ? `<span class="state-badge state-badge--blocking">&#128737; Blocking</span>` : ""}

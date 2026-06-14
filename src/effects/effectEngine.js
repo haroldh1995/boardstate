@@ -210,6 +210,8 @@ export function castSpellToStack(session, spell, options = {}) {
     xValue: Number.isFinite(Number(options.xValue)) ? Math.max(0, Number(options.xValue)) : null,
     additionalCosts: options.additionalCosts || {},
     castPermission: options.castPermission || "",
+    manaPaymentVerified: Boolean(options.manaPaymentVerified),
+    manaPaymentSources: Array.isArray(options.manaPaymentSources) ? [...options.manaPaymentSources] : [],
     isCopy: Boolean(options.isCopy),
     copiedFromStackId: options.copiedFromStackId || "",
     isPermanentSpell,
@@ -529,7 +531,7 @@ function collectSpellCastingChoices(spell, session = {}) {
   if (session.runtime?.strictPhaseEnforcement && spell.card?.isSorcery && isActiveGame && (!legalSorceryPhase || (session.stack || []).length > 0)) {
     choices.push({ kind: "timing-override", summary: "Sorcery timing is not currently legal. Confirm a permission or manual override." });
   }
-  if (isActiveGame && (spell.controller === "player" || spell.controller === "local-player")) {
+  if (isActiveGame && !spell.manaPaymentVerified && (spell.controller === "player" || spell.controller === "local-player")) {
     const availableMana = Object.values(session.manaPool || {}).reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
     const requiredMana = Math.max(0, Number(spell.card?.manaValue || 0) - (/\{x\}/i.test(spell.card?.manaCost || "") ? 1 : 0)) + Math.max(0, Number(spell.xValue) || 0);
     if (requiredMana > availableMana) {

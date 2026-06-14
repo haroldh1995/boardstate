@@ -1,5 +1,8 @@
 # Known Limitations
 
+- Auto-mana safely resolves basic and clearly parsed mana abilities. Hybrid/Phyrexian/snow/alternate costs, unusual multi-output sources, and ambiguous restrictions remain Manual Choice Required.
+- Spacecraft, Station, Planet, Mount, Vehicle, and Max Speed state is tracked, but card-specific text that cannot be parsed deterministically remains Manual Choice Required rather than being silently resolved.
+
 - iOS/App Store packaging is not produced from this Android Studio project.
 - Google Play production signing with Play App Signing is not configured here because it requires owner account setup in Play Console.
 - Device/emulator runtime validation depends on installed Android system images or connected devices.

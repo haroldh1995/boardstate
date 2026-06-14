@@ -11,6 +11,7 @@ import {
 } from "../src/game/combatSystem.js";
 import { createDeckWithCard } from "../src/game/commanderSystem.js";
 import { chooseEntryResult, preparePermanentEntry } from "../src/game/entrySystem.js";
+import { getPermanentManaOptions, planManaPayment } from "../src/game/manaSystem.js";
 import {
   addTournamentPlayer,
   announceTournamentWinners,
@@ -257,4 +258,135 @@ test("local tournament standings rank wins and produce a safe top-three announce
   profile = announceTournamentWinners(profile);
   assert.equal(profile.tournament.announcement.winners.length, 3);
   assert.equal(profile.tournament.announcement.winners[0].name, "Alpha");
+});
+
+test("land tap actions generate the correct mana and cannot reuse a tapped land", () => {
+  const forest = createPermanent({ id: "forest", name: "Forest", typeLine: "Basic Land - Forest" });
+  let profile = {
+    ...createDefaultProfile(),
+    activeSession: {
+      ...createGameSession(),
+      battlefield: { ...createGameSession().battlefield, player: [forest] },
+    },
+  };
+  assert.deepEqual(getPermanentManaOptions(forest), ["G"]);
+  profile = reduceProfile(profile, { type: "TOGGLE_TAPPED", id: "forest" });
+  assert.equal(profile.activeSession.battlefield.player[0].tapped, true);
+  assert.equal(profile.activeSession.manaPool.G, 1);
+  profile = reduceProfile(profile, { type: "TOGGLE_TAPPED", id: "forest" });
+  assert.equal(profile.activeSession.battlefield.player[0].tapped, false);
+  assert.equal(profile.activeSession.manaPool.G, 1);
+});
+
+test("active game casting auto-taps legal colored sources while training-ground casting remains free", () => {
+  const plains = createPermanent({ id: "plains", name: "Plains", typeLine: "Basic Land - Plains" });
+  const forest = createPermanent({ id: "forest", name: "Forest", typeLine: "Basic Land - Forest" });
+  const spell = { name: "Test Growth", manaCost: "{1}{G}", manaValue: 2, typeLine: "Creature - Plant", power: 2, toughness: 2 };
+  const activeSession = {
+    ...createGameSession(),
+    gameTracking: { active: true, startedAt: Date.now(), mode: "active-game" },
+    battlefield: { ...createGameSession().battlefield, player: [plains, forest] },
+  };
+  const payment = planManaPayment(activeSession, "player", spell.manaCost);
+  assert.equal(payment.verified, true);
+  assert.equal(payment.sourceIds.length, 2);
+
+  let profile = { ...createDefaultProfile(), activeSession };
+  profile = reduceProfile(profile, { type: "CAST_SPELL", card: spell });
+  assert.equal(profile.activeSession.battlefield.player.filter((card) => card.tapped).length, 2);
+  assert.equal(profile.activeSession.stack[0].manaPaymentVerified, true);
+  assert.equal(profile.activeSession.pendingEffects.some((entry) => entry.effect?.choiceKind === "mana-payment"), false);
+
+  let insufficientProfile = {
+    ...createDefaultProfile(),
+    activeSession: {
+      ...activeSession,
+      battlefield: { ...activeSession.battlefield, player: [forest] },
+    },
+  };
+  insufficientProfile = reduceProfile(insufficientProfile, {
+    type: "CAST_SPELL",
+    card: { ...spell, name: "Too Expensive", manaCost: "{2}{G}", manaValue: 3 },
+  });
+  assert.equal(insufficientProfile.activeSession.stack[0].status, "awaiting-choice");
+  assert.equal(insufficientProfile.activeSession.pendingEffects.some((entry) => entry.effect?.choiceKind === "mana-payment"), true);
+
+  let freeProfile = {
+    ...createDefaultProfile(),
+    activeSession: {
+      ...createGameSession(),
+      battlefield: { ...createGameSession().battlefield, player: [plains, forest] },
+    },
+  };
+  freeProfile = reduceProfile(freeProfile, { type: "CAST_SPELL", card: spell });
+  assert.equal(freeProfile.activeSession.battlefield.player.some((card) => card.tapped), false);
+  assert.equal(freeProfile.activeSession.stack.length, 1);
+});
+
+test("+1 land copy uses the land-entry pipeline and triggers landfall every time", () => {
+  let profile = createDefaultProfile();
+  profile = reduceProfile(profile, {
+    type: "ADD_PERMANENT",
+    card: {
+      name: "Scute Swarm",
+      typeLine: "Creature - Insect",
+      power: 1,
+      toughness: 1,
+      oracleText: "Landfall - Whenever a land enters the battlefield under your control, create a 1/1 green Insect creature token.",
+    },
+  });
+  profile = reduceProfile(profile, { type: "ADD_PERMANENT", card: { name: "Forest", typeLine: "Basic Land - Forest" } });
+  const forest = profile.activeSession.battlefield.player.find((card) => card.name === "Forest");
+  const insectsBefore = profile.activeSession.battlefield.player
+    .filter((card) => /Insect/i.test(card.typeLine || "") && card.name !== "Scute Swarm")
+    .reduce((sum, card) => sum + Number(card.quantity || 1), 0);
+  profile = reduceProfile(profile, { type: "ADD_LAND_COPY", id: forest.id });
+  const landCount = profile.activeSession.battlefield.player
+    .filter((card) => card.isLand)
+    .reduce((sum, card) => sum + Number(card.quantity || 1), 0);
+  const insectsAfter = profile.activeSession.battlefield.player
+    .filter((card) => /Insect/i.test(card.typeLine || "") && card.name !== "Scute Swarm")
+    .reduce((sum, card) => sum + Number(card.quantity || 1), 0);
+  assert.equal(landCount, 2);
+  assert.equal(insectsAfter, insectsBefore + 1);
+});
+
+test("special permanent categories normalize Planet, Spacecraft, Vehicle, Mount, Station, and Max Speed", () => {
+  const planet = createPermanent({ name: "Orbital Planet", typeLine: "Planet", oracleText: "Station. Max Speed" });
+  const spacecraft = createPermanent({ name: "Survey Craft", typeLine: "Artifact - Spacecraft", oracleText: "Station" });
+  const vehicle = createPermanent({ name: "Roadster", typeLine: "Artifact - Vehicle", oracleText: "Crew 2" });
+  const mount = createPermanent({ name: "Runner", typeLine: "Creature - Mount", oracleText: "Saddle 1" });
+  assert.equal(planet.isPlanet, true);
+  assert.equal(planet.isLand, true);
+  assert.equal(planet.supportsStation, true);
+  assert.equal(planet.supportsMaxSpeed, true);
+  assert.equal(spacecraft.isSpacecraft, true);
+  assert.equal(spacecraft.supportsStation, true);
+  assert.equal(vehicle.isVehicle, true);
+  assert.equal(mount.isMount, true);
+
+  let profile = {
+    ...createDefaultProfile(),
+    activeSession: {
+      ...createGameSession(),
+      battlefield: { ...createGameSession().battlefield, player: [planet] },
+    },
+  };
+  profile = reduceProfile(profile, { type: "ADVANCE_MAX_SPEED", id: planet.id, amount: 1 });
+  assert.equal(profile.activeSession.playerCounters.Speed, 1);
+  assert.equal(profile.activeSession.battlefield.player[0].metadata.maxSpeed, 1);
+
+  let landfallProfile = createDefaultProfile();
+  landfallProfile = reduceProfile(landfallProfile, {
+    type: "ADD_PERMANENT",
+    card: {
+      name: "Scute Swarm",
+      typeLine: "Creature - Insect",
+      power: 1,
+      toughness: 1,
+      oracleText: "Landfall - Whenever a land enters the battlefield under your control, create a 1/1 green Insect creature token. If you control six or more lands, create a token that's a copy of Scute Swarm instead.",
+    },
+  });
+  landfallProfile = reduceProfile(landfallProfile, { type: "ADD_PERMANENT", card: planet });
+  assert.ok(landfallProfile.activeSession.battlefield.player.some((card) => card.isToken && /Insect/i.test(card.typeLine || "")));
 });

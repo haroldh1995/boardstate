@@ -374,13 +374,20 @@ export function createCommanderState(source = {}) {
 
 export function createPermanent(source = {}) {
   const typeLine = normalizeName(source.typeLine, "Permanent");
+  const oracleText = normalizeName(source.oracleText || source.rulesText);
   const isCreature = source.isCreature ?? /\bCreature\b/i.test(typeLine);
   const isArtifact = source.isArtifact ?? /\bArtifact\b/i.test(typeLine);
   const isEnchantment = source.isEnchantment ?? /\bEnchantment\b/i.test(typeLine);
   const isAura = source.isAura ?? /\bAura\b/i.test(typeLine);
   const isEquipment = source.isEquipment ?? /\bEquipment\b/i.test(typeLine);
   const isPlaneswalker = source.isPlaneswalker ?? /\bPlaneswalker\b/i.test(typeLine);
-  const isLand = source.isLand ?? /\bLand\b/i.test(typeLine);
+  const isPlanet = source.isPlanet ?? /\bPlanet\b/i.test(typeLine);
+  const isLand = source.isLand ?? (/\bLand\b/i.test(typeLine) || isPlanet);
+  const isVehicle = source.isVehicle ?? /\bVehicle\b/i.test(typeLine);
+  const isMount = source.isMount ?? /\bMount\b/i.test(typeLine);
+  const isSpacecraft = source.isSpacecraft ?? /\bSpacecraft\b/i.test(typeLine);
+  const supportsStation = source.supportsStation ?? /\bStation\b/i.test(`${typeLine} ${oracleText}`);
+  const supportsMaxSpeed = source.supportsMaxSpeed ?? /\bMax Speed\b/i.test(`${typeLine} ${oracleText}`);
   const isInstant = source.isInstant ?? /\bInstant\b/i.test(typeLine);
   const isSorcery = source.isSorcery ?? /\bSorcery\b/i.test(typeLine);
   const isToken = Boolean(source.isToken);
@@ -428,8 +435,8 @@ export function createPermanent(source = {}) {
     subtypes: Array.isArray(source.subtypes) ? source.subtypes : [],
     supertypes: Array.isArray(source.supertypes) ? source.supertypes : [],
     colors: Array.isArray(source.colors) ? source.colors : [],
-    oracleText: normalizeName(source.oracleText),
-    rulesText: normalizeName(source.rulesText || source.oracleText),
+    oracleText,
+    rulesText: normalizeName(source.rulesText || oracleText),
     flavorText: normalizeName(source.flavorText),
     imageArt: normalizeName(source.imageArt),
     imageUrl: normalizeName(source.imageUrl),
@@ -448,6 +455,12 @@ export function createPermanent(source = {}) {
     isEquipment,
     isPlaneswalker,
     isLand,
+    isPlanet,
+    isVehicle,
+    isMount,
+    isSpacecraft,
+    supportsStation,
+    supportsMaxSpeed,
     isInstant,
     isSorcery,
     isToken,
@@ -483,7 +496,11 @@ export function createPermanent(source = {}) {
     replacementEffects: Array.isArray(source.replacementEffects) ? source.replacementEffects : [],
     continuousEffects: Array.isArray(source.continuousEffects) ? source.continuousEffects : [],
     tokenDefinitions: Array.isArray(source.tokenDefinitions) ? source.tokenDefinitions : [],
-    metadata: source.metadata || {},
+    metadata: {
+      ...(source.metadata || {}),
+      maxSpeed: Math.max(0, normalizeCount(source.metadata?.maxSpeed ?? source.maxSpeed)),
+      maxSpeedReached: Boolean(source.metadata?.maxSpeedReached ?? source.maxSpeedReached),
+    },
     relationships: source.relationships || {},
     tags: Array.isArray(source.tags) ? source.tags : [],
     layerBreakdown: Array.isArray(source.layerBreakdown) ? source.layerBreakdown : [],

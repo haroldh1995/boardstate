@@ -2,9 +2,20 @@
 
 ## App
 - Name: BoardState
-- Version: 1.11.1
-- Version code: 25
+- Version: 1.12.0
+- Version code: 26
 - Package: `com.boardstate.app`
+
+## Version 1.12.0
+- Removes battlefield selection layout expansion and preserves the active page/board scroll position through card, menu, search, stack, combat, and Dry Run interactions.
+- Simplifies land tile surfaces to exactly `+1` and `Tap`; tapping lands now produces parsed mana by default while special non-mana tap abilities remain safely manual.
+- Adds active-game and Dry Run source-aware auto-mana payment that prefers legal simple sources, avoids tapped/non-mana sources, and keeps training-ground placement unrestricted.
+- Routes `+1` land copies and all normal land additions through the shared land-entry event pipeline so landfall triggers once per added land, including Planet lands.
+- Moves non-creature permanent actions into a compact selected-card menu and preserves Planeswalker loyalty, Crew, Saddle/Mount, Station, removal, tap, trigger, and counter controls.
+- Makes full card art the battlefield tile surface with clean state overlays, stacked-copy badges, image fallbacks, and Stats Overlay compatibility.
+- Normalizes Spacecraft, Vehicle, Mount, Planet, Station, and Max Speed state; Planet is treated as a land, Station progress is tracked, and player Max Speed persists up to speed 4.
+- Keeps Dry Run AI autonomous while validating and tapping its own legal mana sources.
+- Synchronizes web, Android wrapper, Flutter wrapper, package metadata, and downloadable release artifacts at version 1.12.0.
 
 ## Version 1.11.1
 - Enter/Return/Search now immediately submits Battlefield and Deck Page Scryfall searches, blurs the search input, and dismisses the browser keyboard where supported.

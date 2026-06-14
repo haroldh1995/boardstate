@@ -12,6 +12,7 @@ import {
 import { addCardToCommanderDeck, assignCommander, castCommander, createDeckWithCard, recordCommanderCardUsage } from "../game/commanderSystem.js";
 import { assignBlocker, autoAssignBlockers, confirmBlockers, declareAttackers, declareNoBlockers, resolveCombat } from "../game/combatSystem.js";
 import { chooseEntryResult, preparePermanentEntry } from "../game/entrySystem.js";
+import { getPermanentManaOptions, planManaPayment } from "../game/manaSystem.js";
 import {
   addTournamentPlayer,
   announceTournamentWinners,
@@ -167,6 +168,9 @@ export function reduceProfile(profile, event) {
     case "ADJUST_LOYALTY":
       nextProfile = withSession(baseProfile, adjustPlaneswalkerLoyalty(baseProfile.activeSession, event.id, event.amount));
       break;
+    case "ADVANCE_MAX_SPEED":
+      nextProfile = withSession(baseProfile, advanceMaxSpeed(baseProfile.activeSession, event.id, event.amount));
+      break;
     case "ADD_COUNTER_SELECTED":
       nextProfile = withSession(baseProfile, applyCounterToSelected(baseProfile.activeSession, event));
       break;
@@ -185,13 +189,18 @@ export function reduceProfile(profile, event) {
     case "ADD_PERMANENT":
       nextProfile = addPermanent(baseProfile, event.card, event.controller || "player");
       break;
+    case "ADD_LAND_COPY":
+      nextProfile = addLandCopy(baseProfile, event.id);
+      break;
     case "ADD_CUSTOM_TOKEN":
       nextProfile = addPermanent(baseProfile, createTokenCard(event), event.controller || "player");
       break;
     case "CAST_SPELL":
-      nextProfile = withSession(
-        baseProfile,
-        castSpellToStack(withRuntimeSettings(baseProfile.activeSession, baseProfile.settings), event.card, {
+      {
+        const payment = prepareCastManaPayment(withRuntimeSettings(baseProfile.activeSession, baseProfile.settings), event);
+        nextProfile = withSession(
+          baseProfile,
+          castSpellToStack(payment.session, event.card, {
           controller: event.controller || "player",
           owner: event.owner || event.controller || "player",
           sourceZone: event.sourceZone || "hand",
@@ -201,8 +210,11 @@ export function reduceProfile(profile, event) {
           xValue: event.xValue,
           additionalCosts: event.additionalCosts || {},
           castPermission: event.castPermission || "",
+          manaPaymentVerified: payment.verified,
+          manaPaymentSources: payment.sourceIds,
         })
-      );
+        );
+      }
       nextProfile = recordCommanderCardUsage(nextProfile, { ...event.card, owner: "player", controller: "player" });
       break;
     case "RESOLVE_TOP_SPELL":
@@ -218,7 +230,7 @@ export function reduceProfile(profile, event) {
       nextProfile = withSession(baseProfile, attachPermanent(baseProfile.activeSession, event.sourceId, event.targetId));
       break;
     case "TOGGLE_TAPPED":
-      nextProfile = withSession(baseProfile, togglePermanentTapped(baseProfile.activeSession, event.id));
+      nextProfile = withSession(baseProfile, togglePermanentTapped(baseProfile.activeSession, event.id, event));
       break;
     case "SET_SELECTED_TAPPED":
       nextProfile = withSession(baseProfile, setSelectedTapped(baseProfile.activeSession, Boolean(event.tapped)));
@@ -375,6 +387,34 @@ function addPermanent(profile, card, controller) {
   });
   const withSessionProfile = withSession(profile, withTriggers);
   return controller === "player" ? recordCommanderCardUsage(withSessionProfile, permanent) : withSessionProfile;
+}
+
+function addLandCopy(profile, id) {
+  const source = [...(profile.activeSession.battlefield?.player || []), ...(profile.activeSession.battlefield?.opponent || [])]
+    .find((permanent) => permanent.id === id && permanent.isLand);
+  if (!source) {
+    return profile;
+  }
+  return addPermanent(profile, {
+    ...source,
+    id: "",
+    quantity: 1,
+    tapped: undefined,
+    attacking: false,
+    blocking: false,
+    summoningSick: false,
+    counters: {},
+    stackMembers: [],
+    attachments: [],
+    temporaryModifiers: [],
+    metadata: {
+      ...(source.metadata || {}),
+      crewedUntilTurnEnd: undefined,
+      saddledUntilTurnEnd: undefined,
+      maxSpeed: 0,
+      maxSpeedReached: false,
+    },
+  }, source.controller || "player");
 }
 
 function createCardPresentation(card, kind, controller = "player") {
@@ -1200,15 +1240,30 @@ function advanceSimulationTurn(session, reason = "end-step") {
 }
 
 function resolveNpcCast(session, npc, card, simulationMemory = {}) {
+  const xValue = chooseNpcXValue(session, npc, card);
+  const payment = planManaPayment(session, npc.id, card.manaCost || "", xValue);
+  if (!payment.verified) {
+    return {
+      session: appendSimulationEffectLog(session, `${npc.name} cannot legally pay for ${card.name} and keeps it in hand.`),
+      npc: {
+        ...npc,
+        zones: {
+          ...npc.zones,
+          hand: [...(npc.zones?.hand || []), card],
+        },
+      },
+    };
+  }
+  const paidSession = payment.verified ? tapPlannedManaSources(session, payment.sourceIds) : session;
   if (isType(card, "Instant") || isType(card, "Sorcery")) {
-    const targetId = chooseThreatTargetId(session, simulationMemory, npc.id);
+    const targetId = chooseThreatTargetId(paidSession, simulationMemory, npc.id);
     const preparedSession = {
-      ...session,
+      ...paidSession,
       selectedIds: targetId ? [targetId] : [],
       simulation: {
-        ...session.simulation,
+        ...paidSession.simulation,
         opponents: {
-          ...(session.simulation?.opponents || {}),
+          ...(paidSession.simulation?.opponents || {}),
           [npc.id]: npc,
         },
       },
@@ -1218,7 +1273,7 @@ function resolveNpcCast(session, npc, card, simulationMemory = {}) {
       sourceZone: "hand",
       targetIds: targetId ? [targetId] : [],
       autoChoose: true,
-      xValue: chooseNpcXValue(session, npc, card),
+      xValue,
     });
     const resolvedNpc = resolved.simulation?.opponents?.[npc.id] || npc;
     return {
@@ -1239,7 +1294,7 @@ function resolveNpcCast(session, npc, card, simulationMemory = {}) {
     };
   }
   return {
-    session: addOpponentCardToBattlefield(session, card, npc.id),
+    session: addOpponentCardToBattlefield(paidSession, card, npc.id),
     npc: {
       ...npc,
       zones: {
@@ -1267,7 +1322,11 @@ function chooseNpcCastIndex(npc, session, simulationMemory = {}, options = {}) {
   const availableMana = getNpcAvailableMana(session, npc.id);
   const castable = hand
     .map((card, index) => ({ card, index }))
-    .filter(({ card }) => !isType(card, "Land") && Number(card.manaValue || 0) <= availableMana);
+    .filter(({ card }) =>
+      !isType(card, "Land") &&
+      Number(card.manaValue || 0) <= availableMana &&
+      planManaPayment(session, npc.id, card.manaCost || "", chooseNpcXValue(session, npc, card)).verified
+    );
   if (!castable.length) {
     return -1;
   }
@@ -1299,7 +1358,11 @@ function maybeCastNpcCommander(session, npc, options = {}) {
     unresolvedDefinition: false,
     isCommander: true,
   };
-  const nextSession = addOpponentCardToBattlefield(session, castCard, npc.id);
+  const payment = planManaPayment(session, npc.id, castCard.manaCost || "", 0);
+  if (!payment.verified) {
+    return null;
+  }
+  const nextSession = addOpponentCardToBattlefield(tapPlannedManaSources(session, payment.sourceIds), castCard, npc.id);
   return {
     session: nextSession,
     npc: {
@@ -1383,16 +1446,10 @@ function getNpcCardPriority(card, simulationMemory = {}, options = {}) {
 
 function getNpcAvailableMana(session, npcId) {
   return (session.battlefield.opponent || []).reduce((sum, permanent) => {
-    if (permanent.controller !== npcId) {
+    if (permanent.controller !== npcId || permanent.tapped) {
       return sum;
     }
-    if (permanent.isLand) {
-      return sum + (permanent.quantity || 1);
-    }
-    if (permanent.isArtifact && /mana|ramp|relic/i.test(`${permanent.name} ${permanent.oracleText}`)) {
-      return sum + 1;
-    }
-    return sum;
+    return sum + (getPermanentManaOptions(permanent).length ? (permanent.quantity || 1) : 0);
   }, 0);
 }
 
@@ -2813,6 +2870,76 @@ function addMana(session, color, amount = 1) {
   };
 }
 
+function prepareCastManaPayment(session, event = {}) {
+  const controller = event.controller || "player";
+  const isLocalController = controller === "player" || controller === "local-player";
+  const isActiveGame = Boolean(session.gameTracking?.active || session.simulation?.enabled);
+  if (!isActiveGame || !isLocalController) {
+    return { session, verified: false, sourceIds: [] };
+  }
+  const payment = planManaPayment(session, controller, event.card?.manaCost || "", event.xValue);
+  if (!payment.verified) {
+    return { session, verified: false, sourceIds: [] };
+  }
+  let paidSession = tapPlannedManaSources({ ...session, manaPool: payment.poolAfter }, payment.sourceIds);
+  if (!payment.sourceIds.length) {
+    return { session: paidSession, verified: true, sourceIds: [] };
+  }
+  return {
+    session: {
+      ...paidSession,
+      effectLog: [
+        {
+          id: createId("mana-payment"),
+          at: Date.now(),
+          sourceName: event.card?.name || "Spell",
+          summary: `Auto-tapped ${payment.sourceIds.length} mana source${payment.sourceIds.length === 1 ? "" : "s"} to cast ${event.card?.name || "the spell"}.`,
+          status: "resolved",
+          rulesConfidence: RULES_CONFIDENCE.AUTO_RESOLVED,
+        },
+        ...(paidSession.effectLog || []),
+      ].slice(0, 120),
+    },
+    verified: true,
+    sourceIds: payment.sourceIds,
+  };
+}
+
+function tapPlannedManaSources(session, sourceIds = []) {
+  return sourceIds.reduce((currentSession, sourceId) =>
+    updateOnePermanentInstance(currentSession, sourceId, (permanent) => ({
+      ...permanent,
+      tapped: true,
+      attacking: false,
+      blocking: false,
+    })), session);
+}
+
+function advanceMaxSpeed(session, id, amount = 1) {
+  const currentSpeed = Math.max(0, Number(session.playerCounters?.Speed || 0));
+  const maxSpeed = Math.min(4, Math.max(0, currentSpeed + Number(amount || 1)));
+  const updated = updateOnePermanentInstance(session, id, (permanent) => {
+    if (!permanent.supportsMaxSpeed) {
+      return permanent;
+    }
+    return {
+      ...permanent,
+      metadata: {
+        ...(permanent.metadata || {}),
+        maxSpeed,
+        maxSpeedReached: maxSpeed >= 4,
+      },
+    };
+  });
+  return {
+    ...updated,
+    playerCounters: {
+      ...(updated.playerCounters || {}),
+      Speed: maxSpeed,
+    },
+  };
+}
+
 function updatePermanent(session, id, updater) {
   const mapSide = (side) => side.map((permanent) => (permanent.id === id ? hydratePermanentEffects(updater(permanent)) : permanent));
   return recalculateContinuousEffects({
@@ -2928,13 +3055,43 @@ function normalizeStackMembers(permanent) {
   };
 }
 
-function togglePermanentTapped(session, id) {
-  return updateOnePermanentInstance(session, id, (permanent) => ({
+function togglePermanentTapped(session, id, options = {}) {
+  const current = [...(session.battlefield?.player || []), ...(session.battlefield?.opponent || [])]
+    .find((permanent) => permanent.id === id);
+  if (!current) {
+    return session;
+  }
+  const tapping = !current.tapped;
+  let next = updateOnePermanentInstance(session, id, (permanent) => ({
     ...permanent,
     tapped: !permanent.tapped,
     attacking: false,
     blocking: false,
   }));
+  if (!tapping) {
+    return next;
+  }
+  const manaOptions = getPermanentManaOptions(current);
+  if (!manaOptions.length) {
+    return next;
+  }
+  const requestedColor = String(options.manaColor || "").toUpperCase();
+  const manaColor = manaOptions.includes(requestedColor) ? requestedColor : manaOptions[0];
+  next = addMana(next, manaColor, 1);
+  return {
+    ...next,
+    effectLog: [
+      {
+        id: createId("mana"),
+        at: Date.now(),
+        sourceName: current.name,
+        summary: `${current.name} tapped for ${manaColor}.`,
+        status: "resolved",
+        rulesConfidence: RULES_CONFIDENCE.AUTO_RESOLVED,
+      },
+      ...(next.effectLog || []),
+    ].slice(0, 120),
+  };
 }
 
 function setSelectedTapped(session, tapped) {
