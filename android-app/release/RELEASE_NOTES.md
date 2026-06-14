@@ -2,16 +2,16 @@
 
 ## App
 - Name: BoardState
-- Version: 1.11.0
-- Version code: 24
+- Version: 1.11.1
+- Version code: 25
 - Package: `com.boardstate.app`
 
-## Web-only Scryfall focus follow-up
+## Version 1.11.1
 - Enter/Return/Search now immediately submits Battlefield and Deck Page Scryfall searches, blurs the search input, and dismisses the browser keyboard where supported.
 - Search result, cast/source, and Deck Page actions keep the original Scryfall input blurred instead of reopening the keyboard after state updates.
 - Battlefield cast/source confirmation now closes search before the full-card cast/entry presentation, preventing an intermediate jump back to search.
 - Adds browser-safe search metadata and focus regression coverage for portrait, landscape, desktop, and Dry Run search updates.
-- No iPhone, Xcode, native iOS, or native mobile package build was attempted for this web-only follow-up.
+- Synchronizes web, Android wrapper, Flutter wrapper, package metadata, and downloadable release artifacts at version 1.11.1.
 
 ## Summary
 - Completes the event-ready BoardState pass with smoother Dry Run rendering, first-tap controls, faster non-blocking notices, stable search focus/scroll, reduced simulation animation churn, and performance-safe overlays.
