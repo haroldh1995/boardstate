@@ -3,6 +3,7 @@ import { reduceProfile } from "./gameReducer.js";
 import { createPasswordProfile, loadGuestProfile, loadProfile, loginWithPassword, lockProtectedProfile, saveProfile } from "../storage/localDatabase.js";
 import { createAction } from "./actions.js";
 import { createSyncManager } from "../multiplayer/syncManager.js";
+import { createTournamentSyncManager } from "../multiplayer/tournamentSyncManager.js";
 import { getSimulationSpeedInterval } from "../simulation/commanderSimulation.js";
 
 export function createStore() {
@@ -36,6 +37,13 @@ export function createStore() {
         },
       };
       emit();
+    },
+  });
+  const tournamentSyncManager = createTournamentSyncManager({
+    onRemoteAction: async (remoteAction) => {
+      state = reduceProfile(state, createAction({ ...remoteAction, remote: true }, state));
+      emit(remoteAction);
+      await saveProfile(state);
     },
   });
 
@@ -96,10 +104,15 @@ export function createStore() {
     });
   }
 
+  function configureTournamentSync() {
+    tournamentSyncManager.configure(state.tournament || {});
+  }
+
   const storeApi = {
     async init() {
       state = await loadProfile();
       configureSync();
+      configureTournamentSync();
       emit();
       refreshSimulationLoop();
     },
@@ -119,8 +132,13 @@ export function createStore() {
       }
       emit(action);
       await saveProfile(state);
-      if (!event?.remote && !event?.internalOnly) {
+      const isTournamentAction = String(action.actionType || "").startsWith("TOURNAMENT_");
+      if (!event?.remote && !event?.internalOnly && !isTournamentAction) {
         syncManager.sendAction(action, state);
+      }
+      if (!event?.remote && !event?.internalOnly && isTournamentAction) {
+        configureTournamentSync();
+        tournamentSyncManager.sendAction(action, state.tournament);
       }
       if (event?.type === "SET_MULTIPLAYER_MODE" || event?.actionType === "SET_MULTIPLAYER_MODE" || event?.type === "SET_SETTING") {
         configureSync();
@@ -130,6 +148,7 @@ export function createStore() {
     async createPassword(password) {
       state = await createPasswordProfile(password, state);
       configureSync();
+      configureTournamentSync();
       emit();
       await saveProfile(state);
       refreshSimulationLoop();
@@ -137,18 +156,21 @@ export function createStore() {
     async login(password) {
       state = await loginWithPassword(password);
       configureSync();
+      configureTournamentSync();
       emit();
       refreshSimulationLoop();
     },
     async continueGuest() {
       state = await loadGuestProfile();
       configureSync();
+      configureTournamentSync();
       emit();
       refreshSimulationLoop();
     },
     async lockProfile() {
       state = await lockProtectedProfile();
       configureSync();
+      configureTournamentSync();
       emit();
       refreshSimulationLoop();
     },

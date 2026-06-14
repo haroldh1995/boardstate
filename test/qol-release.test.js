@@ -55,7 +55,7 @@ test("debug exports include useful state and redact sensitive fields", () => {
     bugReport,
   });
 
-  assert.equal(gameLog.battlefieldSummary.player.length, 3);
+  assert.equal(gameLog.battlefieldSummary.player.length, 4);
   assert.equal(debugState.currentPage, "battlefield");
   assert.equal(bugReport.reportType, "BoardState bug report");
   assert.match(serialized, /\[redacted\]/);

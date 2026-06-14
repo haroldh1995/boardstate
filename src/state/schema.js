@@ -40,6 +40,8 @@ export function createDefaultProfile() {
         stepByStepPrompts: false,
       },
       confirmAmbiguousEffects: true,
+      strictPhaseEnforcement: false,
+      manualStackConfirmation: false,
       haptics: false,
       compactTiles: true,
       pagePanels: {
@@ -76,6 +78,13 @@ export function createDefaultProfile() {
       battlefield: {
         manaPinned: false,
         expandedAll: false,
+        statsOverlay: false,
+        opponentVisibility: {
+          opponent: false,
+          alpha: false,
+          beta: false,
+          omega: false,
+        },
         detailMode: "standard",
         compressionMode: "adaptive",
         densityScale: 1,
@@ -139,6 +148,7 @@ export function createDefaultProfile() {
       updatedAt: 0,
     },
     simulationStats: createEmptySimulationStats(),
+    tournament: createTournamentState(),
   };
 }
 
@@ -190,8 +200,10 @@ export function createGameSession() {
     priority: {
       activePlayerId: "local-player",
       passedPlayerIds: [],
+      responderIds: [],
       waiting: false,
     },
+    presentation: null,
     combat: createCombatState(),
     pendingEffects: [],
     triggerQueue: [],
@@ -316,10 +328,34 @@ export function createCombatState() {
   return {
     step: "idle",
     attackerIds: [],
+    attackingPlayerId: "local-player",
+    defendingPlayerId: "opponent",
+    attackTargetsByAttacker: {},
     blockersByAttacker: {},
     damagePreview: null,
     resolvedDamage: 0,
     lines: [],
+  };
+}
+
+export function createTournamentState(source = {}) {
+  return {
+    active: Boolean(source.active),
+    id: normalizeName(source.id),
+    name: normalizeName(source.name, "Local Commander Tournament"),
+    role: normalizeName(source.role, "host"),
+    players: Array.isArray(source.players) ? source.players : [],
+    results: Array.isArray(source.results) ? source.results : [],
+    standings: Array.isArray(source.standings) ? source.standings : [],
+    announcement: source.announcement || null,
+    sync: {
+      mode: normalizeName(source.sync?.mode, "local"),
+      sessionId: normalizeName(source.sync?.sessionId),
+      lastSyncAt: Number(source.sync?.lastSyncAt || 0),
+      status: normalizeName(source.sync?.status, "local-only"),
+    },
+    createdAt: Number(source.createdAt || 0),
+    updatedAt: Number(source.updatedAt || 0),
   };
 }
 
@@ -425,7 +461,7 @@ export function createPermanent(source = {}) {
     markedDamage: Math.max(0, normalizeCount(source.markedDamage)),
     counters,
     keywords: Array.isArray(source.keywords) ? source.keywords : [],
-    tapped: Boolean(source.tapped),
+    tapped: Boolean(source.tapped ?? shouldEnterTappedByDefault(source)),
     summoningSick: source.summoningSick ?? Boolean(isCreature),
     attacking: Boolean(source.attacking),
     blocking: Boolean(source.blocking),
@@ -454,6 +490,14 @@ export function createPermanent(source = {}) {
     stackMembers,
     manualStatus: normalizeName(source.manualStatus),
   };
+}
+
+function shouldEnterTappedByDefault(source = {}) {
+  const oracle = normalizeName(source.oracleText || source.rulesText).toLowerCase();
+  if (!oracle || /\benters(?: the battlefield)? tapped unless\b/.test(oracle)) {
+    return false;
+  }
+  return /\benters(?: the battlefield)? tapped\b/.test(oracle);
 }
 
 export function createDeckRecord(commander) {

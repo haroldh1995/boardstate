@@ -47,6 +47,7 @@ const TEMPORARY_SCROLL_SELECTORS = [
   ".trigger-queue-panel",
   ".history-timeline",
   ".opponent-battlefield-overlay",
+  ".blocker-declaration",
   ".tutorial-sample-panel",
   ".adhd-assist-panel",
 ];
@@ -68,6 +69,7 @@ const BACKGROUND_SCROLL_LOCK_SELECTORS = [
   ".manual-choice-panel:not(.manual-choice-panel--collapsed)",
   ".trigger-queue-panel",
   ".opponent-battlefield-overlay",
+  ".blocker-declaration",
   ".tutorial-sample-panel",
 ];
 const HUD_BADGE_DEFAULTS = {
@@ -119,6 +121,11 @@ export function mountApp(root, store) {
   let searchResults = [];
   let searchMessage = "";
   let searchQuery = "";
+  const searchContexts = {
+    battlefield: { results: [], message: "", query: "" },
+    decks: { results: [], message: "", query: "" },
+  };
+  let activeSearchContext = activePage === "decks" ? "decks" : "battlefield";
   let searchLoading = false;
   let searchDebounceTimer = null;
   let searchRequestToken = 0;
@@ -188,6 +195,8 @@ export function mountApp(root, store) {
   let castActionPopup = null;
   let backgroundScrollLockY = null;
   let lastSimulationVisualSignature = "";
+  let presentationRefreshTimer = null;
+  let autoStackTimer = null;
 
   normalizeCurrentHash();
   window.addEventListener("hashchange", handleHashChange);
@@ -346,8 +355,44 @@ export function mountApp(root, store) {
     restoreOpenDetailsState(root, openDetailsSnapshot);
     restoreSearchInputFocus(root, searchFocusSnapshot, searchResultsScrollTop);
     syncBackgroundScrollLock();
+    schedulePresentationRefresh(profile);
+    scheduleAutoStackProcessing(profile);
     lastRenderedSearchQuery = searchQuery;
     lastSimulationVisualSignature = getSimulationVisualSignature(profile);
+  }
+
+  function schedulePresentationRefresh(profile) {
+    clearTimeout(presentationRefreshTimer);
+    const presentation = profile.activeSession?.presentation;
+    if (!presentation?.expiresAt || presentation.expiresAt <= Date.now()) {
+      return;
+    }
+    presentationRefreshTimer = setTimeout(() => render(store.getState()), Math.max(40, presentation.expiresAt - Date.now() + 20));
+  }
+
+  function scheduleAutoStackProcessing(profile) {
+    clearTimeout(autoStackTimer);
+    const session = profile.activeSession;
+    const top = session?.stack?.[0];
+    const hasPendingChoice = (session?.pendingEffects || []).some(
+      (entry) => entry.stackObjectId === top?.id && !["resolved", "skipped", "ignored"].includes(entry.status)
+    );
+    if (!top || hasPendingChoice || profile.settings?.manualStackConfirmation) {
+      return;
+    }
+    const userHasPriority = session.priority?.waiting && ["local-player", "player"].includes(session.priority?.activePlayerId);
+    if (userHasPriority && top.controller !== "player" && top.controller !== "local-player") {
+      return;
+    }
+    const delay = session.simulation?.enabled && session.simulation?.speed === "fast" ? 180 : 620;
+    autoStackTimer = setTimeout(() => {
+      const current = store.getState();
+      const currentTop = current.activeSession?.stack?.[0];
+      if (currentTop?.id !== top.id) {
+        return;
+      }
+      store.dispatch({ type: "RESOLVE_TOP_SPELL", stackId: top.id, autoChoose: top.controller !== "player" && top.controller !== "local-player" });
+    }, delay);
   }
 
   function shouldDeferSimulationVisualUpdate(profile, action = null) {
@@ -770,6 +815,35 @@ export function mountApp(root, store) {
     container.querySelectorAll("[data-setting-toggle]").forEach((input) => {
       input.addEventListener("change", () => store.dispatch({ type: "SET_SETTING", path: input.dataset.settingToggle, value: input.checked }));
     });
+    container.querySelector("[data-tournament-create-form]")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      store.dispatch({ type: "TOURNAMENT_CREATE", name: form.get("name") });
+      showNotice("Local Commander tournament created.");
+    });
+    container.querySelector("[data-tournament-player-form]")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      store.dispatch({ type: "TOURNAMENT_ADD_PLAYER", playerName: form.get("playerName"), commander: form.get("commander") });
+      showNotice("Tournament player added.");
+    });
+    container.querySelectorAll("[data-tournament-win]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const tournament = store.getState().tournament;
+        store.dispatch({ type: "TOURNAMENT_REPORT_RESULT", winnerId: button.dataset.tournamentWin, playerIds: (tournament.players || []).map((player) => player.id) });
+        showNotice("Tournament result recorded.");
+      });
+    });
+    container.querySelectorAll("[data-tournament-correct]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const answer = prompt("Correct total wins for this player.", "0");
+        if (answer === null) return;
+        store.dispatch({ type: "TOURNAMENT_CORRECT", playerId: button.dataset.tournamentCorrect, wins: Math.max(0, Number(answer) || 0) });
+        showNotice("Tournament standings corrected.");
+      });
+    });
+    container.querySelector("[data-tournament-announce]")?.addEventListener("click", () => store.dispatch({ type: "TOURNAMENT_ANNOUNCE" }));
+    container.querySelector("[data-tournament-end]")?.addEventListener("click", () => store.dispatch({ type: "TOURNAMENT_END" }));
     container.querySelectorAll("[data-reset-hud-layout]").forEach((button) =>
       button.addEventListener("click", () => {
         openConfirmation({
@@ -943,6 +1017,24 @@ export function mountApp(root, store) {
         amount: Number(button.dataset.delta || 0),
       }));
     });
+    container.querySelectorAll("[data-manual-trigger-permanent]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const permanent = [...(store.getState().activeSession?.battlefield?.player || []), ...(store.getState().activeSession?.battlefield?.opponent || [])]
+          .find((entry) => entry.id === button.dataset.manualTriggerPermanent);
+        if (!permanent) return;
+        const ability = permanent.triggeredAbilities?.[0]?.text || permanent.activatedAbilities?.[0]?.text || permanent.oracleText || "Manually triggered battlefield ability.";
+        store.dispatch({
+          type: "ADD_MANUAL_TRIGGER",
+          sourceId: permanent.id,
+          sourceName: permanent.name,
+          summary: ability,
+          triggerCount: Math.max(1, Number(permanent.quantity || 1)),
+          selectedCondition: "auto",
+        });
+        activeUtilityPanel = "triggers";
+        showNotice(`Queued ${permanent.quantity || 1} trigger(s) for ${permanent.name}.`);
+      });
+    });
     container.querySelector("[data-tap-cost-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
       const form = new FormData(event.currentTarget);
@@ -961,6 +1053,8 @@ export function mountApp(root, store) {
         sourceName: form.get("sourceName"),
         summary: form.get("summary"),
         optional: form.get("optional") === "on",
+        triggerCount: form.get("triggerCount"),
+        selectedCondition: form.get("selectedCondition"),
       });
       showNotice("Manual trigger added to the queue.");
     });
@@ -1135,7 +1229,51 @@ export function mountApp(root, store) {
           showNotice("Select one or more attacking creatures, then tap Attackers.", "info");
           return;
         }
-        store.dispatch({ type: "DECLARE_ATTACKERS", ids: selectedIds });
+        const attackTargets = [
+          { id: "opponent", name: "Defending player" },
+          ...(profile.activeSession.battlefield?.opponent || [])
+            .filter((permanent) => permanent.isPlaneswalker || /\bBattle\b/i.test(permanent.typeLine || ""))
+            .map((permanent) => ({ id: permanent.id, name: permanent.name })),
+        ];
+        let target = attackTargets[0];
+        if (attackTargets.length > 1) {
+          const answer = prompt(`Choose attack target:\n${attackTargets.map((entry, index) => `${index + 1}. ${entry.name}`).join("\n")}`, "1");
+          if (answer === null) return;
+          target = attackTargets[Math.max(0, Math.min(attackTargets.length - 1, Number(answer || 1) - 1))] || attackTargets[0];
+        }
+        store.dispatch({
+          type: "DECLARE_ATTACKERS",
+          ids: selectedIds,
+          defendingPlayerId: "opponent",
+          attackTargetsByAttacker: Object.fromEntries(selectedIds.map((id) => [id, target.id])),
+        });
+      });
+    });
+    container.querySelectorAll("[data-assign-blocker]").forEach((button) => {
+      button.addEventListener("click", () => {
+        store.dispatch({
+          type: "ASSIGN_BLOCKER",
+          attackerId: button.dataset.assignAttacker,
+          blockerId: button.dataset.assignBlocker,
+        });
+      });
+    });
+    container.querySelectorAll("[data-no-blockers]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        await store.dispatch({ type: "NO_BLOCKERS" });
+        await store.dispatch({ type: "RESOLVE_COMBAT" });
+        showNotice("No blockers declared. Combat damage resolved.");
+      });
+    });
+    container.querySelectorAll("[data-confirm-blockers]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        await store.dispatch({ type: "CONFIRM_BLOCKERS" });
+        if (store.getState().activeSession?.combat?.step !== "damage") {
+          showNotice("Blocks are not legal yet. Review the combat warning.", "warning");
+          return;
+        }
+        await store.dispatch({ type: "RESOLVE_COMBAT" });
+        showNotice("Blocks confirmed. Combat damage resolved.");
       });
     });
     container.querySelectorAll("[data-resolve-combat]").forEach((button) => {
@@ -1147,7 +1285,7 @@ export function mountApp(root, store) {
         const spellStack = session.stack || [];
         const queued = session.triggerQueue || [];
         const pending = session.pendingEffects || [];
-        const hasCombatToResolve = Boolean((session.combat?.attackers || []).length || session.combat?.damagePreview);
+        const hasCombatToResolve = Boolean((session.combat?.attackerIds || []).length || session.combat?.damagePreview);
         if (button.dataset.dashboardAction === "resolve") {
           if (spellStack.length) {
             store.dispatch({ type: "RESOLVE_TOP_SPELL", stackId: spellStack[0].id });
@@ -1456,6 +1594,18 @@ export function mountApp(root, store) {
         showNotice("Card added to deck.");
       });
     });
+    container.querySelectorAll("[data-new-deck-result]").forEach((button) => {
+      button.addEventListener("click", () => {
+        keepSearchInputFocus = false;
+        suppressSearchRefocusUntil = Date.now() + 600;
+        const card = searchResults[Number(button.dataset.newDeckResult)];
+        if (!card) return;
+        const name = prompt("Name the new deck.", canBeCommander(card) ? `${card.name} Commander Deck` : "New Deck");
+        if (name === null) return;
+        store.dispatch({ type: "CREATE_DECK_WITH_CARD", card, name: name.trim() || "New Deck", makeCommander: false });
+        showNotice(`Created ${name.trim() || "New Deck"} and added ${card.name}.`);
+      });
+    });
     container.querySelectorAll("[data-inspect-result]").forEach((button) => {
       button.addEventListener("click", async () => {
         const card = searchResults[Number(button.dataset.inspectResult)];
@@ -1472,6 +1622,16 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-pending-effect]").forEach((button) => {
       button.addEventListener("click", () => store.dispatch({ type: "MARK_PENDING_EFFECT", id: button.dataset.pendingEffect, status: button.dataset.status }));
+    });
+    container.querySelectorAll("[data-entry-choice]").forEach((button) => {
+      button.addEventListener("click", () => {
+        store.dispatch({
+          type: "CHOOSE_ENTRY_RESULT",
+          pendingId: button.dataset.entryChoice,
+          enterUntapped: button.dataset.entryUntapped === "true",
+        });
+        showNotice(`Entry choice recorded: ${button.dataset.entryUntapped === "true" ? "untapped" : "tapped"}.`);
+      });
     });
     container.querySelectorAll("[data-spell-target]").forEach((button) => {
       button.addEventListener("click", () =>
@@ -1511,6 +1671,26 @@ export function mountApp(root, store) {
         } else {
           showNotice("Stack is clear.");
         }
+      });
+    });
+    container.querySelectorAll("[data-stack-run]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        let safety = 0;
+        while (safety < 40) {
+          const current = store.getState().activeSession;
+          const top = current.stack?.[0];
+          if (!top) break;
+          const pending = (current.pendingEffects || []).some(
+            (entry) => entry.stackObjectId === top.id && !["resolved", "skipped", "ignored"].includes(entry.status)
+          );
+          if (pending) {
+            showNotice("Manual choice required before the stack can continue.", "warning");
+            break;
+          }
+          await store.dispatch({ type: "RESOLVE_TOP_SPELL", stackId: top.id, autoChoose: top.controller !== "player" && top.controller !== "local-player" });
+          safety += 1;
+        }
+        showNotice("Stack processing complete or paused for a required choice.");
       });
     });
     container.querySelectorAll("[data-pass-priority]").forEach((button) => {
@@ -1758,6 +1938,11 @@ export function mountApp(root, store) {
       condition && root.querySelector(selectors.join(",")) ? { name, selectors } : null;
     const layers = [
       renderedLayer(confirmationDialog, "confirmation", [".confirm-dialog"]),
+      renderedLayer(
+        !manualChoicePanelCollapsed,
+        "manual-choice",
+        [".manual-choice-panel:not(.manual-choice-panel--collapsed)", ".pending-strip"]
+      ),
       renderedLayer(simulationStatsOpen, "simulation-stats", [".simulation-stats-overlay"]),
       renderedLayer(syncedTurnOrderSetupOpen, "synced-turn-order", [".synced-turn-order-modal"]),
       renderedLayer(simulationSetupOpen, "simulation-setup", [".simulation-setup"]),
@@ -1780,9 +1965,6 @@ export function mountApp(root, store) {
     const topLayer = layers.find(Boolean);
     if (topLayer) {
       return topLayer;
-    }
-    if (!manualChoicePanelCollapsed && root.querySelector(".manual-choice-panel:not(.manual-choice-panel--collapsed)")) {
-      return { name: "manual-choice", selectors: [".manual-choice-panel", ".pending-strip"] };
     }
     return null;
   }
@@ -2212,6 +2394,7 @@ export function mountApp(root, store) {
     if (page !== "profile" && !visiblePages.includes(page)) {
       return;
     }
+    switchSearchContext(page);
     activePage = page;
     normalizeCurrentHash();
     closeAllTemporaryUi({ renderAfter: false });
@@ -2246,11 +2429,27 @@ export function mountApp(root, store) {
       normalizeCurrentHash();
       return;
     }
+    switchSearchContext(nextPage);
     activePage = nextPage;
     normalizeCurrentHash();
     closeAllTemporaryUi({ renderAfter: false });
     toolContextOverride = "";
     render(store.getState());
+  }
+
+  function switchSearchContext(nextPage) {
+    searchContexts[activeSearchContext] = {
+      results: searchResults,
+      message: searchMessage,
+      query: searchQuery,
+    };
+    activeSearchContext = nextPage === "decks" ? "decks" : "battlefield";
+    const next = searchContexts[activeSearchContext];
+    searchResults = next.results;
+    searchMessage = next.message;
+    searchQuery = next.query;
+    searchLoading = false;
+    castActionPopup = null;
   }
 
   function handleViewportChange() {
@@ -2334,6 +2533,20 @@ export function mountApp(root, store) {
           severity: "info",
           suggestedAction: "Pause the simulation if you need manual control.",
         });
+        render(store.getState());
+        return;
+      }
+    }
+    if (currentState.settings?.strictPhaseEnforcement) {
+      if ((currentState.activeSession?.stack || []).length) {
+        phaseControlMessage = "Resolve the stack before advancing.";
+        showNotice(phaseControlMessage, "warning");
+        render(store.getState());
+        return;
+      }
+      if (["declare-blockers", "damage"].includes(currentState.activeSession?.combat?.step)) {
+        phaseControlMessage = "Resolve pending combat blockers or damage before advancing.";
+        showNotice(phaseControlMessage, "warning");
         render(store.getState());
         return;
       }
@@ -3226,6 +3439,11 @@ export function mountApp(root, store) {
       showNotice("Spell could not be found in the current search results.", "warning");
       return;
     }
+    if (/\bLand\b/i.test(card.typeLine || "")) {
+      store.dispatch({ type: "ADD_PERMANENT", card, controller });
+      showNotice(`${card.name} played as a land.`);
+      return;
+    }
     let xValue;
     if (/\{X\}|\bX\b/.test(`${card.manaCost || ""} ${card.oracleText || ""}`)) {
       const answer = prompt(`Choose X for ${card.name || "this spell"}.`, "0");
@@ -3244,7 +3462,7 @@ export function mountApp(root, store) {
       targetIds: store.getState().activeSession?.selectedIds || [],
       xValue,
     });
-    showNotice(`${controller === "opponent" ? "Opponent " : ""}${/\bLand\b/i.test(card.typeLine || "") ? "land action routed for review" : "card cast and placed on the stack"} from ${formatLabel(sourceZone)}.`);
+    showNotice(`${controller === "opponent" ? "Opponent " : ""}card cast and placed on the stack from ${formatLabel(sourceZone)}.`);
   }
 
   function captureSearchResultsScrollTop(container) {
@@ -3305,6 +3523,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       ${uiState.syncedTurnOrderSetupOpen ? renderSyncedTurnOrderModal(uiState.syncedTurnOrderPlayers || [], uiState.syncedTurnOrderRolls || {}, uiState.syncedTurnOrderOrder || [], uiState.syncedTurnOrderSuggested || [], uiState.syncedTurnOrderTiePlayerIds || [], uiState.syncedTurnOrderError || "") : ""}
       ${renderAdhdAssistPanel(profile, page, uiLayer.current)}
       ${renderHelperSprite(profile, uiState.helperMessage, uiState.hudBadgePositions || HUD_BADGE_DEFAULTS, Boolean(uiState.isMobilePortrait), Boolean(uiState.hudBadgesLocked))}
+      ${renderCardPresentation(profile.activeSession?.presentation)}
       ${renderRecoveryToasts(profile, uiState.uiNotice)}
       ${uiState.confirmationDialog ? renderConfirmationDialog(uiState.confirmationDialog) : ""}
       ${renderEdgeSwipeZones(profile)}
@@ -3321,7 +3540,8 @@ function resolveCompositionMode(profile = {}) {
 }
 
 function isAutoMobileDeviceView() {
-  return window.matchMedia?.(MOBILE_LAYOUT_QUERY)?.matches ?? (window.innerWidth || 0) < 1280;
+  const isPortrait = window.matchMedia?.("(orientation: portrait)")?.matches ?? (window.innerHeight || 0) >= (window.innerWidth || 0);
+  return isPortrait && (window.matchMedia?.(MOBILE_LAYOUT_QUERY)?.matches ?? (window.innerWidth || 0) < 1280);
 }
 
 function renderLifeTracker(profile, trackerModifier, uiState = {}) {
@@ -3792,9 +4012,12 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
   const opponentDensityClass = getDensityClass(session.battlefield.opponent, compressionMode);
   const opponentBoards = getOpponentBoards(profile);
   const hasOpponentBoards = opponentBoards.length > 0;
-  const showOpponentZone = Boolean(panels.boardOpponent && hasOpponentBoards);
+  const visibility = profile.settings?.battlefield?.opponentVisibility || {};
   const activeOpponentIndex = hasOpponentBoards ? Math.max(0, Math.min(opponentBoards.length - 1, Number(uiState.opponentBoardIndex) || 0)) : 0;
   const activeOpponent = hasOpponentBoards ? opponentBoards[activeOpponentIndex] : null;
+  const activeOpponentVisible = Boolean(activeOpponent && visibility[activeOpponent.id || "opponent"]);
+  const showOpponentZone = Boolean(panels.boardOpponent && hasOpponentBoards && activeOpponentVisible);
+  const showStatsOverlay = Boolean(profile.settings?.battlefield?.statsOverlay);
   return `
     <section class="battlefield-page battlefield-page--focused ui-layer-surface-${escapeAttribute(uiLayer)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${isMobilePortrait && mobileFocusView ? "mobile-focus-view" : ""}">
       <div class="battlefield-state-strip">
@@ -3802,8 +4025,12 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
           <strong>Turn ${escapeHtml(session.turn)} · ${escapeHtml(PHASES[session.phaseIndex] || "Beginning")} · ${escapeHtml(resolvePhaseTrackerActorLabel(session).replace(/^Active turn:\s*/i, ""))}</strong>
           <span>${escapeHtml(resolveBattlefieldActionHint(session))}</span>
         </div>
-        <button data-setting-button="battlefield.focusMode" data-value="${profile.settings?.battlefield?.focusMode ? "false" : "true"}">Focus View</button>
+        <div class="battlefield-top-controls">
+          <button class="${showStatsOverlay ? "active" : ""}" data-setting-button="battlefield.statsOverlay" data-value="${showStatsOverlay ? "false" : "true"}" aria-pressed="${showStatsOverlay}">Stats ${showStatsOverlay ? "On" : "Off"}</button>
+          <button data-setting-button="battlefield.focusMode" data-value="${profile.settings?.battlefield?.focusMode ? "false" : "true"}">Focus View</button>
+        </div>
       </div>
+      ${hasOpponentBoards ? renderOpponentVisibilityControls(opponentBoards, visibility) : ""}
       <section class="arena glass ${playerDensityClass} ${profile.settings?.battlefield?.focusMode && session.selectedIds?.length ? "focus-mode" : ""} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${showOpponentZone ? "" : "arena--opponent-hidden"} ${panels.boardCombat ? "" : "arena--combat-hidden"}" data-set-tool-context="empty">
         ${showOpponentZone ? `
         <div class="opponent-zone ${opponentDensityClass}" data-opponent-swipe data-set-tool-context="empty">
@@ -3817,6 +4044,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
             detailMode,
             compressionMode,
             expandedStackIds,
+            showStatsOverlay,
             session,
             settings: profile.settings,
           }) : empty("No visible opponent permanents")}
@@ -3840,6 +4068,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
             detailMode,
             compressionMode,
             expandedStackIds,
+            showStatsOverlay,
             session,
             settings: profile.settings,
           })}
@@ -3856,7 +4085,105 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
     ${activeUtilityPanel === "history" ? renderActionTimeline(profile) : ""}
     ${activeUtilityPanel === "triggers" ? renderTriggerQueuePanel(profile) : ""}
     ${uiState.opponentOverlayOpen && activeOpponent ? renderOpponentBattlefieldOverlay(profile, activeOpponent, activeOpponentIndex, opponentBoards.length, detailMode, compressionMode, selectedIds, expandedStackIds) : ""}
+    ${session.combat?.step === "declare-blockers" && !session.simulation?.enabled ? renderBlockerDeclaration(profile) : ""}
   `;
+}
+
+function renderOpponentVisibilityControls(opponentBoards = [], visibility = {}) {
+  return `
+    <div class="opponent-visibility-controls glass" aria-label="Opponent battlefield visibility">
+      ${opponentBoards.map((opponent) => {
+        const id = opponent.id || "opponent";
+        const visible = Boolean(visibility[id]);
+        return `<button class="${visible ? "active" : ""}" data-setting-button="battlefield.opponentVisibility.${escapeAttribute(id)}" data-value="${visible ? "false" : "true"}" aria-pressed="${visible}">${escapeHtml(opponent.name || id)} ${visible ? "Shown" : "Hidden"}</button>`;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderCardPresentation(presentation) {
+  if (!presentation || Number(presentation.expiresAt || 0) <= Date.now()) {
+    return "";
+  }
+  const card = presentation.card || {};
+  const imageUrl = getBattlefieldCardImageUrl(card);
+  const label = presentation.kind === "cast"
+    ? `${presentation.controller || "Player"} casts ${card.name || "a spell"}`
+    : `${card.name || "Card"} enters the battlefield`;
+  return `
+    <aside class="card-presentation" aria-live="polite" aria-label="${escapeAttribute(label)}">
+      <div class="card-presentation__energy" aria-hidden="true"></div>
+      <div class="card-presentation__card ${imageUrl ? "has-card-art" : getBattlefieldCardFallbackClass(card)}" ${imageUrl ? `style="--card-image:url(&quot;${escapeAttribute(imageUrl)}&quot;)"` : ""}>
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(card.name || "Card")}</strong>
+        <small>${escapeHtml(card.typeLine || "")}</small>
+      </div>
+    </aside>
+  `;
+}
+
+function renderBlockerDeclaration(profile) {
+  const session = profile.activeSession;
+  const combat = session.combat || {};
+  const attackers = (session.battlefield.player || []).filter((entry) => (combat.attackerIds || []).includes(entry.id));
+  const blockers = (session.battlefield.opponent || []).filter((entry) => entry.isCreature);
+  const assignments = combat.blockersByAttacker || {};
+  return `
+    <section class="floating-overlay blocker-declaration glass" data-no-swipe role="dialog" aria-modal="true" aria-label="Declare blockers">
+      <div class="overlay-header compact">
+        <div><p class="eyebrow">Combat</p><h2>Declare Blockers</h2></div>
+        <span>${escapeHtml(combat.defendingPlayerId || "Defender")}</span>
+      </div>
+      <div class="blocker-board-pair scroll-safe">
+        <section>
+          <p class="eyebrow">Attacking board</p>
+          <div class="blocker-card-grid">
+            ${attackers.map((attacker) => `
+              <button class="blocker-card blocker-card--attacker" data-blocker-attacker="${escapeAttribute(attacker.id)}">
+                <strong>${escapeHtml(attacker.name)}</strong>
+                <span>${escapeHtml(`${attacker.currentPower || 0}/${attacker.currentToughness || 0}`)}</span>
+                <small>Attacking ${escapeHtml(combat.attackTargetsByAttacker?.[attacker.id] || combat.defendingPlayerId || "opponent")}</small>
+                <em>${(assignments[attacker.id] || []).length} blocker(s)</em>
+              </button>
+            `).join("") || "<p>No attackers declared.</p>"}
+          </div>
+        </section>
+        <section>
+          <p class="eyebrow">Defending board</p>
+          <div class="blocker-card-grid">
+            ${blockers.map((blocker) => {
+              const assignedAttacker = Object.entries(assignments).find(([, ids]) => ids.includes(blocker.id))?.[0] || "";
+              const legalTargets = attackers.filter((attacker) => canUiBlock(attacker, blocker));
+              return `
+                <article class="blocker-card ${legalTargets.length ? "" : "is-invalid"} ${assignedAttacker ? "is-assigned" : ""}">
+                  <strong>${escapeHtml(blocker.name)}</strong>
+                  <span>${escapeHtml(`${blocker.currentPower || 0}/${blocker.currentToughness || 0}`)}</span>
+                  <small>${blocker.tapped ? "Tapped: cannot block" : assignedAttacker ? `Blocking ${attackers.find((entry) => entry.id === assignedAttacker)?.name || "attacker"}` : `${legalTargets.length} legal target(s)`}</small>
+                  <div class="blocker-target-actions">
+                    ${legalTargets.map((attacker) => `<button data-assign-blocker="${escapeAttribute(blocker.id)}" data-assign-attacker="${escapeAttribute(attacker.id)}">${assignedAttacker === attacker.id ? "Unassign" : `Block ${escapeHtml(attacker.name)}`}</button>`).join("")}
+                  </div>
+                </article>
+              `;
+            }).join("") || "<p>No legal blockers available.</p>"}
+          </div>
+        </section>
+      </div>
+      <div class="blocker-declaration__actions">
+        <button data-no-blockers>No Blockers</button>
+        <button class="resolve-button" data-confirm-blockers>Confirm Blocks</button>
+      </div>
+    </section>
+  `;
+}
+
+function canUiBlock(attacker, blocker) {
+  if (!attacker?.isCreature || !blocker?.isCreature || blocker.tapped) return false;
+  const attackerText = String(attacker.oracleText || "").toLowerCase();
+  const blockerText = String(blocker.oracleText || "").toLowerCase();
+  const blockerKeywords = new Set((blocker.keywords || []).map((entry) => String(entry).toLowerCase()));
+  const attackerKeywords = new Set((attacker.keywords || []).map((entry) => String(entry).toLowerCase()));
+  if (/\bcan't be blocked\b|\bunblockable\b/.test(attackerText) || /\bcan't block\b/.test(blockerText)) return false;
+  return !attackerKeywords.has("flying") || blockerKeywords.has("flying") || blockerKeywords.has("reach");
 }
 
 function resolveBattlefieldActionHint(session) {
@@ -4085,15 +4412,7 @@ function renderPermanentGroup(label, permanents, options = {}) {
   const untappedCount = permanents.filter((permanent) => !permanent.tapped).reduce((total, permanent) => total + (Number(permanent.quantity) || 1), 0);
   const tappedCount = Math.max(0, count - untappedCount);
   return `
-    <section class="battlefield-group battlefield-zone-${escapeAttribute(options.zoneKey || "other")}">
-      <div class="battlefield-group-header">
-        <span>${label}</span>
-        <span class="battlefield-zone-summary" aria-label="Permanent states">
-          ${untappedCount ? `<i>Ready ${untappedCount}</i>` : ""}
-          ${tappedCount ? `<i>Tapped ${tappedCount}</i>` : ""}
-        </span>
-        <strong>${count}</strong>
-      </div>
+    <section class="battlefield-group battlefield-zone-${escapeAttribute(options.zoneKey || "other")}" aria-label="${escapeAttribute(`${label}: ${count} permanents, ${untappedCount} ready, ${tappedCount} tapped`)}">
       <div class="tile-grid ${options.readonly ? "readonly" : ""} ${options.compressionMode === "compact" ? "density-high" : ""}">
         ${permanents.map((permanent) => renderPermanent(permanent, options)).join("")}
       </div>
@@ -4102,27 +4421,15 @@ function renderPermanentGroup(label, permanents, options = {}) {
 }
 
 const BATTLEFIELD_ZONE_ORDER = [
-  { key: "commanders", label: "Commanders" },
   { key: "creatures", label: "Creatures" },
-  { key: "tokens", label: "Tokens" },
-  { key: "artifacts", label: "Artifacts" },
-  { key: "enchantments", label: "Enchantments" },
-  { key: "planeswalkers", label: "Planeswalkers" },
-  { key: "battles", label: "Battles" },
   { key: "lands", label: "Lands" },
-  { key: "other", label: "Other Permanents" },
+  { key: "support", label: "Non-creature permanents" },
 ];
 
 function getBattlefieldZoneKey(permanent = {}) {
-  if (permanent.isCommander) return "commanders";
-  if (permanent.isToken) return "tokens";
   if (permanent.isCreature) return "creatures";
-  if (permanent.isPlaneswalker) return "planeswalkers";
-  if (/\bBattle\b/i.test(permanent.typeLine || "")) return "battles";
-  if (permanent.isArtifact) return "artifacts";
-  if (permanent.isEnchantment) return "enchantments";
   if (permanent.isLand) return "lands";
-  return "other";
+  return "support";
 }
 
 function renderPermanent(permanent, options = {}) {
@@ -4131,6 +4438,7 @@ function renderPermanent(permanent, options = {}) {
   const detailMode = options.detailMode || "standard";
   const stackMembers = permanent.stackMembers || [];
   const statusIcons = collectPermanentStatusIcons(permanent, options.session, options.settings);
+  const showStatsOverlay = Boolean(options.showStatsOverlay);
   const imageUrl = getBattlefieldCardImageUrl(permanent);
   const fallbackClass = getBattlefieldCardFallbackClass(permanent);
   const damageMarked = Math.max(0, Number(permanent.damageMarked || permanent.damage || 0));
@@ -4163,7 +4471,7 @@ function renderPermanent(permanent, options = {}) {
           <strong>${escapeHtml(permanent.name)}</strong>
           ${permanent.manaCost ? `<span class="permanent-mana-cost">${escapeHtml(permanent.manaCost)}</span>` : ""}
           ${detailMode !== "compact" ? `<span>${escapeHtml(permanent.typeLine)}</span>` : `<span>MV ${permanent.manaValue || 0}</span>`}
-          ${permanent.isCreature ? `<b>${permanent.currentPower}/${permanent.currentToughness}</b>` : ""}
+          ${permanent.isCreature && showStatsOverlay ? `<b>${permanent.currentPower}/${permanent.currentToughness}</b>` : ""}
           ${permanent.isPlaneswalker ? `<b>Loyalty ${permanent.counters?.Loyalty || 0}</b>` : ""}
           ${permanent.quantity > 1 ? `<i class="quantity">x${permanent.quantity}</i>` : ""}
           ${permanent.isToken ? "<em>TOKEN</em>" : ""}
@@ -4171,8 +4479,8 @@ function renderPermanent(permanent, options = {}) {
           ${permanent.isCommander ? "<em>COMMANDER</em>" : ""}
         </button>
         ${renderPermanentStateBadges(permanent, damageMarked, lethalDamage)}
-        ${renderStatusIconRow(statusIcons)}
-        ${detailMode !== "compact" ? renderPermanentDetails(permanent, detailMode) : ""}
+        ${showStatsOverlay ? renderStatusIconRow(statusIcons) : ""}
+        ${showStatsOverlay && detailMode !== "compact" ? renderPermanentDetails(permanent, detailMode) : ""}
         ${permanent.quantity > 1 ? `<button class="stack-toggle" type="button" data-toggle-stack="${permanent.id}">${stackExpanded ? "Collapse Stack" : "Expand Stack"}</button>` : ""}
         ${stackExpanded ? renderStackMemberDetails(stackMembers, detailMode, permanent) : ""}
         ${options.readonly ? "" : `<div class="row mini">
@@ -4222,6 +4530,7 @@ function renderSelectedPermanentActions(permanent = {}) {
       <button data-open-tool-panel="counters" title="Counters">Counters</button>
       ${permanent.isCreature ? `<button data-declare-attackers title="Declare selected creature as attacker">Attack</button>` : `<button disabled title="Only creatures can attack">Attack</button>`}
       <button data-open-tool-panel="permanents" title="Move, exile, sacrifice, or remove">Move</button>
+      <button data-manual-trigger-permanent="${escapeAttribute(permanent.id)}" title="Manually trigger this card's ability">Trigger</button>
       <button class="danger" data-selected-action="destroy" title="Destroy selected permanent">Remove</button>
       <button data-open-tool-panel="inspect" title="Details">Details</button>
     </div>
@@ -4500,6 +4809,15 @@ function renderTriggerQueuePanel(profile) {
         <p class="eyebrow">Add Manual Trigger</p>
         <label>Source<input name="sourceName" placeholder="Selected permanent or source name" /></label>
         <label>Trigger summary<textarea name="summary" rows="2" required placeholder="Describe the trigger and choices that still need resolution."></textarea></label>
+        <label>Trigger count<input name="triggerCount" type="number" min="1" value="1" /></label>
+        <label>Condition
+          <select name="selectedCondition">
+            <option value="auto">Use battlefield state / auto</option>
+            <option value="base">Base effect</option>
+            <option value="condition-met">Condition met / stronger effect</option>
+            <option value="manual-review">Manual review</option>
+          </select>
+        </label>
         <label class="toggle-row"><span>Optional trigger</span><input name="optional" type="checkbox" /></label>
         <button class="wide">Queue Manual Trigger</button>
       </form>
@@ -4512,6 +4830,9 @@ function renderStackPriorityPanel(profile) {
   const spells = profile.activeSession.stack || [];
   const queue = profile.activeSession.triggerQueue || [];
   const stackItems = [...spells, ...queue, ...(profile.activeSession.pendingEffects || []).filter((entry) => !entry.stackObjectId)];
+  const priority = profile.activeSession.priority || {};
+  const activePriorityName = ["local-player", "player"].includes(priority.activePlayerId) ? "You" : priority.activePlayerId || "No responder";
+  const userCanRespond = priority.waiting && ["local-player", "player"].includes(priority.activePlayerId);
   return `
     <section class="stack-priority-panel">
       <p class="eyebrow">The Stack</p>
@@ -4519,11 +4840,11 @@ function renderStackPriorityPanel(profile) {
         ${stackItems
           .slice(0, 8)
           .map((entry, index) => `
-            <article class="stack-priority-row">
+            <article class="stack-priority-row ${index === 0 ? "is-next" : ""} ${entry.status === "awaiting-choice" ? "needs-choice" : ""}">
               <div class="stack-thumb">${index + 1}</div>
               <div>
                 <strong>${escapeHtml(entry.name || entry.sourceName || entry.summary || "Stack item")}</strong>
-                <span>${escapeHtml(entry.typeLine || entry.eventType || entry.status || "Pending")} ${entry.controller ? `(${escapeHtml(entry.controller)})` : ""}</span>
+                <span>${index === 0 ? "Next to resolve · " : "Waiting · "}${escapeHtml(entry.typeLine || entry.eventType || entry.status || "Pending")} ${entry.controller ? `(${escapeHtml(entry.controller)})` : ""}</span>
                 <p>${escapeHtml(entry.summary || entry.effect?.summary || entry.oracleText || "Waiting for priority.")}</p>
                 ${entry.targetIds?.length ? `<small>Targets: ${entry.targetIds.map(escapeHtml).join(", ")}</small>` : ""}
                 ${entry.selectedModes?.length ? `<small>Modes: ${entry.selectedModes.map(escapeHtml).join(", ")}</small>` : ""}
@@ -4535,13 +4856,14 @@ function renderStackPriorityPanel(profile) {
           .join("") || `<article class="stack-priority-row"><div class="stack-thumb">0</div><div><strong>Stack is empty</strong><span>No spells or abilities waiting.</span></div></article>`}
       </div>
       <article class="priority-message">
-        <strong>Priority: You</strong>
-        <span>Waiting for your action...</span>
+        <strong>Priority: ${escapeHtml(activePriorityName)}</strong>
+        <span>${priority.waiting ? "Waiting for a response or pass." : stackItems.length ? "All applicable priority has passed; auto-run is ready." : "No priority window."}</span>
       </article>
       <div class="stack-priority-actions">
-        <button data-pass-priority>Pass Priority</button>
-        <button data-respond-stack>Respond...</button>
+        ${userCanRespond ? `<button data-pass-priority>Pass Priority</button><button data-respond-stack>Respond...</button>` : ""}
+        <button class="resolve-button" data-stack-run>Confirm / Run Stack</button>
         <button class="resolve-button" data-stack-resolve-next>Resolve Next</button>
+        <button data-open-utility="triggers">Manual Review</button>
       </div>
     </section>
   `;
@@ -4802,7 +5124,8 @@ function renderSearch(results, message, loading = false, query = "", mode = "bat
           </div>
           <div class="row mini search-result-actions">
             ${deckMode ? `
-              <button data-deck-result="${index}">Add to deck</button>
+              <button data-deck-result="${index}">Add to selected deck</button>
+              <button data-new-deck-result="${index}">Add to new deck</button>
               ${commanderEligible ? `<button data-commander-result="${index}">Make commander</button>` : ""}
             ` : `
               <button class="cast-badge ${castActionPopup?.index === index ? "active" : ""}" data-cast-result="${index}" aria-expanded="${castActionPopup?.index === index ? "true" : "false"}">Cast</button>
@@ -5296,6 +5619,7 @@ function renderPending(session, collapsed = false) {
           ${effect.oracleText ? `<small>${escapeHtml(effect.oracleText)}</small>` : ""}
           ${effect.stackObjectId ? `<small>Stack object: ${escapeHtml(effect.stackObjectId)} · Controller: ${escapeHtml(effect.controller || "player")}</small>` : ""}
           ${renderSpellTargetChoices(session, effect)}
+          ${effect.effect?.action === "entry-choice" ? `<div class="manual-target-grid"><button data-entry-choice="${escapeAttribute(effect.id)}" data-entry-untapped="false">Enter Tapped / Decline</button><button data-entry-choice="${escapeAttribute(effect.id)}" data-entry-untapped="true">Condition Met / Pay Cost / Enter Untapped</button></div>` : ""}
           <button data-pending-effect="${effect.id}" data-status="resolved">Resolved</button>
           <button data-pending-effect="${effect.id}" data-status="skipped">Skipped</button>
           <button data-pending-effect="${effect.id}" data-status="ignored">Ignored</button>
@@ -5418,6 +5742,48 @@ function renderLeaderboards(profile) {
   `;
 }
 
+function renderTournamentPanel(profile) {
+  const tournament = profile.tournament || {};
+  if (!tournament.active) {
+    return `
+      <article class="option-card tournament-panel">
+        <h3>Local Commander Tournament</h3>
+        <p>Tournament state and its session ID remain separate from regular gameplay sync.</p>
+        <form class="stacked-form" data-tournament-create-form>
+          <label>Tournament name<input name="name" value="Local Commander Tournament" /></label>
+          <button class="wide">Create Tournament</button>
+        </form>
+      </article>
+    `;
+  }
+  return `
+    <article class="option-card tournament-panel">
+      <div class="overlay-header compact">
+        <div><h3>${escapeHtml(tournament.name)}</h3><small>${escapeHtml(tournament.id)} · ${escapeHtml(tournament.sync?.status || "local-only")}</small></div>
+        <button data-tournament-end>End</button>
+      </div>
+      <form class="stacked-form" data-tournament-player-form>
+        <label>Player name<input name="playerName" required /></label>
+        <label>Commander / deck<input name="commander" /></label>
+        <button>Add Player</button>
+      </form>
+      <div class="tournament-standings scroll-safe">
+        ${(tournament.standings || []).map((standing) => `
+          <article class="tournament-standing">
+            <b>#${standing.rank}</b>
+            <div><strong>${escapeHtml(standing.name)}</strong><small>${escapeHtml(standing.commander || "Commander not listed")} · ${escapeHtml(standing.syncStatus)}</small></div>
+            <span>${standing.wins}W · ${standing.losses}L</span>
+            <button data-tournament-win="${escapeAttribute(standing.playerId)}">Report Win</button>
+            <button data-tournament-correct="${escapeAttribute(standing.playerId)}">Correct</button>
+          </article>
+        `).join("") || "<p>Add players to begin standings.</p>"}
+      </div>
+      <button class="wide resolve-button" data-tournament-announce>Announce Top 3</button>
+      ${tournament.announcement ? `<div class="tournament-announcement"><p class="eyebrow">Top 3</p>${(tournament.announcement.winners || []).map((winner) => `<strong>#${winner.rank} ${escapeHtml(winner.name)} · ${winner.wins} wins</strong>`).join("") || "<strong>No ranked players</strong>"}</div>` : ""}
+    </article>
+  `;
+}
+
 function renderGameOptions(profile, page = "life") {
   const settings = getSettings(profile);
   const panels = getPagePanels(profile);
@@ -5507,7 +5873,10 @@ function renderGameOptions(profile, page = "life") {
             </label>
             ${renderToggle("Spectator view mode", "multiplayer.spectatorMode", Boolean(multiplayer.spectatorMode))}
             ${renderToggle("Multiplayer authority confirmations", "multiplayer.confirmAuthority", multiplayer.confirmAuthority)}
+            ${renderToggle("Strict Turn Phase Enforcement", "strictPhaseEnforcement", Boolean(settings.strictPhaseEnforcement))}
+            ${renderToggle("Manual Stack Confirmation", "manualStackConfirmation", Boolean(settings.manualStackConfirmation))}
           </article>
+          ${renderTournamentPanel(profile)}
           <article class="option-card">
             <h3>HUD Layout</h3>
             <p>Device view: ${escapeHtml(compositionLabel)}</p>

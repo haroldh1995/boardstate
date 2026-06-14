@@ -494,6 +494,321 @@ body:not(.boardstate-app-ready) #app {
   }
 }
 
+/* Keep the event-ready Arena rows authoritative over legacy wide column grouping. */
+body[data-composition="widescreen"] .battlefield-groups {
+  grid-auto-flow: row;
+  grid-auto-columns: auto;
+  grid-template-columns: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+body[data-composition="widescreen"] .battlefield-group {
+  min-height: 0;
+  overflow: auto hidden;
+}
+
+body[data-composition="widescreen"] .battlefield-group .tile-grid {
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(7.5rem, 9.5rem);
+  grid-template-columns: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* Event-ready battlefield lanes, presentation, combat, and tournament surfaces. */
+.battlefield-top-controls,
+.opponent-visibility-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.opponent-visibility-controls {
+  position: relative;
+  z-index: 5;
+  margin: 0 0 0.45rem auto;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.35rem;
+}
+
+.opponent-visibility-controls button,
+.battlefield-top-controls button {
+  min-height: 30px;
+  padding: 0.28rem 0.58rem;
+  font-size: 0.67rem;
+}
+
+.battlefield-groups {
+  grid-template-rows: repeat(3, minmax(min-content, auto));
+  align-content: start;
+}
+
+.battlefield-group {
+  min-height: 5rem;
+  border-color: rgba(236, 200, 122, 0.13);
+  background: linear-gradient(90deg, rgba(236, 200, 122, 0.028), transparent 48%, rgba(143, 211, 255, 0.02));
+}
+
+.battlefield-zone-creatures {
+  order: 1;
+}
+
+.battlefield-zone-lands {
+  order: 2;
+}
+
+.battlefield-zone-support {
+  order: 3;
+}
+
+.card-presentation {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(74, 137, 255, 0.12), transparent 46%);
+  animation: cast-presentation 1.5s ease both;
+}
+
+.card-presentation__energy {
+  position: absolute;
+  width: min(58vw, 24rem);
+  aspect-ratio: 1;
+  border: 1px solid rgba(255, 227, 145, 0.54);
+  border-radius: 50%;
+  box-shadow: 0 0 56px rgba(83, 166, 255, 0.38), inset 0 0 42px rgba(241, 192, 107, 0.2);
+  animation: presentation-energy 1.25s ease-out both;
+}
+
+.card-presentation__card {
+  position: relative;
+  width: min(62vw, 18rem);
+  aspect-ratio: 0.715;
+  display: grid;
+  align-content: end;
+  gap: 0.32rem;
+  overflow: hidden;
+  padding: 1rem;
+  border: 2px solid rgba(255, 226, 138, 0.84);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, transparent 24%, rgba(5, 7, 18, 0.92)),
+    var(--card-image) center / contain no-repeat,
+    linear-gradient(145deg, rgba(45, 24, 78, 0.96), rgba(4, 8, 20, 0.98));
+  box-shadow: 0 0 46px rgba(143, 211, 255, 0.44), 0 18px 52px rgba(0, 0, 0, 0.56);
+  transform-origin: center bottom;
+}
+
+.card-presentation__card span,
+.card-presentation__card small {
+  color: #ffe6a1;
+  text-shadow: 0 2px 3px #000;
+}
+
+.card-presentation__card strong {
+  color: #fff;
+  font-size: 1.2rem;
+  text-shadow: 0 2px 3px #000;
+}
+
+.blocker-declaration {
+  position: fixed;
+  inset: max(0.6rem, env(safe-area-inset-top)) max(0.6rem, env(safe-area-inset-right)) max(0.6rem, env(safe-area-inset-bottom)) max(0.6rem, env(safe-area-inset-left));
+  z-index: 150;
+  width: auto;
+  max-width: 72rem;
+  max-height: calc(100svh - 1.2rem);
+  margin: auto;
+  padding: 0.8rem;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0.7rem;
+  overflow: hidden;
+  border-color: rgba(255, 214, 112, 0.54);
+}
+
+.blocker-board-pair {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  overflow: auto;
+}
+
+.blocker-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.45rem;
+}
+
+.blocker-card {
+  min-width: 0;
+  display: grid;
+  gap: 0.28rem;
+  align-content: start;
+  border: 1px solid rgba(143, 211, 255, 0.28);
+  border-radius: 14px;
+  padding: 0.55rem;
+  background: rgba(6, 9, 22, 0.72);
+  text-align: left;
+}
+
+.blocker-card--attacker {
+  border-color: rgba(255, 157, 93, 0.62);
+}
+
+.blocker-card.is-assigned {
+  border-color: rgba(143, 211, 255, 0.86);
+  box-shadow: 0 0 18px rgba(77, 168, 255, 0.25);
+}
+
+.blocker-card.is-invalid {
+  opacity: 0.45;
+}
+
+.blocker-target-actions,
+.blocker-declaration__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.blocker-target-actions button {
+  width: 100%;
+  min-height: 30px;
+  padding: 0.25rem 0.45rem;
+  font-size: 0.66rem;
+}
+
+.blocker-declaration__actions {
+  justify-content: flex-end;
+}
+
+.stack-priority-row.is-next {
+  border-color: rgba(255, 226, 138, 0.7);
+  box-shadow: 0 0 18px rgba(241, 192, 107, 0.2);
+}
+
+.stack-priority-row.needs-choice {
+  border-color: rgba(255, 150, 96, 0.68);
+}
+
+.tournament-standings {
+  max-height: 18rem;
+  display: grid;
+  gap: 0.4rem;
+  overflow: auto;
+}
+
+.tournament-standing {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  gap: 0.38rem;
+  align-items: center;
+  border: 1px solid rgba(236, 200, 122, 0.18);
+  border-radius: 12px;
+  padding: 0.42rem;
+  background: rgba(4, 7, 17, 0.38);
+}
+
+.tournament-standing div,
+.tournament-announcement {
+  display: grid;
+  gap: 0.16rem;
+}
+
+.tournament-announcement {
+  border: 1px solid rgba(255, 226, 138, 0.46);
+  border-radius: 14px;
+  padding: 0.7rem;
+  background: radial-gradient(circle at 50% 0%, rgba(255, 213, 105, 0.17), rgba(8, 10, 24, 0.55));
+}
+
+@media (orientation: landscape), (min-width: 1280px) {
+  body:not([data-composition="mobile"]) .battlefield-page {
+    height: calc(100svh - 9rem);
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body:not([data-composition="mobile"]) .search-panel {
+    display: none;
+  }
+
+  body:not([data-composition="mobile"]) .arena {
+    min-height: 0;
+    height: 100%;
+  }
+
+  body:not([data-composition="mobile"]) .player-zone {
+    overflow: hidden auto;
+  }
+
+  body:not([data-composition="mobile"]) .battlefield-groups {
+    min-height: 100%;
+    grid-template-rows: minmax(8rem, 1.25fr) minmax(6rem, 0.8fr) minmax(6rem, 0.8fr);
+    gap: 0.42rem;
+    overflow: hidden;
+  }
+
+  body:not([data-composition="mobile"]) .battlefield-group {
+    min-height: 0;
+    overflow: auto hidden;
+  }
+
+  body:not([data-composition="mobile"]) .battlefield-group .tile-grid {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(7.5rem, 9.5rem);
+    grid-template-columns: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+}
+
+@media (max-width: 720px) {
+  .blocker-board-pair {
+    grid-template-columns: 1fr;
+  }
+
+  .blocker-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tournament-standing {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .tournament-standing button {
+    grid-column: span 1;
+  }
+}
+
+@keyframes cast-presentation {
+  0% { opacity: 0; transform: scale(0.92); }
+  14%, 74% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: translateY(12vh) scale(0.82); }
+}
+
+@keyframes presentation-energy {
+  from { opacity: 0; transform: rotate(-20deg) scale(0.72); }
+  32% { opacity: 1; }
+  to { opacity: 0; transform: rotate(30deg) scale(1.12); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-presentation,
+  .card-presentation__energy {
+    animation: none;
+  }
+
+  .card-presentation {
+    opacity: 1;
+  }
+}
+
 button,
 input,
 select {
@@ -5532,6 +5847,15 @@ body[data-simulation-active="true"] .battlefield-mobile-dock button {
 }
 
 .manual-choice-panel:not(.manual-choice-panel--collapsed) {
+  position: fixed;
+  right: max(0.65rem, env(safe-area-inset-right));
+  bottom: calc(0.65rem + env(safe-area-inset-bottom));
+  left: auto;
+  z-index: 145;
+  width: min(32rem, calc(100vw - 1.3rem));
+  max-height: min(78svh, 43rem);
+  overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid rgba(255, 213, 105, 0.68);
   background:
     radial-gradient(circle at 50% 0%, rgba(241, 192, 107, 0.14), transparent 35%),
@@ -5778,4 +6102,25 @@ body.phase-advance-celebration .battlefield-wheel-center {
   .recovery-toast {
     animation: none !important;
   }
+}
+
+/* Final Arena row authority: override legacy widescreen column grouping. */
+body[data-composition="widescreen"] .battlefield-groups {
+  grid-auto-flow: row;
+  grid-auto-columns: auto;
+  grid-template-columns: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+body[data-composition="widescreen"] .battlefield-group {
+  min-height: 0;
+  overflow: auto hidden;
+}
+
+body[data-composition="widescreen"] .battlefield-group .tile-grid {
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(7.5rem, 9.5rem);
+  grid-template-columns: none;
+  overflow-x: auto;
+  overflow-y: hidden;
 }

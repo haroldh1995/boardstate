@@ -38,6 +38,41 @@ export function assignCommander(profile, card) {
   };
 }
 
+export function createDeckWithCard(profile, card, options = {}) {
+  const makeCommander = Boolean(options.makeCommander && canBeCommander(card));
+  const safeName = String(options.name || (makeCommander ? `${card.name} Commander Deck` : "New Deck")).trim() || "New Deck";
+  if (makeCommander) {
+    return assignCommander(profile, card);
+  }
+  const deckKey = makeCommanderDeckKey(`${safeName}-${Date.now()}`);
+  const deck = {
+    ...createDeckRecord({
+      name: safeName,
+      deckKey,
+      colorIdentity: card.colorIdentity || [],
+    }),
+    commanderName: safeName,
+    cards: [],
+  };
+  const nextProfile = {
+    ...profile,
+    activeSession: {
+      ...profile.activeSession,
+      commander: {
+        ...profile.activeSession.commander,
+        name: safeName,
+        deckKey,
+        colorIdentity: card.colorIdentity || [],
+      },
+    },
+    commanders: {
+      ...profile.commanders,
+      [deckKey]: deck,
+    },
+  };
+  return addCardToCommanderDeck(nextProfile, card, "new-deck");
+}
+
 export function castCommander(profile) {
   const session = profile.activeSession;
   if (!session.commander?.name) {

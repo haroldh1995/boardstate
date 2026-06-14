@@ -2,11 +2,24 @@
 
 ## App
 - Name: BoardState
-- Version: 1.10.9
-- Version code: 23
+- Version: 1.11.0
+- Version code: 24
 - Package: `com.boardstate.app`
 
 ## Summary
+- Completes the event-ready BoardState pass with smoother Dry Run rendering, first-tap controls, faster non-blocking notices, stable search focus/scroll, reduced simulation animation churn, and performance-safe overlays.
+- Fixes casting routing so permanent spells use the permanent stack path, instants/sorceries use the non-permanent stack path, lands use battlefield entry, and the caster is not redundantly asked to confirm their own cast.
+- Adds responder-only priority, automatic stack processing after priority passes, manual Stack Review, visible pending counts, user-only target/manual-choice pauses, and first-tap Manual Choice targeting above utility panels.
+- Adds MTG Arena-style full-card cast/entry previews, permanent battlefield drop presentation, reduced-motion handling, and local presentation for normal gameplay and Dry Run-compatible actions.
+- Adds MTG Arena-style blocker declaration with attacker/defender boards, legal-block filtering, multiple blockers, menace validation, No Blockers, trample/deathtouch-aware damage, planeswalker/battle damage, and user-creature graveyard movement.
+- Hides permanent stats overlays by default and adds a persistent top-right Stats On/Off toggle while retaining critical tapped, attacking, blocking, counter, loyalty, token, and stack indicators.
+- Orders the battlefield as creatures, lands, then non-creature permanents without large labels and adds automatic portrait-to-landscape Arena-style battlefield lanes without hand/deck/exile/graveyard zones.
+- Fixes Deck Page Scryfall context/actions, adds resilient embedded common-card fallback results, Add to selected deck, Add to new deck, and commander eligibility actions without leaking Battlefield cast actions.
+- Adds tapped/conditional entry handling with user entry-choice prompts, optional strict phase enforcement, manual trigger count/condition controls, and full exact-copy stack trigger defaults.
+- Keeps Alpha/Beta/Omega hidden by default with visibility toggles, independent Dry Run choices, preserved learning data, throttled visual updates, and no user decisions for simulated players.
+- Completes starting Planeswalker loyalty, loyalty adjustments/removal, and safer Crew/Saddle/Station/Convoke/Improvise tap-cost helpers that exclude the source permanent from its own payment.
+- Adds local Commander tournament creation, players, result reporting, corrections, win-ranked standings, top-three announcement, persistence, and a tournament-only BroadcastChannel adapter separated from gameplay sync.
+- Adds event-ready browser regression coverage for phone portrait, landscape, desktop, casting, target choices, blockers, search contexts, tournament controls, opponent visibility, and Dry Run controls.
 - Wraps the production BoardState web app in Android WebView.
 - Supports remote-first loading with bundled offline fallback.
 - Keeps JavaScript + DOM storage enabled for local-first app state.

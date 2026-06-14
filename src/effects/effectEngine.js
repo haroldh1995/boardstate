@@ -5,6 +5,7 @@ import { getTargets } from "./targeting.js";
 import { applyLayerSystem } from "./layerSystem.js";
 import { createCardDefinition } from "./cardDefinition.js";
 import { RULES_CONFIDENCE } from "../support/debugExport.js";
+import { preparePermanentEntry } from "../game/entrySystem.js";
 
 export function hydratePermanentEffects(permanent) {
   const definition = createCardDefinition(permanent);
@@ -20,8 +21,8 @@ export function hydratePermanentEffects(permanent) {
     replacementEffects: definition.replacementEffects,
     continuousEffects: definition.continuousEffects,
     tokenDefinitions: definition.tokenDefinitions,
-    metadata: definition.metadata,
-    relationships: definition.relationships,
+    metadata: { ...(permanent.metadata || {}), ...(definition.metadata || {}) },
+    relationships: { ...(permanent.relationships || {}), ...(definition.relationships || {}) },
     tags: definition.tags,
     parsedEffects: definition.parsedEffects || parseCardEffects(permanent),
   });
@@ -222,13 +223,16 @@ export function castSpellToStack(session, spell, options = {}) {
   const nextStackObject = missingChoices.length
     ? { ...stackObject, status: "awaiting-choice", rulesConfidence: RULES_CONFIDENCE.MANUAL_CHOICE }
     : stackObject;
+  const responderIds = getPriorityResponderIds(session, source.controller);
   const nextSession = {
     ...removeKnownZoneCard(session, source.controller, stackObject.sourceZone, source),
     stack: [nextStackObject, ...(session.stack || [])],
+    presentation: createCardPresentation(source, "cast", source.controller),
     priority: {
-      activePlayerId: source.controller,
+      activePlayerId: responderIds[0] || source.controller,
       passedPlayerIds: [],
-      waiting: true,
+      responderIds,
+      waiting: Boolean(responderIds.length),
     },
     pendingEffects: [...pendingEntries, ...(session.pendingEffects || [])].slice(0, 120),
     rulesConfidenceLog: [
@@ -308,16 +312,20 @@ export function resolveTopOfStack(session, options = {}) {
 export function passStackPriority(session, playerId = "local-player") {
   const passed = new Set(session.priority?.passedPlayerIds || []);
   passed.add(playerId);
-  return {
+  const responderIds = session.priority?.responderIds || [];
+  const next = {
     ...session,
     priority: {
       ...(session.priority || {}),
-      activePlayerId: playerId,
+      activePlayerId: responderIds.find((id) => !passed.has(id)) || playerId,
       passedPlayerIds: [...passed],
-      waiting: true,
+      waiting: responderIds.some((id) => !passed.has(id)),
     },
     effectLog: [createLog("Priority", `${playerId} passed priority.`, RULES_CONFIDENCE.AUTO_RESOLVED), ...(session.effectLog || [])].slice(0, 120),
   };
+  return responderIds.length && responderIds.every((id) => passed.has(id))
+    ? resolveTopOfStack(next, { autoChoose: playerId !== "local-player" })
+    : next;
 }
 
 export function counterStackObject(session, stackId = "", sourceName = "Counterspell") {
@@ -518,7 +526,7 @@ function collectSpellCastingChoices(spell, session = {}) {
   }
   const isActiveGame = Boolean(session.gameTracking?.active || session.simulation?.enabled);
   const legalSorceryPhase = [1, 3].includes(Number(session.phaseIndex));
-  if (spell.card?.isSorcery && isActiveGame && (!legalSorceryPhase || (session.stack || []).length > 0)) {
+  if (session.runtime?.strictPhaseEnforcement && spell.card?.isSorcery && isActiveGame && (!legalSorceryPhase || (session.stack || []).length > 0)) {
     choices.push({ kind: "timing-override", summary: "Sorcery timing is not currently legal. Confirm a permission or manual override." });
   }
   if (isActiveGame && (spell.controller === "player" || spell.controller === "local-player")) {
@@ -613,18 +621,20 @@ function finalizeSpellResolution(session, spell) {
 function finalizePermanentSpellResolution(session, spell) {
   const controller = spell.controller || "player";
   const side = controller === "player" || controller === "local-player" ? "player" : "opponent";
-  const permanent = hydratePermanentEffects({
+  const entry = preparePermanentEntry({
     ...(spell.card || {}),
     id: createId("perm"),
-    controller,
     owner: spell.owner || controller,
     zone: "battlefield",
     isCopy: Boolean(spell.isCopy),
     isToken: Boolean(spell.isCopy),
     attachedToId: /\bAura\b/i.test(spell.typeLine || "") ? spell.targetIds?.[0] || "" : spell.card?.attachedToId || "",
-  });
+  }, controller);
+  const permanent = hydratePermanentEffects(entry.permanent);
   const entered = emitPermanentEntryEvents({
     ...session,
+    presentation: createCardPresentation(permanent, "resolved-permanent", controller),
+    pendingEffects: entry.choice ? [entry.choice, ...(session.pendingEffects || [])].slice(0, 120) : session.pendingEffects,
     battlefield: {
       ...session.battlefield,
       [side]: stackPermanent(session.battlefield?.[side] || [], permanent),
@@ -659,6 +669,38 @@ function finalizePermanentSpellResolution(session, spell) {
       ...(entered.effectLog || []),
     ].slice(0, 120),
   });
+}
+
+function getPriorityResponderIds(session, controller) {
+  if (session.simulation?.enabled) {
+    return (session.simulation.turnOrder || Object.keys(session.simulation.opponents || {}))
+      .filter((id) => id !== controller && id !== "player" && !(session.simulation.eliminatedPlayerIds || []).includes(id));
+  }
+  if (session.syncedMultiplayer?.confirmed) {
+    return (session.syncedMultiplayer.turnOrder || []).filter(
+      (id) => id !== controller && !(controller === "player" && id === "local-player")
+    );
+  }
+  return [];
+}
+
+function createCardPresentation(card, kind, controller = "player") {
+  const now = Date.now();
+  return {
+    id: createId("presentation"),
+    card: {
+      cardId: card.cardId || "",
+      name: card.name || "Card",
+      typeLine: card.typeLine || "",
+      imageUrl: card.imageUrl || "",
+      imageSmall: card.imageSmall || "",
+      imageArt: card.imageArt || "",
+    },
+    kind,
+    controller,
+    createdAt: now,
+    expiresAt: now + 1550,
+  };
 }
 
 function determineSpellDestination(card = {}, options = {}) {

@@ -9,8 +9,18 @@ import {
   resolveSpell,
   resolveTopOfStack,
 } from "../effects/effectEngine.js";
-import { addCardToCommanderDeck, assignCommander, castCommander, recordCommanderCardUsage } from "../game/commanderSystem.js";
-import { assignBlocker, declareAttackers, resolveCombat } from "../game/combatSystem.js";
+import { addCardToCommanderDeck, assignCommander, castCommander, createDeckWithCard, recordCommanderCardUsage } from "../game/commanderSystem.js";
+import { assignBlocker, autoAssignBlockers, confirmBlockers, declareAttackers, declareNoBlockers, resolveCombat } from "../game/combatSystem.js";
+import { chooseEntryResult, preparePermanentEntry } from "../game/entrySystem.js";
+import {
+  addTournamentPlayer,
+  announceTournamentWinners,
+  correctTournamentPlayer,
+  createTournament,
+  endTournament,
+  joinTournament,
+  reportTournamentResult,
+} from "../game/tournamentSystem.js";
 import { createDefaultProfile, createEmptySimulationStats, createGameSession, createManaPool, createPermanent, PHASES } from "./schema.js";
 import { clone, createId, normalizeCount } from "./ids.js";
 import { drainGameEvents, mapActionTypeToGameEvent, queueGameEvent, runGameEventObservers } from "../game/eventBus.js";
@@ -231,11 +241,29 @@ export function reduceProfile(profile, event) {
     case "DECLARE_ATTACKERS":
       nextProfile = withSession(
         baseProfile,
-        emitAttackTriggerEvents(withRuntimeSettings(declareAttackers(baseProfile.activeSession, event.ids || []), baseProfile.settings), event.ids || [])
+        emitAttackTriggerEvents(
+          withRuntimeSettings(
+            declareAttackers(baseProfile.activeSession, event.ids || [], {
+              defendingPlayerId: event.defendingPlayerId || "opponent",
+              attackTargetsByAttacker: event.attackTargetsByAttacker || {},
+            }),
+            baseProfile.settings
+          ),
+          event.ids || []
+        )
       );
+      if (baseProfile.activeSession.simulation?.enabled) {
+        nextProfile = withSession(nextProfile, autoAssignBlockers(nextProfile.activeSession));
+      }
       break;
     case "ASSIGN_BLOCKER":
       nextProfile = withSession(baseProfile, assignBlocker(baseProfile.activeSession, event.attackerId, event.blockerId));
+      break;
+    case "NO_BLOCKERS":
+      nextProfile = withSession(baseProfile, declareNoBlockers(baseProfile.activeSession));
+      break;
+    case "CONFIRM_BLOCKERS":
+      nextProfile = withSession(baseProfile, confirmBlockers(baseProfile.activeSession));
       break;
     case "RESOLVE_COMBAT":
       nextProfile = withSession(baseProfile, resolveCombat(baseProfile.activeSession));
@@ -248,6 +276,12 @@ export function reduceProfile(profile, event) {
       break;
     case "ADD_DECK_CARD":
       nextProfile = addCardToCommanderDeck(baseProfile, event.card, event.source || "manual");
+      break;
+    case "CREATE_DECK_WITH_CARD":
+      nextProfile = createDeckWithCard(baseProfile, event.card, { name: event.name, makeCommander: event.makeCommander });
+      break;
+    case "CHOOSE_ENTRY_RESULT":
+      nextProfile = withSession(baseProfile, chooseEntryResult(baseProfile.activeSession, event.pendingId, Boolean(event.enterUntapped)));
       break;
     case "MARK_PENDING_EFFECT":
       nextProfile = withSession(baseProfile, updatePendingEffect(baseProfile.activeSession, event.id, event.status));
@@ -285,6 +319,27 @@ export function reduceProfile(profile, event) {
     case "SYNC_PUBLIC_STATS":
       nextProfile = syncPublicStats(baseProfile);
       break;
+    case "TOURNAMENT_CREATE":
+      nextProfile = createTournament(baseProfile, event);
+      break;
+    case "TOURNAMENT_JOIN":
+      nextProfile = joinTournament(baseProfile, event);
+      break;
+    case "TOURNAMENT_ADD_PLAYER":
+      nextProfile = addTournamentPlayer(baseProfile, event);
+      break;
+    case "TOURNAMENT_REPORT_RESULT":
+      nextProfile = reportTournamentResult(baseProfile, event);
+      break;
+    case "TOURNAMENT_CORRECT":
+      nextProfile = correctTournamentPlayer(baseProfile, event);
+      break;
+    case "TOURNAMENT_ANNOUNCE":
+      nextProfile = announceTournamentWinners(baseProfile);
+      break;
+    case "TOURNAMENT_END":
+      nextProfile = endTournament(baseProfile);
+      break;
     default:
       nextProfile = baseProfile;
       break;
@@ -302,14 +357,13 @@ export function reduceProfile(profile, event) {
 }
 
 function addPermanent(profile, card, controller) {
-  const permanent = hydratePermanentEffects({
-    ...card,
-    controller,
-    owner: card.owner || controller,
-  });
+  const entry = preparePermanentEntry(card, controller);
+  const permanent = hydratePermanentEffects(entry.permanent);
   const side = controller === "player" ? "player" : "opponent";
   const session = {
     ...profile.activeSession,
+    presentation: createCardPresentation(permanent, permanent.isLand ? "land-played" : "entered-battlefield", controller),
+    pendingEffects: entry.choice ? [entry.choice, ...(profile.activeSession.pendingEffects || [])].slice(0, 120) : profile.activeSession.pendingEffects,
     battlefield: {
       ...profile.activeSession.battlefield,
       [side]: stackBattlefieldPermanent(profile.activeSession.battlefield[side], permanent),
@@ -321,6 +375,25 @@ function addPermanent(profile, card, controller) {
   });
   const withSessionProfile = withSession(profile, withTriggers);
   return controller === "player" ? recordCommanderCardUsage(withSessionProfile, permanent) : withSessionProfile;
+}
+
+function createCardPresentation(card, kind, controller = "player") {
+  const now = Date.now();
+  return {
+    id: createId("presentation"),
+    card: {
+      cardId: card.cardId || "",
+      name: card.name || "Card",
+      typeLine: card.typeLine || "",
+      imageUrl: card.imageUrl || "",
+      imageSmall: card.imageSmall || "",
+      imageArt: card.imageArt || "",
+    },
+    kind,
+    controller,
+    createdAt: now,
+    expiresAt: now + 1550,
+  };
 }
 
 function emitPermanentEntryTriggerEvents(session, permanent, { instances = 1, cause = "effect", chainId = createId("chain") } = {}) {
@@ -2587,7 +2660,15 @@ function tapSelectedForCost(session, event = {}) {
   const mechanic = String(event.mechanic || "tap-cost").toLowerCase();
   const requiredValue = Math.max(0, Number(event.requiredValue || 0));
   const selected = [...(session.battlefield?.player || [])].filter((permanent) => (session.selectedIds || []).includes(permanent.id));
+  const sourcePermanent = selected.find((permanent) => {
+    const oracleText = String(permanent.oracleText || "");
+    if (mechanic === "crew") return permanent.isArtifact && /\bCrew\b/i.test(oracleText);
+    if (mechanic === "saddle") return /\bSaddle\b/i.test(oracleText);
+    if (mechanic === "station") return /\bStation\b/i.test(oracleText);
+    return false;
+  });
   const eligible = selected.filter((permanent) => {
+    if (permanent.id === sourcePermanent?.id) return false;
     if (permanent.tapped) return false;
     if (mechanic === "improvise") return permanent.isArtifact;
     if (["convoke", "crew", "saddle", "station"].includes(mechanic)) return permanent.isCreature;
@@ -2608,11 +2689,33 @@ function tapSelectedForCost(session, event = {}) {
     });
   }
   const eligibleIds = new Set(eligible.map((permanent) => permanent.id));
-  const mapSide = (side) => side.map((permanent) =>
-    eligibleIds.has(permanent.id)
-      ? hydratePermanentEffects({ ...permanent, tapped: true, attacking: false, blocking: false })
-      : permanent
-  );
+  const selectedIds = new Set(session.selectedIds || []);
+  const mapSide = (side) => side.map((permanent) => {
+    if (eligibleIds.has(permanent.id)) {
+      return hydratePermanentEffects({ ...permanent, tapped: true, attacking: false, blocking: false });
+    }
+    if (!selectedIds.has(permanent.id)) {
+      return permanent;
+    }
+    if (mechanic === "crew" && permanent.id === sourcePermanent?.id) {
+      return hydratePermanentEffects({
+        ...permanent,
+        isCreature: true,
+        typeLine: `${permanent.typeLine || "Artifact"} Creature`,
+        metadata: { ...(permanent.metadata || {}), crewedUntilTurnEnd: session.turn },
+      });
+    }
+    if (mechanic === "saddle" && permanent.id === sourcePermanent?.id) {
+      return hydratePermanentEffects({ ...permanent, metadata: { ...(permanent.metadata || {}), saddledUntilTurnEnd: session.turn } });
+    }
+    if (mechanic === "station" && permanent.id === sourcePermanent?.id) {
+      return hydratePermanentEffects({
+        ...permanent,
+        counters: { ...(permanent.counters || {}), Station: normalizeCount(permanent.counters?.Station) + contributed },
+      });
+    }
+    return permanent;
+  });
   return {
     ...recalculateContinuousEffects({
       ...session,
@@ -2655,6 +2758,7 @@ function addManualTrigger(session, event = {}) {
     .find((permanent) => permanent.id === event.sourceId || (session.selectedIds || []).includes(permanent.id));
   const sourceName = String(event.sourceName || selectedSource?.name || "Manual Trigger").trim();
   const summary = String(event.summary || "Resolve this manually entered trigger.").trim();
+  const triggerCount = Math.max(1, normalizeCount(event.triggerCount, Number(selectedSource?.quantity || 1)));
   const trigger = {
     id: createId("trigger"),
     chainId: createId("chain"),
@@ -2665,10 +2769,14 @@ function addManualTrigger(session, event = {}) {
     optional: Boolean(event.optional),
     oncePerTurn: false,
     triggerCondition: "manual-entry",
+    triggerCount,
+    selectedCondition: String(event.selectedCondition || "auto"),
     effectDefinitions: [{
       action: "manual-choice",
       manual: true,
       summary,
+      multiplier: triggerCount,
+      selectedCondition: String(event.selectedCondition || "auto"),
       reason: "User-entered trigger requires manual resolution.",
     }],
     status: "pending",
@@ -2683,7 +2791,7 @@ function addManualTrigger(session, event = {}) {
         id: createId("confidence"),
         at: Date.now(),
         sourceName,
-        summary,
+        summary: `${summary} (${triggerCount} trigger${triggerCount === 1 ? "" : "s"})`,
         status: "pending",
         rulesConfidence: RULES_CONFIDENCE.MANUAL_CHOICE,
       },
@@ -3324,6 +3432,29 @@ function loadTutorialSampleBoard(session) {
       owner: "player",
     })
   );
+  const tutorialLand = hydratePermanentEffects(
+    createPermanent({
+      id: createId("tutorial"),
+      name: "Tutorial Meadow",
+      typeLine: "Land",
+      oracleText: "{T}: Add {G}.",
+      controller: "player",
+      owner: "player",
+    })
+  );
+  const tutorialBlocker = hydratePermanentEffects(
+    createPermanent({
+      id: createId("tutorial"),
+      name: "Practice Sentinel",
+      typeLine: "Creature - Soldier",
+      oracleText: "A defending creature for the blocker declaration tutorial.",
+      basePower: 2,
+      baseToughness: 3,
+      controller: "opponent",
+      owner: "opponent",
+      summoningSick: false,
+    })
+  );
   const manualEntry = {
     id: createId("pending"),
     sourceId: tutorialEngine.id,
@@ -3344,7 +3475,8 @@ function loadTutorialSampleBoard(session) {
     selectedIds: [tutorialCreature.id],
     battlefield: {
       ...session.battlefield,
-      player: [tutorialCreature, tutorialToken, tutorialEngine],
+      player: [tutorialCreature, tutorialToken, tutorialLand, tutorialEngine],
+      opponent: [tutorialBlocker],
     },
     pendingEffects: [manualEntry, ...(session.pendingEffects || [])].slice(0, 60),
     triggerQueue: [
@@ -3371,7 +3503,7 @@ function loadTutorialSampleBoard(session) {
         id: createId("effect"),
         at: now,
         sourceName: "Tutorial Sample Board",
-        summary: "Loaded a safe sample board with a creature, token stack, automatic trigger, and manual-choice example.",
+        summary: "Loaded a safe sample board with creatures, a land, a non-creature permanent, a defender, an automatic trigger, and a manual-choice example.",
         status: "resolved",
         rulesConfidence: RULES_CONFIDENCE.AUTO_RESOLVED,
       },
@@ -3580,6 +3712,8 @@ function withRuntimeSettings(session, settings = {}) {
       adhdModeEnabled: Boolean(settings.adhdMode?.enabled),
       debugRules: Boolean(settings.developer?.rulesDebug),
       multiplayerMode: settings.multiplayer?.mode || "offline",
+      strictPhaseEnforcement: Boolean(settings.strictPhaseEnforcement),
+      manualStackConfirmation: Boolean(settings.manualStackConfirmation),
     },
   };
 }

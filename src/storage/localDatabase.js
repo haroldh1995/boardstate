@@ -325,6 +325,7 @@ function normalizeProfile(profile) {
         ...defaults.activeSession.priority,
         ...(profile.activeSession?.priority || {}),
       },
+      presentation: profile.activeSession?.presentation || defaults.activeSession.presentation,
       fsm: {
         ...defaults.activeSession.fsm,
         ...(profile.activeSession?.fsm || {}),
@@ -383,6 +384,14 @@ function normalizeProfile(profile) {
         ...(profile.simulationStats?.mostValuableCards || {}),
       },
       history: profile.simulationStats?.history || defaults.simulationStats.history,
+    },
+    tournament: {
+      ...defaults.tournament,
+      ...(profile.tournament || {}),
+      sync: { ...defaults.tournament.sync, ...(profile.tournament?.sync || {}) },
+      players: profile.tournament?.players || defaults.tournament.players,
+      results: profile.tournament?.results || defaults.tournament.results,
+      standings: profile.tournament?.standings || defaults.tournament.standings,
     },
   };
 }
