@@ -115,6 +115,22 @@ const STATUS_ICON_META = {
   adhdReminder: { glyph: "ADHD", label: "ADHD reminder active" },
 };
 
+export function isScryfallSearchInput(element) {
+  return Boolean(element?.matches?.("[data-search-query]"));
+}
+
+export function shouldRestoreScryfallSearchFocus(element, keepFocus = false) {
+  return Boolean(keepFocus && isScryfallSearchInput(element));
+}
+
+export function blurScryfallSearchInput(element = globalThis.document?.activeElement) {
+  if (!isScryfallSearchInput(element)) {
+    return false;
+  }
+  element.blur();
+  return true;
+}
+
 export function mountApp(root, store) {
   const allPages = ["life", "battlefield", "profile", "archive", "decks", "leaderboards"];
   let activePage = normalizePageFromHash(location.hash);
@@ -132,7 +148,6 @@ export function mountApp(root, store) {
   let searchAbortController = null;
   let keepSearchInputFocus = false;
   let searchSelection = { start: null, end: null, direction: "none" };
-  let suppressSearchRefocusUntil = 0;
   let optionsOpen = false;
   let statsOpen = false;
   let statsMode = "individual";
@@ -1463,25 +1478,26 @@ export function mountApp(root, store) {
       })
     );
 
+    const submitScryfallSearch = async (form) => {
+      clearTimeout(searchDebounceTimer);
+      const query = new FormData(form).get("query");
+      searchQuery = String(query || "");
+      dismissSearchInputFocus();
+      await runScryfallSearch(query, store.getState(), true);
+    };
     container.querySelectorAll("[data-search-form]").forEach((form) => {
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
-        const query = new FormData(event.currentTarget).get("query");
-        searchQuery = String(query || "");
-        keepSearchInputFocus = true;
-        await runScryfallSearch(query, store.getState(), true);
+        await submitScryfallSearch(event.currentTarget);
       });
     });
     const searchInputs = [...container.querySelectorAll("[data-search-query]")];
-    const searchInput = searchInputs.find((input) => input === document.activeElement) || searchInputs[0] || null;
     searchInputs.forEach((input) => {
       input.addEventListener("focus", () => {
-        keepSearchInputFocus = Date.now() >= suppressSearchRefocusUntil;
+        keepSearchInputFocus = true;
       });
       input.addEventListener("blur", () => {
-        if (Date.now() >= suppressSearchRefocusUntil) {
-          keepSearchInputFocus = false;
-        }
+        keepSearchInputFocus = false;
       });
       input.addEventListener("input", (event) => {
         const query = event.target.value;
@@ -1497,24 +1513,29 @@ export function mountApp(root, store) {
           runScryfallSearch(query, store.getState(), false);
         }, 220);
       });
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        submitScryfallSearch(event.currentTarget.form);
+      });
     });
-    container.querySelector(".search-results")?.addEventListener("pointerdown", (event) => {
-      event.stopPropagation();
-      keepSearchInputFocus = true;
-      searchSelection = {
-        start: searchInput?.selectionStart,
-        end: searchInput?.selectionEnd,
-        direction: searchInput?.selectionDirection || "none",
-      };
-    });
-    container.querySelector(".search-results")?.addEventListener("touchstart", (event) => {
-      event.stopPropagation();
+    container.querySelectorAll(".search-results").forEach((resultList) => {
+      resultList.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
+        dismissSearchInputFocus();
+      });
+      resultList.addEventListener("touchstart", (event) => {
+        event.stopPropagation();
+        dismissSearchInputFocus();
+      });
     });
 
     container.querySelectorAll("[data-add-result]").forEach((button) => {
       button.addEventListener("click", () => {
-        keepSearchInputFocus = false;
-        suppressSearchRefocusUntil = Date.now() + 600;
+        dismissSearchInputFocus({ closeSearchPanel: true });
         store.dispatch({ type: "ADD_PERMANENT", card: searchResults[Number(button.dataset.addResult)] });
         showNotice("Card put onto battlefield.");
       });
@@ -1523,6 +1544,7 @@ export function mountApp(root, store) {
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
+        dismissSearchInputFocus();
         const index = Number(button.dataset.castResult);
         const card = searchResults[index];
         if (!card) {
@@ -1538,6 +1560,7 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-cast-owner-opponent]").forEach((input) => {
       input.addEventListener("change", () => {
+        dismissSearchInputFocus();
         if (!castActionPopup) {
           return;
         }
@@ -1547,6 +1570,7 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-cast-action-zone]").forEach((button) => {
       button.addEventListener("click", () => {
+        dismissSearchInputFocus({ closeSearchPanel: true });
         const index = Number(button.dataset.castActionIndex);
         const sourceZone = button.dataset.castActionZone || "hand";
         const controller = castActionPopup?.opponent ? "opponent" : "player";
@@ -1556,8 +1580,7 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-cast-action-put]").forEach((button) => {
       button.addEventListener("click", () => {
-        keepSearchInputFocus = false;
-        suppressSearchRefocusUntil = Date.now() + 600;
+        dismissSearchInputFocus({ closeSearchPanel: true });
         const index = Number(button.dataset.castActionPut);
         const card = searchResults[index];
         const controller = castActionPopup?.opponent ? "opponent" : "player";
@@ -1572,32 +1595,28 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-put-result]").forEach((button) => {
       button.addEventListener("click", () => {
-        keepSearchInputFocus = false;
-        suppressSearchRefocusUntil = Date.now() + 600;
+        dismissSearchInputFocus({ closeSearchPanel: true });
         store.dispatch({ type: "ADD_PERMANENT", card: searchResults[Number(button.dataset.putResult)] });
         showNotice("Card put onto battlefield without being cast.");
       });
     });
     container.querySelectorAll("[data-commander-result]").forEach((button) => {
       button.addEventListener("click", () => {
-        keepSearchInputFocus = false;
-        suppressSearchRefocusUntil = Date.now() + 600;
+        dismissSearchInputFocus();
         store.dispatch({ type: "SET_COMMANDER", card: searchResults[Number(button.dataset.commanderResult)] });
         showNotice("Commander updated.");
       });
     });
     container.querySelectorAll("[data-deck-result]").forEach((button) => {
       button.addEventListener("click", () => {
-        keepSearchInputFocus = false;
-        suppressSearchRefocusUntil = Date.now() + 600;
+        dismissSearchInputFocus();
         store.dispatch({ type: "ADD_DECK_CARD", card: searchResults[Number(button.dataset.deckResult)] });
         showNotice("Card added to deck.");
       });
     });
     container.querySelectorAll("[data-new-deck-result]").forEach((button) => {
       button.addEventListener("click", () => {
-        keepSearchInputFocus = false;
-        suppressSearchRefocusUntil = Date.now() + 600;
+        dismissSearchInputFocus();
         const card = searchResults[Number(button.dataset.newDeckResult)];
         if (!card) return;
         const name = prompt("Name the new deck.", canBeCommander(card) ? `${card.name} Commander Deck` : "New Deck");
@@ -1608,6 +1627,7 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-inspect-result]").forEach((button) => {
       button.addEventListener("click", async () => {
+        dismissSearchInputFocus();
         const card = searchResults[Number(button.dataset.inspectResult)];
         if (!card?.cardId) {
           return;
@@ -1781,6 +1801,7 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-close-utility-panel]").forEach((button) => {
       button.addEventListener("click", () => {
+        dismissSearchInputFocus();
         castActionPopup = null;
         activeUtilityPanel = "";
         render(store.getState());
@@ -1788,6 +1809,7 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-close-cast-popup]").forEach((button) => {
       button.addEventListener("click", () => {
+        dismissSearchInputFocus();
         castActionPopup = null;
         render(store.getState());
       });
@@ -2020,9 +2042,11 @@ export function mountApp(root, store) {
         floatingManaOpen = false;
         return true;
       case "cast-popup":
+        dismissSearchInputFocus();
         castActionPopup = null;
         return true;
       case "utility-panel":
+        dismissSearchInputFocus();
         activeUtilityPanel = "";
         return true;
       case "utility-menu":
@@ -2050,6 +2074,7 @@ export function mountApp(root, store) {
 
   function closeAllTemporaryUi(options = {}) {
     const { renderAfter = true, keepSimulationSetup = false } = options;
+    dismissSearchInputFocus();
     optionsOpen = false;
     statsOpen = false;
     quickPanelOpen = "";
@@ -2438,6 +2463,7 @@ export function mountApp(root, store) {
   }
 
   function switchSearchContext(nextPage) {
+    dismissSearchInputFocus();
     searchContexts[activeSearchContext] = {
       results: searchResults,
       message: searchMessage,
@@ -3390,17 +3416,16 @@ export function mountApp(root, store) {
 
   function captureSearchFocusState() {
     const active = document.activeElement;
-    const isFocusedSearch = Boolean(active?.matches?.("[data-search-query]"));
-    if (!isFocusedSearch) {
+    if (!shouldRestoreScryfallSearchFocus(active, keepSearchInputFocus)) {
       return {
-        shouldFocus: keepSearchInputFocus && Date.now() >= suppressSearchRefocusUntil,
+        shouldFocus: false,
         start: searchSelection.start,
         end: searchSelection.end,
         direction: searchSelection.direction,
       };
     }
     return {
-      shouldFocus: Date.now() >= suppressSearchRefocusUntil,
+      shouldFocus: true,
       start: active.selectionStart,
       end: active.selectionEnd,
       direction: active.selectionDirection || "none",
@@ -3412,7 +3437,7 @@ export function mountApp(root, store) {
     if (resultList && Number.isFinite(searchResultsScrollTop) && searchResultsScrollTop > 0) {
       resultList.scrollTop = searchResultsScrollTop;
     }
-    if (!snapshot?.shouldFocus || Date.now() < suppressSearchRefocusUntil) {
+    if (!snapshot?.shouldFocus) {
       return;
     }
     const input =
@@ -3432,8 +3457,7 @@ export function mountApp(root, store) {
   }
 
   function castSearchCard(index, sourceZone = "hand", controller = "player") {
-    keepSearchInputFocus = false;
-    suppressSearchRefocusUntil = Date.now() + 600;
+    dismissSearchInputFocus({ closeSearchPanel: true });
     const card = searchResults[index];
     if (!card) {
       showNotice("Spell could not be found in the current search results.", "warning");
@@ -3463,6 +3487,15 @@ export function mountApp(root, store) {
       xValue,
     });
     showNotice(`${controller === "opponent" ? "Opponent " : ""}card cast and placed on the stack from ${formatLabel(sourceZone)}.`);
+  }
+
+  function dismissSearchInputFocus({ closeSearchPanel = false } = {}) {
+    keepSearchInputFocus = false;
+    searchSelection = { start: null, end: null, direction: "none" };
+    blurScryfallSearchInput();
+    if (closeSearchPanel && activeUtilityPanel === "search") {
+      activeUtilityPanel = "";
+    }
   }
 
   function captureSearchResultsScrollTop(container) {
@@ -5095,8 +5128,8 @@ function renderSearch(results, message, loading = false, query = "", mode = "bat
     <form class="search-box search-box--mockup" data-search-form>
       <label><span class="search-label-icon" aria-hidden="true">&#128269;</span>Scryfall Search</label>
       <div class="search-input-row">
-        <input name="query" data-search-query value="${escapeAttribute(query)}" placeholder="Search for a card..." />
-        <button aria-label="Search Scryfall" ${loading ? "disabled" : ""}>${loading ? "Searching…" : "Search"}</button>
+        <input type="search" name="query" data-search-query value="${escapeAttribute(query)}" placeholder="Search for a card..." inputmode="search" enterkeyhint="search" autocomplete="off" />
+        <button type="submit" aria-label="Search Scryfall" ${loading ? "disabled" : ""}>${loading ? "Searching…" : "Search"}</button>
       </div>
       <div class="search-tabs" aria-label="Search result categories">
         <span class="active">Search Results</span>

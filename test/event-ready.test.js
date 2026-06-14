@@ -20,6 +20,11 @@ import {
 import { searchScryfall } from "../src/services/scryfallService.js";
 import { reduceProfile } from "../src/state/gameReducer.js";
 import { createDefaultProfile, createGameSession, createPermanent } from "../src/state/schema.js";
+import {
+  blurScryfallSearchInput,
+  isScryfallSearchInput,
+  shouldRestoreScryfallSearchFocus,
+} from "../src/ui/render.js";
 
 test("event-ready defaults hide battlefield stats and opponent boards without strict timing", () => {
   const profile = createDefaultProfile();
@@ -212,6 +217,30 @@ test("embedded Scryfall fallback keeps common deck and battlefield searches usab
   const forest = await searchScryfall("Forest");
   assert.ok(solRing.some((card) => card.name === "Sol Ring" && card.typeLine === "Artifact"));
   assert.ok(forest.some((card) => card.name === "Forest" && /\bLand\b/.test(card.typeLine)));
+});
+
+test("Scryfall focus restoration only follows an intentionally focused search input", () => {
+  let blurCount = 0;
+  const searchInput = {
+    matches: (selector) => selector === "[data-search-query]",
+    blur: () => {
+      blurCount += 1;
+    },
+  };
+  const actionButton = {
+    matches: () => false,
+    blur: () => {
+      blurCount += 100;
+    },
+  };
+
+  assert.equal(isScryfallSearchInput(searchInput), true);
+  assert.equal(shouldRestoreScryfallSearchFocus(searchInput, true), true);
+  assert.equal(shouldRestoreScryfallSearchFocus(searchInput, false), false);
+  assert.equal(shouldRestoreScryfallSearchFocus(actionButton, true), false);
+  assert.equal(blurScryfallSearchInput(searchInput), true);
+  assert.equal(blurScryfallSearchInput(actionButton), false);
+  assert.equal(blurCount, 1);
 });
 
 test("local tournament standings rank wins and produce a safe top-three announcement", () => {
