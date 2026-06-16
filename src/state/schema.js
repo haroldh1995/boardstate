@@ -381,9 +381,11 @@ export function createTournamentState(source = {}) {
     sync: {
       mode: normalizeName(source.sync?.mode, "local"),
       sessionId: normalizeName(source.sync?.sessionId || joinCode),
+      wsUrl: normalizeName(source.sync?.wsUrl, "ws://localhost:8787"),
       lastSyncAt: Number(source.sync?.lastSyncAt || 0),
       status: normalizeName(source.sync?.status, "local-only"),
       namespace: normalizeName(source.sync?.namespace, "tournament"),
+      connectedPlayers: Array.isArray(source.sync?.connectedPlayers) ? source.sync.connectedPlayers : [],
     },
     createdAt: Number(source.createdAt || 0),
     updatedAt: Number(source.updatedAt || 0),

@@ -20,11 +20,13 @@ const DEFAULT_SETTINGS = {
 export function createTournament(profile, event = {}) {
   const now = Date.now();
   const tournamentId = event.tournamentId || event.id || createId("tournament");
+  const joinCode = event.joinCode || makeJoinCode(tournamentId);
+  const sync = resolveTournamentSync(profile, event, joinCode);
   const host = createPlayer({
     playerId: event.hostPlayerId || profile.player?.id || "local-player",
     playerName: event.hostName || profile.player?.name || "Player",
     role: "host",
-    syncStatus: "host-local",
+    syncStatus: sync.status,
   });
   return {
     ...profile,
@@ -33,7 +35,7 @@ export function createTournament(profile, event = {}) {
         active: true,
         tournamentId,
         id: tournamentId,
-        joinCode: event.joinCode || makeJoinCode(tournamentId),
+        joinCode,
         name: event.name || "Local Commander Tournament",
         formatPreset: event.formatPreset || CASUAL_LADDER_PRESET,
         hostPlayerId: host.playerId,
@@ -45,15 +47,16 @@ export function createTournament(profile, event = {}) {
         rounds: [],
         results: [],
         settings: { ...DEFAULT_SETTINGS, ...(event.settings || {}) },
-        syncStatus: "local-only",
+        syncStatus: sync.status,
         sync: {
-          mode: "local",
-          sessionId: event.sessionId || makeJoinCode(tournamentId),
+          mode: sync.mode,
+          sessionId: event.sessionId || joinCode,
+          wsUrl: sync.wsUrl,
           lastSyncAt: now,
-          status: "local-only",
+          status: sync.status,
           namespace: "tournament",
         },
-        historyLog: [historyEntry("tournament:create", `Tournament created by ${host.displayName}.`)],
+        historyLog: [historyEntry("tournament:create", `Tournament created by ${host.displayName} with ${sync.label} sync.`)],
         createdAt: now,
         updatedAt: now,
       })
@@ -65,7 +68,13 @@ export function joinTournament(profile, event = {}) {
   const now = Date.now();
   const joinCode = String(event.joinCode || event.sessionId || "").trim().toUpperCase();
   const tournamentId = event.tournamentId || event.id || createId("tournament");
-  const tournament = profile.tournament?.status && profile.tournament.status !== "idle"
+  const existingTournament = normalizeTournament(profile.tournament);
+  const existingCode = String(existingTournament.joinCode || existingTournament.sync?.sessionId || "").trim().toUpperCase();
+  const reuseExisting = existingTournament.status && existingTournament.status !== "idle" && (!joinCode || existingCode === joinCode);
+  const sync = resolveTournamentSync(profile, event, joinCode || event.sessionId || createId("tournament-session"));
+  const explicitSyncMode = Boolean(event.syncMode || event.sync?.mode);
+  const explicitWsUrl = Boolean(event.wsUrl || event.sync?.wsUrl);
+  const tournament = reuseExisting
     ? normalizeTournament(profile.tournament)
     : createTournamentState({
         active: true,
@@ -75,8 +84,14 @@ export function joinTournament(profile, event = {}) {
         name: event.name || "Joined Casual Tournament",
         role: "player",
         status: "setup",
-        syncStatus: "local-join",
-        sync: { mode: "local", sessionId: joinCode || event.sessionId || createId("tournament-session"), status: "local-join", namespace: "tournament" },
+        syncStatus: sync.status,
+        sync: {
+          mode: sync.mode,
+          sessionId: joinCode || event.sessionId || createId("tournament-session"),
+          wsUrl: sync.wsUrl,
+          status: sync.status,
+          namespace: "tournament",
+        },
         createdAt: now,
         updatedAt: now,
       });
@@ -84,7 +99,7 @@ export function joinTournament(profile, event = {}) {
     ...event,
     playerName: event.playerName || event.displayName || profile.player?.name || "Player",
     role: event.role || "player",
-    syncStatus: "joined-local",
+    syncStatus: sync.status,
   });
   if ((tournament.players || []).some((entry) => normalizePlayerName(entry) === normalizePlayerName(player))) {
     return { ...profile, tournament };
@@ -95,11 +110,31 @@ export function joinTournament(profile, event = {}) {
       ...tournament,
       active: true,
       role: tournament.role || "player",
-      syncStatus: tournament.syncStatus || "local-join",
+      syncStatus: explicitSyncMode ? sync.status : tournament.syncStatus || sync.status,
+      sync: {
+        ...(tournament.sync || {}),
+        mode: explicitSyncMode ? sync.mode : tournament.sync?.mode || sync.mode,
+        wsUrl: explicitWsUrl ? sync.wsUrl : tournament.sync?.wsUrl || sync.wsUrl,
+        status: explicitSyncMode ? sync.status : tournament.sync?.status || sync.status,
+      },
       players: [...(tournament.players || []), player],
-      historyLog: [historyEntry("tournament:join", `${player.displayName} joined ${tournament.joinCode || tournament.sync?.sessionId || "the tournament"}.`), ...(tournament.historyLog || [])],
+      historyLog: [historyEntry("tournament:join", `${player.displayName} joined ${tournament.joinCode || tournament.sync?.sessionId || "the tournament"} via ${sync.label} sync.`), ...(tournament.historyLog || [])],
       updatedAt: now,
     }),
+  };
+}
+
+function resolveTournamentSync(profile = {}, event = {}, sessionId = "") {
+  const requested = String(event.syncMode || event.sync?.mode || "").toLowerCase();
+  const multiplayerMode = String(profile.settings?.multiplayer?.mode || "").toLowerCase();
+  const mode = requested === "wifi" || (!requested && multiplayerMode === "wifi") ? "wifi" : "local";
+  const wsUrl = event.wsUrl || event.sync?.wsUrl || profile.settings?.multiplayer?.wsUrl || "ws://localhost:8787";
+  return {
+    mode,
+    wsUrl,
+    sessionId,
+    status: mode === "wifi" ? "wifi-ready" : "local-only",
+    label: mode === "wifi" ? "WiFi relay" : "local browser",
   };
 }
 
@@ -543,11 +578,13 @@ function normalizeTournament(tournament = {}) {
     finalAnnouncement: base.finalAnnouncement || base.announcement || null,
     announcement: base.announcement || base.finalAnnouncement || null,
     sync: {
-      mode: "local",
+      mode: base.sync?.mode || "local",
       sessionId: base.sync?.sessionId || base.joinCode || "",
+      wsUrl: base.sync?.wsUrl || "ws://localhost:8787",
       status: base.sync?.status || base.syncStatus || "local-only",
       lastSyncAt: Number(base.sync?.lastSyncAt || 0),
-      namespace: "tournament",
+      namespace: base.sync?.namespace || "tournament",
+      connectedPlayers: Array.isArray(base.sync?.connectedPlayers) ? base.sync.connectedPlayers : [],
     },
     syncStatus: base.syncStatus || base.sync?.status || "local-only",
   };

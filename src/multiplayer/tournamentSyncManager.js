@@ -19,49 +19,180 @@ const MESSAGE_BY_ACTION = {
   TOURNAMENT_END: "tournament:end",
 };
 
-export function createTournamentSyncManager({ onRemoteAction } = {}) {
+export function createTournamentSyncManager({ onRemoteAction, onPresence } = {}) {
   let channel = null;
   let sessionId = "";
+  let mode = "local";
+  let roomId = "";
+  let wsUrl = "ws://localhost:8787";
+  let socket = null;
+  let roomJoined = false;
+  let reconnectTimer = null;
+  const pendingPayloads = [];
   const peerId = `tournament-peer-${Math.random().toString(36).slice(2, 8)}`;
   const seen = new Set();
 
-  function configure(tournament = {}) {
-    teardown();
-    if (!tournament.active || !tournament.sync?.sessionId || typeof BroadcastChannel === "undefined") {
+  function configure(tournament = {}, multiplayerSettings = {}) {
+    if (!tournament.active || !tournament.sync?.sessionId) {
+      teardown();
       return;
     }
-    sessionId = tournament.sync.sessionId;
+    const nextSessionId = tournament.sync.sessionId;
+    const tournamentMode = String(tournament.sync?.mode || "").toLowerCase();
+    const settingsMode = String(multiplayerSettings.mode || "").toLowerCase();
+    const nextMode = tournamentMode ? (tournamentMode === "wifi" ? "wifi" : "local") : settingsMode === "wifi" ? "wifi" : "local";
+    const nextWsUrl = tournament.sync?.wsUrl || multiplayerSettings.wsUrl || "ws://localhost:8787";
+    const nextRoomId = getTournamentRoomId(nextSessionId);
+    if ((channel || socket) && sessionId === nextSessionId && mode === nextMode && wsUrl === nextWsUrl && roomId === nextRoomId) {
+      return;
+    }
+    teardown({ keepPending: true });
+    sessionId = nextSessionId;
+    mode = nextMode;
+    wsUrl = nextWsUrl;
+    roomId = nextRoomId;
+    if (mode === "wifi") {
+      initWebSocket(tournament);
+      return;
+    }
+    initBroadcastChannel();
+  }
+
+  function initBroadcastChannel() {
+    if (typeof BroadcastChannel === "undefined") {
+      return;
+    }
     channel = new BroadcastChannel(`${TOURNAMENT_CHANNEL_PREFIX}:${sessionId}`);
     channel.onmessage = ({ data }) => {
-      if (!data || data.namespace !== "tournament" || data.sessionId !== sessionId || data.peerId === peerId || seen.has(data.action?.actionId)) {
-        return;
-      }
-      if (data.action?.actionId) seen.add(data.action.actionId);
-      onRemoteAction?.(data.action, data.messageType);
+      handleIncoming(data);
     };
+  }
+
+  function initWebSocket(tournament = {}) {
+    if (typeof WebSocket === "undefined") {
+      return;
+    }
+    try {
+      socket = new WebSocket(wsUrl);
+    } catch {
+      scheduleReconnect(tournament);
+      return;
+    }
+    socket.onopen = () => {
+      socket.send(JSON.stringify({
+        type: "join",
+        namespace: "tournament",
+        roomId,
+        sessionId,
+        peerId,
+        name: tournament.hostName || tournament.localPlayerName || "Tournament player",
+        role: tournament.role || "player",
+      }));
+      roomJoined = true;
+      flushPending();
+    };
+    socket.onmessage = ({ data }) => {
+      try {
+        handleIncoming(JSON.parse(data));
+      } catch {
+        // Ignore malformed tournament sync payloads.
+      }
+    };
+    socket.onclose = () => scheduleReconnect(tournament);
   }
 
   function sendAction(action, tournament = {}) {
     const messageType = MESSAGE_BY_ACTION[action?.actionType];
-    if (!channel || !messageType || !action?.actionId || seen.has(action.actionId)) {
+    if (!messageType || !action?.actionId || seen.has(action.actionId)) {
       return;
     }
     seen.add(action.actionId);
-    channel.postMessage({
+    const payload = {
+      type: "tournament-action",
       namespace: "tournament",
       messageType,
+      roomId,
       sessionId,
       peerId,
       action,
       updatedAt: tournament.updatedAt || Date.now(),
-    });
+    };
+    if (channel) {
+      channel.postMessage(payload);
+      return;
+    }
+    if (mode === "wifi" && roomJoined && typeof WebSocket !== "undefined" && socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(payload));
+      return;
+    }
+    if (mode === "wifi") {
+      pendingPayloads.push(payload);
+    }
   }
 
-  function teardown() {
+  function handleIncoming(data) {
+    if (!data || data.peerId === peerId) {
+      return;
+    }
+    const dataSessionId = data.sessionId || String(data.roomId || "").replace(/^tournament:/, "");
+    if (data.namespace !== "tournament" || dataSessionId !== sessionId) {
+      return;
+    }
+    if (data.type === "presence" && Array.isArray(data.peers)) {
+      onPresence?.(data.peers);
+      return;
+    }
+    if (data.action?.actionId) {
+      if (seen.has(data.action.actionId)) {
+        return;
+      }
+      seen.add(data.action.actionId);
+      onRemoteAction?.(data.action, data.messageType);
+    }
+  }
+
+  function flushPending() {
+    if (typeof WebSocket === "undefined" || socket?.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    while (pendingPayloads.length) {
+      socket.send(JSON.stringify(pendingPayloads.shift()));
+    }
+  }
+
+  function scheduleReconnect(tournament = {}) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(() => {
+      if (mode === "wifi") {
+        initWebSocket(tournament);
+      }
+    }, 1200);
+  }
+
+  function teardown(options = {}) {
     channel?.close();
     channel = null;
+    if (socket) {
+      socket.onopen = null;
+      socket.onclose = null;
+      socket.onmessage = null;
+      socket.close();
+      socket = null;
+    }
+    roomJoined = false;
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    if (!options.keepPending) {
+      pendingPayloads.length = 0;
+    }
     sessionId = "";
+    mode = "local";
+    roomId = "";
   }
 
   return { configure, sendAction, teardown };
+}
+
+function getTournamentRoomId(id = "") {
+  return `tournament:${id || "local"}`;
 }

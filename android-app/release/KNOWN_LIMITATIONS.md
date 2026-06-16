@@ -9,7 +9,7 @@
 - Remote-hosted mode depends on network availability and GitHub Pages uptime.
 - BoardState is a companion and calculation aid, not a complete Magic rules engine or tournament judge. Complex replacement effects, continuous interactions, first/double-strike ordering, protection/ward edge cases, and unusual combat-damage assignment can still require Manual Choice Required.
 - Arbitrary live Scryfall search depends on browser/network CORS availability or a previously cached result. Common event-use cards have an embedded fallback catalog so Deck and Battlefield search remain usable when the remote API is blocked.
-- Tournament sync uses a separate same-origin BroadcastChannel adapter and local persistence. Cross-device real-time tournament transport, cloud join-code discovery, and synced cast-preview timing were not validated in this release.
+- Tournament sync supports same-origin local tabs and a separate WiFi WebSocket relay on the host LAN. Cross-device tournament sync requires running `npm run multiplayer:server` on a reachable host and entering that relay URL; cloud join-code discovery and internet relay hosting are not included.
 - NPCs make their own supported choices, but AI strategy learning, NPC responses, user blocker prompts against every NPC attack, and unsupported oracle-text decisions remain heuristic/partial.
 - Crew, Saddle, Station, Convoke, and Improvise provide validated tap-cost helpers plus Manual Choice confirmation; they do not automate every card-specific exception or duration interaction.
 - iOS wrapper metadata is updated, but an iOS/App Store build was not produced in this Windows environment.

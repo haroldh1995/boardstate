@@ -17,9 +17,11 @@ import {
   announceTournamentWinners,
   createTournament,
   generateTournamentRound,
+  joinTournament,
   reportTournamentResult,
   setTournamentPinned,
 } from "../src/game/tournamentSystem.js";
+import { createTournamentSyncManager } from "../src/multiplayer/tournamentSyncManager.js";
 import { searchScryfall } from "../src/services/scryfallService.js";
 import { reduceProfile } from "../src/state/gameReducer.js";
 import { createDefaultProfile, createGameSession, createPermanent } from "../src/state/schema.js";
@@ -340,6 +342,82 @@ test("tournament pinning and sync metadata remain separate from gameplay sync", 
   assert.equal(profile.tournament.sync.namespace, "tournament");
   assert.match(profile.tournament.sync.sessionId, /^MTG-|tournament-session|tournament/i);
   assert.equal(profile.activeSession.syncedMultiplayer.active, false);
+});
+
+test("tournament WiFi sync uses a separate relay room and tournament packet type", async () => {
+  const originalWebSocket = globalThis.WebSocket;
+  const sent = [];
+  class FakeWebSocket {
+    static OPEN = 1;
+    constructor(url) {
+      this.url = url;
+      this.readyState = FakeWebSocket.OPEN;
+      FakeWebSocket.instances.push(this);
+      setTimeout(() => this.onopen?.(), 0);
+    }
+    send(raw) {
+      sent.push(JSON.parse(raw));
+    }
+    close() {
+      this.readyState = 3;
+    }
+  }
+  FakeWebSocket.instances = [];
+  globalThis.WebSocket = FakeWebSocket;
+  try {
+    let presencePeers = [];
+    const manager = createTournamentSyncManager();
+    const presenceManager = createTournamentSyncManager({ onPresence: (peers) => { presencePeers = peers; } });
+    manager.configure({
+      active: true,
+      hostName: "Host",
+      role: "host",
+      sync: { mode: "wifi", sessionId: "MTG-WIFI", wsUrl: "ws://lan-host:8787", namespace: "tournament" },
+    });
+    manager.sendAction({ actionType: "TOURNAMENT_JOIN", actionId: "join-1" }, { updatedAt: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(sent[0].type, "join");
+    assert.equal(sent[0].namespace, "tournament");
+    assert.equal(sent[0].roomId, "tournament:MTG-WIFI");
+    assert.equal(sent[1].type, "tournament-action");
+    assert.equal(sent[1].namespace, "tournament");
+    assert.equal(sent[1].messageType, "tournament:join");
+    assert.equal(sent[1].roomId, "tournament:MTG-WIFI");
+    presenceManager.configure({
+      active: true,
+      localPlayerName: "Player",
+      role: "player",
+      sync: { mode: "wifi", sessionId: "MTG-WIFI", wsUrl: "ws://lan-host:8787", namespace: "tournament" },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const presenceSocket = FakeWebSocket.instances[1];
+    presenceSocket.onmessage?.({
+      data: JSON.stringify({
+        type: "presence",
+        namespace: "tournament",
+        roomId: "tournament:MTG-WIFI",
+        sessionId: "MTG-WIFI",
+        peers: [{ id: "host", name: "Host", role: "host", namespace: "tournament" }],
+      }),
+    });
+    assert.equal(presencePeers[0].namespace, "tournament");
+    manager.teardown();
+    presenceManager.teardown();
+  } finally {
+    globalThis.WebSocket = originalWebSocket;
+  }
+});
+
+test("joining a different tournament code replaces stale local tournament state", () => {
+  let profile = createTournament(createDefaultProfile(), { joinCode: "MTG-OLD", name: "Old Event" });
+  profile = joinTournament(profile, { joinCode: "MTG-NEW", playerName: "New Player", syncMode: "wifi", wsUrl: "ws://lan-host:8787" });
+  assert.equal(profile.tournament.joinCode, "MTG-NEW");
+  assert.equal(profile.tournament.sync.mode, "wifi");
+  assert.equal(profile.tournament.sync.wsUrl, "ws://lan-host:8787");
+  assert.equal(profile.tournament.players.some((player) => player.displayName === "New Player"), true);
+  assert.equal(profile.tournament.players.some((player) => player.displayName === "Player" && profile.tournament.name === "Old Event"), false);
+  profile = joinTournament(profile, { joinCode: "MTG-NEW", playerName: "Second Player", syncMode: "local" });
+  assert.equal(profile.tournament.sync.mode, "local");
 });
 
 test("land tap actions generate the correct mana and cannot reuse a tapped land", () => {

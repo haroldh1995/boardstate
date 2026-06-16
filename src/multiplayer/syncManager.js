@@ -5,6 +5,7 @@ export function createSyncManager({ onRemoteAction, onPresence } = {}) {
   let roomId = "boardstate-room";
   let wsUrl = "ws://localhost:8787";
   let role = "player";
+  let localName = "Player";
   let localChannel = null;
   let socket = null;
   let reconnectTimer = null;
@@ -17,6 +18,7 @@ export function createSyncManager({ onRemoteAction, onPresence } = {}) {
     roomId = settings.roomId || "boardstate-room";
     wsUrl = settings.wsUrl || "ws://localhost:8787";
     role = settings.role || "player";
+    localName = settings.localName || "Player";
     if (mode === "local") {
       initBroadcastChannel();
     }
@@ -95,6 +97,7 @@ export function createSyncManager({ onRemoteAction, onPresence } = {}) {
           type: "join",
           roomId,
           peerId: localPeerId,
+          name: localName,
           role,
         })
       );

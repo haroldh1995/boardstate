@@ -849,14 +849,16 @@ export function mountApp(root, store) {
           oneVOneActsAsTimer: form.get("oneVOneActsAsTimer") === "on",
           topThreeAnnouncement: form.get("topThreeAnnouncement") === "on",
         },
+        syncMode: form.get("syncMode"),
+        wsUrl: form.get("wsUrl"),
       });
       showNotice("Tournament created.");
     });
     container.querySelector("[data-tournament-join-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
       const form = new FormData(event.currentTarget);
-      store.dispatch({ type: "TOURNAMENT_JOIN", joinCode: form.get("joinCode"), playerName: form.get("playerName") });
-      showNotice("Joined local tournament session.");
+      store.dispatch({ type: "TOURNAMENT_JOIN", joinCode: form.get("joinCode"), playerName: form.get("playerName"), syncMode: form.get("syncMode"), wsUrl: form.get("wsUrl") });
+      showNotice("Joined tournament session.");
     });
     container.querySelector("[data-tournament-player-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -5267,6 +5269,8 @@ function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResu
       ${panel === "phase" ? `
         <p>FSM ${escapeHtml(session.fsm?.current || "setup")} · Turn ${session.turn}</p>
         <button class="wide" data-next-phase>Advance Phase</button>
+        ${renderToggle("Strict Turn Phase Enforcement", "strictPhaseEnforcement", Boolean(profile.settings?.strictPhaseEnforcement))}
+        <p class="eyebrow">When off, phase tracking stays visible but manual battlefield actions are not blocked for phase timing.</p>
       ` : ""}
       ${panel === "stack" ? renderStackPriorityPanel(profile) : ""}
       ${panel === "rules" ? `
@@ -6124,6 +6128,13 @@ function renderTournamentCreateCard(profile) {
             <option value="10-player-casual-win-ladder">10-Player Casual Win Ladder</option>
           </select>
         </label>
+        <label>Tournament Sync
+          <select name="syncMode">
+            <option value="local">Local browser tabs</option>
+            <option value="wifi">WiFi relay</option>
+          </select>
+        </label>
+        <label>WiFi Tournament Relay URL<input name="wsUrl" value="${escapeAttribute(profile.settings?.multiplayer?.wsUrl || "ws://localhost:8787")}" /></label>
         <label class="toggle-row"><span>Allow deck changes between rounds</span><input type="checkbox" name="allowDeckChangesBetweenRounds" checked /></label>
         <label class="toggle-row"><span>Require every player to complete one 1v1 before repeat</span><input type="checkbox" name="oneVOneBeforeRepeat" checked /></label>
         <label class="toggle-row"><span>Sudden Death enabled</span><input type="checkbox" name="suddenDeathDamageDouble" checked /></label>
@@ -6139,13 +6150,20 @@ function renderTournamentJoinCard(profile) {
   return `
     <article class="option-card tournament-card">
       <h3>Join / Sync Tournament</h3>
-      <p>Local browser sync uses a separate tournament channel. It does not join or alter gameplay sync sessions.</p>
+      <p>Tournament sync uses its own tournament session/channel. WiFi relay mode can connect devices on the same network without joining gameplay sync.</p>
       <form class="stacked-form" data-tournament-join-form>
         <label>Tournament Code / Session ID<input name="joinCode" placeholder="MTG-ABC123" required /></label>
         <label>Player Name<input name="playerName" value="${escapeAttribute(profile.player?.name || "Player")}" required /></label>
+        <label>Tournament Sync
+          <select name="syncMode">
+            <option value="local">Local browser tabs</option>
+            <option value="wifi">WiFi relay</option>
+          </select>
+        </label>
+        <label>WiFi Tournament Relay URL<input name="wsUrl" value="${escapeAttribute(profile.settings?.multiplayer?.wsUrl || "ws://localhost:8787")}" /></label>
         <button class="wide">Join Tournament</button>
       </form>
-      <p class="eyebrow">Sync status is honest: local BroadcastChannel updates work between same-browser tabs using the tournament session ID; no cloud relay is claimed.</p>
+      <p class="eyebrow">WiFi mode requires the BoardState multiplayer relay on the host LAN, for example <code>npm run multiplayer:server</code>, and still remains separate from gameplay sync.</p>
     </article>
   `;
 }
@@ -6157,6 +6175,7 @@ function renderTournamentSetupControls(profile) {
     <article class="option-card tournament-card">
       <h3>Host / Admin Controls</h3>
       <p>Host: ${escapeHtml(tournament.hostName || "Host")} - Code: <strong>${escapeHtml(tournament.joinCode || tournament.sync?.sessionId || "LOCAL")}</strong></p>
+      <p>Sync: ${escapeHtml(tournament.sync?.mode || "local")} - ${escapeHtml(tournament.sync?.status || tournament.syncStatus || "local-only")}${tournament.sync?.mode === "wifi" ? ` - ${escapeHtml(tournament.sync?.wsUrl || "ws://localhost:8787")}` : ""}</p>
       <div class="button-grid">
         <button data-tournament-sample-players ${setupLocked ? "disabled" : ""}>Fill to 10 Players</button>
         <button data-tournament-generate-round>Generate Next Round</button>
@@ -6358,6 +6377,8 @@ function renderTournamentHistory(tournament) {
     <article class="option-card tournament-card">
       <h3>Sync Status / History</h3>
       <p>Tournament channel: ${escapeHtml(tournament.sync?.namespace || "tournament")} - ${escapeHtml(tournament.sync?.sessionId || tournament.joinCode || "local")}</p>
+      <p>Sync transport: ${escapeHtml(tournament.sync?.mode || "local")}${tournament.sync?.mode === "wifi" ? ` via ${escapeHtml(tournament.sync?.wsUrl || "ws://localhost:8787")}` : ""}</p>
+      <p>Connected tournament peers: ${Array.isArray(tournament.sync?.connectedPlayers) && tournament.sync.connectedPlayers.length ? tournament.sync.connectedPlayers.map((peer) => escapeHtml(peer.name || peer.id)).join(", ") : "None detected yet"}</p>
       <p>Normal gameplay sync room remains separate: tournament actions are not sent to gameplay sync.</p>
       <div class="tournament-history-list">
         ${(tournament.historyLog || []).slice(0, 8).map((entry) => `<span>${escapeHtml(entry.type)} - ${escapeHtml(entry.summary)}</span>`).join("") || "<span>No tournament history yet.</span>"}

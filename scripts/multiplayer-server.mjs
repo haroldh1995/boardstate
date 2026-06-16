@@ -9,7 +9,9 @@ console.log(`BoardState multiplayer relay listening on ws://0.0.0.0:${port}`);
 server.on("connection", (socket) => {
   let currentRoom = "";
   let peerId = "";
+  let peerName = "";
   let role = "player";
+  let namespace = "game";
 
   socket.on("message", (raw) => {
     let message = null;
@@ -24,11 +26,13 @@ server.on("connection", (socket) => {
     if (message.type === "join") {
       currentRoom = message.roomId || "boardstate-room";
       peerId = message.peerId || `peer-${Math.random().toString(36).slice(2, 8)}`;
+      peerName = message.name || peerId;
       role = message.role || "player";
+      namespace = message.namespace || "game";
       if (!rooms.has(currentRoom)) {
         rooms.set(currentRoom, new Map());
       }
-      rooms.get(currentRoom).set(socket, { peerId, role });
+      rooms.get(currentRoom).set(socket, { peerId, name: peerName, role, namespace });
       broadcastPresence(currentRoom);
       return;
     }
@@ -36,7 +40,7 @@ server.on("connection", (socket) => {
     if (!currentRoom || !rooms.has(currentRoom)) {
       return;
     }
-    if (message.type === "action") {
+    if (message.type === "action" || message.type === "tournament-action") {
       broadcast(currentRoom, socket, message);
     }
   });
@@ -73,12 +77,14 @@ function broadcastPresence(roomId) {
   if (!room) {
     return;
   }
+  const roomNamespace = [...room.values()][0]?.namespace || "game";
   const peers = [...room.values()].map((entry) => ({
     id: entry.peerId,
-    name: entry.peerId,
+    name: entry.name || entry.peerId,
     role: entry.role,
+    namespace: entry.namespace || "game",
   }));
-  const payload = JSON.stringify({ type: "presence", roomId, peers });
+  const payload = JSON.stringify({ type: "presence", namespace: roomNamespace, roomId, peers });
   for (const client of room.keys()) {
     if (client.readyState === client.OPEN) {
       client.send(payload);

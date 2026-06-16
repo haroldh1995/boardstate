@@ -42,7 +42,29 @@ export function createStore() {
   const tournamentSyncManager = createTournamentSyncManager({
     onRemoteAction: async (remoteAction) => {
       state = reduceProfile(state, createAction({ ...remoteAction, remote: true }, state));
+      configureTournamentSync();
       emit(remoteAction);
+      await saveProfile(state);
+    },
+    onPresence: async (peers) => {
+      const tournament = state.tournament || {};
+      if (!tournament.active) {
+        return;
+      }
+      state = {
+        ...state,
+        tournament: {
+          ...tournament,
+          syncStatus: "wifi-connected",
+          sync: {
+            ...(tournament.sync || {}),
+            status: "wifi-connected",
+            connectedPlayers: peers,
+            lastSyncAt: Date.now(),
+          },
+        },
+      };
+      emit();
       await saveProfile(state);
     },
   });
@@ -105,7 +127,7 @@ export function createStore() {
   }
 
   function configureTournamentSync() {
-    tournamentSyncManager.configure(state.tournament || {});
+    tournamentSyncManager.configure(state.tournament || {}, state.settings?.multiplayer || {});
   }
 
   const storeApi = {

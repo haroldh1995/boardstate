@@ -2,9 +2,19 @@
 
 ## App
 - Name: BoardState
-- Version: 1.13.0
-- Version code: 27
+- Version: 1.13.1
+- Version code: 28
 - Package: `com.boardstate.app`
+
+## Version 1.13.1
+- Runs a full regression audit across the automated event-ready suite, production web build, live web preview, mobile viewport preview, and local WebSocket relay transport.
+- Adds WiFi relay support for tournament sync using separate `tournament:*` rooms, `tournament-action` packet types, tournament namespace filtering, peer presence, and relay URL controls.
+- Preserves tournament sync mode, relay URL, connected peers, and status through tournament normalization, result recalculation, local persistence, and stale-code join replacement.
+- Keeps tournament sync separate from normal gameplay sync; joining or hosting a tournament does not join/end a gameplay session, and gameplay relay action packets remain distinct from tournament packets.
+- Adds Tournament Sync and WiFi Tournament Relay URL controls to tournament create/join surfaces inside the Tournament page and Game Options overlay.
+- Adds Strict Turn Phase Enforcement to the Battlefield Utility Phase panel while preserving the existing Game Options toggle and phase tracker visibility.
+- Confirms free casting/placement remains unrestricted outside active games and Dry Run, while active games and Dry Run keep mana-source enforcement and auto-mana behavior.
+- Updates release/package metadata and known limitations for version 1.13.1.
 
 ## Version 1.13.0
 - Adds a full 10-player casual MTG tournament page with Options-menu access, host/create and join flows, local join codes, pinned tournament panels, and local persistence.
