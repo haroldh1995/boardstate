@@ -1571,6 +1571,186 @@ body[data-composition="mobile"] .mobile-swipe-controls small {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.tournament-page {
+  display: grid;
+  gap: 1rem;
+  overflow-anchor: none;
+}
+
+.tournament-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: stretch;
+  padding: 1rem;
+  border: 1px solid rgba(244, 199, 94, 0.28);
+  background:
+    radial-gradient(circle at top left, rgba(244, 199, 94, 0.18), transparent 34%),
+    linear-gradient(135deg, rgba(8, 12, 28, 0.94), rgba(24, 15, 44, 0.9));
+}
+
+.tournament-hero h2 {
+  color: var(--gold, #f4c75e);
+  margin: 0.1rem 0 0.35rem;
+}
+
+.tournament-hero__meta,
+.pinned-tournament-panel__stats {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.tournament-hero__meta span,
+.pinned-tournament-panel__stats span {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  padding: 0.35rem 0.55rem;
+  background: rgba(4, 8, 18, 0.48);
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.tournament-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  align-items: start;
+  overflow-anchor: none;
+}
+
+.tournament-card,
+.tournament-panel {
+  border-color: rgba(244, 199, 94, 0.18);
+}
+
+.tournament-current-round,
+.tournament-standings-card,
+.tournament-rules-card {
+  grid-column: 1 / -1;
+}
+
+.tournament-table-grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+}
+
+.tournament-table-card {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid rgba(85, 216, 255, 0.18);
+  border-radius: 18px;
+  background: rgba(5, 9, 22, 0.72);
+}
+
+.tournament-table-card.complete {
+  border-color: rgba(86, 220, 140, 0.32);
+}
+
+.tournament-result-form textarea {
+  min-height: 4.25rem;
+  resize: vertical;
+}
+
+.tournament-player-list,
+.tournament-history-list,
+.tournament-record-grid,
+.tournament-rules-grid,
+.extension-turn-grid {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.tournament-player-list span,
+.tournament-history-list span,
+.tournament-mini-record {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 0.55rem;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tournament-mini-record {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.tournament-standing {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  gap: 0.65rem;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 0.65rem;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tournament-standing.top-three {
+  border-color: rgba(244, 199, 94, 0.45);
+  box-shadow: 0 0 24px rgba(244, 199, 94, 0.1);
+}
+
+.tournament-rules-grid details {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 0.65rem;
+  background: rgba(4, 8, 18, 0.42);
+}
+
+.tournament-rules-grid summary {
+  cursor: pointer;
+  color: var(--gold, #f4c75e);
+  font-weight: 700;
+}
+
+.tournament-announcement strong {
+  display: block;
+  margin: 0.25rem 0;
+  color: var(--gold, #f4c75e);
+}
+
+.warning-text {
+  color: #ffd27a;
+}
+
+.pinned-tournament-panel {
+  position: fixed;
+  right: max(12px, env(safe-area-inset-right));
+  top: max(92px, env(safe-area-inset-top));
+  z-index: 121;
+  width: min(340px, calc(100vw - 24px));
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.8rem;
+  border: 1px solid rgba(244, 199, 94, 0.3);
+  background:
+    radial-gradient(circle at top right, rgba(85, 216, 255, 0.14), transparent 42%),
+    rgba(5, 8, 18, 0.9);
+}
+
+@media (max-width: 720px) {
+  .tournament-hero {
+    display: grid;
+  }
+
+  .tournament-standing {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .tournament-standing > span,
+  .tournament-standing > small,
+  .tournament-standing > button {
+    grid-column: 1 / -1;
+  }
+
+  .pinned-tournament-panel {
+    top: auto;
+    bottom: max(86px, env(safe-area-inset-bottom));
+    right: 12px;
+  }
+}
+
 .permanent-content {
   position: relative;
   z-index: 2;

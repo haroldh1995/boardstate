@@ -16,7 +16,9 @@ import {
   addTournamentPlayer,
   announceTournamentWinners,
   createTournament,
+  generateTournamentRound,
   reportTournamentResult,
+  setTournamentPinned,
 } from "../src/game/tournamentSystem.js";
 import { searchScryfall } from "../src/services/scryfallService.js";
 import { reduceProfile } from "../src/state/gameReducer.js";
@@ -258,6 +260,86 @@ test("local tournament standings rank wins and produce a safe top-three announce
   profile = announceTournamentWinners(profile);
   assert.equal(profile.tournament.announcement.winners.length, 3);
   assert.equal(profile.tournament.announcement.winners[0].name, "Alpha");
+});
+
+test("10-player tournament generates two pods and one 1v1 with all players assigned once", () => {
+  let profile = createTournament(createDefaultProfile(), { name: "Ten Player Ladder", hostName: "Host" });
+  ["Ari", "Blake", "Casey", "Devon", "Emery", "Finley", "Gray", "Harper", "Indigo"].forEach((playerName) => {
+    profile = addTournamentPlayer(profile, { playerName });
+  });
+  profile = generateTournamentRound(profile, { randomize: false });
+  const round = profile.tournament.rounds[0];
+  const assigned = [...round.podA.players, ...round.podB.players, ...round.oneVOne.players];
+  assert.equal(round.podA.players.length, 4);
+  assert.equal(round.podB.players.length, 4);
+  assert.equal(round.oneVOne.players.length, 2);
+  assert.equal(new Set(assigned).size, 10);
+  assert.equal(profile.tournament.currentRoundNumber, 1);
+});
+
+test("next tournament round uses pod elimination order for 1v1 without early repeat", () => {
+  let profile = createTournament(createDefaultProfile(), { name: "Rotation Ladder", hostName: "Host" });
+  ["Ari", "Blake", "Casey", "Devon", "Emery", "Finley", "Gray", "Harper", "Indigo"].forEach((playerName) => {
+    profile = addTournamentPlayer(profile, { playerName });
+  });
+  profile = generateTournamentRound(profile, { randomize: false });
+  let round = profile.tournament.rounds[0];
+  profile = reportTournamentResult(profile, {
+    tableId: round.oneVOne.tableId,
+    winnerId: round.oneVOne.players[0],
+  });
+  assert.equal(profile.tournament.rounds[0].podA.status, "suddenDeath");
+  assert.equal(profile.tournament.rounds[0].podB.status, "suddenDeath");
+  profile = reportTournamentResult(profile, {
+    tableId: round.podA.tableId,
+    winnerId: round.podA.players[3],
+    eliminationOrder: [round.podA.players[0], round.podA.players[1], round.podA.players[2]],
+  });
+  profile = reportTournamentResult(profile, {
+    tableId: round.podB.tableId,
+    winnerId: round.podB.players[3],
+    eliminationOrder: [round.podB.players[0], round.podB.players[1], round.podB.players[2]],
+  });
+  profile = generateTournamentRound(profile, { randomize: false });
+  round = profile.tournament.rounds.find((entry) => entry.roundNumber === 2);
+  assert.deepEqual(round.oneVOne.players, [profile.tournament.rounds[0].podA.players[0], profile.tournament.rounds[0].podB.players[0]]);
+  assert.equal(new Set([...round.podA.players, ...round.podB.players, ...round.oneVOne.players]).size, 10);
+});
+
+test("tournament standings apply pod, 1v1, loss, elimination, and announcement data", () => {
+  let profile = createTournament(createDefaultProfile(), { name: "Tie Break Ladder", hostName: "Host" });
+  ["Ari", "Blake", "Casey", "Devon", "Emery", "Finley", "Gray", "Harper", "Indigo"].forEach((playerName) => {
+    profile = addTournamentPlayer(profile, { playerName });
+  });
+  profile = generateTournamentRound(profile, { randomize: false });
+  const round = profile.tournament.rounds[0];
+  profile = reportTournamentResult(profile, {
+    tableId: round.podA.tableId,
+    winnerId: round.podA.players[0],
+    eliminationOrder: [round.podA.players[1], round.podA.players[2], round.podA.players[3]],
+    eliminations: `${round.podA.players[0]}>${round.podA.players[1]},${round.podA.players[0]}>${round.podA.players[2]}`,
+  });
+  profile = reportTournamentResult(profile, {
+    tableId: round.oneVOne.tableId,
+    winnerId: round.oneVOne.players[0],
+  });
+  const podWinner = profile.tournament.standings.find((entry) => entry.playerId === round.podA.players[0]);
+  const oneVOneWinner = profile.tournament.standings.find((entry) => entry.playerId === round.oneVOne.players[0]);
+  assert.equal(podWinner.podWins, 1);
+  assert.equal(podWinner.podEliminations, 2);
+  assert.equal(oneVOneWinner.oneVOneWins, 1);
+  profile = announceTournamentWinners(profile);
+  assert.equal(profile.tournament.finalAnnouncement.winners.length, 3);
+  assert.match(profile.tournament.finalAnnouncement.oneVOneWarning, /player/);
+});
+
+test("tournament pinning and sync metadata remain separate from gameplay sync", () => {
+  let profile = createTournament(createDefaultProfile(), { name: "Pinned Ladder", hostName: "Host" });
+  profile = setTournamentPinned(profile, { pinned: true });
+  assert.equal(profile.tournament.pinned, true);
+  assert.equal(profile.tournament.sync.namespace, "tournament");
+  assert.match(profile.tournament.sync.sessionId, /^MTG-|tournament-session|tournament/i);
+  assert.equal(profile.activeSession.syncedMultiplayer.active, false);
 });
 
 test("land tap actions generate the correct mana and cannot reuse a tapped land", () => {

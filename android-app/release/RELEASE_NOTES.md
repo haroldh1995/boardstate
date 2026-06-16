@@ -2,9 +2,20 @@
 
 ## App
 - Name: BoardState
-- Version: 1.12.0
-- Version code: 26
+- Version: 1.13.0
+- Version code: 27
 - Package: `com.boardstate.app`
+
+## Version 1.13.0
+- Adds a full 10-player casual MTG tournament page with Options-menu access, host/create and join flows, local join codes, pinned tournament panels, and local persistence.
+- Implements the 10-player casual win ladder preset with two 4-player pods plus one 1v1 table per round, randomized Round 1 seating, reviewable round generation, and manual seating overrides before lock/start.
+- Adds elimination-order next-round generation, 1v1 rotation that avoids repeat 1v1s until all players have one where possible, standings-balanced pod filling, and exact-round assignment safeguards.
+- Adds result entry for pods and 1v1 matches, including winners, losses, elimination order, eliminator tracking, pod placements, life totals, commander damage notes, manual corrections, and correction history.
+- Adds standings ranked by total wins, pod wins, 1v1 wins, fewest losses, head-to-head summaries, pod eliminations, and average pod placement, with top-three highlighting and final announcements.
+- Adds Sudden Death management: reporting the 1v1 result marks active pods as Sudden Death, shows damage-doubling rules, and supports final three-turn extension tracking with tie-break inputs.
+- Adds a compact in-app rules reference covering match structure, records, deck changes, 1v1 rotation, Sudden Death, extension rules, seating, conduct, disputes, rankings, end conditions, and winners.
+- Keeps tournament sync isolated from gameplay sync with a dedicated tournament namespace/session/channel and local-only BroadcastChannel adapter; gameplay sessions are not joined or ended by tournament actions.
+- Updates browser regression coverage, web build output, Android wrapper metadata, Flutter wrapper metadata, and release/package artifacts for version 1.13.0.
 
 ## Version 1.12.0
 - Removes battlefield selection layout expansion and preserves the active page/board scroll position through card, menu, search, stack, combat, and Dry Run interactions.

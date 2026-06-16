@@ -14,13 +14,22 @@ import { assignBlocker, autoAssignBlockers, confirmBlockers, declareAttackers, d
 import { chooseEntryResult, preparePermanentEntry } from "../game/entrySystem.js";
 import { getPermanentManaOptions, planManaPayment } from "../game/manaSystem.js";
 import {
+  addSampleTournamentPlayers,
   addTournamentPlayer,
   announceTournamentWinners,
   correctTournamentPlayer,
   createTournament,
   endTournament,
+  editTournamentTable,
+  generateTournamentRound,
   joinTournament,
+  recordTournamentExtensionTurn,
+  removeTournamentPlayer,
   reportTournamentResult,
+  setTournamentPinned,
+  startTournamentExtension,
+  startTournamentRound,
+  startTournamentSuddenDeath,
 } from "../game/tournamentSystem.js";
 import { createDefaultProfile, createEmptySimulationStats, createGameSession, createManaPool, createPermanent, PHASES } from "./schema.js";
 import { clone, createId, normalizeCount } from "./ids.js";
@@ -340,8 +349,35 @@ export function reduceProfile(profile, event) {
     case "TOURNAMENT_ADD_PLAYER":
       nextProfile = addTournamentPlayer(baseProfile, event);
       break;
+    case "TOURNAMENT_ADD_SAMPLE_PLAYERS":
+      nextProfile = addSampleTournamentPlayers(baseProfile);
+      break;
+    case "TOURNAMENT_REMOVE_PLAYER":
+      nextProfile = removeTournamentPlayer(baseProfile, event);
+      break;
+    case "TOURNAMENT_SET_PINNED":
+      nextProfile = setTournamentPinned(baseProfile, event);
+      break;
+    case "TOURNAMENT_GENERATE_ROUND":
+      nextProfile = generateTournamentRound(baseProfile, event);
+      break;
+    case "TOURNAMENT_START_ROUND":
+      nextProfile = startTournamentRound(baseProfile, event);
+      break;
+    case "TOURNAMENT_EDIT_TABLE":
+      nextProfile = editTournamentTable(baseProfile, event);
+      break;
     case "TOURNAMENT_REPORT_RESULT":
       nextProfile = reportTournamentResult(baseProfile, event);
+      break;
+    case "TOURNAMENT_START_SUDDEN_DEATH":
+      nextProfile = startTournamentSuddenDeath(baseProfile, event);
+      break;
+    case "TOURNAMENT_START_EXTENSION":
+      nextProfile = startTournamentExtension(baseProfile, event);
+      break;
+    case "TOURNAMENT_EXTENSION_TURN":
+      nextProfile = recordTournamentExtensionTurn(baseProfile, event);
       break;
     case "TOURNAMENT_CORRECT":
       nextProfile = correctTournamentPlayer(baseProfile, event);

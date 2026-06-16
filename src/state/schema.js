@@ -339,23 +339,55 @@ export function createCombatState() {
 }
 
 export function createTournamentState(source = {}) {
+  const tournamentId = normalizeName(source.tournamentId || source.id);
+  const joinCode = normalizeName(source.joinCode || source.sync?.sessionId);
+  const settings = {
+    expectedPlayerCount: 10,
+    podSize: 4,
+    oneVOneSize: 2,
+    oneVOneBeforeRepeat: true,
+    oneVOneActsAsTimer: true,
+    suddenDeathDamageDouble: true,
+    suddenDeathExtensionTurns: 3,
+    allowDeckChangesBetweenRounds: true,
+    topThreeAnnouncement: true,
+    avoidSamePods: true,
+    balanceByStandings: true,
+    ...(source.settings || {}),
+  };
   return {
     active: Boolean(source.active),
-    id: normalizeName(source.id),
+    tournamentId,
+    id: normalizeName(source.id || tournamentId),
+    joinCode,
     name: normalizeName(source.name, "Local Commander Tournament"),
+    formatPreset: normalizeName(source.formatPreset, "10-player-casual-win-ladder"),
+    hostPlayerId: normalizeName(source.hostPlayerId),
+    hostName: normalizeName(source.hostName, "Host"),
     role: normalizeName(source.role, "host"),
+    status: normalizeName(source.status, source.active ? "setup" : "idle"),
+    currentRoundNumber: normalizeCount(source.currentRoundNumber),
     players: Array.isArray(source.players) ? source.players : [],
+    rounds: Array.isArray(source.rounds) ? source.rounds : [],
     results: Array.isArray(source.results) ? source.results : [],
     standings: Array.isArray(source.standings) ? source.standings : [],
+    settings,
+    pinned: Boolean(source.pinned),
     announcement: source.announcement || null,
+    finalAnnouncement: source.finalAnnouncement || source.announcement || null,
+    historyLog: Array.isArray(source.historyLog) ? source.historyLog : [],
+    lastError: normalizeName(source.lastError),
+    syncStatus: normalizeName(source.syncStatus || source.sync?.status, "local-only"),
     sync: {
       mode: normalizeName(source.sync?.mode, "local"),
-      sessionId: normalizeName(source.sync?.sessionId),
+      sessionId: normalizeName(source.sync?.sessionId || joinCode),
       lastSyncAt: Number(source.sync?.lastSyncAt || 0),
       status: normalizeName(source.sync?.status, "local-only"),
+      namespace: normalizeName(source.sync?.namespace, "tournament"),
     },
     createdAt: Number(source.createdAt || 0),
     updatedAt: Number(source.updatedAt || 0),
+    completedAt: Number(source.completedAt || 0),
   };
 }
 

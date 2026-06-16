@@ -390,8 +390,13 @@ function normalizeProfile(profile) {
       ...(profile.tournament || {}),
       sync: { ...defaults.tournament.sync, ...(profile.tournament?.sync || {}) },
       players: profile.tournament?.players || defaults.tournament.players,
+      rounds: profile.tournament?.rounds || defaults.tournament.rounds,
       results: profile.tournament?.results || defaults.tournament.results,
       standings: profile.tournament?.standings || defaults.tournament.standings,
+      settings: { ...defaults.tournament.settings, ...(profile.tournament?.settings || {}) },
+      historyLog: profile.tournament?.historyLog || defaults.tournament.historyLog,
+      finalAnnouncement: profile.tournament?.finalAnnouncement || profile.tournament?.announcement || defaults.tournament.finalAnnouncement,
+      announcement: profile.tournament?.announcement || profile.tournament?.finalAnnouncement || defaults.tournament.announcement,
     },
   };
 }

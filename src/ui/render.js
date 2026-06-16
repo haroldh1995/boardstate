@@ -135,7 +135,7 @@ export function blurScryfallSearchInput(element = globalThis.document?.activeEle
 }
 
 export function mountApp(root, store) {
-  const allPages = ["life", "battlefield", "profile", "archive", "decks", "leaderboards"];
+  const allPages = ["life", "battlefield", "tournament", "profile", "archive", "decks", "leaderboards"];
   let activePage = normalizePageFromHash(location.hash);
   let searchResults = [];
   let searchMessage = "";
@@ -836,22 +836,108 @@ export function mountApp(root, store) {
     container.querySelector("[data-tournament-create-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
       const form = new FormData(event.currentTarget);
-      store.dispatch({ type: "TOURNAMENT_CREATE", name: form.get("name") });
-      showNotice("Local Commander tournament created.");
+      store.dispatch({
+        type: "TOURNAMENT_CREATE",
+        name: form.get("name"),
+        hostName: form.get("hostName"),
+        formatPreset: form.get("formatPreset"),
+        settings: {
+          expectedPlayerCount: Number(form.get("expectedPlayerCount") || 10),
+          allowDeckChangesBetweenRounds: form.get("allowDeckChangesBetweenRounds") === "on",
+          oneVOneBeforeRepeat: form.get("oneVOneBeforeRepeat") === "on",
+          suddenDeathDamageDouble: form.get("suddenDeathDamageDouble") === "on",
+          oneVOneActsAsTimer: form.get("oneVOneActsAsTimer") === "on",
+          topThreeAnnouncement: form.get("topThreeAnnouncement") === "on",
+        },
+      });
+      showNotice("Tournament created.");
+    });
+    container.querySelector("[data-tournament-join-form]")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      store.dispatch({ type: "TOURNAMENT_JOIN", joinCode: form.get("joinCode"), playerName: form.get("playerName") });
+      showNotice("Joined local tournament session.");
     });
     container.querySelector("[data-tournament-player-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
       const form = new FormData(event.currentTarget);
-      store.dispatch({ type: "TOURNAMENT_ADD_PLAYER", playerName: form.get("playerName"), commander: form.get("commander") });
+      store.dispatch({ type: "TOURNAMENT_ADD_PLAYER", playerName: form.get("playerName"), deckNotes: form.get("deckNotes"), commander: form.get("commander") });
       showNotice("Tournament player added.");
     });
-    container.querySelectorAll("[data-tournament-win]").forEach((button) => {
+    container.querySelector("[data-tournament-sample-players]")?.addEventListener("click", () => {
+      store.dispatch({ type: "TOURNAMENT_ADD_SAMPLE_PLAYERS" });
+      showNotice("Filled tournament seats.");
+    });
+    container.querySelectorAll("[data-tournament-remove-player]").forEach((button) =>
       button.addEventListener("click", () => {
-        const tournament = store.getState().tournament;
-        store.dispatch({ type: "TOURNAMENT_REPORT_RESULT", winnerId: button.dataset.tournamentWin, playerIds: (tournament.players || []).map((player) => player.id) });
+        if (!confirm("Remove this player before the tournament starts?")) return;
+        store.dispatch({ type: "TOURNAMENT_REMOVE_PLAYER", playerId: button.dataset.tournamentRemovePlayer });
+      })
+    );
+    container.querySelectorAll("[data-tournament-pin]").forEach((button) =>
+      button.addEventListener("click", () => store.dispatch({ type: "TOURNAMENT_SET_PINNED", pinned: button.dataset.tournamentPin === "true" }))
+    );
+    container.querySelector("[data-open-tournament-page]")?.addEventListener("click", () => {
+      optionsOpen = false;
+      setActivePage("tournament");
+    });
+    container.querySelector("[data-tournament-generate-round]")?.addEventListener("click", () => {
+      store.dispatch({ type: "TOURNAMENT_GENERATE_ROUND" });
+      showNotice("Tournament round generated.");
+    });
+    container.querySelector("[data-tournament-start-round]")?.addEventListener("click", (event) => {
+      store.dispatch({ type: "TOURNAMENT_START_ROUND", roundNumber: Number(event.currentTarget.dataset.roundNumber || 0) });
+      showNotice("Tournament round started.");
+    });
+    container.querySelectorAll("[data-tournament-result-form]").forEach((formElement) => {
+      formElement.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        store.dispatch({
+          type: "TOURNAMENT_REPORT_RESULT",
+          roundNumber: Number(form.get("roundNumber") || 0),
+          tableId: form.get("tableId"),
+          tableName: form.get("tableName"),
+          winnerId: form.get("winnerId"),
+          eliminationOrder: form.get("eliminationOrder"),
+          eliminations: form.get("eliminations"),
+          lifeTotals: form.get("lifeTotals"),
+          commanderDamageTaken: form.get("commanderDamageTaken"),
+          notes: form.get("notes"),
+        });
         showNotice("Tournament result recorded.");
       });
     });
+    container.querySelectorAll("[data-tournament-edit-table]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const current = button.dataset.players || "";
+        const answer = prompt("Enter player names or IDs for this table, comma-separated. Casual override allowed before the round starts.", current);
+        if (answer === null) return;
+        store.dispatch({
+          type: "TOURNAMENT_EDIT_TABLE",
+          roundNumber: Number(button.dataset.roundNumber || 0),
+          tableId: button.dataset.tournamentEditTable,
+          players: answer,
+        });
+      })
+    );
+    container.querySelectorAll("[data-tournament-sudden-death]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "TOURNAMENT_START_SUDDEN_DEATH", roundNumber: Number(button.dataset.tournamentSuddenDeath || 0) });
+        showNotice("Sudden Death started.");
+      })
+    );
+    container.querySelectorAll("[data-tournament-extension]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "TOURNAMENT_START_EXTENSION", roundNumber: Number(button.dataset.roundNumber || 0), tableId: button.dataset.tournamentExtension });
+        showNotice("Sudden Death extension started.");
+      })
+    );
+    container.querySelectorAll("[data-tournament-extension-turn]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "TOURNAMENT_EXTENSION_TURN", roundNumber: Number(button.dataset.roundNumber || 0), tableId: button.dataset.tableId, playerId: button.dataset.tournamentExtensionTurn });
+      })
+    );
     container.querySelectorAll("[data-tournament-correct]").forEach((button) => {
       button.addEventListener("click", () => {
         const answer = prompt("Correct total wins for this player.", "0");
@@ -861,7 +947,12 @@ export function mountApp(root, store) {
       });
     });
     container.querySelector("[data-tournament-announce]")?.addEventListener("click", () => store.dispatch({ type: "TOURNAMENT_ANNOUNCE" }));
-    container.querySelector("[data-tournament-end]")?.addEventListener("click", () => store.dispatch({ type: "TOURNAMENT_END" }));
+    container.querySelector("[data-tournament-end]")?.addEventListener("click", () => {
+      const tournament = store.getState().tournament || {};
+      const incomplete = (tournament.standings || []).filter((entry) => Number(entry.oneVOneGamesPlayed || 0) < 1).length;
+      if (!confirm(`${incomplete ? `${incomplete} player(s) have not completed a 1v1. ` : ""}End tournament and announce Top 3?`)) return;
+      store.dispatch({ type: "TOURNAMENT_END" });
+    });
     container.querySelectorAll("[data-reset-hud-layout]").forEach((button) =>
       button.addEventListener("click", () => {
         openConfirmation({
@@ -3589,6 +3680,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       </header>
       ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier, uiState) : ""}
       ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", isMobilePortrait: Boolean(uiState.isMobilePortrait), manualChoicePanelCollapsed: Boolean(uiState.manualChoicePanelCollapsed), utilityDockOpen: Boolean(uiState.utilityDockOpen), castActionPopup: uiState.castActionPopup }) : ""}
+      ${page === "tournament" ? renderTournamentPage(profile) : ""}
       ${page === "profile" ? renderProfile(profile) : ""}
       ${page === "archive" ? renderArchive(profile) : ""}
       ${page === "decks" ? renderDecks(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery) : ""}
@@ -3602,6 +3694,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       ${uiState.simulationSetupOpen ? renderSimulationSetupModal(uiState.simulationSelectedOpponents, uiState.simulationSelectedSpeed, uiState.simulationRevengeEnabled, uiState.simulationSetupError) : ""}
       ${uiState.simulationStatsOpen ? renderSimulationStatsOverlay(profile) : ""}
       ${uiState.syncedTurnOrderSetupOpen ? renderSyncedTurnOrderModal(uiState.syncedTurnOrderPlayers || [], uiState.syncedTurnOrderRolls || {}, uiState.syncedTurnOrderOrder || [], uiState.syncedTurnOrderSuggested || [], uiState.syncedTurnOrderTiePlayerIds || [], uiState.syncedTurnOrderError || "") : ""}
+      ${page !== "tournament" ? renderPinnedTournamentPanel(profile) : ""}
       ${renderAdhdAssistPanel(profile, page, uiLayer.current)}
       ${renderHelperSprite(profile, uiState.helperMessage, uiState.hudBadgePositions || HUD_BADGE_DEFAULTS, Boolean(uiState.isMobilePortrait), Boolean(uiState.hudBadgesLocked))}
       ${renderCardPresentation(profile.activeSession?.presentation)}
@@ -5875,7 +5968,7 @@ function renderLeaderboards(profile) {
   `;
 }
 
-function renderTournamentPanel(profile) {
+function renderTournamentPanelLegacy(profile) {
   const tournament = profile.tournament || {};
   if (!tournament.active) {
     return `
@@ -5915,6 +6008,378 @@ function renderTournamentPanel(profile) {
       ${tournament.announcement ? `<div class="tournament-announcement"><p class="eyebrow">Top 3</p>${(tournament.announcement.winners || []).map((winner) => `<strong>#${winner.rank} ${escapeHtml(winner.name)} · ${winner.wins} wins</strong>`).join("") || "<strong>No ranked players</strong>"}</div>` : ""}
     </article>
   `;
+}
+
+function renderTournamentPanel(profile) {
+  const tournament = profile.tournament || {};
+  const hasTournament = tournament.status && tournament.status !== "idle";
+  return `
+    <article class="option-card tournament-panel">
+      <h3>Tournament / Tournament Bracket</h3>
+      <p>10-player casual ladder support with tournament sync kept separate from normal gameplay sync.</p>
+      <div class="button-grid">
+        <button data-open-tournament-page>${hasTournament ? "Open Tournament" : "Create / Join Tournament"}</button>
+        ${hasTournament ? `<button data-tournament-pin="${tournament.pinned ? "false" : "true"}">${tournament.pinned ? "Unpin Panel" : "Pin Panel"}</button>` : ""}
+      </div>
+      ${hasTournament ? `<p>${escapeHtml(tournament.name)} - ${escapeHtml(tournament.joinCode || tournament.sync?.sessionId || "local")} - ${escapeHtml(tournament.syncStatus || tournament.sync?.status || "local-only")}</p>` : ""}
+    </article>
+  `;
+}
+
+function renderTournamentPage(profile) {
+  const tournament = profile.tournament || {};
+  const hasTournament = tournament.status && tournament.status !== "idle";
+  if (!hasTournament) {
+    return `
+      <section class="utility-page tournament-page">
+        <div class="tournament-hero glass">
+          <div>
+            <p class="eyebrow">Tournament Bracket</p>
+            <h2>10-Player Casual MTG Tournament</h2>
+            <p>Create a local-first tournament, join a hosted code, generate two 4-player pods plus one 1v1 each round, and keep tournament state separate from gameplay sync.</p>
+          </div>
+        </div>
+        <div class="tournament-grid">
+          ${renderTournamentCreateCard(profile)}
+          ${renderTournamentJoinCard(profile)}
+          ${renderTournamentRulesReference()}
+        </div>
+      </section>
+    `;
+  }
+  const currentRound = getCurrentTournamentRound(tournament);
+  const playerCount = (tournament.players || []).filter((player) => player.active !== false).length;
+  const announcement = tournament.finalAnnouncement || tournament.announcement;
+  return `
+    <section class="utility-page tournament-page">
+      <div class="tournament-hero glass">
+        <div>
+          <p class="eyebrow">Tournament Bracket</p>
+          <h2>${escapeHtml(tournament.name)}</h2>
+          <p>${escapeHtml(tournament.joinCode || tournament.sync?.sessionId || "LOCAL")} - ${escapeHtml(tournament.formatPreset || "10-player casual win ladder")}</p>
+        </div>
+        <div class="tournament-hero__meta">
+          <span>Status: ${escapeHtml(formatLabel(tournament.status || "setup"))}</span>
+          <span>Round ${Number(tournament.currentRoundNumber || 0)}</span>
+          <span>${playerCount}/${Number(tournament.settings?.expectedPlayerCount || 10)} players</span>
+          <span>Sync: ${escapeHtml(tournament.syncStatus || tournament.sync?.status || "local-only")}</span>
+          <button data-tournament-pin="${tournament.pinned ? "false" : "true"}">${tournament.pinned ? "Unpin Tournament" : "Pin Tournament"}</button>
+        </div>
+      </div>
+      ${tournament.lastError ? `<article class="recovery-toast warning"><strong>Tournament notice</strong><p>${escapeHtml(tournament.lastError)}</p></article>` : ""}
+      <div class="tournament-grid">
+        ${renderTournamentSetupControls(profile)}
+        ${renderTournamentCurrentRound(tournament, currentRound)}
+        ${renderTournamentStandings(tournament)}
+        ${renderTournamentRecords(tournament)}
+        ${renderTournamentSuddenDeath(tournament, currentRound)}
+        ${announcement ? renderTournamentAnnouncement(announcement) : ""}
+        ${renderTournamentRulesReference()}
+        ${renderTournamentHistory(tournament)}
+      </div>
+    </section>
+  `;
+}
+
+function renderPinnedTournamentPanel(profile) {
+  const tournament = profile.tournament || {};
+  if (!tournament.pinned || !tournament.status || tournament.status === "idle") {
+    return "";
+  }
+  const standings = tournament.standings || [];
+  const localName = profile.player?.name || "";
+  const localStanding = standings.find((entry) => entry.displayName === localName || entry.name === localName) || standings[0] || {};
+  const currentRound = getCurrentTournamentRound(tournament);
+  const table = findPlayerCurrentTable(tournament, localStanding.playerId) || currentRound?.oneVOne || currentRound?.podA;
+  return `
+    <aside class="pinned-tournament-panel glass" data-no-swipe>
+      <div>
+        <p class="eyebrow">Pinned Tournament</p>
+        <strong>${escapeHtml(tournament.name)}</strong>
+        <span>${escapeHtml(tournament.joinCode || tournament.sync?.sessionId || "LOCAL")} - ${escapeHtml(tournament.syncStatus || "local-only")}</span>
+      </div>
+      <div class="pinned-tournament-panel__stats">
+        <span>Round ${Number(tournament.currentRoundNumber || 0)}</span>
+        <span>${escapeHtml(table?.tableName || "No table yet")}</span>
+        <span>Rank #${escapeHtml(localStanding.rank || "-")} - ${escapeHtml(localStanding.totalRecord || "0-0")}</span>
+      </div>
+      <div class="row mini">
+        <button data-open-tournament-page>Open Tournament</button>
+        <button data-tournament-pin="false">Unpin</button>
+      </div>
+    </aside>
+  `;
+}
+
+function renderTournamentCreateCard(profile) {
+  return `
+    <article class="option-card tournament-card">
+      <h3>Create / Host Tournament</h3>
+      <form class="stacked-form" data-tournament-create-form>
+        <label>Tournament Name<input name="name" value="Casual Commander Ladder" required /></label>
+        <label>Host Name<input name="hostName" value="${escapeAttribute(profile.player?.name || "Host")}" required /></label>
+        <label>Expected Player Count<input name="expectedPlayerCount" type="number" min="2" max="32" value="10" /></label>
+        <label>Format Preset
+          <select name="formatPreset">
+            <option value="10-player-casual-win-ladder">10-Player Casual Win Ladder</option>
+          </select>
+        </label>
+        <label class="toggle-row"><span>Allow deck changes between rounds</span><input type="checkbox" name="allowDeckChangesBetweenRounds" checked /></label>
+        <label class="toggle-row"><span>Require every player to complete one 1v1 before repeat</span><input type="checkbox" name="oneVOneBeforeRepeat" checked /></label>
+        <label class="toggle-row"><span>Sudden Death enabled</span><input type="checkbox" name="suddenDeathDamageDouble" checked /></label>
+        <label class="toggle-row"><span>1v1 acts as pod timer</span><input type="checkbox" name="oneVOneActsAsTimer" checked /></label>
+        <label class="toggle-row"><span>Top 3 announcement enabled</span><input type="checkbox" name="topThreeAnnouncement" checked /></label>
+        <button class="wide resolve-button">Create Tournament</button>
+      </form>
+    </article>
+  `;
+}
+
+function renderTournamentJoinCard(profile) {
+  return `
+    <article class="option-card tournament-card">
+      <h3>Join / Sync Tournament</h3>
+      <p>Local browser sync uses a separate tournament channel. It does not join or alter gameplay sync sessions.</p>
+      <form class="stacked-form" data-tournament-join-form>
+        <label>Tournament Code / Session ID<input name="joinCode" placeholder="MTG-ABC123" required /></label>
+        <label>Player Name<input name="playerName" value="${escapeAttribute(profile.player?.name || "Player")}" required /></label>
+        <button class="wide">Join Tournament</button>
+      </form>
+      <p class="eyebrow">Sync status is honest: local BroadcastChannel updates work between same-browser tabs using the tournament session ID; no cloud relay is claimed.</p>
+    </article>
+  `;
+}
+
+function renderTournamentSetupControls(profile) {
+  const tournament = profile.tournament || {};
+  const setupLocked = tournament.status !== "setup";
+  return `
+    <article class="option-card tournament-card">
+      <h3>Host / Admin Controls</h3>
+      <p>Host: ${escapeHtml(tournament.hostName || "Host")} - Code: <strong>${escapeHtml(tournament.joinCode || tournament.sync?.sessionId || "LOCAL")}</strong></p>
+      <div class="button-grid">
+        <button data-tournament-sample-players ${setupLocked ? "disabled" : ""}>Fill to 10 Players</button>
+        <button data-tournament-generate-round>Generate Next Round</button>
+        <button data-tournament-start-round data-round-number="${Number(tournament.currentRoundNumber || 0)}" ${getCurrentTournamentRound(tournament)?.status !== "pending" ? "disabled" : ""}>Lock / Start Round</button>
+        <button data-tournament-announce>Announce Top 3</button>
+        <button class="danger-soft" data-tournament-end>End Tournament</button>
+      </div>
+      <form class="stacked-form" data-tournament-player-form>
+        <label>Player name<input name="playerName" required ${setupLocked ? "disabled" : ""} /></label>
+        <label>Commander / deck notes<input name="deckNotes" ${setupLocked ? "disabled" : ""} /></label>
+        <button ${setupLocked ? "disabled" : ""}>Add Player</button>
+      </form>
+      <div class="tournament-player-list">
+        ${(tournament.players || []).map((player) => `
+          <span>${escapeHtml(player.displayName || player.name)}${player.deckNotes ? ` - ${escapeHtml(player.deckNotes)}` : ""}${setupLocked ? "" : ` <button data-tournament-remove-player="${escapeAttribute(player.playerId || player.id)}">Remove</button>`}</span>
+        `).join("") || "<span>No players yet.</span>"}
+      </div>
+    </article>
+  `;
+}
+
+function renderTournamentCurrentRound(tournament, round) {
+  if (!round) {
+    return `
+      <article class="option-card tournament-card tournament-current-round">
+        <h3>Current Round</h3>
+        <p>No round generated yet. Add 10 players, then generate Round 1.</p>
+      </article>
+    `;
+  }
+  return `
+    <article class="option-card tournament-card tournament-current-round">
+      <div class="overlay-header compact">
+        <div><h3>Round ${round.roundNumber}</h3><small>${escapeHtml(formatLabel(round.status))}${round.suddenDeathStarted ? " - Sudden Death Active" : ""}</small></div>
+        <button data-tournament-sudden-death="${round.roundNumber}">Start Sudden Death</button>
+      </div>
+      <div class="tournament-table-grid">
+        ${[round.podA, round.podB, round.oneVOne].map((table) => renderTournamentTable(tournament, round, table)).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderTournamentTable(tournament, round, table) {
+  if (!table) return "";
+  const names = (table.players || []).map((id) => getTournamentPlayerName(tournament, id));
+  const pending = table.status === "pending";
+  return `
+    <section class="tournament-table-card ${table.status === "complete" ? "complete" : ""}">
+      <div class="overlay-header compact">
+        <div>
+          <p class="eyebrow">${escapeHtml(table.tableType === "oneVOne" ? "Timer Table" : "4-Player Pod")}</p>
+          <h4>${escapeHtml(table.tableName)}</h4>
+          <small>${escapeHtml(formatLabel(table.status))}</small>
+        </div>
+        ${pending ? `<button data-tournament-edit-table="${escapeAttribute(table.tableId)}" data-round-number="${round.roundNumber}" data-players="${escapeAttribute(names.join(", "))}">Edit Seating</button>` : ""}
+      </div>
+      <div class="deck-list">${names.map((name) => `<span>${escapeHtml(name)}</span>`).join("")}</div>
+      ${table.winnerPlayerId ? `<p><strong>Winner:</strong> ${escapeHtml(getTournamentPlayerName(tournament, table.winnerPlayerId))}</p>` : ""}
+      ${table.tableType === "pod" && table.eliminationOrder?.length ? `<p><strong>Elimination order:</strong> ${table.eliminationOrder.map((id) => escapeHtml(getTournamentPlayerName(tournament, id))).join(" -> ")}</p>` : ""}
+      ${table.status !== "complete" ? renderTournamentResultForm(tournament, round, table) : ""}
+      ${table.status !== "complete" && table.tableType === "pod" ? `
+        <div class="row mini">
+          <button data-tournament-extension="${escapeAttribute(table.tableId)}" data-round-number="${round.roundNumber}">Start Extension</button>
+        </div>
+        ${table.extensionStarted ? renderExtensionTurns(tournament, round, table) : ""}
+      ` : ""}
+    </section>
+  `;
+}
+
+function renderTournamentResultForm(tournament, round, table) {
+  return `
+    <form class="stacked-form tournament-result-form" data-tournament-result-form>
+      <input type="hidden" name="roundNumber" value="${round.roundNumber}" />
+      <input type="hidden" name="tableId" value="${escapeAttribute(table.tableId)}" />
+      <input type="hidden" name="tableName" value="${escapeAttribute(table.tableName)}" />
+      <label>Winner
+        <select name="winnerId" required>
+          <option value="">Choose winner</option>
+          ${(table.players || []).map((id) => `<option value="${escapeAttribute(id)}">${escapeHtml(getTournamentPlayerName(tournament, id))}</option>`).join("")}
+        </select>
+      </label>
+      ${table.tableType === "pod" ? `
+        <label>Elimination order, earliest first<textarea name="eliminationOrder" placeholder="${escapeAttribute((table.players || []).map((id) => getTournamentPlayerName(tournament, id)).join(", "))}"></textarea></label>
+        <label>Pod eliminations, optional eliminatedBy&gt;eliminated<textarea name="eliminations" placeholder="Ari&gt;Blake, Casey&gt;Devon"></textarea></label>
+        <label>Final life totals, optional name:value<textarea name="lifeTotals" placeholder="Ari:18, Casey:12"></textarea></label>
+        <label>Commander damage taken, optional name:value<textarea name="commanderDamageTaken" placeholder="Ari:8, Casey:16"></textarea></label>
+      ` : ""}
+      <label>Notes<input name="notes" /></label>
+      <button>Confirm Result</button>
+    </form>
+  `;
+}
+
+function renderExtensionTurns(tournament, round, table) {
+  const maxTurns = Number(tournament.settings?.suddenDeathExtensionTurns || 3);
+  return `
+    <div class="extension-turn-grid">
+      ${(table.players || []).map((id) => {
+        const used = Number(table.extensionTurns?.[id] || 0);
+        return `<button data-tournament-extension-turn="${escapeAttribute(id)}" data-round-number="${round.roundNumber}" data-table-id="${escapeAttribute(table.tableId)}">${escapeHtml(getTournamentPlayerName(tournament, id))}: ${used}/${maxTurns} turns</button>`;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderTournamentStandings(tournament) {
+  return `
+    <article class="option-card tournament-card tournament-standings-card">
+      <h3>Standings</h3>
+      <div class="tournament-standings scroll-safe">
+        ${(tournament.standings || []).map((standing) => `
+          <article class="tournament-standing ${Number(standing.rank) <= 3 ? "top-three" : ""}">
+            <b>#${standing.rank}</b>
+            <div>
+              <strong>${escapeHtml(standing.displayName || standing.name)}</strong>
+              <small>${escapeHtml(standing.totalRecord || "0-0")} total - Pod ${escapeHtml(standing.podRecord || "0-0")} - 1v1 ${escapeHtml(standing.oneVOneRecord || "0-0")}</small>
+            </div>
+            <span>${standing.podEliminations || 0} elim - Avg ${Number(standing.averagePodPlacement || 0).toFixed(2)}</span>
+            <small>${escapeHtml(standing.tiebreakerSummary || "")}</small>
+            <button data-tournament-correct="${escapeAttribute(standing.playerId)}">Correct</button>
+          </article>
+        `).join("") || "<p>Add players to begin standings.</p>"}
+      </div>
+    </article>
+  `;
+}
+
+function renderTournamentRecords(tournament) {
+  return `
+    <article class="option-card tournament-card">
+      <h3>Player Records</h3>
+      <div class="tournament-record-grid">
+        ${(tournament.standings || []).map((entry) => `
+          <div class="tournament-mini-record">
+            <strong>${escapeHtml(entry.displayName || entry.name)}</strong>
+            <span>Total ${escapeHtml(entry.totalRecord || "0-0")}</span>
+            <span>Pod ${escapeHtml(entry.podRecord || "0-0")}</span>
+            <span>1v1 ${escapeHtml(entry.oneVOneRecord || "0-0")}</span>
+            <span>H2H ${escapeHtml(entry.headToHeadSummary || "No head-to-head yet")}</span>
+            <span>${entry.currentTableId ? `Current: ${escapeHtml(entry.currentTableId)}` : "No active table"}</span>
+          </div>
+        `).join("") || "<p>No records yet.</p>"}
+      </div>
+    </article>
+  `;
+}
+
+function renderTournamentSuddenDeath(tournament, round) {
+  return `
+    <article class="option-card tournament-card">
+      <h3>Sudden Death Status</h3>
+      <p>${round?.suddenDeathStarted ? "Sudden Death Active: all damage dealt to players is doubled for active pods." : "Sudden Death starts automatically when the 1v1 result is reported, or manually by host."}</p>
+      <p>Life loss, poison, mill, alternate wins, and lose-the-game effects are unchanged. Commander damage during Sudden Death is doubled and tracked as doubled commander damage.</p>
+      <p>Extension: each remaining pod player gets exactly ${Number(tournament.settings?.suddenDeathExtensionTurns || 3)} turns. If multiple players remain, use highest life, least commander damage taken, then most pod eliminations.</p>
+    </article>
+  `;
+}
+
+function renderTournamentAnnouncement(announcement = {}) {
+  return `
+    <article class="option-card tournament-card tournament-announcement">
+      <h3>Top 3 Announcement</h3>
+      ${announcement.oneVOneWarning ? `<p class="warning-text">${escapeHtml(announcement.oneVOneWarning)}</p>` : ""}
+      ${(announcement.winners || []).map((winner, index) => `<strong>${index + 1}. ${escapeHtml(winner.displayName || winner.name)} - ${escapeHtml(winner.totalRecord || `${winner.wins || 0}-${winner.losses || 0}`)}</strong>`).join("") || "<p>No winners available.</p>"}
+    </article>
+  `;
+}
+
+function renderTournamentRulesReference() {
+  const sections = [
+    ["Overview", "Casual win-based ladder. All pod wins and 1v1 wins count as one tournament win."],
+    ["Match Structure", "Each round has two 4-player pods and one 1v1 match. The 1v1 match acts as the timer for both pods."],
+    ["Records", "Track total record, pod record, 1v1 record, pod eliminations, elimination order, average pod placement, and head-to-head where applicable."],
+    ["Deck Changes", "Players may change decks between rounds, but not during an active game unless the table agrees it fixes an honest setup mistake."],
+    ["1v1 Rotation", "Every player should complete one 1v1 before anyone repeats. After Round 1, first eliminated pod players are prioritized for the next 1v1."],
+    ["Sudden Death", "When the 1v1 ends, unfinished pods enter Sudden Death. Damage to players is doubled; life loss, poison, mill, alternate wins, and lose effects are unchanged."],
+    ["Sudden Death Extension", "Unfinished pods can enter a final extension where each remaining player gets 3 turns. Highest life, least commander damage taken, then most pod eliminations break unresolved ties."],
+    ["Round Seating", "Round 1 is randomized. Later rounds use elimination order for the 1v1 first, then standings balance the pods while avoiding exact repeats where practical."],
+    ["Player Conduct", "Table politics are allowed. Collusion, traded wins, sold wins, or intentionally gifted wins for standings manipulation are not allowed."],
+    ["Rule Disputes", "Pause, check card text and official rules where clear, then use majority agreement if unclear so the game continues."],
+    ["Rankings and Tie Breakers", "Total wins, pod wins, 1v1 wins, fewest losses, head-to-head, pod eliminations, average pod placement, then shared placement or playoff."],
+    ["Tournament End Conditions", "End when the group is tired, everyone has a 1v1, 1-3 players have a clear agreed lead, or standings are accepted as final."],
+    ["Winners", "Top 3 players are announced from final standings. Ties can be shared or settled by playoff."],
+  ];
+  return `
+    <article class="option-card tournament-card tournament-rules-card">
+      <h3>Rules Reference</h3>
+      <div class="tournament-rules-grid">
+        ${sections.map(([title, body]) => `<details open><summary>${escapeHtml(title)}</summary><p>${escapeHtml(body)}</p></details>`).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderTournamentHistory(tournament) {
+  return `
+    <article class="option-card tournament-card">
+      <h3>Sync Status / History</h3>
+      <p>Tournament channel: ${escapeHtml(tournament.sync?.namespace || "tournament")} - ${escapeHtml(tournament.sync?.sessionId || tournament.joinCode || "local")}</p>
+      <p>Normal gameplay sync room remains separate: tournament actions are not sent to gameplay sync.</p>
+      <div class="tournament-history-list">
+        ${(tournament.historyLog || []).slice(0, 8).map((entry) => `<span>${escapeHtml(entry.type)} - ${escapeHtml(entry.summary)}</span>`).join("") || "<span>No tournament history yet.</span>"}
+      </div>
+    </article>
+  `;
+}
+
+function getCurrentTournamentRound(tournament = {}) {
+  const rounds = tournament.rounds || [];
+  return rounds.find((round) => round.roundNumber === tournament.currentRoundNumber) || rounds[rounds.length - 1] || null;
+}
+
+function getTournamentPlayerName(tournament = {}, playerId = "") {
+  const player = (tournament.players || []).find((entry) => entry.playerId === playerId || entry.id === playerId);
+  return player?.displayName || player?.name || playerId || "Unknown player";
+}
+
+function findPlayerCurrentTable(tournament = {}, playerId = "") {
+  if (!playerId) return null;
+  const round = getCurrentTournamentRound(tournament);
+  return [round?.podA, round?.podB, round?.oneVOne].find((table) => (table?.players || []).includes(playerId)) || null;
 }
 
 function renderGameOptions(profile, page = "life") {
@@ -6699,8 +7164,8 @@ function getPagePanels(profile) {
 }
 
 function getVisiblePages(profile) {
-  const pages = ["life", "battlefield", "archive", "decks", "leaderboards"];
-  return profile.settings?.navigation?.showProfileInMainUi ? ["life", "battlefield", "profile", "archive", "decks", "leaderboards"] : pages;
+  const pages = ["life", "battlefield", "tournament", "archive", "decks", "leaderboards"];
+  return profile.settings?.navigation?.showProfileInMainUi ? ["life", "battlefield", "tournament", "profile", "archive", "decks", "leaderboards"] : pages;
 }
 
 function getSelectedPermanents(session) {
