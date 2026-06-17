@@ -1,4 +1,5 @@
 import { MANA_COLORS, createDefaultProfile } from "../state/schema.js";
+import { normalizeFriendState } from "../social/friendSystem.js";
 
 const DB_NAME = "boardstate";
 const STORE_NAME = "profiles";
@@ -312,6 +313,10 @@ function normalizeProfile(profile) {
           ...defaults.settings.notifications.gameplayEvents,
           ...(profile.settings?.notifications?.gameplayEvents || {}),
         },
+        friendEvents: {
+          ...defaults.settings.notifications.friendEvents,
+          ...(profile.settings?.notifications?.friendEvents || {}),
+        },
       },
       recentCounterTypes: profile.settings?.recentCounterTypes || defaults.settings.recentCounterTypes || [],
     },
@@ -416,6 +421,11 @@ function normalizeProfile(profile) {
       finalAnnouncement: profile.tournament?.finalAnnouncement || profile.tournament?.announcement || defaults.tournament.finalAnnouncement,
       announcement: profile.tournament?.announcement || profile.tournament?.finalAnnouncement || defaults.tournament.announcement,
     },
+    friends: normalizeFriendState({
+      ...defaults.friends,
+      ...(profile.friends || {}),
+      friendDisplayName: profile.friends?.friendDisplayName || profile.player?.name || defaults.friends.friendDisplayName,
+    }),
   };
 }
 

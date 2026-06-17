@@ -2,9 +2,19 @@
 
 ## App
 - Name: BoardState
-- Version: 1.14.0
-- Version code: 29
+- Version: 1.15.0
+- Version code: 30
 - Package: `com.boardstate.app`
+
+## Version 1.15.0
+- Adds a full Friends category in Game Options with a dedicated Friends subpage for friend codes, nearby players, pending requests, favorites, blocked users, profiles, and multiplayer shortcuts.
+- Adds simple 4-6 character uppercase friend codes with copy, browser share, safe regeneration confirmation, local persistence, and unsafe-code filtering.
+- Adds Add Friend by Code, friend request accept/decline, remove, block, favorite, nickname/profile notes, and local persistence through refresh.
+- Adds Nearby Players/Friends discovery using supported local browser channels and the existing WiFi relay room, with honest fallback messaging when true automatic browser LAN discovery is unavailable.
+- Adds friend-based game invites and tournament invites with direct join shortcuts where discovery/session data is available, plus invite-link/code fallback.
+- Keeps friend discovery/invite messages in a separate `friend` namespace so gameplay sync and tournament sync stay isolated.
+- Adds friend notification preferences for requests, nearby alerts, game/tournament invites, joined alerts, sound, haptics, sync unavailable, and block/remove confirmations.
+- Updates tests, production web package metadata, Android wrapper metadata, Flutter wrapper web assets, and release notes for version 1.15.0.
 
 ## Version 1.14.0
 - Overhauls Game Options into a compact category command center with focused subpages for Profile & Saves, Gameplay & Multiplayer, Tournament, Notifications, HUD & Layout, Accessibility / ADHD Assist, Diagnostics & Support, Data Management, and About BoardState.

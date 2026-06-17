@@ -31,6 +31,24 @@ import {
   startTournamentRound,
   startTournamentSuddenDeath,
 } from "../game/tournamentSystem.js";
+import {
+  acceptFriendRequest,
+  addFriendByCode,
+  blockFriend,
+  declineFriendRequest,
+  hideNearbyPlayer,
+  inviteFriendToGame,
+  inviteFriendToTournament,
+  receiveFriendRequest,
+  refreshNearbyDiscovery,
+  regenerateFriendCode,
+  removeFriend,
+  setFriendDisplayName,
+  toggleFavoriteFriend,
+  unblockFriend,
+  updateFriendProfile,
+  upsertNearbyPlayers,
+} from "../social/friendSystem.js";
 import { createDefaultProfile, createEmptySimulationStats, createGameSession, createManaPool, createPermanent, PHASES } from "./schema.js";
 import { clone, createId, normalizeCount } from "./ids.js";
 import { drainGameEvents, mapActionTypeToGameEvent, queueGameEvent, runGameEventObservers } from "../game/eventBus.js";
@@ -94,6 +112,60 @@ export function reduceProfile(profile, event) {
       break;
     case "NOTIFICATIONS_RESET_PREFS":
       nextProfile = resetNotificationPreferences(baseProfile);
+      break;
+    case "FRIEND_REGENERATE_CODE":
+      nextProfile = addFriendNotification(regenerateFriendCode(baseProfile, event), "friendAccepted", "Friend Code Updated", "Your new BoardState friend code is ready to copy or share.", "success");
+      break;
+    case "FRIEND_SET_DISPLAY_NAME":
+      nextProfile = setFriendDisplayName(baseProfile, event);
+      break;
+    case "FRIEND_ADD_BY_CODE":
+      nextProfile = addFriendNotification(addFriendByCode(baseProfile, event), "friendAccepted", "Friend Added", `${event.displayName || event.friendCode || "Friend"} is now saved in your friends list.`, "success");
+      break;
+    case "FRIEND_ACCEPT_REQUEST":
+      nextProfile = addFriendNotification(acceptFriendRequest(baseProfile, event), "friendAccepted", "Friend Request Accepted", "Friend saved locally.", "success");
+      break;
+    case "FRIEND_RECEIVE_REQUEST":
+      nextProfile = addFriendNotification(receiveFriendRequest(baseProfile, event), "friendRequest", "Friend Request Received", `${event.displayName || event.friendCode || "A BoardState player"} wants to connect.`, "info");
+      break;
+    case "FRIEND_DECLINE_REQUEST":
+      nextProfile = declineFriendRequest(baseProfile, event);
+      break;
+    case "FRIEND_REMOVE":
+      nextProfile = addFriendNotification(removeFriend(baseProfile, event), "friendBlocked", "Friend Removed", "Friend removed from your local list.", "warning");
+      break;
+    case "FRIEND_BLOCK":
+      nextProfile = addFriendNotification(blockFriend(baseProfile, event), "friendBlocked", "Friend Blocked", "This code is blocked and hidden from nearby/friend invite lists.", "warning");
+      break;
+    case "FRIEND_UNBLOCK":
+      nextProfile = unblockFriend(baseProfile, event);
+      break;
+    case "FRIEND_TOGGLE_FAVORITE":
+      nextProfile = toggleFavoriteFriend(baseProfile, event);
+      break;
+    case "FRIEND_UPDATE_PROFILE":
+      nextProfile = updateFriendProfile(baseProfile, event);
+      break;
+    case "FRIEND_REFRESH_NEARBY":
+      nextProfile = addFriendNotification(refreshNearbyDiscovery(baseProfile, event), event.wifiAvailable ? "nearbyFriend" : "syncUnavailable", "Nearby Friends", event.wifiAvailable ? "Nearby friend discovery refreshed." : "True no-code LAN discovery is unavailable in this browser. Use WiFi relay, friend code, or invite link fallback.", event.wifiAvailable ? "info" : "warning");
+      break;
+    case "FRIEND_UPSERT_NEARBY":
+      nextProfile = addFriendNotification(upsertNearbyPlayers(baseProfile, event), "nearbyFriend", "Nearby Friend Found", "A BoardState player appeared in the friend discovery room.", "info");
+      break;
+    case "FRIEND_HIDE_NEARBY":
+      nextProfile = hideNearbyPlayer(baseProfile, event);
+      break;
+    case "FRIEND_INVITE_GAME":
+      nextProfile = addFriendNotification(inviteFriendToGame(baseProfile, event), "gameInvite", "Game Invite Ready", "Friend game invite prepared. They can join directly when discoverable, or use your room/link fallback.", "success");
+      break;
+    case "FRIEND_INVITE_TOURNAMENT":
+      nextProfile = addFriendNotification(inviteFriendToTournament(baseProfile, event), "tournamentInvite", "Tournament Invite Ready", "Friend tournament invite prepared in the tournament namespace.", "success");
+      break;
+    case "FRIEND_JOIN_GAME":
+      nextProfile = addFriendNotification(joinFriendGame(baseProfile, event), "friendJoined", "Friend Game Joined", "Gameplay sync room updated from friend shortcut.", "success");
+      break;
+    case "FRIEND_JOIN_TOURNAMENT":
+      nextProfile = addFriendNotification(joinFriendTournament(baseProfile, event), "friendJoined", "Friend Tournament Joined", "Tournament join flow opened through the tournament namespace.", "success");
       break;
     case "SET_MULTIPLAYER_MODE":
       nextProfile = setMultiplayerMode(baseProfile, event.mode);
@@ -680,6 +752,20 @@ function addNotification(profile, notification = {}) {
   };
 }
 
+function addFriendNotification(profile, eventKey, title, body, severity = "info") {
+  return addNotification(profile, {
+    category: "friend",
+    eventKey,
+    severity,
+    title,
+    body,
+    actionLabel: "Open Friends",
+    actionPage: "options:friends",
+    fullWindow: false,
+    toast: true,
+  });
+}
+
 function acknowledgeNotification(profile, id = "") {
   if (!id) return profile;
   const items = (profile.notifications?.items || []).map((entry) =>
@@ -908,6 +994,7 @@ function getNotificationPreferences(profile = {}) {
     ...current,
     tournamentEvents: { ...defaults.tournamentEvents, ...(current.tournamentEvents || {}) },
     gameplayEvents: { ...defaults.gameplayEvents, ...(current.gameplayEvents || {}) },
+    friendEvents: { ...defaults.friendEvents, ...(current.friendEvents || {}) },
   };
 }
 
@@ -921,11 +1008,42 @@ function shouldKeepNotification(preferences = {}, category = "system", eventKey 
     if (!preferences.gameplay && !notification.critical) return false;
     return preferences.gameplayEvents?.[eventKey] !== false || Boolean(notification.critical);
   }
+  if (category === "friend") {
+    if (!preferences.friends && !notification.critical) return false;
+    return preferences.friendEvents?.[eventKey] !== false || Boolean(notification.critical);
+  }
   if (category === "dryRun") return preferences.dryRun !== false || Boolean(notification.critical);
   if (category === "manualChoice") return preferences.manualChoice !== false || Boolean(notification.critical);
   if (category === "sync") return preferences.sync !== false || Boolean(notification.critical);
   if (category === "reminder") return preferences.reminders !== false || Boolean(notification.critical);
   return true;
+}
+
+function joinFriendGame(profile, event = {}) {
+  const roomId = event.sessionId || event.gameSessionId || event.roomId || profile.settings?.multiplayer?.roomId || "boardstate-room";
+  const requestedMode = event.syncMode || profile.settings?.multiplayer?.mode || "local";
+  const mode = requestedMode === "wifi" ? "wifi" : "local";
+  return setMultiplayerMode(
+    updateSetting(
+      updateSetting(profile, "multiplayer.roomId", roomId),
+      "multiplayer.wsUrl",
+      event.wsUrl || profile.settings?.multiplayer?.wsUrl || "ws://localhost:8787"
+    ),
+    mode
+  );
+}
+
+function joinFriendTournament(profile, event = {}) {
+  const joinCode = event.tournamentSessionId || event.sessionId || event.joinCode || profile.tournament?.joinCode || "";
+  if (!joinCode) {
+    return profile;
+  }
+  return joinTournament(profile, {
+    joinCode,
+    playerName: event.playerName || profile.player?.name || "Player",
+    syncMode: event.syncMode || profile.tournament?.sync?.mode || profile.settings?.multiplayer?.mode || "local",
+    wsUrl: event.wsUrl || profile.tournament?.sync?.wsUrl || profile.settings?.multiplayer?.wsUrl || "ws://localhost:8787",
+  });
 }
 
 function setMultiplayerMode(profile, mode = "offline") {

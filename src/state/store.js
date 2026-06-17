@@ -4,6 +4,7 @@ import { createPasswordProfile, loadGuestProfile, loadProfile, loginWithPassword
 import { createAction } from "./actions.js";
 import { createSyncManager } from "../multiplayer/syncManager.js";
 import { createTournamentSyncManager } from "../multiplayer/tournamentSyncManager.js";
+import { createFriendSyncManager } from "../multiplayer/friendSyncManager.js";
 import { getSimulationSpeedInterval } from "../simulation/commanderSimulation.js";
 
 export function createStore() {
@@ -99,6 +100,63 @@ export function createStore() {
       await saveProfile(state);
     },
   });
+  const friendSyncManager = createFriendSyncManager({
+    onRemoteAction: async (remoteAction, messageType, publicProfile) => {
+      if (publicProfile) {
+        state = reduceProfile(state, createAction({ type: "FRIEND_UPSERT_NEARBY", peers: [publicProfile], internalOnly: true }, state));
+      }
+      if (messageType === "friend:request" && publicProfile?.friendCode) {
+        state = reduceProfile(
+          state,
+          createAction(
+            {
+              type: "FRIEND_RECEIVE_REQUEST",
+              friendCode: publicProfile.friendCode,
+              displayName: publicProfile.displayName,
+              source: "wifi-relay",
+              internalOnly: true,
+            },
+            state
+          )
+        );
+      }
+      state = reduceProfile(state, {
+        type: "NOTIFICATION_ADD",
+        category: "friend",
+        eventKey: messageType === "friend:tournament-invite" ? "tournamentInvite" : messageType === "friend:game-invite" ? "gameInvite" : "friendRequest",
+        severity: "info",
+        title: messageType === "friend:tournament-invite" ? "Friend Tournament Invite" : messageType === "friend:game-invite" ? "Friend Game Invite" : "Friend Message",
+        body: `${publicProfile?.displayName || "A BoardState player"} sent ${messageType || "a friend message"}. Confirm locally before joining anything.`,
+        actionLabel: "Open Friends",
+        actionPage: "options:friends",
+        internalOnly: true,
+      });
+      emit(remoteAction);
+      await saveProfile(state);
+    },
+    onNearbyPlayers: async (peers) => {
+      state = reduceProfile(state, createAction({ type: "FRIEND_UPSERT_NEARBY", peers, internalOnly: true }, state));
+      emit();
+      await saveProfile(state);
+    },
+    onStatus: async (statusEvent) => {
+      state = reduceProfile(state, {
+        type: "NOTIFICATION_ADD",
+        category: "friend",
+        eventKey: statusEvent.eventKey || "syncUnavailable",
+        severity: statusEvent.severity || "warning",
+        title: statusEvent.title || "Friend Discovery",
+        body: statusEvent.body || "Friend discovery status changed.",
+        actionLabel: "Open Friends",
+        actionPage: "options:friends",
+        fullWindow: false,
+        toast: true,
+        internalOnly: true,
+      });
+      emit();
+      await saveProfile(state);
+    },
+  });
 
   function emit(action = null) {
     listeners.forEach((listener) => listener(state, action));
@@ -161,11 +219,16 @@ export function createStore() {
     tournamentSyncManager.configure(state.tournament || {}, state.settings?.multiplayer || {});
   }
 
+  function configureFriendSync() {
+    friendSyncManager.configure(state, state.settings?.multiplayer || {});
+  }
+
   const storeApi = {
     async init() {
       state = await loadProfile();
       configureSync();
       configureTournamentSync();
+      configureFriendSync();
       emit();
       refreshSimulationLoop();
     },
@@ -186,15 +249,21 @@ export function createStore() {
       emit(action);
       await saveProfile(state);
       const isTournamentAction = String(action.actionType || "").startsWith("TOURNAMENT_");
-      if (!event?.remote && !event?.internalOnly && !isTournamentAction) {
+      const isFriendAction = String(action.actionType || "").startsWith("FRIEND_");
+      if (!event?.remote && !event?.internalOnly && !isTournamentAction && !isFriendAction) {
         syncManager.sendAction(action, state);
       }
       if (!event?.remote && !event?.internalOnly && isTournamentAction) {
         configureTournamentSync();
         tournamentSyncManager.sendAction(action, state.tournament);
       }
+      if (!event?.remote && !event?.internalOnly && isFriendAction) {
+        configureFriendSync();
+        friendSyncManager.sendAction(action, state);
+      }
       if (event?.type === "SET_MULTIPLAYER_MODE" || event?.actionType === "SET_MULTIPLAYER_MODE" || event?.type === "SET_SETTING") {
         configureSync();
+        configureFriendSync();
       }
       refreshSimulationLoop();
     },
@@ -202,6 +271,7 @@ export function createStore() {
       state = await createPasswordProfile(password, state);
       configureSync();
       configureTournamentSync();
+      configureFriendSync();
       emit();
       await saveProfile(state);
       refreshSimulationLoop();
@@ -210,6 +280,7 @@ export function createStore() {
       state = await loginWithPassword(password);
       configureSync();
       configureTournamentSync();
+      configureFriendSync();
       emit();
       refreshSimulationLoop();
     },
@@ -217,6 +288,7 @@ export function createStore() {
       state = await loadGuestProfile();
       configureSync();
       configureTournamentSync();
+      configureFriendSync();
       emit();
       refreshSimulationLoop();
     },
@@ -224,6 +296,7 @@ export function createStore() {
       state = await lockProtectedProfile();
       configureSync();
       configureTournamentSync();
+      configureFriendSync();
       emit();
       refreshSimulationLoop();
     },
@@ -264,6 +337,9 @@ function withRemotePeerState(profile, publicState) {
 function isSpectatorBlocked(state, action) {
   const multiplayer = state.settings?.multiplayer || {};
   if (!multiplayer.spectatorMode && multiplayer.role !== "spectator") {
+    return false;
+  }
+  if (String(action.actionType || "").startsWith("FRIEND_")) {
     return false;
   }
   const allowed = new Set([

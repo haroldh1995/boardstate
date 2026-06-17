@@ -1,5 +1,6 @@
 import { createId, normalizeCount, normalizeName, normalizeSigned } from "./ids.js";
 import { createFsmState } from "../game/fsm.js";
+import { createFriendState } from "../social/friendSystem.js";
 
 export const PHASES = ["Beginning", "Main 1", "Combat", "Main 2", "Ending"];
 export const MANA_COLORS = ["W", "U", "B", "R", "G", "C", "Generic"];
@@ -125,7 +126,20 @@ export function createDefaultProfile() {
         dryRun: true,
         manualChoice: true,
         sync: true,
+        friends: true,
         reminders: true,
+        friendEvents: {
+          friendRequest: true,
+          friendAccepted: true,
+          nearbyFriend: true,
+          gameInvite: true,
+          tournamentInvite: true,
+          friendJoined: true,
+          friendSound: false,
+          friendHaptics: false,
+          syncUnavailable: true,
+          friendBlocked: true,
+        },
         tournamentEvents: {
           inviteOpened: true,
           playerJoined: true,
@@ -194,6 +208,7 @@ export function createDefaultProfile() {
     },
     simulationStats: createEmptySimulationStats(),
     tournament: createTournamentState(),
+    friends: createFriendState({ friendDisplayName: "Player" }),
   };
 }
 

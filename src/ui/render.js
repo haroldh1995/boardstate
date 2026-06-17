@@ -1,6 +1,7 @@
 import { buildStats } from "../analytics/statsService.js";
 import { exportProfile, parseImportedProfile } from "../storage/localDatabase.js";
 import { fetchScryfallCardDetails, searchScryfall } from "../services/scryfallService.js";
+import { buildFriendInviteLink } from "../social/friendSystem.js";
 import { canBeCommander } from "../game/commanderSystem.js";
 import { getPermanentManaOptions } from "../game/manaSystem.js";
 import { createPermanent, PHASES } from "../state/schema.js";
@@ -939,6 +940,113 @@ export function mountApp(root, store) {
       store.dispatch({ type: "NOTIFICATIONS_RESET_PREFS", internalOnly: true });
       showNotice("Notification preferences reset.");
     });
+    container.querySelector("[data-friend-display-form]")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      store.dispatch({ type: "FRIEND_SET_DISPLAY_NAME", displayName: form.get("displayName") });
+      showNotice("Friend profile name saved.");
+    });
+    container.querySelector("[data-add-friend-form]")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      store.dispatch({ type: "FRIEND_ADD_BY_CODE", friendCode: form.get("friendCode"), displayName: form.get("displayName"), source: "code" });
+      event.currentTarget.reset();
+      showNotice("Friend code processed.");
+    });
+    container.querySelectorAll("[data-copy-friend-code]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        await copyPlainText(button.dataset.copyFriendCode || "", "Friend code copied.");
+      })
+    );
+    container.querySelectorAll("[data-share-friend-code]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const code = button.dataset.shareFriendCode || "";
+        const text = `Add me on BoardState: ${code}`;
+        if (navigator.share) {
+          try {
+            await navigator.share({ title: "BoardState Friend Code", text });
+            showNotice("Friend code share opened.");
+            return;
+          } catch {
+            // Fall back to clipboard when native share is cancelled or unavailable.
+          }
+        }
+        await copyPlainText(text, "Friend code copied.");
+      })
+    );
+    container.querySelectorAll("[data-regenerate-friend-code]").forEach((button) =>
+      button.addEventListener("click", () => {
+        if (!confirm("Regenerate your friend code? Existing friends stay saved locally, but new people will need the new code.")) return;
+        store.dispatch({ type: "FRIEND_REGENERATE_CODE" });
+      })
+    );
+    container.querySelectorAll("[data-refresh-nearby]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const multiplayer = store.getState().settings?.multiplayer || {};
+        store.dispatch({ type: "FRIEND_REFRESH_NEARBY", wifiAvailable: multiplayer.mode === "wifi" || multiplayer.mode === "local" });
+      })
+    );
+    container.querySelectorAll("[data-add-nearby-friend]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({
+          type: "FRIEND_ADD_BY_CODE",
+          friendCode: button.dataset.addNearbyFriend,
+          displayName: button.dataset.nearbyName,
+          source: "nearby",
+        });
+      })
+    );
+    container.querySelectorAll("[data-friend-request-accept]").forEach((button) =>
+      button.addEventListener("click", () => store.dispatch({ type: "FRIEND_ACCEPT_REQUEST", requestId: button.dataset.friendRequestAccept }))
+    );
+    container.querySelectorAll("[data-friend-request-decline]").forEach((button) =>
+      button.addEventListener("click", () => store.dispatch({ type: "FRIEND_DECLINE_REQUEST", requestId: button.dataset.friendRequestDecline }))
+    );
+    container.querySelectorAll("[data-hide-nearby]").forEach((button) =>
+      button.addEventListener("click", () => store.dispatch({ type: "FRIEND_HIDE_NEARBY", temporaryDiscoveryId: button.dataset.hideNearby }))
+    );
+    container.querySelectorAll("[data-friend-favorite]").forEach((button) =>
+      button.addEventListener("click", () => store.dispatch({ type: "FRIEND_TOGGLE_FAVORITE", friendId: button.dataset.friendFavorite }))
+    );
+    container.querySelectorAll("[data-friend-remove]").forEach((button) =>
+      button.addEventListener("click", () => {
+        if (!confirm("Remove this friend from your local list?")) return;
+        store.dispatch({ type: "FRIEND_REMOVE", friendId: button.dataset.friendRemove });
+      })
+    );
+    container.querySelectorAll("[data-friend-block]").forEach((button) =>
+      button.addEventListener("click", () => {
+        if (!confirm("Block this friend code and hide it from normal friend/nearby lists?")) return;
+        store.dispatch({ type: "FRIEND_BLOCK", friendId: button.dataset.friendBlock, friendCode: button.dataset.friendCode });
+      })
+    );
+    container.querySelectorAll("[data-friend-unblock]").forEach((button) =>
+      button.addEventListener("click", () => store.dispatch({ type: "FRIEND_UNBLOCK", friendCode: button.dataset.friendUnblock }))
+    );
+    container.querySelectorAll("[data-friend-invite-game]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "FRIEND_INVITE_GAME", friendId: button.dataset.friendInviteGame });
+        showNotice("Friend game invite prepared.");
+      })
+    );
+    container.querySelectorAll("[data-friend-invite-tournament]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "FRIEND_INVITE_TOURNAMENT", friendId: button.dataset.friendInviteTournament });
+        showNotice("Friend tournament invite prepared.");
+      })
+    );
+    container.querySelectorAll("[data-friend-join-game]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "FRIEND_JOIN_GAME", sessionId: button.dataset.friendJoinGame, syncMode: button.dataset.syncMode || "local" });
+        showNotice("Joined friend game room.");
+      })
+    );
+    container.querySelectorAll("[data-friend-join-tournament]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "FRIEND_JOIN_TOURNAMENT", sessionId: button.dataset.friendJoinTournament, syncMode: button.dataset.syncMode || "local" });
+        showNotice("Joined friend tournament.");
+      })
+    );
     container.querySelector("[data-tournament-create-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
       const form = new FormData(event.currentTarget);
@@ -1693,7 +1801,14 @@ export function mountApp(root, store) {
         if (notificationId) {
           store.dispatch({ type: "NOTIFICATION_ACK", id: notificationId, internalOnly: true });
         }
-        setActivePage(button.dataset.notificationOpenPage || "tournament");
+        const destination = button.dataset.notificationOpenPage || "tournament";
+        if (destination.startsWith("options:")) {
+          optionsOpen = true;
+          activeOptionsCategory = destination.replace("options:", "");
+          render(store.getState());
+          return;
+        }
+        setActivePage(destination);
       })
     );
     container.querySelectorAll("[data-recovery-retry]").forEach((button) =>
@@ -3495,10 +3610,12 @@ export function mountApp(root, store) {
       notificationFeedbackDeliveredIds.clear();
       notificationFeedbackDeliveredIds.add(notification.id);
     }
-    if (preferences.sound) {
+    const friendSoundAllowed = notification.category !== "friend" || preferences.friendEvents?.friendSound !== false;
+    const friendHapticsAllowed = notification.category !== "friend" || preferences.friendEvents?.friendHaptics !== false;
+    if (preferences.sound && friendSoundAllowed) {
       playNotificationSound(notification.severity || notification.eventKey || "info");
     }
-    if (preferences.haptics) {
+    if (preferences.haptics && friendHapticsAllowed) {
       triggerNotificationHaptic(notification.severity || notification.eventKey || "info");
     }
   }
@@ -4506,7 +4623,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
       ${renderSelectedPermanentMenu(session)}
       <aside class="search-panel glass ${isMobilePortrait ? "mobile-hud-column" : ""}">
         ${!isMobilePortrait && panels.archiveQuickAdd ? `<h2>Battlefield Quick Add</h2>` : ""}
-        ${!isMobilePortrait && panels.archiveQuickAdd ? renderSearch(searchResults, searchMessage, searchLoading, searchQuery, "battlefield", activeUtilityPanel === "search" ? null : uiState.castActionPopup) : ""}
+        ${!isMobilePortrait && panels.archiveQuickAdd && activeUtilityPanel !== "search" ? renderSearch(searchResults, searchMessage, searchLoading, searchQuery, "battlefield", uiState.castActionPopup) : ""}
       </aside>
     </section>
     ${renderMobileBattlefieldDock(profile, activeUtilityPanel, uiState.utilityDockOpen, Boolean(panels.boardCombat), Boolean(combatResolving), isMobilePortrait)}
@@ -6706,6 +6823,7 @@ function getOptionsCategories(profile, page = "life") {
   const notificationStatus = getNotificationStatus(profile);
   const unread = getUnreadNotificationCount(profile);
   const localAuth = profile.localAuth || {};
+  const friendStatus = getFriendStatusLabel(profile);
   return [
     {
       id: "profile",
@@ -6720,6 +6838,13 @@ function getOptionsCategories(profile, page = "life") {
       title: "Gameplay & Multiplayer",
       description: "Local play, WiFi sync, Dry Run, room settings.",
       status: multiplayer.mode === "wifi" ? "WiFi" : multiplayer.mode === "simulated" ? "Dry Run" : multiplayer.mode || "Offline",
+    },
+    {
+      id: "friends",
+      glyph: "FRND",
+      title: "Friends",
+      description: "Friend codes, nearby players, and multiplayer shortcuts.",
+      status: friendStatus,
     },
     {
       id: "tournament",
@@ -6791,10 +6916,10 @@ function renderOptionsHub(profile, page = "life") {
         </article>
       ` : ""}
       <div class="options-quick-row">
-        ${["tournament", "notifications", "profile"].map((id) => renderOptionCategoryCard(categories.find((entry) => entry.id === id), true)).join("")}
+        ${["tournament", "friends", "notifications"].map((id) => renderOptionCategoryCard(categories.find((entry) => entry.id === id), true)).join("")}
       </div>
       <div class="options-category-grid">
-        ${categories.filter((entry) => !["tournament", "notifications", "profile"].includes(entry.id)).map((entry) => renderOptionCategoryCard(entry)).join("")}
+        ${categories.filter((entry) => !["tournament", "friends", "notifications"].includes(entry.id)).map((entry) => renderOptionCategoryCard(entry)).join("")}
       </div>
       <p class="options-version-note">BoardState ${escapeHtml(getAppVersion())} - tournament sync remains separate from normal gameplay sync.</p>
     </div>
@@ -6822,6 +6947,8 @@ function renderOptionsSubpage(profile, page, category) {
       return renderProfileOptionsSubpage(profile);
     case "gameplay":
       return renderGameplayOptionsSubpage(profile, page);
+    case "friends":
+      return renderFriendsOptionsSubpage(profile);
     case "tournament":
       return renderTournamentOptionsSubpage(profile);
     case "notifications":
@@ -6904,6 +7031,7 @@ function renderGameplayOptionsSubpage(profile, page = "life") {
           <button data-open-synced-turn-order-setup>d20 Turn Order</button>
           <button data-open-simulation-setup>Dry Run Setup</button>
           <button data-open-simulation-stats>Simulation Stats</button>
+          <button data-option-category="friends">Friends / Invites</button>
         </div>
         <p>Mode: ${escapeHtml(multiplayer.mode)}</p>
         <p>Connected players: ${multiplayer.connectedPlayers.length ? multiplayer.connectedPlayers.map((player) => escapeHtml(player.name)).join(", ") : "None"}</p>
@@ -6930,8 +7058,162 @@ function renderGameplayOptionsSubpage(profile, page = "life") {
   `;
 }
 
+function renderFriendsOptionsSubpage(profile) {
+  const friendState = profile.friends || {};
+  const friends = friendState.friends || [];
+  const favorites = new Set(friendState.favoriteFriendIds || []);
+  const nearby = friendState.nearbyPlayers || [];
+  const pending = friendState.pendingFriendRequests || [];
+  const blocked = friendState.blockedFriendCodes || [];
+  const invites = friendState.invites || [];
+  const code = friendState.myFriendCode || "";
+  return `
+    <div class="options-subpage friends-subpage">
+      <article class="option-card friend-code-card">
+        <div class="overlay-header compact">
+          <div>
+            <p class="eyebrow">My Friend Code</p>
+            <h3 class="friend-code-display">${escapeHtml(code || "Generating")}</h3>
+            <small>4-6 characters, uppercase, locally stored, and safe to copy/share.</small>
+          </div>
+          <span class="option-status-badge">${escapeHtml(friendState.discovery?.status || "local-only")}</span>
+        </div>
+        <div class="button-grid">
+          <button data-copy-friend-code="${escapeAttribute(code)}">Copy Friend Code</button>
+          <button data-share-friend-code="${escapeAttribute(code)}">Share Friend Code</button>
+          <button data-regenerate-friend-code>Regenerate Code</button>
+          <button data-refresh-nearby>Refresh Nearby</button>
+        </div>
+        <form class="stacked-form" data-friend-display-form>
+          <label>Friend nickname / profile name<input name="displayName" value="${escapeAttribute(friendState.friendDisplayName || profile.player?.name || "Player")}" /></label>
+          <button>Save Friend Profile</button>
+        </form>
+        ${friendState.lastError ? `<p class="recovery-toast warning">${escapeHtml(friendState.lastError)}</p>` : ""}
+      </article>
+      <article class="option-card">
+        <h3>Add Friend by Code</h3>
+        <form class="stacked-form" data-add-friend-form>
+          <label>Friend Code<input name="friendCode" maxlength="6" placeholder="MAGE4" autocomplete="off" /></label>
+          <label>Display name / nickname<input name="displayName" placeholder="Friend name" autocomplete="off" /></label>
+          <button class="wide">Add Friend</button>
+        </form>
+        <p>Codes are not case-sensitive. Blocked codes cannot be added until unblocked.</p>
+      </article>
+      <article class="option-card">
+        <h3>Nearby Players / Friends</h3>
+        <p>${escapeHtml(friendState.discovery?.message || "Refresh nearby to search supported local discovery channels.")}</p>
+        <div class="friend-list">
+          ${nearby.length ? nearby.map((player) => renderNearbyPlayerCard(player, friends)).join("") : `<p>No nearby players found. Use friend code, invite link, room ID, or WiFi relay fallback.</p>`}
+        </div>
+      </article>
+      <article class="option-card">
+        <h3>Pending Requests</h3>
+        <div class="friend-list">
+          ${pending.length ? pending.map(renderFriendRequestCard).join("") : `<p>No pending friend requests.</p>`}
+        </div>
+      </article>
+      <article class="option-card friends-list-card">
+        <h3>Friends List</h3>
+        <div class="friend-list">
+          ${friends.length ? friends.map((friend) => renderFriendProfileCard(friend, favorites.has(friend.friendId), profile)).join("") : `<p>No friends saved yet. Add by code or discover nearby players.</p>`}
+        </div>
+      </article>
+      <article class="option-card">
+        <h3>Favorites</h3>
+        <div class="friend-list compact">
+          ${friends.filter((friend) => favorites.has(friend.friendId) || friend.favorite).map((friend) => `<span>${escapeHtml(friend.nickname || friend.displayName)} - ${escapeHtml(friend.friendCode)}</span>`).join("") || `<p>No favorite friends yet.</p>`}
+        </div>
+      </article>
+      <article class="option-card">
+        <h3>Blocked Users</h3>
+        <div class="friend-list compact">
+          ${blocked.length ? blocked.map((entry) => `<span>${escapeHtml(entry)} <button data-friend-unblock="${escapeAttribute(entry)}">Unblock</button></span>`).join("") : `<p>No blocked friend codes.</p>`}
+        </div>
+      </article>
+      <article class="option-card">
+        <h3>Friend Invites</h3>
+        <p>Friend discovery/invite messages stay separate from gameplay and tournament updates. Accepting an invite can join the existing game or tournament flow.</p>
+        <div class="friend-list">
+          ${invites.length ? invites.map(renderFriendInviteCard).join("") : `<p>No outgoing friend invites yet.</p>`}
+        </div>
+      </article>
+    </div>
+  `;
+}
+
+function renderNearbyPlayerCard(player = {}, friends = []) {
+  const isFriend = friends.some((friend) => friend.friendCode === player.friendCode);
+  return `
+    <section class="friend-profile-card nearby">
+      <div>
+        <strong>${escapeHtml(player.displayName || "Nearby Player")}</strong>
+        <small>${escapeHtml(player.friendCode || "No shared code")} - ${escapeHtml(isFriend ? "Nearby Friend" : player.status || "Nearby")}</small>
+      </div>
+      <div class="button-grid mini">
+        ${!isFriend && player.friendCode ? `<button data-add-nearby-friend="${escapeAttribute(player.friendCode)}" data-nearby-name="${escapeAttribute(player.displayName || "")}">Add Friend</button>` : ""}
+        ${player.gameSessionId ? `<button data-friend-join-game="${escapeAttribute(player.gameSessionId)}">Join Game</button>` : ""}
+        ${player.tournamentSessionId ? `<button data-friend-join-tournament="${escapeAttribute(player.tournamentSessionId)}">Join Tournament</button>` : ""}
+        <button data-hide-nearby="${escapeAttribute(player.temporaryDiscoveryId || player.friendCode || "")}">Hide</button>
+      </div>
+    </section>
+  `;
+}
+
+function renderFriendRequestCard(request = {}) {
+  return `
+    <section class="friend-profile-card">
+      <div>
+        <strong>${escapeHtml(request.displayName || "Friend Request")}</strong>
+        <small>${escapeHtml(request.friendCode)} - ${escapeHtml(request.source || "nearby")}</small>
+      </div>
+      <div class="button-grid mini">
+        <button data-friend-request-accept="${escapeAttribute(request.requestId)}">Accept</button>
+        <button data-friend-request-decline="${escapeAttribute(request.requestId)}">Decline</button>
+      </div>
+    </section>
+  `;
+}
+
+function renderFriendProfileCard(friend = {}, favorite = false, profile = {}) {
+  const display = friend.nickname || friend.displayName || "Friend";
+  return `
+    <section class="friend-profile-card">
+      <div>
+        <strong>${escapeHtml(display)}${favorite ? " (Favorite)" : ""}</strong>
+        <small>${escapeHtml(friend.friendCode)} - ${escapeHtml(friend.status || "Unknown")} - ${escapeHtml(friend.source || "code")}</small>
+        ${friend.notes ? `<p>${escapeHtml(friend.notes)}</p>` : ""}
+        ${friend.lastKnownGameSessionId ? `<small>Game: ${escapeHtml(friend.lastKnownGameSessionId)}</small>` : ""}
+        ${friend.lastKnownTournamentSessionId ? `<small>Tournament: ${escapeHtml(friend.lastKnownTournamentSessionId)}</small>` : ""}
+      </div>
+      <div class="button-grid mini">
+        <button data-friend-favorite="${escapeAttribute(friend.friendId)}">${favorite ? "Unfavorite" : "Favorite"}</button>
+        <button data-friend-invite-game="${escapeAttribute(friend.friendId)}">Invite to Game</button>
+        ${friend.lastKnownGameSessionId ? `<button data-friend-join-game="${escapeAttribute(friend.lastKnownGameSessionId)}">Join Game</button>` : ""}
+        <button data-friend-invite-tournament="${escapeAttribute(friend.friendId)}" ${profile.tournament?.status && profile.tournament.status !== "idle" ? "" : "disabled"}>Invite to Tournament</button>
+        ${friend.lastKnownTournamentSessionId ? `<button data-friend-join-tournament="${escapeAttribute(friend.lastKnownTournamentSessionId)}">Join Tournament</button>` : ""}
+        <button data-friend-remove="${escapeAttribute(friend.friendId)}">Remove</button>
+        <button data-friend-block="${escapeAttribute(friend.friendId)}" data-friend-code="${escapeAttribute(friend.friendCode)}">Block</button>
+      </div>
+    </section>
+  `;
+}
+
+function renderFriendInviteCard(invite = {}) {
+  const link = buildFriendInviteLink(invite);
+  return `
+    <section class="friend-profile-card invite">
+      <div>
+        <strong>${escapeHtml(invite.inviteType === "tournament" ? "Tournament Invite" : "Game Invite")} to ${escapeHtml(invite.friendName || invite.friendCode)}</strong>
+        <small>${escapeHtml(invite.namespace || "friend")} - ${escapeHtml(invite.sessionId || "local")}</small>
+        ${link ? `<input readonly value="${escapeAttribute(link)}" aria-label="Friend invite link" />` : ""}
+      </div>
+    </section>
+  `;
+}
+
 function renderTournamentOptionsSubpage(profile) {
   const tournament = profile.tournament || {};
+  const friends = profile.friends?.friends || [];
   return `
     <div class="options-subpage">
       <article class="option-card tournament-card">
@@ -6940,9 +7222,11 @@ function renderTournamentOptionsSubpage(profile) {
         ${renderTournamentInviteControls(tournament)}
         <div class="button-grid">
           <button data-open-tournament-page>Open Full Tournament Bracket</button>
+          <button data-option-category="friends">Invite Friends</button>
           <button data-tournament-pin="${tournament.pinned ? "false" : "true"}">${tournament.pinned ? "Unpin Tournament Panel" : "Pin Tournament Panel"}</button>
         </div>
       </article>
+      ${friends.length ? `<article class="option-card"><h3>Friend Tournament Invites</h3><div class="friend-list">${friends.map((friend) => `<button data-friend-invite-tournament="${escapeAttribute(friend.friendId)}" ${tournament.status && tournament.status !== "idle" ? "" : "disabled"}>${escapeHtml(friend.nickname || friend.displayName)} - Invite</button>`).join("")}</div></article>` : ""}
       ${renderTournamentPanel(profile)}
     </div>
   `;
@@ -6977,7 +7261,12 @@ function renderNotificationOptionsSubpage(profile) {
           ${renderToggle("Dry Run Notifications", "notifications.dryRun", Boolean(preferences.dryRun))}
           ${renderToggle("Manual Choice Required Notifications", "notifications.manualChoice", Boolean(preferences.manualChoice))}
           ${renderToggle("Sync Notifications", "notifications.sync", Boolean(preferences.sync))}
+          ${renderToggle("Friend Notifications", "notifications.friends", Boolean(preferences.friends))}
           ${renderToggle("Reminder Notifications", "notifications.reminders", Boolean(preferences.reminders))}
+        </div>
+        <div class="options-setting-group">
+          <h4>Friend Events</h4>
+          ${renderFriendNotificationToggles(preferences)}
         </div>
         <div class="options-setting-group">
           <h4>Tournament Events</h4>
@@ -7028,6 +7317,24 @@ function renderGameplayNotificationToggles(preferences) {
   };
   return Object.entries(labels)
     .map(([key, label]) => renderToggle(label, `notifications.gameplayEvents.${key}`, preferences.gameplayEvents?.[key] !== false))
+    .join("");
+}
+
+function renderFriendNotificationToggles(preferences) {
+  const labels = {
+    friendRequest: "Friend request alerts",
+    friendAccepted: "Friend accepted alerts",
+    nearbyFriend: "Nearby friend alerts",
+    gameInvite: "Game invite alerts",
+    tournamentInvite: "Tournament invite alerts",
+    friendJoined: "Friend joined alerts",
+    friendSound: "Friend sound alerts",
+    friendHaptics: "Friend haptics alerts",
+    syncUnavailable: "Friend sync unavailable alerts",
+    friendBlocked: "Friend block/remove confirmations",
+  };
+  return Object.entries(labels)
+    .map(([key, label]) => renderToggle(label, `notifications.friendEvents.${key}`, preferences.friendEvents?.[key] !== false))
     .join("");
 }
 
@@ -7164,6 +7471,17 @@ function getTournamentStatusLabel(tournament = {}) {
   return tournament.status || "Local";
 }
 
+function getFriendStatusLabel(profile = {}) {
+  const friends = profile.friends || {};
+  const friendCount = (friends.friends || []).length;
+  const nearbyCount = (friends.nearbyPlayers || []).length;
+  const pendingCount = (friends.pendingFriendRequests || []).length;
+  if (pendingCount) return "Invite pending";
+  if (nearbyCount) return `${nearbyCount} nearby`;
+  if (friendCount) return `${friendCount} friends`;
+  return "No friends";
+}
+
 function getNotificationPreferences(profile = {}) {
   const defaults = {
     master: true,
@@ -7176,9 +7494,11 @@ function getNotificationPreferences(profile = {}) {
     dryRun: true,
     manualChoice: true,
     sync: true,
+    friends: true,
     reminders: true,
     tournamentEvents: {},
     gameplayEvents: {},
+    friendEvents: {},
   };
   const current = profile.settings?.notifications || {};
   return {
@@ -7186,6 +7506,7 @@ function getNotificationPreferences(profile = {}) {
     ...current,
     tournamentEvents: { ...(defaults.tournamentEvents || {}), ...(current.tournamentEvents || {}) },
     gameplayEvents: { ...(defaults.gameplayEvents || {}), ...(current.gameplayEvents || {}) },
+    friendEvents: { ...(defaults.friendEvents || {}), ...(current.friendEvents || {}) },
   };
 }
 
@@ -7203,7 +7524,7 @@ function getUnreadNotificationCount(profile = {}) {
 }
 
 function getAppVersion() {
-  return "1.14.0";
+  return "1.15.0";
 }
 
 function renderGameOptions(profile, page = "life") {

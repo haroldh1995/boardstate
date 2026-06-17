@@ -12,6 +12,8 @@ server.on("connection", (socket) => {
   let peerName = "";
   let role = "player";
   let namespace = "game";
+  let friendCode = "";
+  let publicProfile = null;
 
   socket.on("message", (raw) => {
     let message = null;
@@ -29,10 +31,12 @@ server.on("connection", (socket) => {
       peerName = message.name || peerId;
       role = message.role || "player";
       namespace = message.namespace || "game";
+      friendCode = message.friendCode || message.publicProfile?.friendCode || "";
+      publicProfile = message.publicProfile || null;
       if (!rooms.has(currentRoom)) {
         rooms.set(currentRoom, new Map());
       }
-      rooms.get(currentRoom).set(socket, { peerId, name: peerName, role, namespace });
+      rooms.get(currentRoom).set(socket, { peerId, name: peerName, role, namespace, friendCode, publicProfile });
       broadcastPresence(currentRoom);
       return;
     }
@@ -40,7 +44,7 @@ server.on("connection", (socket) => {
     if (!currentRoom || !rooms.has(currentRoom)) {
       return;
     }
-    if (message.type === "action" || message.type === "tournament-action") {
+    if (message.type === "action" || message.type === "tournament-action" || message.type === "friend-message" || message.type === "friend-presence") {
       broadcast(currentRoom, socket, message);
     }
   });
@@ -83,6 +87,8 @@ function broadcastPresence(roomId) {
     name: entry.name || entry.peerId,
     role: entry.role,
     namespace: entry.namespace || "game",
+    friendCode: entry.friendCode || "",
+    publicProfile: entry.publicProfile || null,
   }));
   const payload = JSON.stringify({ type: "presence", namespace: roomNamespace, roomId, peers });
   for (const client of room.keys()) {
