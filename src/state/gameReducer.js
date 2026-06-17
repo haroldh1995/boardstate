@@ -77,6 +77,24 @@ export function reduceProfile(profile, event) {
     case "SET_SETTING":
       nextProfile = updateSetting(baseProfile, event.path, event.value);
       break;
+    case "NOTIFICATION_ADD":
+      nextProfile = addNotification(baseProfile, event.notification || event);
+      break;
+    case "NOTIFICATION_ACK":
+      nextProfile = acknowledgeNotification(baseProfile, event.id);
+      break;
+    case "NOTIFICATIONS_MARK_READ":
+      nextProfile = {
+        ...baseProfile,
+        notifications: {
+          ...(baseProfile.notifications || {}),
+          lastReadAt: Date.now(),
+        },
+      };
+      break;
+    case "NOTIFICATIONS_RESET_PREFS":
+      nextProfile = resetNotificationPreferences(baseProfile);
+      break;
     case "SET_MULTIPLAYER_MODE":
       nextProfile = setMultiplayerMode(baseProfile, event.mode);
       break;
@@ -401,6 +419,7 @@ export function reduceProfile(profile, event) {
   nextProfile = updateSimulationMemory(nextProfile, event, actionType);
   nextProfile = maybeAdvanceLocalSimulationTurn(nextProfile, baseProfile.activeSession, actionType);
   nextProfile = syncSimulationPresence(nextProfile);
+  nextProfile = maybeAddTournamentNotification(nextProfile, baseProfile, actionType, event);
   return withHistory(nextProfile, finalizeAction(event, nextProfile));
 }
 
@@ -625,6 +644,288 @@ function updateSetting(profile, path, value) {
     };
   }
   return { ...profile, settings };
+}
+
+function addNotification(profile, notification = {}) {
+  const preferences = getNotificationPreferences(profile);
+  const category = notification.category || "system";
+  const eventKey = notification.eventKey || "general";
+  if (!shouldKeepNotification(preferences, category, eventKey, notification)) {
+    return profile;
+  }
+  const id = notification.id || createId("notification");
+  const item = {
+    id,
+    category,
+    eventKey,
+    severity: notification.severity || "info",
+    title: notification.title || "BoardState",
+    body: notification.body || notification.message || "",
+    actionLabel: notification.actionLabel || "",
+    actionPage: notification.actionPage || "",
+    createdAt: Number(notification.createdAt || Date.now()),
+    acknowledged: Boolean(notification.acknowledged),
+    fullWindow: notification.fullWindow !== false,
+    toast: notification.toast !== false,
+    critical: Boolean(notification.critical),
+    metadata: notification.metadata || {},
+  };
+  const existing = profile.notifications?.items || [];
+  return {
+    ...profile,
+    notifications: {
+      ...(profile.notifications || {}),
+      items: [item, ...existing.filter((entry) => entry.id !== id)].slice(0, 80),
+    },
+  };
+}
+
+function acknowledgeNotification(profile, id = "") {
+  if (!id) return profile;
+  const items = (profile.notifications?.items || []).map((entry) =>
+    entry.id === id ? { ...entry, acknowledged: true, acknowledgedAt: Date.now() } : entry
+  );
+  const dismissedIds = new Set(profile.notifications?.dismissedIds || []);
+  dismissedIds.add(id);
+  return {
+    ...profile,
+    notifications: {
+      ...(profile.notifications || {}),
+      items,
+      dismissedIds: [...dismissedIds].slice(-160),
+      lastReadAt: Date.now(),
+    },
+  };
+}
+
+function resetNotificationPreferences(profile) {
+  const defaults = createDefaultProfile().settings.notifications;
+  return {
+    ...profile,
+    settings: {
+      ...(profile.settings || {}),
+      notifications: defaults,
+    },
+  };
+}
+
+function maybeAddTournamentNotification(profile, previousProfile, actionType, event = {}) {
+  if (!String(actionType || "").startsWith("TOURNAMENT_") || event.internalOnly) {
+    return profile;
+  }
+  const notification = buildTournamentNotification(profile, previousProfile, actionType, event);
+  return notification ? addNotification(profile, notification) : profile;
+}
+
+function buildTournamentNotification(profile, previousProfile, actionType, event = {}) {
+  const tournament = profile.tournament || {};
+  const previousTournament = previousProfile.tournament || {};
+  const code = tournament.joinCode || tournament.sync?.sessionId || "LOCAL";
+  switch (actionType) {
+    case "TOURNAMENT_CREATE":
+      return {
+        category: "tournament",
+        eventKey: "tournamentStarted",
+        severity: "success",
+        title: "Tournament Created",
+        body: `${tournament.name || "Tournament"} is ready. Share code ${code} or copy an invite link from Tournament Options.`,
+        actionLabel: "Open Tournament",
+        actionPage: "tournament",
+      };
+    case "TOURNAMENT_JOIN":
+      return {
+        category: "tournament",
+        eventKey: "playerJoined",
+        severity: "success",
+        title: "Player Joined Tournament",
+        body: `${event.playerName || event.displayName || "A player"} joined ${tournament.name || "the tournament"}.`,
+        actionLabel: "Open Tournament",
+        actionPage: "tournament",
+      };
+    case "TOURNAMENT_REMOVE_PLAYER":
+      return {
+        category: "tournament",
+        eventKey: "playerLeft",
+        severity: "warning",
+        title: "Player Left Tournament",
+        body: "A tournament player was removed from the active player list.",
+        actionLabel: "Open Tournament",
+        actionPage: "tournament",
+      };
+    case "TOURNAMENT_GENERATE_ROUND":
+      return {
+        category: "tournament",
+        eventKey: "roundGenerated",
+        severity: "info",
+        title: "New Round Posted",
+        body: describeCurrentRoundAssignment(tournament),
+        actionLabel: "View Round",
+        actionPage: "tournament",
+        fullWindow: true,
+      };
+    case "TOURNAMENT_START_ROUND":
+      return {
+        category: "tournament",
+        eventKey: "roundLocked",
+        severity: "info",
+        title: "Round Locked",
+        body: describeCurrentRoundAssignment(tournament),
+        actionLabel: "Open Tournament",
+        actionPage: "tournament",
+        fullWindow: true,
+      };
+    case "TOURNAMENT_EDIT_TABLE":
+      return {
+        category: "tournament",
+        eventKey: "tableAssignmentChanged",
+        severity: "info",
+        title: "Table Assignment Changed",
+        body: describeCurrentRoundAssignment(tournament),
+        actionLabel: "Open Tournament",
+        actionPage: "tournament",
+        fullWindow: true,
+      };
+    case "TOURNAMENT_REPORT_RESULT": {
+      const didStartSuddenDeath = startedSuddenDeath(previousTournament, tournament);
+      if (didStartSuddenDeath) {
+        return {
+          category: "tournament",
+          eventKey: "oneVOneComplete",
+          severity: "warning",
+          critical: true,
+          title: "1v1 Complete / Pods Enter Sudden Death",
+          body: "The 1v1 match has ended. Active pods now enter Sudden Death. All damage dealt to players is doubled from this point forward. Life loss, poison, mill, alternate wins, and lose-the-game effects are unchanged.",
+          actionLabel: "Open Tournament",
+          actionPage: "tournament",
+          fullWindow: true,
+        };
+      }
+      return {
+        category: "tournament",
+        eventKey: event.tableId?.includes("1v1") ? "oneVOneComplete" : "podResult",
+        severity: "success",
+        title: "Tournament Result Submitted",
+        body: `A result was recorded for ${event.tableName || event.tableId || "a tournament table"}. Standings have been updated.`,
+        actionLabel: "View Standings",
+        actionPage: "tournament",
+      };
+    }
+    case "TOURNAMENT_START_SUDDEN_DEATH":
+      return {
+        category: "tournament",
+        eventKey: "suddenDeath",
+        severity: "warning",
+        critical: true,
+        title: "Sudden Death Started",
+        body: "The 1v1 match has ended. Active pods now enter Sudden Death. All damage dealt to players is doubled from this point forward. Life loss, poison, mill, alternate wins, and lose-the-game effects are unchanged.",
+        actionLabel: "Open Tournament",
+        actionPage: "tournament",
+        fullWindow: true,
+      };
+    case "TOURNAMENT_START_EXTENSION":
+      return {
+        category: "tournament",
+        eventKey: "suddenDeathExtension",
+        severity: "warning",
+        critical: true,
+        title: "Sudden Death Extension Started",
+        body: `Final extension started. Each remaining pod player gets exactly ${Number(tournament.settings?.suddenDeathExtensionTurns || 3)} turns unless eliminated before completing them.`,
+        actionLabel: "Open Tournament",
+        actionPage: "tournament",
+        fullWindow: true,
+      };
+    case "TOURNAMENT_CORRECT":
+      return {
+        category: "tournament",
+        eventKey: "resultCorrected",
+        severity: "warning",
+        title: "Tournament Result Corrected",
+        body: "A host correction was applied and standings were recalculated.",
+        actionLabel: "View Standings",
+        actionPage: "tournament",
+      };
+    case "TOURNAMENT_ANNOUNCE":
+      return buildFinalWinnersNotification(tournament);
+    case "TOURNAMENT_END":
+      return {
+        ...buildFinalWinnersNotification(tournament),
+        eventKey: "tournamentEnded",
+        title: "Tournament Ended",
+      };
+    default:
+      return null;
+  }
+}
+
+function buildFinalWinnersNotification(tournament = {}) {
+  const announcement = tournament.finalAnnouncement || tournament.announcement || {};
+  const winners = announcement.winners || [];
+  return {
+    category: "tournament",
+    eventKey: "finalWinners",
+    severity: "success",
+    critical: true,
+    title: "Final Winners",
+    body: winners.length
+      ? winners.map((winner, index) => `${index + 1}. ${winner.displayName || winner.name || "Player"} (${winner.totalRecord || `${winner.wins || 0}-${winner.losses || 0}`})`).join(" | ")
+      : "Final standings are available. Open Tournament to review the top players.",
+    actionLabel: "Open Final Standings",
+    actionPage: "tournament",
+    fullWindow: true,
+  };
+}
+
+function describeCurrentRoundAssignment(tournament = {}) {
+  const round = [...(tournament.rounds || [])].sort((left, right) => Number(right.roundNumber || 0) - Number(left.roundNumber || 0))[0];
+  if (!round) {
+    return "Round details are ready in the Tournament page.";
+  }
+  const localName = tournament.localPlayerName || "Player";
+  const playerById = Object.fromEntries((tournament.players || []).map((player) => [player.playerId || player.id, player.displayName || player.name]));
+  const tables = [round.podA, round.podB, round.oneVOne].filter(Boolean);
+  const localPlayer = (tournament.players || []).find((player) => (player.displayName || player.name) === localName);
+  const assigned = localPlayer ? tables.find((table) => (table.players || []).includes(localPlayer.playerId || localPlayer.id)) : null;
+  if (!assigned) {
+    return `Round ${round.roundNumber || tournament.currentRoundNumber || 0} posted. Open Tournament to view table assignments.`;
+  }
+  const opponents = (assigned.players || [])
+    .filter((id) => id !== (localPlayer.playerId || localPlayer.id))
+    .map((id) => playerById[id] || id)
+    .join(", ");
+  return `Round ${round.roundNumber}: ${assigned.tableName || "Table"} (${assigned.tableType === "oneVOne" ? "1v1" : "4-player pod"}). Opponents: ${opponents || "TBD"}.`;
+}
+
+function startedSuddenDeath(previousTournament = {}, tournament = {}) {
+  const previousByRound = Object.fromEntries((previousTournament.rounds || []).map((round) => [round.roundNumber, round]));
+  return (tournament.rounds || []).some((round) => Boolean(round.suddenDeathStarted) && !previousByRound[round.roundNumber]?.suddenDeathStarted);
+}
+
+function getNotificationPreferences(profile = {}) {
+  const defaults = createDefaultProfile().settings.notifications;
+  const current = profile.settings?.notifications || {};
+  return {
+    ...defaults,
+    ...current,
+    tournamentEvents: { ...defaults.tournamentEvents, ...(current.tournamentEvents || {}) },
+    gameplayEvents: { ...defaults.gameplayEvents, ...(current.gameplayEvents || {}) },
+  };
+}
+
+function shouldKeepNotification(preferences = {}, category = "system", eventKey = "general", notification = {}) {
+  if (!preferences.master && !notification.critical) return false;
+  if (category === "tournament") {
+    if (!preferences.tournament && !notification.critical) return false;
+    return preferences.tournamentEvents?.[eventKey] !== false || Boolean(notification.critical);
+  }
+  if (category === "gameplay") {
+    if (!preferences.gameplay && !notification.critical) return false;
+    return preferences.gameplayEvents?.[eventKey] !== false || Boolean(notification.critical);
+  }
+  if (category === "dryRun") return preferences.dryRun !== false || Boolean(notification.critical);
+  if (category === "manualChoice") return preferences.manualChoice !== false || Boolean(notification.critical);
+  if (category === "sync") return preferences.sync !== false || Boolean(notification.critical);
+  if (category === "reminder") return preferences.reminders !== false || Boolean(notification.critical);
+  return true;
 }
 
 function setMultiplayerMode(profile, mode = "offline") {

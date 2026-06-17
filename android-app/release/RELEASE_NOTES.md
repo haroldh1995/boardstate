@@ -2,9 +2,21 @@
 
 ## App
 - Name: BoardState
-- Version: 1.13.1
-- Version code: 28
+- Version: 1.14.0
+- Version code: 29
 - Package: `com.boardstate.app`
+
+## Version 1.14.0
+- Overhauls Game Options into a compact category command center with focused subpages for Profile & Saves, Gameplay & Multiplayer, Tournament, Notifications, HUD & Layout, Accessibility / ADHD Assist, Diagnostics & Support, Data Management, and About BoardState.
+- Adds a Tournament Options subpage with tournament status, pin/unpin controls, full bracket access, tournament code copy, invite link copy, and browser share support where available.
+- Adds hash/query based tournament invite links such as `#tournament/join/CODE`; shared links open BoardState directly to a Join Tournament sign-up window.
+- Adds local tournament join handling from invite links while preserving the dedicated tournament sync namespace and keeping normal gameplay sync separate.
+- Adds full-window tournament notifications for invite opened, player join/leave, tournament create/start, round posted/locked, table assignment, 1v1 completion, Sudden Death, Sudden Death extension, result submission/correction, tournament end, and final winners.
+- Adds Notification Options with master, popup, toast, sound, haptics, tournament, gameplay, Dry Run, Manual Choice, sync, reminder, tournament-event, and gameplay-event preference toggles.
+- Adds unread notification badge support, notification persistence, acknowledgement/dismiss tracking, and test notification/sound/haptic controls.
+- Adds browser-safe WebAudio notification sounds and `navigator.vibrate` haptics with unsupported-device no-op fallbacks and local preference persistence.
+- Keeps screenshots/reference images out of the repository and does not run iPhone/Xcode/native iOS build steps for this release.
+- Updates tests, production web build output, Android wrapper metadata, Flutter wrapper metadata, package artifacts, and release package notes for version 1.14.0.
 
 ## Version 1.13.1
 - Runs a full regression audit across the automated event-ready suite, production web build, live web preview, mobile viewport preview, and local WebSocket relay transport.

@@ -67,6 +67,37 @@ export function createStore() {
       emit();
       await saveProfile(state);
     },
+    onStatus: async (statusEvent) => {
+      const tournament = state.tournament || {};
+      if (!tournament.active) {
+        return;
+      }
+      state = {
+        ...state,
+        tournament: {
+          ...tournament,
+          syncStatus: statusEvent.status || tournament.syncStatus,
+          sync: {
+            ...(tournament.sync || {}),
+            status: statusEvent.status || tournament.sync?.status,
+            lastSyncAt: Date.now(),
+          },
+        },
+      };
+      state = reduceProfile(state, {
+        type: "NOTIFICATION_ADD",
+        category: "tournament",
+        eventKey: statusEvent.eventKey || "syncReconnect",
+        severity: statusEvent.severity || "warning",
+        title: statusEvent.title || "Tournament Sync Status",
+        body: statusEvent.body || "Tournament sync status changed.",
+        actionLabel: "Open Tournament",
+        actionPage: "tournament",
+        internalOnly: true,
+      });
+      emit();
+      await saveProfile(state);
+    },
   });
 
   function emit(action = null) {

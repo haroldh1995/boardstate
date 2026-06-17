@@ -13,6 +13,9 @@ It works offline for gameplay, stores profile data locally, and treats Scryfall 
 - Combat assistant with attacker selection, blocker assignment, trample-aware estimates, and damage logs.
 - Commander profiles, commander damage, commander decks, card usage, legality/color identity checks, archives, analytics, and local leaderboards.
 - Floating mana tracker with phase clearing.
+- Options command center with focused Profile, Gameplay, Tournament, Notifications, HUD, Accessibility, Diagnostics, Data Management, and About panels.
+- Local Commander tournament hosting/joining with pinned tournament panels, invite links, full-window alerts, standings, pods, 1v1 rotation, and separate tournament sync.
+- Notification preferences with popup/toast controls plus browser-safe sound and haptic hooks where supported.
 - Export/import full local player profiles as JSON.
 
 ## Local-First Design

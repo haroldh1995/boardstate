@@ -19,7 +19,7 @@ const MESSAGE_BY_ACTION = {
   TOURNAMENT_END: "tournament:end",
 };
 
-export function createTournamentSyncManager({ onRemoteAction, onPresence } = {}) {
+export function createTournamentSyncManager({ onRemoteAction, onPresence, onStatus } = {}) {
   let channel = null;
   let sessionId = "";
   let mode = "local";
@@ -28,6 +28,7 @@ export function createTournamentSyncManager({ onRemoteAction, onPresence } = {})
   let socket = null;
   let roomJoined = false;
   let reconnectTimer = null;
+  let lastStatus = "";
   const pendingPayloads = [];
   const peerId = `tournament-peer-${Math.random().toString(36).slice(2, 8)}`;
   const seen = new Set();
@@ -89,6 +90,7 @@ export function createTournamentSyncManager({ onRemoteAction, onPresence } = {})
         role: tournament.role || "player",
       }));
       roomJoined = true;
+      notifyStatus("wifi-connected", "Tournament Sync Reconnected", "Tournament WiFi relay is connected.");
       flushPending();
     };
     socket.onmessage = ({ data }) => {
@@ -162,11 +164,26 @@ export function createTournamentSyncManager({ onRemoteAction, onPresence } = {})
 
   function scheduleReconnect(tournament = {}) {
     clearTimeout(reconnectTimer);
+    notifyStatus("wifi-reconnecting", "Tournament Sync Reconnecting", "Tournament WiFi relay disconnected. BoardState will keep trying to reconnect.");
     reconnectTimer = setTimeout(() => {
       if (mode === "wifi") {
         initWebSocket(tournament);
       }
     }, 1200);
+  }
+
+  function notifyStatus(status, title, body) {
+    if (lastStatus === status) {
+      return;
+    }
+    lastStatus = status;
+    onStatus?.({
+      status,
+      title,
+      body,
+      eventKey: "syncReconnect",
+      severity: status === "wifi-connected" ? "success" : "warning",
+    });
   }
 
   function teardown(options = {}) {
@@ -188,6 +205,7 @@ export function createTournamentSyncManager({ onRemoteAction, onPresence } = {})
     sessionId = "";
     mode = "local";
     roomId = "";
+    lastStatus = "";
   }
 
   return { configure, sendAction, teardown };

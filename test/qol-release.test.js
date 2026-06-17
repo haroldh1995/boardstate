@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createDefaultProfile } from "../src/state/schema.js";
 import { reduceProfile } from "../src/state/gameReducer.js";
 import { buildBugReport, buildDebugState, buildGameLog, collectRulesConfidence, RULES_CONFIDENCE, safeJson } from "../src/support/debugExport.js";
+import { buildTournamentInviteLink, parseTournamentInviteFromLocation } from "../src/ui/render.js";
 
 test("error recovery entries can be added and dismissed without crashing session state", () => {
   let profile = createDefaultProfile();
@@ -74,4 +75,49 @@ test("data management actions are scoped safely", () => {
 
   profile = reduceProfile(profile, { type: "CLEAR_SIMULATION_LEARNING" });
   assert.equal(profile.simulationMemory.updatedAt, 0);
+});
+
+test("tournament invite links are hash-route safe and parse query fallbacks", () => {
+  const link = buildTournamentInviteLink("abc123", { origin: "https://example.test", pathname: "/boardstate/" });
+  assert.equal(link, "https://example.test/boardstate/#tournament/join/ABC123");
+  assert.deepEqual(parseTournamentInviteFromLocation({ hash: "#tournament/join/ABC123", search: "" }), {
+    joinCode: "ABC123",
+    source: "invite-link",
+  });
+  assert.deepEqual(parseTournamentInviteFromLocation({ hash: "#life", search: "?joinTournament=xyz789" }), {
+    joinCode: "XYZ789",
+    source: "invite-link",
+  });
+  assert.equal(parseTournamentInviteFromLocation({ hash: "#battlefield", search: "" }), null);
+});
+
+test("tournament notifications persist locally and respect non-critical preferences", () => {
+  let profile = reduceProfile(createDefaultProfile(), {
+    type: "SET_SETTING",
+    path: "notifications.tournamentEvents.tournamentStarted",
+    value: false,
+  });
+  profile = reduceProfile(profile, {
+    type: "TOURNAMENT_CREATE",
+    name: "Friday Commander",
+    hostName: "Host",
+    syncMode: "wifi",
+    wsUrl: "ws://192.168.1.10:8787",
+  });
+  assert.equal(profile.tournament.sync.namespace, "tournament");
+  assert.equal(profile.tournament.sync.mode, "wifi");
+  assert.equal(profile.notifications.items.some((entry) => entry.title === "Tournament Created"), false);
+
+  profile = reduceProfile(profile, {
+    type: "NOTIFICATION_ADD",
+    category: "tournament",
+    eventKey: "finalWinners",
+    title: "Final Winners",
+    body: "Top 3 ready.",
+    critical: true,
+  });
+  assert.equal(profile.notifications.items.length, 1);
+  profile = reduceProfile(profile, { type: "NOTIFICATION_ACK", id: profile.notifications.items[0].id });
+  assert.equal(profile.notifications.items[0].acknowledged, true);
+  assert.ok(profile.notifications.dismissedIds.includes(profile.notifications.items[0].id));
 });

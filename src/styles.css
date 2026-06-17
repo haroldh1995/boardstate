@@ -515,6 +515,243 @@ body[data-composition="widescreen"] .battlefield-group .tile-grid {
   overflow-y: hidden;
 }
 
+/* Options command center, invite links, and tournament notification surfaces. */
+.options-command-center {
+  width: min(68rem, calc(100vw - 1rem));
+  max-height: min(86svh, 58rem);
+  overflow: hidden;
+}
+
+.options-command-center > .overlay-header {
+  align-items: flex-start;
+  border-bottom: 1px solid rgba(143, 211, 255, 0.18);
+  padding-bottom: 0.85rem;
+}
+
+.overlay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.options-hub,
+.options-subpage {
+  max-height: calc(86svh - 7rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0.15rem 0.1rem 0.35rem;
+}
+
+.options-hub,
+.options-subpage {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.options-quick-row,
+.options-category-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.options-quick-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.options-category-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.option-category-card,
+.options-status-strip,
+.invite-link-panel,
+.options-setting-group {
+  border: 1px solid rgba(143, 211, 255, 0.22);
+  border-radius: 1rem;
+  background:
+    linear-gradient(135deg, rgba(13, 19, 37, 0.82), rgba(36, 18, 52, 0.62)),
+    rgba(6, 8, 18, 0.62);
+  box-shadow: inset 0 0 0 1px rgba(255, 229, 138, 0.06), 0 16px 36px rgba(0, 0, 0, 0.22);
+}
+
+.option-category-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 5rem;
+  padding: 0.85rem;
+  color: var(--text);
+  text-align: left;
+}
+
+.option-category-card:hover,
+.option-category-card:focus-visible {
+  border-color: rgba(241, 192, 107, 0.62);
+  box-shadow: 0 0 0 1px rgba(241, 192, 107, 0.18), 0 14px 34px rgba(0, 0, 0, 0.3);
+  transform: translateY(-1px);
+}
+
+.option-category-glyph {
+  display: grid;
+  place-items: center;
+  width: 2.65rem;
+  height: 2.65rem;
+  border: 1px solid rgba(241, 192, 107, 0.42);
+  border-radius: 0.8rem;
+  background: radial-gradient(circle at 35% 25%, rgba(255, 229, 138, 0.2), rgba(143, 211, 255, 0.08));
+  color: var(--gold-bright);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.option-category-card strong {
+  display: block;
+  color: #ffe9a5;
+  font-size: 1rem;
+}
+
+.option-category-card small {
+  display: block;
+  margin-top: 0.2rem;
+  color: rgba(247, 239, 255, 0.72);
+  line-height: 1.35;
+}
+
+.option-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  min-width: 3.25rem;
+  padding: 0.32rem 0.55rem;
+  border: 1px solid rgba(143, 211, 255, 0.24);
+  border-radius: 999px;
+  background: rgba(7, 11, 25, 0.66);
+  color: var(--accent);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.option-status-badge i {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 999px;
+  background: rgba(255, 126, 205, 0.24);
+  color: #fff0f9;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.option-chevron {
+  color: rgba(255, 229, 138, 0.72);
+  font-weight: 900;
+}
+
+.options-status-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem;
+}
+
+.options-subpage .option-card {
+  margin: 0;
+}
+
+.options-setting-group {
+  margin-top: 0.85rem;
+  padding: 0.75rem;
+}
+
+.options-setting-group h4 {
+  margin: 0 0 0.55rem;
+  color: var(--gold-bright);
+}
+
+.invite-link-panel {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+}
+
+.invite-link-panel input {
+  width: 100%;
+}
+
+.tournament-invite-modal,
+.notification-window {
+  width: min(32rem, calc(100vw - 1rem));
+}
+
+.notification-window {
+  position: relative;
+  display: grid;
+  gap: 0.85rem;
+  text-align: left;
+}
+
+.notification-window__glyph {
+  display: grid;
+  place-items: center;
+  width: 3.2rem;
+  height: 3.2rem;
+  border: 1px solid rgba(241, 192, 107, 0.62);
+  border-radius: 1rem;
+  background: radial-gradient(circle at 35% 25%, rgba(255, 229, 138, 0.22), rgba(143, 211, 255, 0.08));
+  color: var(--gold-bright);
+  font-weight: 900;
+}
+
+.notification-window.warning {
+  border-color: rgba(255, 210, 121, 0.58);
+}
+
+.notification-window.success {
+  border-color: rgba(139, 255, 189, 0.4);
+}
+
+.notification-toast {
+  border-color: rgba(143, 211, 255, 0.34);
+}
+
+.options-version-note {
+  margin: 0;
+  color: rgba(247, 239, 255, 0.62);
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .options-command-center {
+    width: calc(100vw - 0.75rem);
+    max-height: 90svh;
+  }
+
+  .options-quick-row,
+  .options-category-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .option-category-card {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .option-chevron {
+    display: none;
+  }
+
+  .options-status-strip {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 /* Event-ready battlefield lanes, presentation, combat, and tournament surfaces. */
 .battlefield-top-controls,
 .opponent-visibility-controls {

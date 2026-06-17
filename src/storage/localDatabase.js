@@ -301,6 +301,18 @@ function normalizeProfile(profile) {
       gestures: { ...defaults.settings.gestures, ...(profile.settings?.gestures || {}) },
       adhdMode: { ...defaults.settings.adhdMode, ...(profile.settings?.adhdMode || {}) },
       helperSprite: { ...defaults.settings.helperSprite, ...(profile.settings?.helperSprite || {}) },
+      notifications: {
+        ...defaults.settings.notifications,
+        ...(profile.settings?.notifications || {}),
+        tournamentEvents: {
+          ...defaults.settings.notifications.tournamentEvents,
+          ...(profile.settings?.notifications?.tournamentEvents || {}),
+        },
+        gameplayEvents: {
+          ...defaults.settings.notifications.gameplayEvents,
+          ...(profile.settings?.notifications?.gameplayEvents || {}),
+        },
+      },
       recentCounterTypes: profile.settings?.recentCounterTypes || defaults.settings.recentCounterTypes || [],
     },
     localAuth: { ...defaults.localAuth, ...(profile.localAuth || {}) },
@@ -363,6 +375,12 @@ function normalizeProfile(profile) {
       redoStack: profile.activeSession?.redoStack || defaults.activeSession.redoStack,
     },
     statsSync: { ...defaults.statsSync, ...(profile.statsSync || {}) },
+    notifications: {
+      ...defaults.notifications,
+      ...(profile.notifications || {}),
+      items: Array.isArray(profile.notifications?.items) ? profile.notifications.items : defaults.notifications.items,
+      dismissedIds: Array.isArray(profile.notifications?.dismissedIds) ? profile.notifications.dismissedIds : defaults.notifications.dismissedIds,
+    },
     simulationMemory: { ...defaults.simulationMemory, ...(profile.simulationMemory || {}) },
     simulationStats: {
       ...defaults.simulationStats,

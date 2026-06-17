@@ -53,6 +53,8 @@ const TEMPORARY_SCROLL_SELECTORS = [
   ".blocker-declaration",
   ".tutorial-sample-panel",
   ".adhd-assist-panel",
+  ".tournament-invite-modal",
+  ".notification-window",
 ];
 const BACKGROUND_SCROLL_LOCK_SELECTORS = [
   ".floating-overlay",
@@ -74,6 +76,8 @@ const BACKGROUND_SCROLL_LOCK_SELECTORS = [
   ".opponent-battlefield-overlay",
   ".blocker-declaration",
   ".tutorial-sample-panel",
+  ".tournament-invite-modal",
+  ".notification-window",
 ];
 const HUD_BADGE_DEFAULTS = {
   utility: { x: 98, y: 520 },
@@ -134,9 +138,41 @@ export function blurScryfallSearchInput(element = globalThis.document?.activeEle
   return true;
 }
 
+export function buildTournamentInviteLink(joinCode = "", locationLike = globalThis.location) {
+  const code = String(joinCode || "").trim().toUpperCase();
+  if (!code) {
+    return "";
+  }
+  const origin = locationLike?.origin || "";
+  const pathname = locationLike?.pathname || "/";
+  return `${origin}${pathname}#tournament/join/${encodeURIComponent(code)}`;
+}
+
+export function parseTournamentInviteFromLocation(locationLike = globalThis.location) {
+  const hash = String(locationLike?.hash || "");
+  const search = String(locationLike?.search || "");
+  const fromHashRoute = hash.match(/^#\/?tournament\/join\/([^?&#/]+)/i);
+  const hashQueryIndex = hash.indexOf("?");
+  const hashParams =
+    hashQueryIndex >= 0
+      ? new URLSearchParams(hash.slice(hashQueryIndex + 1).replace(/^#/, ""))
+      : new URLSearchParams();
+  const searchParams = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  const code =
+    fromHashRoute?.[1] ||
+    hashParams.get("tournamentJoin") ||
+    hashParams.get("joinTournament") ||
+    searchParams.get("tournamentJoin") ||
+    searchParams.get("joinTournament") ||
+    "";
+  const joinCode = String(code || "").trim().toUpperCase();
+  return joinCode ? { joinCode, source: "invite-link" } : null;
+}
+
 export function mountApp(root, store) {
   const allPages = ["life", "battlefield", "tournament", "profile", "archive", "decks", "leaderboards"];
-  let activePage = normalizePageFromHash(location.hash);
+  const initialTournamentInvite = parseTournamentInviteFromLocation(location);
+  let activePage = initialTournamentInvite ? "tournament" : normalizePageFromHash(location.hash);
   let searchResults = [];
   let searchMessage = "";
   let searchQuery = "";
@@ -152,6 +188,10 @@ export function mountApp(root, store) {
   let keepSearchInputFocus = false;
   let searchSelection = { start: null, end: null, direction: "none" };
   let optionsOpen = false;
+  let activeOptionsCategory = "";
+  let tournamentInvite = initialTournamentInvite;
+  let inviteNotificationCode = "";
+  const notificationFeedbackDeliveredIds = new Set();
   let statsOpen = false;
   let statsMode = "individual";
   let swipeStart = null;
@@ -311,6 +351,23 @@ export function mountApp(root, store) {
       );
       castActionPopup = popupIndex >= 0 ? { ...castActionPopup, index: popupIndex } : null;
     }
+    if (tournamentInvite?.joinCode && inviteNotificationCode !== tournamentInvite.joinCode) {
+      inviteNotificationCode = tournamentInvite.joinCode;
+      queueMicrotask(() =>
+        store.dispatch({
+          type: "NOTIFICATION_ADD",
+          category: "tournament",
+          eventKey: "inviteOpened",
+          severity: "info",
+          title: "Tournament Invite Opened",
+          body: `Join code ${tournamentInvite.joinCode} is ready. Enter your player name to join this tournament.`,
+          actionLabel: "Join Tournament",
+          actionPage: "tournament",
+          internalOnly: true,
+        })
+      );
+    }
+    const activeNotification = getActiveFullWindowNotification(profile);
     document.body.dataset.composition = resolvedCompositionMode;
     document.body.dataset.compositionPreference = profile.settings?.appearance?.compositionMode || "auto";
     document.body.dataset.page = activePage;
@@ -318,6 +375,9 @@ export function mountApp(root, store) {
     document.body.dataset.simulationActive = profile.activeSession?.simulation?.enabled ? "true" : "false";
     root.innerHTML = layout(profile, activePage, searchResults, searchMessage, {
       optionsOpen,
+      activeOptionsCategory,
+      tournamentInvite,
+      activeNotification,
       statsOpen,
       statsMode,
       toolMenuOpen,
@@ -373,6 +433,7 @@ export function mountApp(root, store) {
     restoreOpenDetailsState(root, openDetailsSnapshot);
     restoreSearchInputFocus(root, searchFocusSnapshot, searchResultsScrollTop);
     syncBackgroundScrollLock();
+    deliverNotificationFeedback(profile, activeNotification);
     schedulePresentationRefresh(profile);
     scheduleAutoStackProcessing(profile);
     lastRenderedSearchQuery = searchQuery;
@@ -582,6 +643,23 @@ export function mountApp(root, store) {
       button.addEventListener("click", () => {
         closeAllTemporaryUi({ renderAfter: false });
         optionsOpen = true;
+        activeOptionsCategory = button.dataset.optionsCategory || "";
+        render(store.getState());
+      })
+    );
+    container.querySelectorAll("[data-option-category]").forEach((button) =>
+      button.addEventListener("click", () => {
+        activeOptionsCategory = button.dataset.optionCategory || "";
+        if (activeOptionsCategory === "notifications") {
+          store.dispatch({ type: "NOTIFICATIONS_MARK_READ", internalOnly: true });
+        } else {
+          render(store.getState());
+        }
+      })
+    );
+    container.querySelectorAll("[data-options-back]").forEach((button) =>
+      button.addEventListener("click", () => {
+        activeOptionsCategory = "";
         render(store.getState());
       })
     );
@@ -789,12 +867,14 @@ export function mountApp(root, store) {
       button.addEventListener("click", () => {
         closeAllTemporaryUi({ renderAfter: false });
         optionsOpen = true;
+        activeOptionsCategory = button.dataset.optionsCategory || "";
         render(store.getState());
       })
     );
     container.querySelectorAll("[data-close-overlay]").forEach((button) => {
       button.addEventListener("click", () => {
         optionsOpen = false;
+        activeOptionsCategory = "";
         statsOpen = false;
         syncedTurnOrderSetupOpen = false;
         syncedTurnOrderError = "";
@@ -833,6 +913,32 @@ export function mountApp(root, store) {
     container.querySelectorAll("[data-setting-toggle]").forEach((input) => {
       input.addEventListener("change", () => store.dispatch({ type: "SET_SETTING", path: input.dataset.settingToggle, value: input.checked }));
     });
+    container.querySelector("[data-test-notification]")?.addEventListener("click", () => {
+      store.dispatch({
+        type: "NOTIFICATION_ADD",
+        category: "tournament",
+        eventKey: "roundGenerated",
+        severity: "info",
+        title: "Test Tournament Alert",
+        body: "This is a BoardState full-window notification test. Preferences, sound, and haptics are applied before delivery.",
+        actionLabel: "Open Tournament",
+        actionPage: "tournament",
+        fullWindow: true,
+        internalOnly: true,
+      });
+    });
+    container.querySelector("[data-test-sound]")?.addEventListener("click", () => {
+      playNotificationSound("success");
+      showNotice("Sound test requested. Browser policy may require prior user interaction.", "info");
+    });
+    container.querySelector("[data-test-haptic]")?.addEventListener("click", () => {
+      triggerNotificationHaptic("warning");
+      showNotice(navigator.vibrate ? "Haptic test requested." : "Haptics are not supported on this browser.", "info");
+    });
+    container.querySelector("[data-reset-notification-preferences]")?.addEventListener("click", () => {
+      store.dispatch({ type: "NOTIFICATIONS_RESET_PREFS", internalOnly: true });
+      showNotice("Notification preferences reset.");
+    });
     container.querySelector("[data-tournament-create-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
       const form = new FormData(event.currentTarget);
@@ -860,6 +966,55 @@ export function mountApp(root, store) {
       store.dispatch({ type: "TOURNAMENT_JOIN", joinCode: form.get("joinCode"), playerName: form.get("playerName"), syncMode: form.get("syncMode"), wsUrl: form.get("wsUrl") });
       showNotice("Joined tournament session.");
     });
+    container.querySelector("[data-tournament-invite-form]")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const joinCode = form.get("joinCode") || tournamentInvite?.joinCode || "";
+      store.dispatch({
+        type: "TOURNAMENT_JOIN",
+        joinCode,
+        playerName: form.get("playerName"),
+        syncMode: form.get("syncMode"),
+        wsUrl: form.get("wsUrl"),
+      });
+      tournamentInvite = null;
+      setActivePage("tournament");
+      showNotice("Joined tournament from invite link.");
+    });
+    container.querySelectorAll("[data-close-tournament-invite]").forEach((button) =>
+      button.addEventListener("click", () => {
+        tournamentInvite = null;
+        normalizeCurrentHash();
+        render(store.getState());
+      })
+    );
+    container.querySelectorAll("[data-copy-tournament-code]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        await copyPlainText(button.dataset.copyTournamentCode || "", "Tournament code copied.");
+      })
+    );
+    container.querySelectorAll("[data-copy-tournament-invite]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        await copyPlainText(button.dataset.copyTournamentInvite || buildTournamentInviteLink(button.dataset.joinCode || ""), "Tournament invite link copied.");
+      })
+    );
+    container.querySelectorAll("[data-share-tournament-invite]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const inviteLink = button.dataset.shareTournamentInvite || buildTournamentInviteLink(button.dataset.joinCode || "");
+        if (navigator.share) {
+          try {
+            await navigator.share({ title: "Join my BoardState tournament", text: "Join this BoardState tournament.", url: inviteLink });
+            showNotice("Tournament invite share opened.");
+            return;
+          } catch (error) {
+            if (error?.name === "AbortError") {
+              return;
+            }
+          }
+        }
+        await copyPlainText(inviteLink, "Tournament invite link copied.");
+      })
+    );
     container.querySelector("[data-tournament-player-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
       const form = new FormData(event.currentTarget);
@@ -1528,6 +1683,18 @@ export function mountApp(root, store) {
     );
     container.querySelectorAll("[data-dismiss-recovery]").forEach((button) =>
       button.addEventListener("click", () => store.dispatch({ type: "DISMISS_RECOVERY_ENTRY", id: button.dataset.dismissRecovery }))
+    );
+    container.querySelectorAll("[data-notification-ack]").forEach((button) =>
+      button.addEventListener("click", () => store.dispatch({ type: "NOTIFICATION_ACK", id: button.dataset.notificationAck, internalOnly: true }))
+    );
+    container.querySelectorAll("[data-notification-open-page]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const notificationId = button.dataset.notificationId;
+        if (notificationId) {
+          store.dispatch({ type: "NOTIFICATION_ACK", id: notificationId, internalOnly: true });
+        }
+        setActivePage(button.dataset.notificationOpenPage || "tournament");
+      })
     );
     container.querySelectorAll("[data-recovery-retry]").forEach((button) =>
       button.addEventListener("click", () => {
@@ -2213,6 +2380,7 @@ export function mountApp(root, store) {
     const { renderAfter = true, keepSimulationSetup = false } = options;
     dismissSearchInputFocus();
     optionsOpen = false;
+    activeOptionsCategory = "";
     statsOpen = false;
     quickPanelOpen = "";
     modifierPanelOpen = false;
@@ -2581,6 +2749,16 @@ export function mountApp(root, store) {
   }
 
   function handleHashChange() {
+    const invite = parseTournamentInviteFromLocation(location);
+    if (invite?.joinCode) {
+      tournamentInvite = invite;
+      switchSearchContext("tournament");
+      activePage = "tournament";
+      closeAllTemporaryUi({ renderAfter: false });
+      normalizeCurrentHash();
+      render(store.getState());
+      return;
+    }
     const nextPage = normalizePageFromHash(location.hash);
     if (nextPage === activePage) {
       normalizeCurrentHash();
@@ -3298,6 +3476,79 @@ export function mountApp(root, store) {
     }
   }
 
+  async function copyPlainText(text, successMessage = "Copied.") {
+    try {
+      await navigator.clipboard.writeText(String(text || ""));
+      showNotice(successMessage);
+    } catch {
+      showNotice("Copy unavailable in this browser. Select and copy the code manually.", "warning");
+    }
+  }
+
+  function deliverNotificationFeedback(profile, notification) {
+    if (!notification || notification.acknowledged || notificationFeedbackDeliveredIds.has(notification.id)) {
+      return;
+    }
+    const preferences = getNotificationPreferences(profile);
+    notificationFeedbackDeliveredIds.add(notification.id);
+    if (notificationFeedbackDeliveredIds.size > 120) {
+      notificationFeedbackDeliveredIds.clear();
+      notificationFeedbackDeliveredIds.add(notification.id);
+    }
+    if (preferences.sound) {
+      playNotificationSound(notification.severity || notification.eventKey || "info");
+    }
+    if (preferences.haptics) {
+      triggerNotificationHaptic(notification.severity || notification.eventKey || "info");
+    }
+  }
+
+  function playNotificationSound(kind = "info") {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) {
+      return false;
+    }
+    try {
+      const context = new AudioContext();
+      const gain = context.createGain();
+      const oscillator = context.createOscillator();
+      const now = context.currentTime;
+      const success = /success|final|winner/i.test(kind);
+      const warning = /warning|sudden|choice|error/i.test(kind);
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(warning ? 220 : success ? 523.25 : 392, now);
+      oscillator.frequency.exponentialRampToValueAtTime(warning ? 164.81 : success ? 659.25 : 493.88, now + 0.12);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.08, now + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(now);
+      oscillator.stop(now + 0.24);
+      oscillator.addEventListener("ended", () => context.close().catch(() => {}));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function triggerNotificationHaptic(kind = "info") {
+    if (!navigator.vibrate) {
+      return false;
+    }
+    const pattern = /final|winner|success/i.test(kind)
+      ? [60, 35, 90, 35, 120]
+      : /warning|sudden|choice|error/i.test(kind)
+        ? [45, 35, 45]
+        : [35];
+    try {
+      navigator.vibrate(pattern);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function resolveStackRemovalRequest(stackedPermanents = [], requestedMode = "custom") {
     const mode = String(requestedMode || "custom").toLowerCase();
     const totals = Object.fromEntries(stackedPermanents.map((permanent) => [permanent.id, Math.max(1, Number(permanent.quantity || 1))]));
@@ -3691,16 +3942,18 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       ${page === "battlefield" ? renderUtilityDock(profile, uiState.utilityDockOpen, uiState.activeUtilityPanel, uiState.hudBadgePositions || HUD_BADGE_DEFAULTS, Boolean(uiState.isMobilePortrait), Boolean(uiState.hudBadgesLocked), searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.castActionPopup) : ""}
       ${uiState.quickPanelOpen ? renderQuickAdjustmentPanel(profile, uiState.quickPanelOpen) : ""}
       ${uiState.modifierPanelOpen ? renderTrackerModifierPanel(uiState.pendingTrackerModifier) : ""}
-      ${uiState.optionsOpen ? renderGameOptions(profile, page) : ""}
+      ${uiState.optionsOpen ? renderGameOptionsCommandCenter(profile, page, uiState.activeOptionsCategory || "") : ""}
       ${uiState.statsOpen ? renderStatsOverlay(profile, uiState.statsMode) : ""}
       ${uiState.simulationSetupOpen ? renderSimulationSetupModal(uiState.simulationSelectedOpponents, uiState.simulationSelectedSpeed, uiState.simulationRevengeEnabled, uiState.simulationSetupError) : ""}
       ${uiState.simulationStatsOpen ? renderSimulationStatsOverlay(profile) : ""}
       ${uiState.syncedTurnOrderSetupOpen ? renderSyncedTurnOrderModal(uiState.syncedTurnOrderPlayers || [], uiState.syncedTurnOrderRolls || {}, uiState.syncedTurnOrderOrder || [], uiState.syncedTurnOrderSuggested || [], uiState.syncedTurnOrderTiePlayerIds || [], uiState.syncedTurnOrderError || "") : ""}
       ${page !== "tournament" ? renderPinnedTournamentPanel(profile) : ""}
+      ${uiState.tournamentInvite ? renderTournamentInviteModal(profile, uiState.tournamentInvite) : ""}
       ${renderAdhdAssistPanel(profile, page, uiLayer.current)}
       ${renderHelperSprite(profile, uiState.helperMessage, uiState.hudBadgePositions || HUD_BADGE_DEFAULTS, Boolean(uiState.isMobilePortrait), Boolean(uiState.hudBadgesLocked))}
       ${renderCardPresentation(profile.activeSession?.presentation)}
       ${renderRecoveryToasts(profile, uiState.uiNotice)}
+      ${uiState.activeNotification ? renderFullWindowNotification(uiState.activeNotification) : ""}
       ${uiState.confirmationDialog ? renderConfirmationDialog(uiState.confirmationDialog) : ""}
       ${renderEdgeSwipeZones(profile)}
     </main>
@@ -6176,6 +6429,7 @@ function renderTournamentSetupControls(profile) {
       <h3>Host / Admin Controls</h3>
       <p>Host: ${escapeHtml(tournament.hostName || "Host")} - Code: <strong>${escapeHtml(tournament.joinCode || tournament.sync?.sessionId || "LOCAL")}</strong></p>
       <p>Sync: ${escapeHtml(tournament.sync?.mode || "local")} - ${escapeHtml(tournament.sync?.status || tournament.syncStatus || "local-only")}${tournament.sync?.mode === "wifi" ? ` - ${escapeHtml(tournament.sync?.wsUrl || "ws://localhost:8787")}` : ""}</p>
+      ${renderTournamentInviteControls(tournament)}
       <div class="button-grid">
         <button data-tournament-sample-players ${setupLocked ? "disabled" : ""}>Fill to 10 Players</button>
         <button data-tournament-generate-round>Generate Next Round</button>
@@ -6194,6 +6448,27 @@ function renderTournamentSetupControls(profile) {
         `).join("") || "<span>No players yet.</span>"}
       </div>
     </article>
+  `;
+}
+
+function renderTournamentInviteControls(tournament = {}) {
+  const code = tournament.joinCode || tournament.sync?.sessionId || "";
+  if (!code) {
+    return `<p class="eyebrow">Create or join a tournament to generate an invite code.</p>`;
+  }
+  const inviteLink = buildTournamentInviteLink(code);
+  return `
+    <div class="invite-link-panel">
+      <p class="eyebrow">Tournament Invite</p>
+      <strong>${escapeHtml(code)}</strong>
+      <input readonly value="${escapeAttribute(inviteLink)}" aria-label="Tournament invite link" />
+      <div class="button-grid">
+        <button data-copy-tournament-code="${escapeAttribute(code)}">Copy Code</button>
+        <button data-copy-tournament-invite="${escapeAttribute(inviteLink)}" data-join-code="${escapeAttribute(code)}">Copy Invite Link</button>
+        <button data-share-tournament-invite="${escapeAttribute(inviteLink)}" data-join-code="${escapeAttribute(code)}">Share Invite Link</button>
+      </div>
+      <small>Invite links only include the tournament code/session ID. They never include passwords, local profile data, or debug state.</small>
+    </div>
   `;
 }
 
@@ -6403,6 +6678,534 @@ function findPlayerCurrentTable(tournament = {}, playerId = "") {
   return [round?.podA, round?.podB, round?.oneVOne].find((table) => (table?.players || []).includes(playerId)) || null;
 }
 
+function renderGameOptionsCommandCenter(profile, page = "life", activeCategory = "") {
+  const category = getOptionsCategories(profile, page).find((entry) => entry.id === activeCategory);
+  return `
+    <section class="overlay-backdrop">
+      <div class="floating-overlay glass options-command-center">
+        <div class="overlay-header">
+          <div>
+            <p class="eyebrow">${category ? "Focused Options" : "Command Center"}</p>
+            <h2>${category ? escapeHtml(category.title) : "Game Options"}</h2>
+            <p>${category ? escapeHtml(category.description) : "Choose a category. Detailed settings stay inside focused panels instead of one long wall."}</p>
+          </div>
+          <div class="overlay-actions">
+            ${category ? `<button data-options-back>Back</button>` : ""}
+            <button data-close-overlay>Close</button>
+          </div>
+        </div>
+        ${category ? renderOptionsSubpage(profile, page, category.id) : renderOptionsHub(profile, page)}
+      </div>
+    </section>
+  `;
+}
+
+function getOptionsCategories(profile, page = "life") {
+  const tournament = profile.tournament || {};
+  const multiplayer = getMultiplayerSettings(profile);
+  const notificationStatus = getNotificationStatus(profile);
+  const unread = getUnreadNotificationCount(profile);
+  const localAuth = profile.localAuth || {};
+  return [
+    {
+      id: "profile",
+      glyph: "ID",
+      title: "Profile & Saves",
+      description: "Local profile, password protection, import/export.",
+      status: localAuth.mode === "protected" ? "Protected" : localAuth.hasPassword ? "Saved" : "Guest",
+    },
+    {
+      id: "gameplay",
+      glyph: "MP",
+      title: "Gameplay & Multiplayer",
+      description: "Local play, WiFi sync, Dry Run, room settings.",
+      status: multiplayer.mode === "wifi" ? "WiFi" : multiplayer.mode === "simulated" ? "Dry Run" : multiplayer.mode || "Offline",
+    },
+    {
+      id: "tournament",
+      glyph: "TRN",
+      title: "Tournament",
+      description: "Create, join, pin, and manage tournaments.",
+      status: getTournamentStatusLabel(tournament),
+    },
+    {
+      id: "notifications",
+      glyph: "ALRT",
+      title: "Notifications",
+      description: "Tournament alerts, sound, haptics, and popup preferences.",
+      status: notificationStatus,
+      badge: unread,
+    },
+    {
+      id: "hud",
+      glyph: "HUD",
+      title: "HUD & Layout",
+      description: "Mobile/widescreen layout, pinned widgets, badges.",
+      status: (profile.settings?.appearance?.compositionMode || "auto").toUpperCase(),
+    },
+    {
+      id: "accessibility",
+      glyph: "ADHD",
+      title: "Accessibility / ADHD Assist",
+      description: "Reminders, reduced noise, guidance, assistive prompts.",
+      status: profile.settings?.adhdMode?.enabled ? "On" : "Standard",
+    },
+    {
+      id: "diagnostics",
+      glyph: "LOG",
+      title: "Diagnostics & Support",
+      description: "Logs, debug state, bug reports, sample board.",
+      status: `${collectRulesConfidence(profile).length || 0} events`,
+    },
+    {
+      id: "data",
+      glyph: "DATA",
+      title: "Data Management",
+      description: "Export, import, reset, clear local data.",
+      status: "Local",
+    },
+    {
+      id: "about",
+      glyph: "INFO",
+      title: "About BoardState",
+      description: "App info, important notes, credits/version.",
+      status: `v${getAppVersion()}`,
+    },
+  ];
+}
+
+function renderOptionsHub(profile, page = "life") {
+  const simulation = profile.activeSession?.simulation || {};
+  const gameTracking = profile.activeSession?.gameTracking || {};
+  const showEndGame = page === "battlefield" && (Boolean(simulation.enabled) || Boolean(gameTracking.active));
+  const categories = getOptionsCategories(profile, page);
+  return `
+    <div class="options-hub">
+      ${showEndGame ? `
+        <article class="options-status-strip">
+          <div>
+            <p class="eyebrow">Active Game</p>
+            <strong>Simulation ${simulation.enabled ? "Active" : "Inactive"} - Tracking ${gameTracking.active ? "Active" : "Inactive"}</strong>
+          </div>
+          <button data-end-game>End Game</button>
+        </article>
+      ` : ""}
+      <div class="options-quick-row">
+        ${["tournament", "notifications", "profile"].map((id) => renderOptionCategoryCard(categories.find((entry) => entry.id === id), true)).join("")}
+      </div>
+      <div class="options-category-grid">
+        ${categories.filter((entry) => !["tournament", "notifications", "profile"].includes(entry.id)).map((entry) => renderOptionCategoryCard(entry)).join("")}
+      </div>
+      <p class="options-version-note">BoardState ${escapeHtml(getAppVersion())} - tournament sync remains separate from normal gameplay sync.</p>
+    </div>
+  `;
+}
+
+function renderOptionCategoryCard(category, compact = false) {
+  if (!category) return "";
+  return `
+    <button class="option-category-card ${compact ? "compact" : ""}" data-option-category="${escapeAttribute(category.id)}">
+      <span class="option-category-glyph">${escapeHtml(category.glyph)}</span>
+      <span>
+        <strong>${escapeHtml(category.title)}</strong>
+        <small>${escapeHtml(category.description)}</small>
+      </span>
+      <span class="option-status-badge">${escapeHtml(category.status || "")}${category.badge ? ` <i>${Number(category.badge)}</i>` : ""}</span>
+      <span class="option-chevron">&gt;</span>
+    </button>
+  `;
+}
+
+function renderOptionsSubpage(profile, page, category) {
+  switch (category) {
+    case "profile":
+      return renderProfileOptionsSubpage(profile);
+    case "gameplay":
+      return renderGameplayOptionsSubpage(profile, page);
+    case "tournament":
+      return renderTournamentOptionsSubpage(profile);
+    case "notifications":
+      return renderNotificationOptionsSubpage(profile);
+    case "hud":
+      return renderHudOptionsSubpage(profile);
+    case "accessibility":
+      return renderAccessibilityOptionsSubpage(profile);
+    case "diagnostics":
+      return renderDiagnosticsOptionsSubpage(profile);
+    case "data":
+      return renderDataManagementOptionsSubpage();
+    case "about":
+      return renderAboutOptionsSubpage();
+    default:
+      return renderOptionsHub(profile, page);
+  }
+}
+
+function renderProfileOptionsSubpage(profile) {
+  const localAuth = profile.localAuth || {};
+  return `
+    <div class="options-subpage">
+      <article class="option-card">
+        <h3>Profile & Saves</h3>
+        <p>Status: ${localAuth.mode === "protected" ? "Password profile loaded" : "Guest / fresh mode"}${localAuth.hasPassword ? " - Password profile available" : ""}</p>
+        <div class="button-grid">
+          <button data-open-profile-page>Open Profile Page</button>
+          <button data-guest-mode>Continue as Guest/Fresh</button>
+          ${localAuth.mode === "protected" ? `<button data-lock-profile>Logout / Lock Profile</button>` : ""}
+        </div>
+        <form data-profile-form class="stacked-form">
+          <label>Profile name</label>
+          <input name="profileName" value="${escapeAttribute(profile.player?.name || "Player")}" placeholder="Player name" />
+          <button class="wide">Save Locally</button>
+        </form>
+        <form data-create-password-form class="stacked-form">
+          <label>Create Password</label>
+          <input name="password" type="password" autocomplete="new-password" placeholder="Create local password" />
+          <button class="wide">Create / Save Protected Profile</button>
+        </form>
+        <form data-login-form class="stacked-form">
+          <label>Login</label>
+          <input name="password" type="password" autocomplete="current-password" placeholder="Local password" />
+          <button class="wide">Login and Load Saved Data</button>
+        </form>
+        <div class="button-grid">
+          <button data-export>Export Profile</button>
+          <label class="file-pill">Import Profile<input type="file" accept="application/json" data-import /></label>
+        </div>
+        <p>Local device protection only. No cloud authentication, and plaintext passwords are never stored.</p>
+      </article>
+    </div>
+  `;
+}
+
+function renderGameplayOptionsSubpage(profile, page = "life") {
+  const settings = getSettings(profile);
+  const multiplayer = getMultiplayerSettings(profile);
+  const simulation = profile.activeSession?.simulation || {};
+  const gameTracking = profile.activeSession?.gameTracking || {};
+  const showEndGame = page === "battlefield" && (Boolean(simulation.enabled) || Boolean(gameTracking.active));
+  return `
+    <div class="options-subpage">
+      ${showEndGame ? `
+        <article class="option-card">
+          <h3>Active Game</h3>
+          <p>Simulation: ${simulation.enabled ? "Active" : "Inactive"} - Tracking: ${gameTracking.active ? "Active" : "Inactive"}</p>
+          <button class="wide" data-end-game>End Game</button>
+        </article>
+      ` : ""}
+      <article class="option-card">
+        <h3>Gameplay & Multiplayer</h3>
+        <div class="button-grid">
+          <button data-multiplayer-mode="local">Local Multiplayer</button>
+          <button data-multiplayer-mode="wifi">Connect via WiFi</button>
+          <button data-multiplayer-mode="bluetooth">Bluetooth Placeholder</button>
+          <button data-multiplayer-mode="simulated">Simulated Local</button>
+          <button data-multiplayer-mode="offline">Disconnect</button>
+          <button data-open-synced-turn-order-setup>d20 Turn Order</button>
+          <button data-open-simulation-setup>Dry Run Setup</button>
+          <button data-open-simulation-stats>Simulation Stats</button>
+        </div>
+        <p>Mode: ${escapeHtml(multiplayer.mode)}</p>
+        <p>Connected players: ${multiplayer.connectedPlayers.length ? multiplayer.connectedPlayers.map((player) => escapeHtml(player.name)).join(", ") : "None"}</p>
+        <p>Confirmed turn order: ${multiplayer.confirmedTurnOrder?.length ? multiplayer.confirmedTurnOrder.map((id) => escapeHtml(id === "local-player" ? `${profile.player?.name || "Player"} (You)` : id)).join(" -> ") : "Not confirmed"}</p>
+        ${renderToggle("Simulation Revenge Learning", "multiplayer.simulationRevenge", Boolean(multiplayer.simulationRevenge ?? true))}
+        <label class="stacked-form">Room ID
+          <input data-mp-setting="multiplayer.roomId" value="${escapeAttribute(multiplayer.roomId || "boardstate-room")}" />
+        </label>
+        <label class="stacked-form">WiFi Sync URL
+          <input data-mp-setting="multiplayer.wsUrl" value="${escapeAttribute(multiplayer.wsUrl || "ws://localhost:8787")}" />
+        </label>
+        <label class="stacked-form">Role
+          <select data-mp-setting="multiplayer.role">
+            <option value="player" ${multiplayer.role === "player" ? "selected" : ""}>Player</option>
+            <option value="spectator" ${multiplayer.role === "spectator" ? "selected" : ""}>Spectator</option>
+          </select>
+        </label>
+        ${renderToggle("Spectator view mode", "multiplayer.spectatorMode", Boolean(multiplayer.spectatorMode))}
+        ${renderToggle("Multiplayer authority confirmations", "multiplayer.confirmAuthority", multiplayer.confirmAuthority)}
+        ${renderToggle("Strict Turn Phase Enforcement", "strictPhaseEnforcement", Boolean(settings.strictPhaseEnforcement))}
+        ${renderToggle("Manual Stack Confirmation", "manualStackConfirmation", Boolean(settings.manualStackConfirmation))}
+      </article>
+    </div>
+  `;
+}
+
+function renderTournamentOptionsSubpage(profile) {
+  const tournament = profile.tournament || {};
+  return `
+    <div class="options-subpage">
+      <article class="option-card tournament-card">
+        <h3>Tournament Shortcuts</h3>
+        <p>Status: ${escapeHtml(getTournamentStatusLabel(tournament))} - Sync: ${escapeHtml(tournament.sync?.mode || "local")} / ${escapeHtml(tournament.sync?.status || tournament.syncStatus || "local-only")}</p>
+        ${renderTournamentInviteControls(tournament)}
+        <div class="button-grid">
+          <button data-open-tournament-page>Open Full Tournament Bracket</button>
+          <button data-tournament-pin="${tournament.pinned ? "false" : "true"}">${tournament.pinned ? "Unpin Tournament Panel" : "Pin Tournament Panel"}</button>
+        </div>
+      </article>
+      ${renderTournamentPanel(profile)}
+    </div>
+  `;
+}
+
+function renderNotificationOptionsSubpage(profile) {
+  const preferences = getNotificationPreferences(profile);
+  const unread = getUnreadNotificationCount(profile);
+  return `
+    <div class="options-subpage">
+      <article class="option-card">
+        <h3>Notification Options ${unread ? `<span class="option-status-badge">${unread} unread</span>` : ""}</h3>
+        <p>Choose how BoardState alerts you. Important tournament alerts default on; browser sound may require user interaction first.</p>
+        <div class="button-grid">
+          <button data-test-notification>Test Notification</button>
+          <button data-test-sound>Test Sound</button>
+          <button data-test-haptic>Test Haptic</button>
+          <button data-reset-notification-preferences>Reset Notification Preferences</button>
+        </div>
+        <div class="options-setting-group">
+          <h4>Delivery</h4>
+          ${renderToggle("Master Notifications", "notifications.master", Boolean(preferences.master))}
+          ${renderToggle("Full-window Popups", "notifications.fullWindow", Boolean(preferences.fullWindow))}
+          ${renderToggle("Toast Notifications", "notifications.toast", Boolean(preferences.toast))}
+          ${renderToggle("Sound Notifications", "notifications.sound", Boolean(preferences.sound))}
+          ${renderToggle("Haptics / Vibration", "notifications.haptics", Boolean(preferences.haptics))}
+        </div>
+        <div class="options-setting-group">
+          <h4>Categories</h4>
+          ${renderToggle("Tournament Notifications", "notifications.tournament", Boolean(preferences.tournament))}
+          ${renderToggle("Gameplay Notifications", "notifications.gameplay", Boolean(preferences.gameplay))}
+          ${renderToggle("Dry Run Notifications", "notifications.dryRun", Boolean(preferences.dryRun))}
+          ${renderToggle("Manual Choice Required Notifications", "notifications.manualChoice", Boolean(preferences.manualChoice))}
+          ${renderToggle("Sync Notifications", "notifications.sync", Boolean(preferences.sync))}
+          ${renderToggle("Reminder Notifications", "notifications.reminders", Boolean(preferences.reminders))}
+        </div>
+        <div class="options-setting-group">
+          <h4>Tournament Events</h4>
+          ${renderTournamentNotificationToggles(preferences)}
+        </div>
+        <div class="options-setting-group">
+          <h4>Gameplay Events</h4>
+          ${renderGameplayNotificationToggles(preferences)}
+        </div>
+      </article>
+    </div>
+  `;
+}
+
+function renderTournamentNotificationToggles(preferences) {
+  const labels = {
+    inviteOpened: "Tournament invite opened",
+    playerJoined: "Player joined",
+    playerLeft: "Player left",
+    tournamentStarted: "Tournament started",
+    roundGenerated: "New round posted",
+    roundLocked: "Round locked",
+    tableAssignmentChanged: "Table/pod assignment alerts",
+    oneVOneComplete: "1v1 complete / time expiration",
+    suddenDeath: "Sudden Death alerts",
+    suddenDeathExtension: "Sudden Death extension alerts",
+    podResult: "Pod result submitted",
+    standingsUpdated: "Standings updated",
+    resultCorrected: "Result corrected",
+    tournamentEnded: "Tournament ended",
+    finalWinners: "Final winner alerts",
+    syncReconnect: "Tournament sync/reconnect alerts",
+  };
+  return Object.entries(labels)
+    .map(([key, label]) => renderToggle(label, `notifications.tournamentEvents.${key}`, preferences.tournamentEvents?.[key] !== false))
+    .join("");
+}
+
+function renderGameplayNotificationToggles(preferences) {
+  const labels = {
+    stackPriority: "Stack priority alerts",
+    manualChoice: "Manual Choice Required alerts",
+    landfall: "Landfall trigger alerts",
+    combatBlockers: "Combat blocker alerts",
+    commanderDamage: "Commander damage alerts",
+    rulesConfidence: "Rule confidence alerts",
+    errorRecovery: "Error/recovery alerts",
+  };
+  return Object.entries(labels)
+    .map(([key, label]) => renderToggle(label, `notifications.gameplayEvents.${key}`, preferences.gameplayEvents?.[key] !== false))
+    .join("");
+}
+
+function renderHudOptionsSubpage(profile) {
+  const panels = getPagePanels(profile);
+  const compositionMode = profile.settings?.appearance?.compositionMode || "auto";
+  const resolvedCompositionMode = resolveCompositionMode(profile);
+  const compositionLabel =
+    compositionMode === "auto"
+      ? `Auto detect (${resolvedCompositionMode === "mobile" ? "Mobile view" : "Widescreen view"})`
+      : resolvedCompositionMode === "mobile"
+        ? "Mobile view"
+        : "Widescreen view";
+  return `
+    <div class="options-subpage">
+      <article class="option-card">
+        <h3>HUD & Layout</h3>
+        <p>Device view: ${escapeHtml(compositionLabel)}</p>
+        <div class="button-grid">
+          <button class="${compositionMode === "auto" ? "active" : ""}" data-setting-button="appearance.compositionMode" data-value="auto">Auto Detect</button>
+          <button class="${compositionMode === "mobile" ? "active" : ""}" data-setting-button="appearance.compositionMode" data-value="mobile">Mobile View</button>
+          <button class="${compositionMode === "widescreen" ? "active" : ""}" data-setting-button="appearance.compositionMode" data-value="widescreen">Widescreen View</button>
+        </div>
+        ${renderToggle("Life total panel", "pagePanels.lifeTrackerLife", panels.lifeTrackerLife)}
+        ${renderToggle("Show Profile in Main UI", "navigation.showProfileInMainUi", Boolean(profile.settings?.navigation?.showProfileInMainUi))}
+        ${renderToggle("Enable Edge Swipe Shortcuts", "navigation.edgeSwipeShortcuts", Boolean(profile.settings?.navigation?.edgeSwipeShortcuts))}
+        ${renderToggle("Compact Mobile HUD", "navigation.compactMobileHud", Boolean(profile.settings?.navigation?.compactMobileHud ?? true))}
+        ${renderToggle("Mobile Focus View", "navigation.mobileFocusView", Boolean(profile.settings?.navigation?.mobileFocusView ?? true))}
+        ${renderToggle("Lock HUD Badges", "navigation.hudBadgesLocked", Boolean(profile.settings?.navigation?.hudBadgesLocked))}
+        <button class="wide" data-reset-hud-layout>Reset HUD Layout</button>
+        <p>Floating mana lives in the Battlefield tools menu as a floating widget with pin/unpin support.</p>
+        ${renderToggle("Opponent board panel", "pagePanels.boardOpponent", panels.boardOpponent)}
+        ${renderToggle("Combat controls", "pagePanels.boardCombat", panels.boardCombat)}
+        ${renderToggle("Board quick tools", "pagePanels.boardTools", panels.boardTools)}
+        ${renderToggle("Advanced rules helpers", "pagePanels.advancedRulesHelpers", panels.advancedRulesHelpers)}
+        ${renderToggle("Archive / quick add helpers", "pagePanels.archiveQuickAdd", panels.archiveQuickAdd)}
+        ${renderToggle("Stats / timer widgets", "pagePanels.statsTimerWidgets", panels.statsTimerWidgets)}
+      </article>
+    </div>
+  `;
+}
+
+function renderAccessibilityOptionsSubpage(profile) {
+  const settings = getSettings(profile);
+  return `
+    <div class="options-subpage">
+      <article class="option-card">
+        <h3>Accessibility / ADHD Assist</h3>
+        <p>ADHD Mode is a companion assistance layer for reminders and clarity, not official judging or full rules enforcement.</p>
+        ${renderToggle("Helper Sprite", "helperSprite.enabled", Boolean(profile.settings?.helperSprite?.enabled))}
+        <button class="wide" data-helper-remind>Remind me</button>
+        ${renderToggle("ADHD Mode", "adhdMode.enabled", Boolean(settings.adhdMode?.enabled))}
+        ${renderToggle("ADHD trigger reminders", "adhdMode.triggerReminders", Boolean(settings.adhdMode?.triggerReminders))}
+        ${renderToggle("ADHD missed trigger reminders", "adhdMode.missedTriggerReminders", Boolean(settings.adhdMode?.missedTriggerReminders))}
+        ${renderToggle("ADHD targeting reminders", "adhdMode.targetingReminders", Boolean(settings.adhdMode?.targetingReminders))}
+        ${renderToggle("ADHD layer explanation", "adhdMode.layerExplanation", Boolean(settings.adhdMode?.layerExplanation))}
+        ${renderToggle("ADHD step-by-step prompts", "adhdMode.stepByStepPrompts", Boolean(settings.adhdMode?.stepByStepPrompts))}
+        ${renderToggle("ADHD reduced visual noise", "adhdMode.reducedNoise", Boolean(settings.adhdMode?.reducedNoise))}
+        ${renderToggle("ADHD highlight likely actions", "adhdMode.highlightLikelyActions", Boolean(settings.adhdMode?.highlightLikelyActions))}
+        ${renderToggle("ADHD resource reminders", "adhdMode.resourceReminders", Boolean(settings.adhdMode?.resourceReminders))}
+        ${renderToggle("ADHD deterministic auto-assist", "adhdAutomation", settings.adhdAutomation)}
+        ${renderToggle("Confirm ambiguous effects", "confirmAmbiguousEffects", settings.confirmAmbiguousEffects)}
+        ${renderToggle("Haptics hooks", "haptics", settings.haptics)}
+        ${renderToggle("Compact permanent tiles", "compactTiles", settings.compactTiles)}
+        ${renderToggle("Enable Advanced Gestures", "gestures.advanced", Boolean(profile.settings?.gestures?.advanced))}
+        ${renderToggle("Focus mode", "battlefield.focusMode", Boolean(profile.settings?.battlefield?.focusMode))}
+      </article>
+    </div>
+  `;
+}
+
+function renderDiagnosticsOptionsSubpage(profile) {
+  return `
+    <div class="options-subpage">
+      <article class="option-card">
+        <h3>Diagnostics & Support</h3>
+        <p>Diagnostics should never include passwords or private tokens.</p>
+        <div class="button-grid">
+          <button data-copy-game-log>Copy Game Log</button>
+          <button data-copy-debug-state>Copy Debug State</button>
+          <button data-export-bug-report>Export Bug Report</button>
+          <button data-load-tutorial-sample>Load Tutorial Sample Board</button>
+        </div>
+        <div class="rules-confidence-mini">
+          ${collectRulesConfidence(profile)
+            .slice(0, 4)
+            .map((entry) => `<span class="confidence-pill ${confidenceClass(entry.rulesConfidence)}">${escapeHtml(confidenceLabel(entry.rulesConfidence))}</span>`)
+            .join("") || `<span class="confidence-pill info">No rules events yet</span>`}
+        </div>
+        ${renderRulesConfidenceLegend()}
+      </article>
+    </div>
+  `;
+}
+
+function renderDataManagementOptionsSubpage() {
+  return `
+    <div class="options-subpage">
+      <article class="option-card">
+        <h3>Data Management</h3>
+        <p>Destructive actions ask before changing local data. Export first if you need a backup.</p>
+        <div class="button-grid">
+          <button data-export>Export Profile</button>
+          <label class="file-pill">Import Profile<input type="file" accept="application/json" data-import /></label>
+          <button data-clear-game-history>Clear Game History</button>
+          <button data-clear-simulation-learning>Clear Simulation Learning</button>
+          <button data-reset-settings>Reset Settings</button>
+          <button class="danger-soft" data-reset-all-local-data>Reset All Local Data</button>
+        </div>
+      </article>
+    </div>
+  `;
+}
+
+function renderAboutOptionsSubpage() {
+  return `
+    <div class="options-subpage">
+      <article class="option-card">
+        <h3>About BoardState</h3>
+        <p>BoardState is a local-first MTG companion for life tracking, battlefield testing, Dry Run simulation, tournament tracking, manual-choice reminders, and debug-friendly game history.</p>
+        <p>Version: ${escapeHtml(getAppVersion())}</p>
+        <p>Zones are tracked invisibly where possible. Logs and bug reports are designed for troubleshooting and should not include local passwords or private tokens.</p>
+        ${renderImportantNotes()}
+      </article>
+    </div>
+  `;
+}
+
+function getTournamentStatusLabel(tournament = {}) {
+  if (!tournament.active && !tournament.status) return "Not Joined";
+  if (tournament.status === "complete") return "Complete";
+  if (tournament.role === "host") return tournament.status === "active" ? "Hosting Active" : "Hosting";
+  if (tournament.role === "player") return tournament.status === "active" ? "Joined Active" : "Joined";
+  return tournament.status || "Local";
+}
+
+function getNotificationPreferences(profile = {}) {
+  const defaults = {
+    master: true,
+    fullWindow: true,
+    toast: true,
+    sound: false,
+    haptics: false,
+    tournament: true,
+    gameplay: true,
+    dryRun: true,
+    manualChoice: true,
+    sync: true,
+    reminders: true,
+    tournamentEvents: {},
+    gameplayEvents: {},
+  };
+  const current = profile.settings?.notifications || {};
+  return {
+    ...defaults,
+    ...current,
+    tournamentEvents: { ...(defaults.tournamentEvents || {}), ...(current.tournamentEvents || {}) },
+    gameplayEvents: { ...(defaults.gameplayEvents || {}), ...(current.gameplayEvents || {}) },
+  };
+}
+
+function getNotificationStatus(profile = {}) {
+  const preferences = getNotificationPreferences(profile);
+  if (!preferences.master) return "Muted";
+  if (!preferences.fullWindow && !preferences.toast) return "Sound/Haptic";
+  if (!preferences.sound && !preferences.haptics) return "On";
+  return "Enhanced";
+}
+
+function getUnreadNotificationCount(profile = {}) {
+  const dismissed = new Set(profile.notifications?.dismissedIds || []);
+  return (profile.notifications?.items || []).filter((entry) => !entry.acknowledged && !dismissed.has(entry.id)).length;
+}
+
+function getAppVersion() {
+  return "1.14.0";
+}
+
 function renderGameOptions(profile, page = "life") {
   const settings = getSettings(profile);
   const panels = getPagePanels(profile);
@@ -6580,9 +7383,101 @@ function renderGameOptions(profile, page = "life") {
   `;
 }
 
+function renderTournamentInviteModal(profile, invite = {}) {
+  const tournament = profile.tournament || {};
+  const code = invite.joinCode || "";
+  const knownTournament =
+    String(tournament.joinCode || tournament.sync?.sessionId || "").toUpperCase() === String(code || "").toUpperCase()
+      ? tournament
+      : null;
+  return `
+    <section class="overlay-backdrop" data-no-swipe>
+      <div class="floating-overlay glass tournament-invite-modal">
+        <div class="overlay-header">
+          <div>
+            <p class="eyebrow">Tournament Invite</p>
+            <h2>Join Tournament</h2>
+            <p>${knownTournament?.name ? escapeHtml(knownTournament.name) : "Enter your player name to join this BoardState tournament."}</p>
+          </div>
+          <button data-close-tournament-invite>Cancel</button>
+        </div>
+        <form class="stacked-form" data-tournament-invite-form>
+          <label>Join code
+            <input name="joinCode" readonly value="${escapeAttribute(code)}" />
+          </label>
+          <label>Player name
+            <input name="playerName" required value="${escapeAttribute(profile.player?.name || "Player")}" />
+          </label>
+          <label>Sync mode
+            <select name="syncMode">
+              <option value="local">Local join</option>
+              <option value="wifi" ${profile.settings?.multiplayer?.mode === "wifi" ? "selected" : ""}>WiFi relay</option>
+            </select>
+          </label>
+          <label>WiFi Sync URL
+            <input name="wsUrl" value="${escapeAttribute(profile.settings?.multiplayer?.wsUrl || "ws://localhost:8787")}" />
+          </label>
+          <button class="wide">Join Tournament</button>
+          <small>Tournament sync uses the tournament namespace and stays separate from normal gameplay sync. If no live relay is reachable, BoardState keeps a local joined tournament state.</small>
+        </form>
+      </div>
+    </section>
+  `;
+}
+
+function getActiveFullWindowNotification(profile = {}) {
+  const preferences = getNotificationPreferences(profile);
+  const dismissed = new Set(profile.notifications?.dismissedIds || []);
+  if (!preferences.master && !(profile.notifications?.items || []).some((entry) => entry.critical)) {
+    return null;
+  }
+  if (!preferences.fullWindow && !(profile.notifications?.items || []).some((entry) => entry.critical)) {
+    return null;
+  }
+  return [...(profile.notifications?.items || [])]
+    .filter((entry) => !entry.acknowledged && !dismissed.has(entry.id))
+    .filter((entry) => entry.fullWindow !== false)
+    .filter((entry) => preferences.fullWindow || entry.critical)
+    .filter((entry) => preferences.master || entry.critical)
+    .sort((left, right) => Number(left.createdAt || 0) - Number(right.createdAt || 0))[0] || null;
+}
+
+function renderFullWindowNotification(notification) {
+  return `
+    <section class="overlay-backdrop" data-no-swipe>
+      <div class="floating-overlay glass notification-window ${escapeAttribute(notification.severity || "info")}">
+        <div class="notification-window__glyph">${escapeHtml(notification.severity === "warning" ? "!" : notification.severity === "success" ? "OK" : "INFO")}</div>
+        <div class="overlay-header">
+          <div>
+            <p class="eyebrow">${escapeHtml(notification.category || "BoardState")} Alert</p>
+            <h2>${escapeHtml(notification.title || "BoardState Notification")}</h2>
+          </div>
+        </div>
+        <p>${escapeHtml(notification.body || "A BoardState event needs attention.")}</p>
+        <div class="button-grid">
+          ${notification.actionPage ? `<button data-notification-open-page="${escapeAttribute(notification.actionPage)}" data-notification-id="${escapeAttribute(notification.id)}">${escapeHtml(notification.actionLabel || "Open")}</button>` : ""}
+          <button data-notification-ack="${escapeAttribute(notification.id)}">Dismiss / Acknowledge</button>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function getNotificationToastEntries(profile = {}) {
+  const preferences = getNotificationPreferences(profile);
+  if (!preferences.master || !preferences.toast) {
+    return [];
+  }
+  const dismissed = new Set(profile.notifications?.dismissedIds || []);
+  return (profile.notifications?.items || [])
+    .filter((entry) => entry.toast !== false && !entry.acknowledged && !dismissed.has(entry.id))
+    .slice(0, 2);
+}
+
 function renderRecoveryToasts(profile, notice = null) {
   const entries = (profile.activeSession?.recoveryLog || []).filter((entry) => !entry.dismissed).slice(0, 3);
-  if (!entries.length && !notice) {
+  const notificationToasts = getNotificationToastEntries(profile);
+  if (!entries.length && !notice && !notificationToasts.length) {
     return "";
   }
   return `
@@ -6593,6 +7488,16 @@ function renderRecoveryToasts(profile, notice = null) {
           <p>${escapeHtml(notice.message)}</p>
         </article>
       ` : ""}
+      ${notificationToasts.map((entry) => `
+        <article class="recovery-toast ${escapeAttribute(entry.severity || "info")} notification-toast">
+          <strong>${escapeHtml(entry.title || "BoardState Notification")}</strong>
+          <p>${escapeHtml(entry.body || "")}</p>
+          <div class="recovery-actions mini">
+            ${entry.actionPage ? `<button data-notification-open-page="${escapeAttribute(entry.actionPage)}" data-notification-id="${escapeAttribute(entry.id)}">${escapeHtml(entry.actionLabel || "Open")}</button>` : ""}
+            <button data-notification-ack="${escapeAttribute(entry.id)}">Dismiss</button>
+          </div>
+        </article>
+      `).join("")}
       ${entries.map((entry) => `
         <article class="recovery-toast ${escapeAttribute(entry.severity || "info")}">
           <strong>${escapeHtml(entry.source || "Recovery")}</strong>

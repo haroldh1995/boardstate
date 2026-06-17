@@ -366,7 +366,8 @@ test("tournament WiFi sync uses a separate relay room and tournament packet type
   globalThis.WebSocket = FakeWebSocket;
   try {
     let presencePeers = [];
-    const manager = createTournamentSyncManager();
+    const statusEvents = [];
+    const manager = createTournamentSyncManager({ onStatus: (event) => statusEvents.push(event) });
     const presenceManager = createTournamentSyncManager({ onPresence: (peers) => { presencePeers = peers; } });
     manager.configure({
       active: true,
@@ -383,6 +384,10 @@ test("tournament WiFi sync uses a separate relay room and tournament packet type
     assert.equal(sent[1].namespace, "tournament");
     assert.equal(sent[1].messageType, "tournament:join");
     assert.equal(sent[1].roomId, "tournament:MTG-WIFI");
+    assert.equal(statusEvents[0].status, "wifi-connected");
+    FakeWebSocket.instances[0].onclose?.();
+    assert.equal(statusEvents[1].status, "wifi-reconnecting");
+    assert.equal(statusEvents[1].eventKey, "syncReconnect");
     presenceManager.configure({
       active: true,
       localPlayerName: "Player",
