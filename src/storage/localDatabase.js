@@ -1,5 +1,7 @@
 import { MANA_COLORS, createDefaultProfile } from "../state/schema.js";
 import { normalizeFriendState } from "../social/friendSystem.js";
+import { createOnboardingState } from "../onboarding/tutorialSystem.js";
+import { createLocalSaveCollection } from "./saveState.js";
 
 const DB_NAME = "boardstate";
 const STORE_NAME = "profiles";
@@ -95,7 +97,7 @@ export async function loadGuestProfile() {
   } catch {
     // Guest/fresh mode should never depend on previous saved history.
   }
-  return normalizeProfile(createGuestProfile(await hasPasswordProfile()));
+  return normalizeProfile(createGuestProfile(await hasPasswordProfile(), { freshSession: true }));
 }
 
 export async function lockProtectedProfile() {
@@ -114,6 +116,7 @@ export async function saveProfile(profile) {
   } catch {
     // Guest mode is intentionally non-authoritative; gameplay continues in memory.
   }
+  saveFallbackProfile(sanitizeGuestProfile(normalized));
   return normalized;
 }
 
@@ -280,6 +283,15 @@ function loadAuthFallback() {
 
 function normalizeProfile(profile) {
   const defaults = createDefaultProfile();
+  const hasExplicitOnboarding = Boolean(profile && Object.prototype.hasOwnProperty.call(profile, "onboarding"));
+  const onboarding = hasExplicitOnboarding
+    ? createOnboardingState({ ...defaults.onboarding, ...(profile.onboarding || {}) })
+    : createOnboardingState({
+        ...defaults.onboarding,
+        firstLaunchComplete: true,
+        tutorialOffered: true,
+        tutorialSkipped: true,
+      });
   const manaPool = {
     ...defaults.activeSession.manaPool,
     ...(profile.activeSession?.manaPool || {}),
@@ -291,6 +303,7 @@ function normalizeProfile(profile) {
     ...defaults,
     ...profile,
     player: { ...defaults.player, ...(profile.player || {}) },
+    onboarding,
     settings: {
       ...defaults.settings,
       ...(profile.settings || {}),
@@ -386,6 +399,10 @@ function normalizeProfile(profile) {
       items: Array.isArray(profile.notifications?.items) ? profile.notifications.items : defaults.notifications.items,
       dismissedIds: Array.isArray(profile.notifications?.dismissedIds) ? profile.notifications.dismissedIds : defaults.notifications.dismissedIds,
     },
+    localSaves: createLocalSaveCollection({
+      ...defaults.localSaves,
+      ...(profile.localSaves || {}),
+    }),
     simulationMemory: { ...defaults.simulationMemory, ...(profile.simulationMemory || {}) },
     simulationStats: {
       ...defaults.simulationStats,
@@ -429,19 +446,23 @@ function normalizeProfile(profile) {
   };
 }
 
-function createGuestProfile(hasPassword) {
+function createGuestProfile(hasPassword, options = {}) {
   let sessionProfile = null;
   try {
     sessionProfile = JSON.parse(sessionStorage.getItem(GUEST_SESSION_KEY) || "null");
   } catch {
     sessionProfile = null;
   }
+  const fallbackProfile = loadLegacyFallbackProfile();
+  const baseProfile = options.freshSession ? createDefaultProfile() : sessionProfile || fallbackProfile || createDefaultProfile();
   return {
-    ...(sessionProfile || createDefaultProfile()),
+    ...baseProfile,
     archives: [],
     commanders: {},
     leaderboards: createDefaultProfile().leaderboards,
-    activeSession: sessionProfile?.activeSession || createDefaultProfile().activeSession,
+    localSaves: baseProfile.localSaves || fallbackProfile?.localSaves || createDefaultProfile().localSaves,
+    onboarding: baseProfile.onboarding || fallbackProfile?.onboarding || createDefaultProfile().onboarding,
+    activeSession: options.freshSession ? createDefaultProfile().activeSession : baseProfile.activeSession || createDefaultProfile().activeSession,
     localAuth: { mode: "guest", locked: false, hasPassword },
   };
 }

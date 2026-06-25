@@ -61,12 +61,34 @@ import {
   toOpponentPermanent,
 } from "../simulation/commanderSimulation.js";
 import { RULES_CONFIDENCE, createRecoveryEntry } from "../support/debugExport.js";
+import {
+  advanceFiveTurnTutorial,
+  completeTutorialToFreePlay,
+  markOnboardingExplored,
+  pauseTutorial,
+  resetOnboardingProgress,
+  resumeTutorial,
+  skipTutorial,
+  startFiveTurnTutorial,
+} from "../onboarding/tutorialSystem.js";
+import {
+  deleteLocalSave,
+  duplicateLocalSave,
+  importLocalSave,
+  loadLocalSave,
+  renameLocalSave,
+  saveCurrentGame,
+} from "../storage/saveState.js";
 
 export function reduceProfile(profile, event) {
   const actionType = event.actionType || event.type;
+  const actionKey = String(actionType || "");
   const undoable =
     !event?.internalOnly &&
-    !["IMPORT_PROFILE", "SAVE_TICK", "SIMULATION_TICK"].includes(actionType);
+    !["IMPORT_PROFILE", "SAVE_TICK", "SIMULATION_TICK"].includes(actionType) &&
+    !actionKey.startsWith("ONBOARDING_") &&
+    !actionKey.startsWith("TUTORIAL_") &&
+    !actionKey.startsWith("LOCAL_SAVE_");
   const baseProfile = undoable ? pushUndo(profile, event) : profile;
   let nextProfile = baseProfile;
 
@@ -90,7 +112,122 @@ export function reduceProfile(profile, event) {
       nextProfile = replayToAction(baseProfile, event.replayActionId || event.payload?.replayActionId || "");
       break;
     case "SET_PLAYER_NAME":
-      nextProfile = { ...baseProfile, player: { ...baseProfile.player, name: event.name || "Player" } };
+      nextProfile = {
+        ...baseProfile,
+        player: { ...baseProfile.player, name: event.name || "Player" },
+        friends: {
+          ...(baseProfile.friends || {}),
+          friendDisplayName: event.name || baseProfile.friends?.friendDisplayName || "Player",
+        },
+      };
+      break;
+    case "ONBOARDING_EXPLORE":
+      nextProfile = markOnboardingExplored(baseProfile, { doNotShowAgain: true });
+      break;
+    case "ONBOARDING_WATCH_LATER":
+      nextProfile = markOnboardingExplored(baseProfile, { doNotShowAgain: false });
+      break;
+    case "ONBOARDING_DO_NOT_SHOW":
+      nextProfile = markOnboardingExplored(baseProfile, { doNotShowAgain: true });
+      break;
+    case "ONBOARDING_RESET":
+      nextProfile = resetOnboardingProgress(baseProfile);
+      break;
+    case "ONBOARDING_SCREEN_READER":
+      nextProfile = {
+        ...baseProfile,
+        onboarding: {
+          ...(baseProfile.onboarding || {}),
+          screenReaderPromptsEnabled: Boolean(event.enabled),
+          tutorialLastUpdatedAt: Date.now(),
+        },
+        settings: {
+          ...(baseProfile.settings || {}),
+          helperSprite: {
+            ...(baseProfile.settings?.helperSprite || {}),
+            screenReaderPrompts: Boolean(event.enabled),
+          },
+        },
+      };
+      break;
+    case "TUTORIAL_START":
+      nextProfile = saveCurrentGame(startFiveTurnTutorial(baseProfile, event), {
+        saveId: baseProfile.onboarding?.tutorialSaveId || "",
+        saveName: "Guided Tutorial Autosave",
+      });
+      break;
+    case "TUTORIAL_ADVANCE":
+      nextProfile = saveCurrentGame(advanceFiveTurnTutorial(baseProfile, 1), {
+        saveId: baseProfile.activeSession?.tutorial?.autoSaveId || baseProfile.onboarding?.tutorialSaveId || "",
+        saveName: "Guided Tutorial Autosave",
+      });
+      break;
+    case "TUTORIAL_BACK":
+      nextProfile = advanceFiveTurnTutorial(baseProfile, -1);
+      break;
+    case "TUTORIAL_PAUSE":
+      nextProfile = saveCurrentGame(pauseTutorial(baseProfile), {
+        saveId: baseProfile.activeSession?.tutorial?.autoSaveId || baseProfile.onboarding?.tutorialSaveId || "",
+        saveName: "Guided Tutorial Autosave",
+      });
+      break;
+    case "TUTORIAL_RESUME":
+      nextProfile = resumeTutorial(baseProfile);
+      break;
+    case "TUTORIAL_SKIP":
+      nextProfile = skipTutorial(baseProfile);
+      break;
+    case "TUTORIAL_RESTART":
+      nextProfile = saveCurrentGame(startFiveTurnTutorial(resetOnboardingProgress(baseProfile), event), {
+        saveName: "Guided Tutorial Autosave",
+      });
+      break;
+    case "TUTORIAL_COMPLETE_FREE_PLAY":
+      nextProfile = saveCurrentGame(completeTutorialToFreePlay(baseProfile), {
+        saveId: baseProfile.activeSession?.tutorial?.autoSaveId || baseProfile.onboarding?.tutorialSaveId || "",
+        saveName: "Guided Tutorial Completed",
+      });
+      break;
+    case "TUTORIAL_FINISH_SIMULATED":
+      {
+        const freePlayProfile = completeTutorialToFreePlay(baseProfile);
+        nextProfile = {
+          ...freePlayProfile,
+          activeSession: {
+            ...freePlayProfile.activeSession,
+            simulation: {
+              ...(freePlayProfile.activeSession?.simulation || {}),
+              enabled: true,
+              status: "running",
+              speed: baseProfile.activeSession?.simulation?.speed || "normal",
+            },
+          },
+        };
+      }
+      break;
+    case "TUTORIAL_SAVE_EXIT":
+      nextProfile = saveCurrentGame(pauseTutorial(baseProfile), {
+        saveId: baseProfile.activeSession?.tutorial?.autoSaveId || baseProfile.onboarding?.tutorialSaveId || "",
+        saveName: event.saveName || "Guided Tutorial Autosave",
+      });
+      break;
+    case "LOCAL_SAVE_CURRENT":
+      nextProfile = saveCurrentGame(baseProfile, { saveName: event.saveName, saveId: event.saveId });
+      break;
+    case "LOCAL_SAVE_LOAD":
+      nextProfile = loadLocalSave(baseProfile, event.saveId);
+      break;
+    case "LOCAL_SAVE_RENAME":
+      nextProfile = renameLocalSave(baseProfile, event.saveId, event.saveName);
+      break;
+    case "LOCAL_SAVE_DUPLICATE":
+      nextProfile = duplicateLocalSave(baseProfile, event.saveId);
+      break;
+    case "LOCAL_SAVE_DELETE":
+      nextProfile = deleteLocalSave(baseProfile, event.saveId);
+      break;
+    case "LOCAL_SAVE_IMPORT":
+      nextProfile = importLocalSave(baseProfile, event.save || event.payload);
       break;
     case "SET_SETTING":
       nextProfile = updateSetting(baseProfile, event.path, event.value);

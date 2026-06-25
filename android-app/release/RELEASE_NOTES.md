@@ -2,9 +2,20 @@
 
 ## App
 - Name: BoardState
-- Version: 1.15.0
-- Version code: 30
+- Version: 1.16.0
+- Version code: 31
 - Package: `com.boardstate.app`
+
+## Version 1.16.0
+- Adds a first-time onboarding window with Start Guided Tutorial, Explore App Freely, Create Profile, Load Local Save, accessibility, watch-later, and do-not-show-again paths.
+- Adds a Helper Sprite guided tutorial that teaches BoardState controls and basic Magic turns through short contextual prompts, screen-reader announcements, pause/resume/repeat/remind controls, reduced-motion support, and skip/restart confirmation.
+- Adds a deterministic five-turn practice game covering life totals, phases, land play, mana, creature casting, full-card preview, stack/priority, non-creature permanents, counters, triggers, combat, blockers, landfall, tokens, stats overlays, and saving.
+- Adds tutorial completion choices to continue the practice game freely, finish the simulated game, start a new simulated game, create or complete a profile, save the current game, load another save, or return to the main app.
+- Adds profile-bound local save states with save/load/rename/duplicate/delete/import/export, malformed-save recovery, versioned serialization, and protection against storing plaintext profile passwords or private auth tokens.
+- Adds guest tutorial persistence and guest-to-profile continuity so tutorial progress, settings, and saves can be retained without forcing returning users through onboarding again.
+- Adds tutorial and save controls to Profile & Saves, Accessibility / ADHD Assist, Data Management, About / Help, the profile page, and active-game save surfaces.
+- Adds automated coverage for first-launch gating, tutorial progression, five-turn completion, pause/resume, autosave, free-play transition, profile-bound save serialization/restoration, export safety, and malformed-save handling.
+- Updates production web package metadata, Android wrapper metadata, local package artifacts, and release notes for version 1.16.0.
 
 ## Version 1.15.0
 - Adds a full Friends category in Game Options with a dedicated Friends subpage for friend codes, nearby players, pending requests, favorites, blocked users, profiles, and multiplayer shortcuts.

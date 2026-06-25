@@ -242,8 +242,8 @@ function redactSecrets(key, value) {
 function getAppVersion() {
   return {
     name: "BoardState",
-    version: "1.15.0",
-    build: "friends-sync-release",
+    version: "1.16.0",
+    build: "guided-tutorial-save-release",
   };
 }
 

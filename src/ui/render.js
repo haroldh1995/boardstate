@@ -2,6 +2,8 @@ import { buildStats } from "../analytics/statsService.js";
 import { exportProfile, parseImportedProfile } from "../storage/localDatabase.js";
 import { fetchScryfallCardDetails, searchScryfall } from "../services/scryfallService.js";
 import { buildFriendInviteLink } from "../social/friendSystem.js";
+import { buildTutorialHelperMessage, buildTutorialScreenReaderText, getTutorialProgress, shouldShowFirstLaunch } from "../onboarding/tutorialSystem.js";
+import { exportLocalSave } from "../storage/saveState.js";
 import { canBeCommander } from "../game/commanderSystem.js";
 import { getPermanentManaOptions } from "../game/manaSystem.js";
 import { createPermanent, PHASES } from "../state/schema.js";
@@ -56,6 +58,9 @@ const TEMPORARY_SCROLL_SELECTORS = [
   ".adhd-assist-panel",
   ".tournament-invite-modal",
   ".notification-window",
+  ".first-launch-onboarding",
+  ".guided-tutorial-panel",
+  ".local-saves-panel",
 ];
 const BACKGROUND_SCROLL_LOCK_SELECTORS = [
   ".floating-overlay",
@@ -79,6 +84,9 @@ const BACKGROUND_SCROLL_LOCK_SELECTORS = [
   ".tutorial-sample-panel",
   ".tournament-invite-modal",
   ".notification-window",
+  ".first-launch-onboarding",
+  ".guided-tutorial-panel",
+  ".local-saves-panel",
 ];
 const HUD_BADGE_DEFAULTS = {
   utility: { x: 98, y: 520 },
@@ -887,6 +895,169 @@ export function mountApp(root, store) {
       const name = new FormData(event.currentTarget).get("profileName");
       store.dispatch({ type: "SET_PLAYER_NAME", name });
     });
+    container.querySelectorAll("[data-start-guided-tutorial]").forEach((button) =>
+      button.addEventListener("click", () => {
+        optionsOpen = false;
+        activeOptionsCategory = "";
+        closeAllTemporaryUi({ renderAfter: false });
+        store.dispatch({
+          type: "TUTORIAL_START",
+          helperSpriteEnabled: true,
+          screenReaderPrompts: Boolean(store.getState().settings?.helperSprite?.screenReaderPrompts),
+        });
+        setActivePage("battlefield");
+        showNotice("Guided tutorial started.");
+      })
+    );
+    container.querySelectorAll("[data-onboarding-explore]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "ONBOARDING_EXPLORE" });
+        showNotice("First-time guide skipped. You can restart it from Game Options.");
+      })
+    );
+    container.querySelectorAll("[data-onboarding-watch-later]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "ONBOARDING_WATCH_LATER" });
+        showNotice("Tutorial saved for later.");
+      })
+    );
+    container.querySelectorAll("[data-onboarding-profile]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "ONBOARDING_EXPLORE" });
+        optionsOpen = true;
+        activeOptionsCategory = "profile";
+        render(store.getState());
+      })
+    );
+    container.querySelectorAll("[data-onboarding-load-save]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "ONBOARDING_EXPLORE" });
+        optionsOpen = true;
+        activeOptionsCategory = "profile";
+        render(store.getState());
+      })
+    );
+    container.querySelectorAll("[data-onboarding-accessibility]").forEach((button) =>
+      button.addEventListener("click", () => {
+        optionsOpen = true;
+        activeOptionsCategory = "accessibility";
+        render(store.getState());
+      })
+    );
+    container.querySelectorAll("[data-onboarding-screen-reader]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const enabled = !Boolean(store.getState().settings?.helperSprite?.screenReaderPrompts);
+        store.dispatch({ type: "ONBOARDING_SCREEN_READER", enabled });
+        showNotice(enabled ? "Screen-reader tutorial prompts enabled." : "Screen-reader tutorial prompts disabled.", "info");
+      })
+    );
+    container.querySelectorAll("[data-tutorial-advance]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "TUTORIAL_ADVANCE" });
+        showNotice("Tutorial step complete.", "success");
+      })
+    );
+    container.querySelectorAll("[data-tutorial-back]").forEach((button) =>
+      button.addEventListener("click", () => store.dispatch({ type: "TUTORIAL_BACK" }))
+    );
+    container.querySelectorAll("[data-tutorial-pause]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "TUTORIAL_PAUSE" });
+        showNotice("Tutorial paused and autosaved.");
+      })
+    );
+    container.querySelectorAll("[data-tutorial-resume]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "TUTORIAL_RESUME" });
+        setActivePage("battlefield");
+      })
+    );
+    container.querySelectorAll("[data-tutorial-save-exit]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "TUTORIAL_SAVE_EXIT", saveName: "Guided Tutorial Autosave" });
+        showNotice("Tutorial saved. Resume from Options when ready.");
+      })
+    );
+    container.querySelectorAll("[data-tutorial-repeat]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const message = store.getState().activeSession?.helper?.replayQueue?.[0]?.text || "Repeat the current tutorial prompt from the Helper Sprite.";
+        store.dispatch({
+          type: "HELPER_REMIND_ME",
+          messages: [{ key: `tutorial-repeat-${Date.now()}`, text: message, source: "guided-tutorial" }],
+        });
+      })
+    );
+    container.querySelectorAll("[data-tutorial-skip]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openConfirmation({
+          id: "tutorial-skip",
+          title: "Skip guided tutorial?",
+          message: "This stops forced tutorial guidance. You can restart it from Game Options.",
+          confirmLabel: "Skip Tutorial",
+          danger: true,
+        })
+      )
+    );
+    container.querySelectorAll("[data-tutorial-restart]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openConfirmation({
+          id: "tutorial-restart",
+          title: "Restart tutorial?",
+          message: "This replaces the current tutorial practice board with the deterministic first-turn setup.",
+          confirmLabel: "Restart Tutorial",
+          danger: true,
+        })
+      )
+    );
+    container.querySelectorAll("[data-reset-onboarding]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openConfirmation({
+          id: "onboarding-reset",
+          title: "Reset tutorial progress?",
+          message: "The first-time onboarding window and guided tutorial progress will reset locally.",
+          confirmLabel: "Reset Tutorial",
+          danger: true,
+        })
+      )
+    );
+    container.querySelectorAll("[data-tutorial-free-play]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "TUTORIAL_COMPLETE_FREE_PLAY" });
+        showNotice("Tutorial complete. Free play is unlocked.");
+      })
+    );
+    container.querySelectorAll("[data-tutorial-finish-sim]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "TUTORIAL_FINISH_SIMULATED" });
+        showNotice("Practice simulation resumed.");
+      })
+    );
+    container.querySelectorAll("[data-tutorial-new-sim]").forEach((button) =>
+      button.addEventListener("click", () => {
+        simulationSetupOpen = true;
+        render(store.getState());
+      })
+    );
+    container.querySelectorAll("[data-tutorial-profile]").forEach((button) =>
+      button.addEventListener("click", () => {
+        optionsOpen = true;
+        activeOptionsCategory = "profile";
+        render(store.getState());
+      })
+    );
+    container.querySelectorAll("[data-tutorial-save-current]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "LOCAL_SAVE_CURRENT", saveName: "Tutorial Checkpoint" });
+        showNotice("Current tutorial game saved.");
+      })
+    );
+    container.querySelectorAll("[data-tutorial-load-save]").forEach((button) =>
+      button.addEventListener("click", () => {
+        optionsOpen = true;
+        activeOptionsCategory = "profile";
+        render(store.getState());
+      })
+    );
     container.querySelector("[data-create-password-form]")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const password = String(new FormData(event.currentTarget).get("password") || "");
@@ -911,6 +1082,71 @@ export function mountApp(root, store) {
       optionsOpen = false;
       setActivePage("profile");
     });
+    container.querySelector("[data-local-save-form]")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const name = new FormData(event.currentTarget).get("saveName");
+      store.dispatch({ type: "LOCAL_SAVE_CURRENT", saveName: name || "" });
+      showNotice("Local game state saved.");
+    });
+    container.querySelectorAll("[data-local-save-load]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openConfirmation({
+          id: "local-save-load",
+          title: "Load local save?",
+          message: "This replaces the current active session. Save the current game first if needed.",
+          confirmLabel: "Load Save",
+          payload: { saveId: button.dataset.localSaveLoad },
+        })
+      )
+    );
+    container.querySelectorAll("[data-local-save-rename]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const currentName = button.dataset.localSaveName || "BoardState Save";
+        const nextName = prompt("Rename save", currentName);
+        if (nextName === null) return;
+        store.dispatch({ type: "LOCAL_SAVE_RENAME", saveId: button.dataset.localSaveRename, saveName: nextName });
+      })
+    );
+    container.querySelectorAll("[data-local-save-duplicate]").forEach((button) =>
+      button.addEventListener("click", () => store.dispatch({ type: "LOCAL_SAVE_DUPLICATE", saveId: button.dataset.localSaveDuplicate }))
+    );
+    container.querySelectorAll("[data-local-save-delete]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openConfirmation({
+          id: "local-save-delete",
+          title: "Delete local save?",
+          message: "This permanently removes the selected local save from this profile.",
+          confirmLabel: "Delete Save",
+          danger: true,
+          payload: { saveId: button.dataset.localSaveDelete },
+        })
+      )
+    );
+    container.querySelectorAll("[data-local-save-export]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const save = (store.getState().localSaves?.items || []).find((entry) => entry.saveId === button.dataset.localSaveExport);
+        if (!save) {
+          showNotice("Save not found.", "warning");
+          return;
+        }
+        downloadText(`${(save.saveName || "boardstate-save").replace(/[^a-z0-9_-]+/gi, "-")}.json`, exportLocalSave(save), "application/json");
+      })
+    );
+    container.querySelectorAll("[data-local-save-import]").forEach((input) =>
+      input.addEventListener("change", async (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        try {
+          const payload = JSON.parse(await file.text());
+          store.dispatch({ type: "LOCAL_SAVE_IMPORT", save: payload.save || payload });
+          showNotice("Local save imported.");
+        } catch {
+          showNotice("Import failed: malformed save data.", "warning");
+        } finally {
+          event.target.value = "";
+        }
+      })
+    );
     container.querySelectorAll("[data-setting-toggle]").forEach((input) => {
       input.addEventListener("change", () => store.dispatch({ type: "SET_SETTING", path: input.dataset.settingToggle, value: input.checked }));
     });
@@ -3403,6 +3639,11 @@ export function mountApp(root, store) {
     const selected = getSelectedPermanents(session);
     const stacked = selected.filter((permanent) => Number(permanent.quantity || 1) > 1);
     const manaFloating = Object.values(session.manaPool || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+    const tutorialMessage = buildTutorialHelperMessage(session);
+
+    if (tutorialMessage) {
+      messages.push(tutorialMessage);
+    }
 
     if (pendingQueue.length) {
       const top = pendingQueue[0];
@@ -3532,6 +3773,31 @@ export function mountApp(root, store) {
         if (payload) {
           store.dispatch({ type: "IMPORT_PROFILE", profile: payload });
           showNotice("Profile imported.");
+        }
+        break;
+      case "tutorial-skip":
+        store.dispatch({ type: "TUTORIAL_SKIP" });
+        showNotice("Guided tutorial skipped.");
+        break;
+      case "tutorial-restart":
+        store.dispatch({ type: "TUTORIAL_RESTART" });
+        setActivePage("battlefield");
+        showNotice("Guided tutorial restarted.");
+        break;
+      case "onboarding-reset":
+        store.dispatch({ type: "ONBOARDING_RESET" });
+        showNotice("Tutorial progress reset.");
+        break;
+      case "local-save-load":
+        if (payload?.saveId) {
+          store.dispatch({ type: "LOCAL_SAVE_LOAD", saveId: payload.saveId });
+          showNotice("Local save loaded.");
+        }
+        break;
+      case "local-save-delete":
+        if (payload?.saveId) {
+          store.dispatch({ type: "LOCAL_SAVE_DELETE", saveId: payload.saveId });
+          showNotice("Local save deleted.");
         }
         break;
       case "load-tutorial-sample":
@@ -4066,6 +4332,8 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       ${uiState.syncedTurnOrderSetupOpen ? renderSyncedTurnOrderModal(uiState.syncedTurnOrderPlayers || [], uiState.syncedTurnOrderRolls || {}, uiState.syncedTurnOrderOrder || [], uiState.syncedTurnOrderSuggested || [], uiState.syncedTurnOrderTiePlayerIds || [], uiState.syncedTurnOrderError || "") : ""}
       ${page !== "tournament" ? renderPinnedTournamentPanel(profile) : ""}
       ${uiState.tournamentInvite ? renderTournamentInviteModal(profile, uiState.tournamentInvite) : ""}
+      ${renderFirstLaunchOnboarding(profile)}
+      ${renderGuidedTutorialPanel(profile)}
       ${renderAdhdAssistPanel(profile, page, uiLayer.current)}
       ${renderHelperSprite(profile, uiState.helperMessage, uiState.hudBadgePositions || HUD_BADGE_DEFAULTS, Boolean(uiState.isMobilePortrait), Boolean(uiState.hudBadgesLocked))}
       ${renderCardPresentation(profile.activeSession?.presentation)}
@@ -6277,7 +6545,9 @@ function renderProfile(profile) {
       <div class="row">
         <button data-export>Export Profile</button>
         <label class="file-pill">Import Profile<input type="file" accept="application/json" data-import /></label>
+        <button data-start-guided-tutorial>Start Guided Tutorial</button>
       </div>
+      ${renderLocalSavesPanel(profile)}
     </section>
   `;
 }
@@ -6795,6 +7065,164 @@ function findPlayerCurrentTable(tournament = {}, playerId = "") {
   return [round?.podA, round?.podB, round?.oneVOne].find((table) => (table?.players || []).includes(playerId)) || null;
 }
 
+function renderFirstLaunchOnboarding(profile) {
+  if (!shouldShowFirstLaunch(profile.onboarding || {})) {
+    return "";
+  }
+  const hasSaves = Boolean((profile.localSaves?.items || []).length);
+  return `
+    <section class="overlay-backdrop onboarding-backdrop" data-no-swipe>
+      <div class="floating-overlay glass first-launch-onboarding" role="dialog" aria-modal="true" aria-labelledby="first-launch-title">
+        <div class="overlay-header">
+          <div>
+            <p class="eyebrow">First Launch</p>
+            <h2 id="first-launch-title">Welcome to BoardState</h2>
+            <p>BoardState can track your game, teach you how to use the app, and guide you through your first Magic: The Gathering turns.</p>
+          </div>
+        </div>
+        <div class="onboarding-action-grid">
+          <button class="primary-action" data-start-guided-tutorial>Start Guided Tutorial</button>
+          <button data-onboarding-explore>Explore App Freely</button>
+          <button data-onboarding-profile>Create Profile</button>
+          <button data-onboarding-load-save ${hasSaves ? "" : "disabled"}>Load Local Save</button>
+          <button data-onboarding-watch-later>Watch Tutorial Later</button>
+          <button data-onboarding-explore>Do Not Show Again</button>
+          <button data-onboarding-accessibility>Accessibility Options</button>
+          <button data-onboarding-screen-reader>${profile.settings?.helperSprite?.screenReaderPrompts ? "Disable" : "Enable"} Screen Reader Prompts</button>
+        </div>
+        <p class="options-version-note">Returning users can restart this from Game Options > Accessibility / ADHD Assist or About / Help.</p>
+      </div>
+    </section>
+  `;
+}
+
+function renderGuidedTutorialPanel(profile) {
+  const tutorial = profile.activeSession?.tutorial || {};
+  if (!tutorial.active && !tutorial.completionPending && tutorial.status !== "paused") {
+    return "";
+  }
+  const progress = getTutorialProgress(tutorial);
+  const step = progress.step;
+  const screenReaderText = buildTutorialScreenReaderText(profile.activeSession);
+  if (tutorial.completionPending || tutorial.status === "complete") {
+    return renderTutorialCompletionPanel(profile, progress);
+  }
+  return `
+    <section class="guided-tutorial-panel glass ${tutorial.paused ? "is-paused" : ""}" data-no-swipe aria-label="Guided tutorial">
+      <div class="tutorial-progress-ring" style="--tutorial-progress:${progress.percent}%">
+        <strong>${progress.index + 1}</strong>
+        <span>${progress.total}</span>
+      </div>
+      <div class="guided-tutorial-copy">
+        <p class="eyebrow">Turn ${escapeHtml(step.turn)} - ${escapeHtml(step.feature)}</p>
+        <h3>${escapeHtml(step.title)}</h3>
+        <p>${escapeHtml(step.prompt)}</p>
+        ${screenReaderText && profile.settings?.helperSprite?.screenReaderPrompts ? `<p class="sr-only" aria-live="polite">${escapeHtml(screenReaderText)}</p>` : ""}
+        <div class="tutorial-status-row">
+          <span>${tutorial.paused ? "Paused" : "Guided"}</span>
+          <span>${progress.percent}% complete</span>
+          <span>Autosave ${tutorial.autoSaveId ? "ready" : "pending"}</span>
+        </div>
+      </div>
+      <div class="guided-tutorial-actions">
+        ${tutorial.paused ? `<button data-tutorial-resume>Resume Tutorial</button>` : `<button class="primary-action" data-tutorial-advance>${escapeHtml(step.actionLabel || "Next")}</button>`}
+        <button data-tutorial-back ${progress.index <= 0 ? "disabled" : ""}>Back</button>
+        <button data-tutorial-repeat>Repeat</button>
+        <button data-helper-remind>Remind Me</button>
+        <button data-tutorial-pause>${tutorial.paused ? "Paused" : "Pause"}</button>
+        <button data-tutorial-save-exit>Save and Exit</button>
+        <button class="danger-soft" data-tutorial-skip>Skip Tutorial</button>
+      </div>
+    </section>
+  `;
+}
+
+function renderTutorialCompletionPanel(profile, progress) {
+  return `
+    <section class="overlay-backdrop" data-no-swipe>
+      <div class="floating-overlay glass guided-tutorial-complete" role="dialog" aria-modal="true">
+        <div class="overlay-header">
+          <div>
+            <p class="eyebrow">Tutorial Complete</p>
+            <h2>Tutorial Complete</h2>
+            <p>You’ve completed the first five guided turns. You can now continue playing freely, finish the practice game, begin a new simulation, or create your profile.</p>
+          </div>
+        </div>
+        <div class="tutorial-completion-grid">
+          <button class="primary-action" data-tutorial-free-play>Continue This Game Freely</button>
+          <button data-tutorial-finish-sim>Finish Simulated Game</button>
+          <button data-tutorial-new-sim>Start New Simulated Game</button>
+          <button data-tutorial-profile>Create / Complete Profile</button>
+          <button data-tutorial-save-current>Save Current Game</button>
+          <button data-tutorial-load-save>Load Another Save</button>
+          <button data-tutorial-free-play>Return to Main App</button>
+        </div>
+        <p class="options-version-note">Forced guidance stops after this point. Helper Sprite remains optional.</p>
+      </div>
+    </section>
+  `;
+}
+
+function renderLocalSavesPanel(profile) {
+  const collection = profile.localSaves || {};
+  const saves = [...(collection.items || [])].sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0));
+  return `
+    <article class="option-card local-saves-panel">
+      <div class="overlay-header compact">
+        <div>
+          <h3>Local Saves</h3>
+          <p>Profile-bound local snapshots for tutorial, active games, Dry Run, and training-ground boards.</p>
+        </div>
+        <span class="option-status-badge">${saves.length} saves</span>
+      </div>
+      ${collection.lastError ? `<p class="warning-text">${escapeHtml(collection.lastError)}</p>` : ""}
+      <form class="stacked-form" data-local-save-form>
+        <label>Save name</label>
+        <input name="saveName" placeholder="Current game checkpoint" value="${escapeAttribute(defaultLocalSaveName(profile))}" />
+        <button class="wide">Save Current Game</button>
+      </form>
+      <div class="button-grid">
+        <label class="file-pill">Import Save<input type="file" accept="application/json" data-local-save-import /></label>
+        <button data-tutorial-save-current>Quick Save Tutorial/Game</button>
+      </div>
+      <div class="local-save-list">
+        ${saves.map(renderLocalSaveCard).join("") || "<p>No local saves yet. Save the current game from here or after the tutorial.</p>"}
+      </div>
+    </article>
+  `;
+}
+
+function renderLocalSaveCard(save = {}) {
+  const updated = save.updatedAt ? new Date(save.updatedAt).toLocaleString() : "Unknown";
+  const created = save.createdAt ? new Date(save.createdAt).toLocaleString() : "Unknown";
+  const metadata = save.metadata || {};
+  const badge = metadata.mode === "tutorial" ? "Tutorial" : save.gameMode === "dry-run" ? "Dry Run" : "Game";
+  return `
+    <section class="local-save-card">
+      <div>
+        <strong>${escapeHtml(save.saveName || "BoardState Save")}</strong>
+        <small>${escapeHtml(save.profileName || "Player")} - ${escapeHtml(badge)} - Turn ${escapeHtml(metadata.currentTurn || save.gameState?.turn || 1)}</small>
+        <small>Created ${escapeHtml(created)} - Updated ${escapeHtml(updated)}</small>
+        <small>Checksum ${escapeHtml(metadata.checksum || "n/a")}</small>
+      </div>
+      <div class="button-grid mini">
+        <button data-local-save-load="${escapeAttribute(save.saveId)}">Load</button>
+        <button data-local-save-rename="${escapeAttribute(save.saveId)}" data-local-save-name="${escapeAttribute(save.saveName || "")}">Rename</button>
+        <button data-local-save-duplicate="${escapeAttribute(save.saveId)}">Duplicate</button>
+        <button data-local-save-export="${escapeAttribute(save.saveId)}">Export</button>
+        <button class="danger-soft" data-local-save-delete="${escapeAttribute(save.saveId)}">Delete</button>
+      </div>
+    </section>
+  `;
+}
+
+function defaultLocalSaveName(profile = {}) {
+  const session = profile.activeSession || {};
+  if (session.tutorial?.active || session.tutorial?.completionPending) return `Tutorial Turn ${session.tutorial?.currentTurn || session.turn || 1}`;
+  if (session.simulation?.enabled) return `Dry Run Turn ${session.turn || 1}`;
+  return `Game Turn ${session.turn || 1}`;
+}
+
 function renderGameOptionsCommandCenter(profile, page = "life", activeCategory = "") {
   const category = getOptionsCategories(profile, page).find((entry) => entry.id === activeCategory);
   return `
@@ -6978,6 +7406,8 @@ function renderProfileOptionsSubpage(profile) {
         <div class="button-grid">
           <button data-open-profile-page>Open Profile Page</button>
           <button data-guest-mode>Continue as Guest/Fresh</button>
+          <button data-start-guided-tutorial>Start Guided Tutorial</button>
+          ${profile.activeSession?.tutorial?.paused || profile.onboarding?.tutorialPaused ? `<button data-tutorial-resume>Resume Tutorial</button>` : ""}
           ${localAuth.mode === "protected" ? `<button data-lock-profile>Logout / Lock Profile</button>` : ""}
         </div>
         <form data-profile-form class="stacked-form">
@@ -7001,6 +7431,7 @@ function renderProfileOptionsSubpage(profile) {
         </div>
         <p>Local device protection only. No cloud authentication, and plaintext passwords are never stored.</p>
       </article>
+      ${renderLocalSavesPanel(profile)}
     </div>
   `;
 }
@@ -7385,7 +7816,15 @@ function renderAccessibilityOptionsSubpage(profile) {
         <h3>Accessibility / ADHD Assist</h3>
         <p>ADHD Mode is a companion assistance layer for reminders and clarity, not official judging or full rules enforcement.</p>
         ${renderToggle("Helper Sprite", "helperSprite.enabled", Boolean(profile.settings?.helperSprite?.enabled))}
+        ${renderToggle("Screen-reader prompts", "helperSprite.screenReaderPrompts", Boolean(profile.settings?.helperSprite?.screenReaderPrompts))}
+        ${renderToggle("Tutorial narration sound", "helperSprite.tutorialNarration", Boolean(profile.settings?.helperSprite?.tutorialNarration))}
         <button class="wide" data-helper-remind>Remind me</button>
+        <div class="button-grid">
+          <button data-start-guided-tutorial>Start Guided Tutorial</button>
+          ${profile.activeSession?.tutorial?.active || profile.activeSession?.tutorial?.paused ? `<button data-tutorial-resume>Resume Tutorial</button>` : ""}
+          <button data-tutorial-restart>Restart Tutorial</button>
+          <button data-reset-onboarding>Reset Tutorial Progress</button>
+        </div>
         ${renderToggle("ADHD Mode", "adhdMode.enabled", Boolean(settings.adhdMode?.enabled))}
         ${renderToggle("ADHD trigger reminders", "adhdMode.triggerReminders", Boolean(settings.adhdMode?.triggerReminders))}
         ${renderToggle("ADHD missed trigger reminders", "adhdMode.missedTriggerReminders", Boolean(settings.adhdMode?.missedTriggerReminders))}
@@ -7439,6 +7878,8 @@ function renderDataManagementOptionsSubpage() {
         <div class="button-grid">
           <button data-export>Export Profile</button>
           <label class="file-pill">Import Profile<input type="file" accept="application/json" data-import /></label>
+          <button data-tutorial-save-current>Save Current Game</button>
+          <label class="file-pill">Import Save<input type="file" accept="application/json" data-local-save-import /></label>
           <button data-clear-game-history>Clear Game History</button>
           <button data-clear-simulation-learning>Clear Simulation Learning</button>
           <button data-reset-settings>Reset Settings</button>
@@ -7457,6 +7898,11 @@ function renderAboutOptionsSubpage() {
         <p>BoardState is a local-first MTG companion for life tracking, battlefield testing, Dry Run simulation, tournament tracking, manual-choice reminders, and debug-friendly game history.</p>
         <p>Version: ${escapeHtml(getAppVersion())}</p>
         <p>Zones are tracked invisibly where possible. Logs and bug reports are designed for troubleshooting and should not include local passwords or private tokens.</p>
+        <div class="button-grid">
+          <button data-start-guided-tutorial>MTG Beginner Tutorial</button>
+          <button data-reset-onboarding>Restart First-Time Experience</button>
+        </div>
+        <p>Tutorial progress: ${profile.onboarding?.tutorialCompleted ? "completed" : profile.onboarding?.tutorialStarted ? `turn ${escapeHtml(profile.onboarding?.tutorialCurrentTurn || 1)}, step ${escapeHtml((profile.onboarding?.tutorialCurrentStep || 0) + 1)}` : "not started"}.</p>
         ${renderImportantNotes()}
       </article>
     </div>
@@ -7524,7 +7970,7 @@ function getUnreadNotificationCount(profile = {}) {
 }
 
 function getAppVersion() {
-  return "1.15.0";
+  return "1.16.0";
 }
 
 function renderGameOptions(profile, page = "life") {
@@ -8323,12 +8769,13 @@ function renderHelperSprite(profile, helperMessage, positions = HUD_BADGE_DEFAUL
     ? `data-draggable-hud="helper" data-hud-lock-state="${hudBadgesLocked ? "locked" : "unlocked"}"`
     : "";
   return `
-    <section class="helper-sprite-widget ${helperMessage.fading ? "is-fading" : ""} glass" data-no-swipe ${inlineStyle} ${draggableAttrs}>
-      <button class="helper-sprite-avatar" data-helper-dismiss title="Dismiss helper sprite">✨</button>
-      <button class="helper-sprite-bubble" data-helper-open>
+    <section class="helper-sprite-widget ${helperMessage.fading ? "is-fading" : ""} glass" data-no-swipe ${inlineStyle} ${draggableAttrs} role="status" aria-live="polite">
+      <button class="helper-sprite-avatar" data-helper-dismiss title="Dismiss helper sprite">*</button>
+      <button class="helper-sprite-bubble" data-helper-open aria-label="Open Helper Sprite prompt">
         <strong>Helper Sprite</strong>
         <span>${escapeHtml(helperMessage.text)}</span>
       </button>
+      ${helperMessage.source === "guided-tutorial" ? `<div class="helper-sprite-actions"><button data-tutorial-repeat>Repeat</button><button data-tutorial-pause>Pause</button></div>` : ""}
     </section>
   `;
 }
