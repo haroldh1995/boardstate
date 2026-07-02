@@ -2,9 +2,18 @@
 
 ## App
 - Name: BoardState
-- Version: 1.17.0
-- Version code: 32
+- Version: 1.18.0
+- Version code: 33
 - Package: `com.boardstate.app`
+
+## Version 1.18.0
+- Adds canonical shared contracts for BoardState ecosystem IDs, profile references, linked apps, players, cards, deck snapshots, shared game sessions, turn/priority state, battlefield/zones, stack objects, triggers, choices, combat, mana payments, rules violations, warnings, waivers, actions, events, sync messages, tournament references, notifications, save envelopes, and ecosystem bundles.
+- Adds independent shared schema, rules-engine, save-format, and sync-protocol version metadata with validation and compatibility results for unsupported versions, malformed data, recoverable data, and corrupted payloads.
+- Adds non-destructive adapters for current BoardState runtime state to canonical shared sessions, canonical sessions back to runtime state, legacy local saves to canonical save envelopes, canonical envelopes back to legacy saves, and legacy sync payloads to canonical sync messages.
+- Adds canonical action/event conversion to the BoardState rules-engine adapter while preserving current reducer, save, sync, and gameplay behavior.
+- Adds version metadata to local saves and exports canonical save envelopes alongside legacy save payloads while keeping legacy saves loadable.
+- Adds focused regression coverage for shared contracts, hidden/public information boundaries, namespace separation, malformed save rejection, canonical save round trips, and no UI dependency in shared contracts.
+- Updates production web package metadata, Android wrapper metadata, Flutter wrapper metadata, local package artifacts, and release notes for version 1.18.0.
 
 ## Version 1.17.0
 - Adds the first reusable BoardState rules-engine boundary with explicit validation, resolution, event, trigger, stack, priority, combat, mana, targeting, state-based-action, serialization, and explanation APIs.

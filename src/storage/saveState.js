@@ -1,4 +1,12 @@
 import { createId, clone } from "../state/ids.js";
+import {
+  DEFAULT_RULES_ENGINE_VERSION,
+  SHARED_CONTRACT_SCHEMA_VERSION,
+  SHARED_SAVE_FORMAT_VERSION,
+  canonicalSaveEnvelopeToLegacySave,
+  legacySaveToCanonicalSaveEnvelope,
+  validateSaveEnvelope,
+} from "../shared-contracts/index.js";
 
 export const SAVE_STATE_VERSION = 1;
 
@@ -145,7 +153,10 @@ export function deleteLocalSave(profile, saveId = "") {
 }
 
 export function importLocalSave(profile, payload = {}) {
-  const save = normalizeLocalSave(payload.profile ? payload.profile : payload.save || payload);
+  const source = payload.saveEnvelope || payload.canonicalEnvelope
+    ? canonicalSaveEnvelopeToLegacySave(payload.saveEnvelope || payload.canonicalEnvelope)
+    : payload.profile ? payload.profile : payload.save || payload;
+  const save = normalizeLocalSave(source);
   const validation = validateLocalSave(save);
   if (!validation.valid) {
     return withSaveError(profile, validation.reason || "Imported save is invalid.");
@@ -175,11 +186,16 @@ export function importLocalSave(profile, payload = {}) {
 }
 
 export function exportLocalSave(save = {}) {
+  const normalized = normalizeLocalSave(save);
+  const canonicalEnvelope = legacySaveToCanonicalSaveEnvelope(normalized);
   return JSON.stringify(
     {
       app: "BoardState",
       exportedAt: new Date().toISOString(),
-      save: normalizeLocalSave(save),
+      schemaVersion: SHARED_CONTRACT_SCHEMA_VERSION,
+      saveFormatVersion: SHARED_SAVE_FORMAT_VERSION,
+      save: normalized,
+      canonicalEnvelope,
     },
     null,
     2
@@ -193,8 +209,17 @@ export function validateLocalSave(save = null) {
   if (Number(save.saveVersion || 0) > SAVE_STATE_VERSION) {
     return { valid: false, reason: "Save was created by a newer BoardState version." };
   }
+  if (save.saveFormatVersion && save.saveFormatVersion !== SHARED_SAVE_FORMAT_VERSION) {
+    return { valid: false, reason: "Save uses an unsupported BoardState shared save format." };
+  }
   if (!save.saveId || !save.gameState?.activeSession) {
     return { valid: false, reason: "Save is missing required game state." };
+  }
+  if (save.canonicalEnvelope) {
+    const envelopeValidation = validateSaveEnvelope(save.canonicalEnvelope);
+    if (!envelopeValidation.valid) {
+      return { valid: false, reason: envelopeValidation.errors[0] || "Canonical save envelope is invalid." };
+    }
   }
   return { valid: true, reason: "" };
 }
@@ -203,10 +228,16 @@ export function buildLocalSave(profile, options = {}) {
   const now = Date.now();
   const profileId = profile.player?.id || profile.id || "local-player";
   const activeSession = clone(profile.activeSession || {});
+  const sharedVersions = {
+    schemaVersion: SHARED_CONTRACT_SCHEMA_VERSION,
+    rulesEngineVersion: DEFAULT_RULES_ENGINE_VERSION,
+    saveFormatVersion: SHARED_SAVE_FORMAT_VERSION,
+  };
   return {
     saveId: options.saveId || createId("save"),
     saveName: String(options.saveName || defaultSaveName(profile)).trim() || defaultSaveName(profile),
     saveVersion: SAVE_STATE_VERSION,
+    ...sharedVersions,
     profileId,
     profileName: profile.player?.name || "Player",
     createdAt: Number(options.createdAt || now),
@@ -242,6 +273,7 @@ export function buildLocalSave(profile, options = {}) {
     },
     settingsSnapshot: sanitizeSettingsSnapshot(profile.settings || {}),
     metadata: {
+      ...sharedVersions,
       mode: activeSession.tutorial?.active || activeSession.tutorial?.completionPending ? "tutorial" : activeSession.simulation?.enabled ? "dry-run" : "normal",
       currentTurn: activeSession.turn || 1,
       phaseIndex: activeSession.phaseIndex || 0,
@@ -258,6 +290,9 @@ function normalizeLocalSave(save = {}) {
     saveId: save.saveId || "",
     saveName: save.saveName || "BoardState Save",
     saveVersion: Number(save.saveVersion || SAVE_STATE_VERSION),
+    schemaVersion: save.schemaVersion || save.metadata?.schemaVersion || SHARED_CONTRACT_SCHEMA_VERSION,
+    rulesEngineVersion: save.rulesEngineVersion || save.metadata?.rulesEngineVersion || DEFAULT_RULES_ENGINE_VERSION,
+    saveFormatVersion: save.saveFormatVersion || save.metadata?.saveFormatVersion || SHARED_SAVE_FORMAT_VERSION,
     profileId: save.profileId || "",
     profileName: save.profileName || "Player",
     createdAt: Number(save.createdAt || Date.now()),
@@ -267,6 +302,7 @@ function normalizeLocalSave(save = {}) {
     tutorialState: clone(save.tutorialState || {}),
     settingsSnapshot: sanitizeSettingsSnapshot(save.settingsSnapshot || {}),
     metadata: clone(save.metadata || {}),
+    canonicalEnvelope: save.canonicalEnvelope ? clone(save.canonicalEnvelope) : null,
   };
 }
 
