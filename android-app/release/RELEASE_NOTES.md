@@ -2,9 +2,17 @@
 
 ## App
 - Name: BoardState
-- Version: 1.16.0
-- Version code: 31
+- Version: 1.17.0
+- Version code: 32
 - Package: `com.boardstate.app`
+
+## Version 1.17.0
+- Adds the first reusable BoardState rules-engine boundary with explicit validation, resolution, event, trigger, stack, priority, combat, mana, targeting, state-based-action, serialization, and explanation APIs.
+- Routes the current BoardState reducer, Battlefield mana helpers, and Dry Run simulation hydration through the extracted rules-engine boundary while preserving current gameplay behavior and save/sync compatibility.
+- Adds a BoardState adapter that converts existing profile/session actions into explicit engine requests and applies engine results without moving UI presentation, storage, network, focus, animation, or notification work into the engine.
+- Adds rules-engine versioning for future shared-session compatibility checks and ecosystem contract work.
+- Adds focused rules-engine regression coverage for UI dependency isolation, active-game mana validation/payment, free casting outside active games, targeting, combat, state-based actions, adapter requests, serialization, and reducer/Dry Run routing.
+- Updates production web package metadata, Android wrapper metadata, Flutter wrapper metadata, local package artifacts, and release notes for version 1.17.0.
 
 ## Version 1.16.0
 - Adds a first-time onboarding window with Start Guided Tutorial, Explore App Freely, Create Profile, Load Local Save, accessibility, watch-later, and do-not-show-again paths.
