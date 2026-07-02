@@ -1,6 +1,6 @@
 import { createId } from "../state/ids.js";
 import { createGameSession, createPermanent, PHASES } from "../state/schema.js";
-import { hydratePermanentEffects } from "../effects/effectEngine.js";
+import { hydratePermanentEffects } from "../rules-engine/index.js";
 import { getDeckMainboardCount, getSimulationDeckById, SIM_OPPONENT_IDS, summarizeDeckIntegrity } from "./decks/index.js";
 import { getSimulationSpellDefinition } from "./spellCatalog.js";
 

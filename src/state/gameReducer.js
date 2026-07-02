@@ -1,18 +1,25 @@
 import { archiveCurrentGame } from "../archive/archiveService.js";
+import { addCardToCommanderDeck, assignCommander, castCommander, createDeckWithCard, recordCommanderCardUsage } from "../game/commanderSystem.js";
 import {
+  assignBlocker,
+  autoAssignBlockers,
   castSpellToStack,
+  chooseEntryResult,
+  confirmBlockers,
+  declareAttackers,
+  declareNoBlockers,
+  getPermanentManaOptions,
   hydratePermanentEffects,
   passStackPriority,
+  planManaPayment,
+  preparePermanentEntry,
   processEventTriggers,
   recalculateContinuousEffects,
+  resolveCombat,
   resolveQueuedTrigger,
   resolveSpell,
   resolveTopOfStack,
-} from "../effects/effectEngine.js";
-import { addCardToCommanderDeck, assignCommander, castCommander, createDeckWithCard, recordCommanderCardUsage } from "../game/commanderSystem.js";
-import { assignBlocker, autoAssignBlockers, confirmBlockers, declareAttackers, declareNoBlockers, resolveCombat } from "../game/combatSystem.js";
-import { chooseEntryResult, preparePermanentEntry } from "../game/entrySystem.js";
-import { getPermanentManaOptions, planManaPayment } from "../game/manaSystem.js";
+} from "../rules-engine/index.js";
 import {
   addSampleTournamentPlayers,
   addTournamentPlayer,

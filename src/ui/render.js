@@ -5,7 +5,7 @@ import { buildFriendInviteLink } from "../social/friendSystem.js";
 import { buildTutorialHelperMessage, buildTutorialScreenReaderText, getTutorialProgress, shouldShowFirstLaunch } from "../onboarding/tutorialSystem.js";
 import { exportLocalSave } from "../storage/saveState.js";
 import { canBeCommander } from "../game/commanderSystem.js";
-import { getPermanentManaOptions } from "../game/manaSystem.js";
+import { getPermanentManaOptions } from "../rules-engine/index.js";
 import { createPermanent, PHASES } from "../state/schema.js";
 import { buildPredictiveActions } from "../game/predictiveActions.js";
 import { getSimulationDeckById } from "../simulation/decks/index.js";
