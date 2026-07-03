@@ -86,6 +86,11 @@ import {
   renameLocalSave,
   saveCurrentGame,
 } from "../storage/saveState.js";
+import {
+  DEFAULT_RULES_ENGINE_VERSION,
+  SHARED_CONTRACT_SCHEMA_VERSION,
+  SHARED_SYNC_PROTOCOL_VERSION,
+} from "../shared-contracts/version.js";
 
 export function reduceProfile(profile, event) {
   const actionType = event.actionType || event.type;
@@ -239,6 +244,12 @@ export function reduceProfile(profile, event) {
     case "SET_SETTING":
       nextProfile = updateSetting(baseProfile, event.path, event.value);
       break;
+    case "SET_ENFORCEMENT_MODE":
+      nextProfile = setRulesEnforcementMode(baseProfile, event.mode || event.enforcementMode);
+      break;
+    case "REVOKE_RULE_WAIVERS":
+      nextProfile = revokeRuleWaivers(baseProfile);
+      break;
     case "NOTIFICATION_ADD":
       nextProfile = addNotification(baseProfile, event.notification || event);
       break;
@@ -325,6 +336,9 @@ export function reduceProfile(profile, event) {
       break;
     case "START_GAME_TRACKING":
       nextProfile = withSession(baseProfile, startGameTracking(baseProfile.activeSession, baseProfile.settings || {}));
+      break;
+    case "START_ADVANCED_GAMEPLAY":
+      nextProfile = startAdvancedGameplay(baseProfile, event);
       break;
     case "STOP_GAME_TRACKING":
       nextProfile = withSession(baseProfile, stopGameTracking(baseProfile.activeSession));
@@ -1415,6 +1429,74 @@ function formatTurnOrderNames(players = [], turnOrder = []) {
   return turnOrder.map((id) => (id === "local-player" ? `${byId[id] || "Player"} (You)` : byId[id] || id)).join(" -> ");
 }
 
+function getProfileEnforcementMode(profile = {}) {
+  const mode =
+    profile.activeSession?.enforcementMode ||
+    profile.settings?.rules?.enforcementMode ||
+    profile.settings?.enforcementMode ||
+    "enforced";
+  return mode === "waived" ? "waived" : "enforced";
+}
+
+function startAdvancedGameplay(profile, event = {}) {
+  const now = Date.now();
+  const mode = event.enforcementMode === "waived" ? "waived" : getProfileEnforcementMode(profile);
+  const session = startGameTracking(createGameSession(), {
+    ...(profile.settings || {}),
+    rules: {
+      ...(profile.settings?.rules || {}),
+      enforcementMode: mode,
+    },
+  });
+  return withSession(
+    {
+      ...profile,
+      settings: {
+        ...(profile.settings || {}),
+        rules: {
+          ...(profile.settings?.rules || {}),
+          enforcementMode: mode,
+        },
+      },
+    },
+    normalizeSessionMetadata(
+      {
+        ...session,
+        enforcementMode: mode,
+        gameTracking: {
+          ...(session.gameTracking || {}),
+          mode: "advanced-gameplay",
+        },
+        saveMetadata: {
+          ...(session.saveMetadata || {}),
+          ownerApp: "boardstate",
+          sourceApp: "boardstate",
+          mode: "advanced-gameplay",
+          migrationStatus: "current",
+          createdFrom: "advanced-gameplay-home",
+        },
+        linkedSession: {
+          ...(session.linkedSession || {}),
+          sourceApp: "boardstate",
+          status: "local",
+          imported: false,
+          activeSync: false,
+        },
+        effectLog: [
+          {
+            id: createId("advanced-game"),
+            at: now,
+            sourceName: "Advanced Gameplay",
+            summary: `Advanced gameplay session started with Rules ${mode === "waived" ? "Waived" : "Enforced"}.`,
+          },
+          ...(session.effectLog || []),
+        ].slice(0, 120),
+      },
+      { mode: "advanced-gameplay", enforcementMode: mode }
+    )
+  );
+}
+
 function startSimulation(profile, event = {}) {
   const revengeEnabled = event.revengeEnabled !== false;
   const setup = createSimulationSession(profile, {
@@ -1425,7 +1507,16 @@ function startSimulation(profile, event = {}) {
   const connectedPlayers = setup.connectedPlayers || buildSimulationConnectedPlayers(profile, setup.session.simulation.opponents || {});
   return {
     ...profile,
-    activeSession: setup.session,
+    activeSession: normalizeSessionMetadata(setup.session, {
+      mode: "dry-run",
+      enforcementMode: getProfileEnforcementMode(profile),
+      linkedSession: {
+        sourceApp: "boardstate",
+        status: "local",
+        imported: false,
+        activeSync: false,
+      },
+    }),
     settings: {
       ...(profile.settings || {}),
       multiplayer: {
@@ -4450,11 +4541,157 @@ function eventTypeToLegacy(eventType) {
 
 function withSession(profile, session) {
   const { runtime, ...cleanSession } = session || {};
+  const normalizedSession = normalizeSessionMetadata(cleanSession, {
+    enforcementMode: getProfileEnforcementMode({ ...profile, activeSession: cleanSession }),
+    mode: cleanSession?.saveMetadata?.mode || cleanSession?.gameTracking?.mode || (cleanSession?.simulation?.enabled ? "dry-run" : "training-ground"),
+  });
   return {
     ...profile,
-    activeSession: {
-      ...cleanSession,
-      updatedAt: Date.now(),
+    activeSession: normalizedSession,
+  };
+}
+
+function normalizeSessionMetadata(session = {}, options = {}) {
+  const now = Date.now();
+  const gameId = session.gameId || session.id || createId("game");
+  const sessionId = session.sessionId || session.id || createId("session");
+  const enforcementMode = options.enforcementMode === "waived" || session.enforcementMode === "waived" ? "waived" : "enforced";
+  const mode = options.mode || session.saveMetadata?.mode || session.gameTracking?.mode || (session.simulation?.enabled ? "dry-run" : "training-ground");
+  return {
+    ...session,
+    id: session.id || gameId,
+    gameId,
+    sessionId,
+    schemaVersion: session.schemaVersion || SHARED_CONTRACT_SCHEMA_VERSION,
+    rulesEngineVersion: session.rulesEngineVersion || DEFAULT_RULES_ENGINE_VERSION,
+    syncProtocolVersion: session.syncProtocolVersion || SHARED_SYNC_PROTOCOL_VERSION,
+    sourceApp: session.sourceApp || "boardstate",
+    interfaceMode: session.interfaceMode || "boardstate-advanced",
+    enforcementMode,
+    activeRuleWaivers: Array.isArray(session.activeRuleWaivers) ? session.activeRuleWaivers : [],
+    waiverHistory: Array.isArray(session.waiverHistory) ? session.waiverHistory : [],
+    revision: Number(session.revision || session.actionHistory?.length || session.eventHistory?.length || 0),
+    saveMetadata: {
+      ownerApp: "boardstate",
+      sourceApp: session.sourceApp || "boardstate",
+      sourceSession: sessionId,
+      mode,
+      linkedAppReferences: [],
+      migrationStatus: "current",
+      ...(session.saveMetadata || {}),
+      schemaVersion: session.schemaVersion || SHARED_CONTRACT_SCHEMA_VERSION,
+      rulesEngineVersion: session.rulesEngineVersion || DEFAULT_RULES_ENGINE_VERSION,
+    },
+    linkedSession: {
+      sourceApp: session.sourceApp || "boardstate",
+      status: "local",
+      imported: false,
+      activeSync: false,
+      ...(session.linkedSession || {}),
+      ...(options.linkedSession || {}),
+    },
+    updatedAt: now,
+  };
+}
+
+function setRulesEnforcementMode(profile, mode = "enforced") {
+  const enforcementMode = mode === "waived" ? "waived" : "enforced";
+  const now = Date.now();
+  const previous = getProfileEnforcementMode(profile);
+  const waiverEntry =
+    enforcementMode === "waived" && previous !== "waived"
+      ? {
+          waiverId: createId("waiver"),
+          ruleCode: "SESSION_RULES_ENFORCEMENT",
+          scope: "game",
+          approvedByPlayerId: profile.player?.id || "local-player",
+          createdAt: now,
+          reason: "User enabled Waive Rules mode from BoardState rules controls.",
+          relatedActionId: createId("action"),
+          status: "active",
+        }
+      : null;
+  const session = normalizeSessionMetadata(
+    {
+      ...(profile.activeSession || createGameSession()),
+      enforcementMode,
+      activeRuleWaivers: waiverEntry
+        ? [waiverEntry, ...((profile.activeSession?.activeRuleWaivers || []).filter((entry) => entry.ruleCode !== waiverEntry.ruleCode))]
+        : enforcementMode === "enforced"
+          ? []
+          : profile.activeSession?.activeRuleWaivers || [],
+      waiverHistory: [
+        ...(waiverEntry ? [waiverEntry] : []),
+        {
+          waiverId: createId("waiver-history"),
+          ruleCode: "SESSION_RULES_ENFORCEMENT",
+          scope: "game",
+          approvedByPlayerId: profile.player?.id || "local-player",
+          createdAt: now,
+          reason: `Rules mode set to ${enforcementMode}.`,
+          relatedActionId: createId("action"),
+          status: enforcementMode,
+        },
+        ...(profile.activeSession?.waiverHistory || []),
+      ].slice(0, 80),
+      recoveryLog: [
+        createRecoveryEntry({
+          source: "Rules Control",
+          message: enforcementMode === "waived"
+            ? "Rules Waived mode enabled. Illegal actions should use explicit warning-and-confirmation flows when supported."
+            : "Rules Enforced mode enabled. Illegal actions remain blocked by default.",
+          severity: enforcementMode === "waived" ? "warning" : "info",
+          suggestedAction: enforcementMode === "waived" ? "Use Rules Settings to revoke waivers before competitive play." : "Continue gameplay normally.",
+        }),
+        ...(profile.activeSession?.recoveryLog || []),
+      ].slice(0, 80),
+    },
+    { enforcementMode }
+  );
+  return {
+    ...profile,
+    settings: {
+      ...(profile.settings || {}),
+      rules: {
+        ...(profile.settings?.rules || {}),
+        enforcementMode,
+      },
+    },
+    activeSession: session,
+  };
+}
+
+function revokeRuleWaivers(profile) {
+  const now = Date.now();
+  return {
+    ...profile,
+    activeSession: normalizeSessionMetadata(
+      {
+        ...(profile.activeSession || createGameSession()),
+        enforcementMode: "enforced",
+        activeRuleWaivers: [],
+        waiverHistory: [
+          {
+            waiverId: createId("waiver-revoked"),
+            ruleCode: "SESSION_RULES_ENFORCEMENT",
+            scope: "game",
+            approvedByPlayerId: profile.player?.id || "local-player",
+            createdAt: now,
+            reason: "All session waivers revoked from Rules Settings.",
+            relatedActionId: createId("action"),
+            status: "revoked",
+          },
+          ...(profile.activeSession?.waiverHistory || []),
+        ].slice(0, 80),
+      },
+      { enforcementMode: "enforced" }
+    ),
+    settings: {
+      ...(profile.settings || {}),
+      rules: {
+        ...(profile.settings?.rules || {}),
+        enforcementMode: "enforced",
+      },
     },
   };
 }
@@ -4470,6 +4707,7 @@ function withRuntimeSettings(session, settings = {}) {
       multiplayerMode: settings.multiplayer?.mode || "offline",
       strictPhaseEnforcement: Boolean(settings.strictPhaseEnforcement),
       manualStackConfirmation: Boolean(settings.manualStackConfirmation),
+      enforcementMode: settings.rules?.enforcementMode === "waived" || session.enforcementMode === "waived" ? "waived" : "enforced",
     },
   };
 }

@@ -1,6 +1,11 @@
 import { createId, normalizeCount, normalizeName, normalizeSigned } from "./ids.js";
 import { createFsmState } from "../game/fsm.js";
 import { createFriendState } from "../social/friendSystem.js";
+import {
+  DEFAULT_RULES_ENGINE_VERSION,
+  SHARED_CONTRACT_SCHEMA_VERSION,
+  SHARED_SYNC_PROTOCOL_VERSION,
+} from "../shared-contracts/version.js";
 
 export const PHASES = ["Beginning", "Main 1", "Combat", "Main 2", "Ending"];
 export const MANA_COLORS = ["W", "U", "B", "R", "G", "C", "Generic"];
@@ -43,6 +48,11 @@ export function createDefaultProfile() {
       confirmAmbiguousEffects: true,
       strictPhaseEnforcement: false,
       manualStackConfirmation: false,
+      rules: {
+        enforcementMode: "enforced",
+        explanationLevel: "standard",
+        unsupportedBehavior: "manual-choice",
+      },
       haptics: false,
       compactTiles: true,
       pagePanels: {
@@ -243,6 +253,29 @@ export function createGameSession() {
   const now = Date.now();
   return {
     id: createId("game"),
+    gameId: createId("game"),
+    sessionId: createId("session"),
+    schemaVersion: SHARED_CONTRACT_SCHEMA_VERSION,
+    rulesEngineVersion: DEFAULT_RULES_ENGINE_VERSION,
+    syncProtocolVersion: SHARED_SYNC_PROTOCOL_VERSION,
+    sourceApp: "boardstate",
+    interfaceMode: "boardstate-advanced",
+    enforcementMode: "enforced",
+    activeRuleWaivers: [],
+    waiverHistory: [],
+    revision: 0,
+    saveMetadata: {
+      ownerApp: "boardstate",
+      sourceApp: "boardstate",
+      mode: "training-ground",
+      migrationStatus: "current",
+    },
+    linkedSession: {
+      sourceApp: "boardstate",
+      status: "local",
+      imported: false,
+      activeSync: false,
+    },
     createdAt: now,
     updatedAt: now,
     turn: 1,

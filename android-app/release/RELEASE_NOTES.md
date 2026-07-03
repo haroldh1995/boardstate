@@ -2,9 +2,21 @@
 
 ## App
 - Name: BoardState
-- Version: 1.18.0
-- Version code: 33
+- Version: 1.19.0
+- Version code: 34
 - Package: `com.boardstate.app`
+
+## Version 1.19.0
+- Streamlines BoardState around the focused Advanced Gameplay, Dry Run, Tutorial, Saves, Linked Sessions, Rules, Accessibility, and Legacy & Migration experience.
+- Adds a new primary BoardState home screen with large action cards for Start Dry Run, Continue Dry Run, Start Advanced Gameplay, Continue Linked Game, Load Game State, Tutorial, and Recent Simulations.
+- Keeps Rules Enforced / Rules Waived visible on the home screen, Game Options, session metadata, and save metadata, with active waiver and waiver-history controls.
+- Adds honest linked-app status cards for BoardState Lite, Deck Nexus, and the future Hub without claiming unavailable integrations.
+- Reorganizes Game Options into focused Rules, Gameplay, Dry Run, Tutorial, Saves, Linked Apps, Accessibility, Display & Performance, Legacy & Migration, and Diagnostics categories.
+- Adds grouped save views for Advanced Games, Dry Runs, Tutorial Saves, Imported Sessions, Legacy Saves, and Recovery Saves with rules-engine/schema compatibility metadata.
+- Preserves legacy decks, collection/archive, profiles, friends, tournaments, notifications, multiplayer data, and saves behind Legacy & Migration access instead of deleting data.
+- Adds canonical session metadata to new sessions and advanced gameplay starts while preserving existing save, sync, tutorial, Dry Run, battlefield, and rules-engine behavior.
+- Adds regression coverage for the streamlined home model, rules controls, advanced session startup, save grouping, linked-app status, and legacy migration inventory.
+- Updates production web package metadata, Android wrapper metadata, Flutter wrapper metadata, local package artifacts, and release notes for version 1.19.0.
 
 ## Version 1.18.0
 - Adds canonical shared contracts for BoardState ecosystem IDs, profile references, linked apps, players, cards, deck snapshots, shared game sessions, turn/priority state, battlefield/zones, stack objects, triggers, choices, combat, mana payments, rules violations, warnings, waivers, actions, events, sync messages, tournament references, notifications, save envelopes, and ecosystem bundles.

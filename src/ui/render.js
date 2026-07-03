@@ -10,6 +10,13 @@ import { createPermanent, PHASES } from "../state/schema.js";
 import { buildPredictiveActions } from "../game/predictiveActions.js";
 import { getSimulationDeckById } from "../simulation/decks/index.js";
 import {
+  DEFAULT_RULES_ENGINE_VERSION,
+  SHARED_CONTRACT_SCHEMA_VERSION,
+  SHARED_SAVE_FORMAT_VERSION,
+  SHARED_SYNC_PROTOCOL_VERSION,
+  boardStateProfileToSharedSession,
+} from "../shared-contracts/index.js";
+import {
   buildBugReport,
   buildDebugState,
   buildGameLog,
@@ -179,7 +186,7 @@ export function parseTournamentInviteFromLocation(locationLike = globalThis.loca
 }
 
 export function mountApp(root, store) {
-  const allPages = ["life", "battlefield", "tournament", "profile", "archive", "decks", "leaderboards"];
+  const allPages = ["home", "life", "battlefield", "tournament", "profile", "archive", "decks", "leaderboards"];
   const initialTournamentInvite = parseTournamentInviteFromLocation(location);
   let activePage = initialTournamentInvite ? "tournament" : normalizePageFromHash(location.hash);
   let searchResults = [];
@@ -297,8 +304,8 @@ export function mountApp(root, store) {
       simulationStatsOpen,
       syncedTurnOrderSetupOpen,
     });
-    if (!visiblePages.includes(activePage)) {
-      activePage = activePage === "profile" ? "profile" : visiblePages[0] || "life";
+    if (!allPages.includes(activePage)) {
+      activePage = visiblePages[0] || "home";
     }
     const opponentBoards = getOpponentBoards(profile);
     if (!opponentBoards.length) {
@@ -521,6 +528,37 @@ export function mountApp(root, store) {
         movePage(button.dataset.mobileNav === "next" ? 1 : -1);
       });
     });
+    container.querySelectorAll("[data-home-action]").forEach((button) => {
+      button.addEventListener("click", () => handleHomeAction(button.dataset.homeAction || ""));
+    });
+    container.querySelectorAll("[data-rules-mode]").forEach((button) => {
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "SET_ENFORCEMENT_MODE", mode: button.dataset.rulesMode || "enforced" });
+        showNotice(button.dataset.rulesMode === "waived" ? "Rules Waived mode enabled." : "Rules Enforced mode enabled.");
+      });
+    });
+    container.querySelector("[data-revoke-waivers]")?.addEventListener("click", () => {
+      store.dispatch({ type: "REVOKE_RULE_WAIVERS" });
+      showNotice("Active rule waivers revoked.");
+    });
+    container.querySelectorAll("[data-home-load-save]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openConfirmation({
+          id: "local-save-load",
+          title: "Load game state?",
+          message: "This replaces the current active session. Save the current game first if needed.",
+          confirmLabel: "Load Save",
+          payload: { saveId: button.dataset.homeLoadSave },
+        })
+      )
+    );
+    container.querySelectorAll("[data-home-legacy-page]").forEach((button) =>
+      button.addEventListener("click", () => {
+        optionsOpen = false;
+        activeOptionsCategory = "";
+        setActivePage(button.dataset.homeLegacyPage || "home");
+      })
+    );
     container.querySelectorAll("[data-player-counter]").forEach((button) => {
       const action = () => ({
         type: "PLAYER_COUNTER_DELTA",
@@ -3071,10 +3109,6 @@ export function mountApp(root, store) {
     if (!allPages.includes(page)) {
       return;
     }
-    const visiblePages = getVisiblePages(store.getState());
-    if (page !== "profile" && !visiblePages.includes(page)) {
-      return;
-    }
     switchSearchContext(page);
     activePage = page;
     normalizeCurrentHash();
@@ -3083,13 +3117,127 @@ export function mountApp(root, store) {
     render(store.getState());
   }
 
+  function handleHomeAction(action = "") {
+    switch (action) {
+      case "start-dry-run":
+        closeAllTemporaryUi({ renderAfter: false });
+        simulationSetupError = "";
+        simulationSetupOpen = true;
+        render(store.getState());
+        break;
+      case "continue-dry-run":
+        continueMostRecentDryRun();
+        break;
+      case "start-advanced":
+        store.dispatch({ type: "START_ADVANCED_GAMEPLAY" });
+        setActivePage("battlefield");
+        showNotice("Advanced gameplay started.");
+        break;
+      case "continue-linked":
+        openLinkedGameEntry();
+        break;
+      case "load-state":
+      case "saves":
+        optionsOpen = true;
+        activeOptionsCategory = "saves";
+        render(store.getState());
+        break;
+      case "tutorial":
+        startOrResumeTutorialFromHome();
+        break;
+      case "recent-simulations":
+        optionsOpen = true;
+        activeOptionsCategory = "dry-run";
+        render(store.getState());
+        break;
+      case "rules":
+        optionsOpen = true;
+        activeOptionsCategory = "rules";
+        render(store.getState());
+        break;
+      case "linked-apps":
+        optionsOpen = true;
+        activeOptionsCategory = "linked-apps";
+        render(store.getState());
+        break;
+      case "accessibility":
+        optionsOpen = true;
+        activeOptionsCategory = "accessibility";
+        render(store.getState());
+        break;
+      case "help":
+        optionsOpen = true;
+        activeOptionsCategory = "diagnostics";
+        render(store.getState());
+        break;
+      case "legacy":
+        optionsOpen = true;
+        activeOptionsCategory = "legacy";
+        render(store.getState());
+        break;
+      default:
+        setActivePage("home");
+        break;
+    }
+  }
+
+  function continueMostRecentDryRun() {
+    const state = store.getState();
+    if (state.activeSession?.simulation?.enabled) {
+      setActivePage("battlefield");
+      return;
+    }
+    const save = getMostRecentDryRunSave(state);
+    if (!save) {
+      simulationSetupError = "";
+      simulationSetupOpen = true;
+      render(state);
+      return;
+    }
+    openConfirmation({
+      id: "local-save-load",
+      title: "Continue Dry Run?",
+      message: `Load ${save.saveName || "the latest Dry Run"} from turn ${save.metadata?.currentTurn || save.gameState?.turn || 1}?`,
+      confirmLabel: "Continue Dry Run",
+      payload: { saveId: save.saveId },
+    });
+  }
+
+  function openLinkedGameEntry() {
+    const state = store.getState();
+    const linked = getLinkedSessionCandidate(state);
+    if (linked?.saveId) {
+      openConfirmation({
+        id: "local-save-load",
+        title: "Load linked session?",
+        message: `Load ${linked.saveName || "the linked session snapshot"} from ${linked.sourceApp || "external source"}?`,
+        confirmLabel: "Load Linked Game",
+        payload: { saveId: linked.saveId },
+      });
+      return;
+    }
+    optionsOpen = true;
+    activeOptionsCategory = "linked-apps";
+    showNotice("No linked game is available yet. BoardState Lite linking is prepared for a later integration.", "info");
+  }
+
+  function startOrResumeTutorialFromHome() {
+    const state = store.getState();
+    if (state.activeSession?.tutorial?.active || state.activeSession?.tutorial?.paused || state.onboarding?.tutorialPaused) {
+      store.dispatch({ type: "TUTORIAL_RESUME" });
+    } else {
+      store.dispatch({ type: "TUTORIAL_START" });
+    }
+    setActivePage("battlefield");
+  }
+
   function normalizePageFromHash(hashValue = "") {
     const rawPage = String(hashValue || "")
       .replace(/^#/, "")
       .split(/[?&/]/)[0]
       .trim()
       .toLowerCase();
-    return allPages.includes(rawPage) ? rawPage : "life";
+    return allPages.includes(rawPage) ? rawPage : "home";
   }
 
   function normalizeCurrentHash() {
@@ -3112,11 +3260,6 @@ export function mountApp(root, store) {
     }
     const nextPage = normalizePageFromHash(location.hash);
     if (nextPage === activePage) {
-      normalizeCurrentHash();
-      return;
-    }
-    const visiblePages = getVisiblePages(store.getState());
-    if (nextPage !== "profile" && !visiblePages.includes(nextPage)) {
       normalizeCurrentHash();
       return;
     }
@@ -4302,8 +4445,10 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
         <div class="app-header-top">
           <div>
             <h1>BoardState</h1>
+            <small class="app-header-role">Advanced gameplay engine</small>
           </div>
           <div class="header-actions">
+            ${renderRulesStatusPill(profile)}
             <button class="pill" data-game-options>Game Options</button>
             <button class="pill" data-undo>Undo</button>
           </div>
@@ -4314,6 +4459,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
         ${page === "battlefield" ? renderBattlefieldHeaderTurnStatus(profile) : ""}
         ${renderMobileSwipeControls(tabs, page)}
       </header>
+      ${page === "home" ? renderBoardStateHome(profile) : ""}
       ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier, uiState) : ""}
       ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", isMobilePortrait: Boolean(uiState.isMobilePortrait), manualChoicePanelCollapsed: Boolean(uiState.manualChoicePanelCollapsed), utilityDockOpen: Boolean(uiState.utilityDockOpen), castActionPopup: uiState.castActionPopup }) : ""}
       ${page === "tournament" ? renderTournamentPage(profile) : ""}
@@ -4356,6 +4502,127 @@ function resolveCompositionMode(profile = {}) {
 function isAutoMobileDeviceView() {
   const isPortrait = window.matchMedia?.("(orientation: portrait)")?.matches ?? (window.innerHeight || 0) >= (window.innerWidth || 0);
   return isPortrait && (window.matchMedia?.(MOBILE_LAYOUT_QUERY)?.matches ?? (window.innerWidth || 0) < 1280);
+}
+
+function renderRulesStatusPill(profile = {}) {
+  const rules = getRulesControlSummary(profile);
+  return `<button class="pill rules-status-pill ${rules.mode === "waived" ? "is-waived" : "is-enforced"}" data-home-action="rules">${escapeHtml(rules.label)}</button>`;
+}
+
+function renderBoardStateHome(profile = {}) {
+  const model = getBoardStateHomeModel(profile);
+  return `
+    <section class="boardstate-home-page">
+      <div class="home-hero glass">
+        <div>
+          <p class="eyebrow">Authoritative rules control</p>
+          <h2>Advanced BoardState</h2>
+          <p>Focused on Dry Run simulation, full advanced gameplay, tutorial practice, canonical saves, linked-session preparation, and rules-engine authority.</p>
+        </div>
+        <div class="home-hero-status">
+          <span class="status-chip ${model.rules.mode === "waived" ? "warning" : "success"}">${escapeHtml(model.rules.label)}</span>
+          <span class="status-chip">${escapeHtml(model.currentSession.modeLabel)}</span>
+          <span class="status-chip">Schema ${escapeHtml(model.versions.schemaVersion)}</span>
+        </div>
+      </div>
+      <div class="home-primary-grid">
+        ${renderHomeActionCard("start-dry-run", "Start Dry Run", "Test a linked or imported deck against simulated opponents.", "DRY", "primary")}
+        ${renderHomeActionCard("continue-dry-run", "Continue Dry Run", model.continueDryRun ? `Resume ${model.continueDryRun.saveName} from turn ${model.continueDryRun.turn}.` : "No incomplete Dry Run save yet. Start a new simulation.", "RUN", "", !model.continueDryRun && !profile.activeSession?.simulation?.enabled)}
+        ${renderHomeActionCard("start-advanced", "Start Advanced Gameplay", "Start a fully enforced Arena-style game.", "ADV", "primary")}
+        ${renderHomeActionCard("continue-linked", "Continue Linked Game", model.linkedGame ? `Open ${model.linkedGame.sourceApp} session ${model.linkedGame.sessionId}.` : "No linked BoardState Lite session yet. Import shared sessions when available.", "LINK", "", !model.linkedGame)}
+        ${renderHomeActionCard("load-state", "Load Game State", `${model.saveCount} saved advanced games, simulations, tutorial checkpoints, and recovery saves.`, "SAVE")}
+        ${renderHomeActionCard("tutorial", "Tutorial", model.tutorial.resume ? "Resume the five-turn Helper Sprite practice game." : "Learn BoardState and play five guided turns.", "HELP")}
+        ${renderHomeActionCard("recent-simulations", "Recent Simulations", `${model.recentSimulations.length} saved or completed simulation record(s).`, "SIM")}
+      </div>
+      <div class="home-secondary-grid">
+        ${renderHomeRulesControl(model.rules)}
+        ${renderHomeLinkedStatus(model.linkedApps)}
+        ${renderHomeSaveSummary(model)}
+        ${renderHomeLegacySummary(model.legacy)}
+      </div>
+    </section>
+  `;
+}
+
+function renderHomeActionCard(action, title, description, glyph, variant = "", disabled = false) {
+  return `
+    <button class="home-action-card ${variant} ${disabled ? "is-disabled" : ""}" data-home-action="${escapeAttribute(action)}" ${disabled && action !== "continue-linked" ? "disabled" : ""}>
+      <span class="home-action-glyph">${escapeHtml(glyph)}</span>
+      <strong>${escapeHtml(title)}</strong>
+      <small>${escapeHtml(description)}</small>
+    </button>
+  `;
+}
+
+function renderHomeRulesControl(rules = {}) {
+  return `
+    <article class="home-status-card glass">
+      <div class="overlay-header compact">
+        <div>
+          <p class="eyebrow">Rules Control</p>
+          <h3>${escapeHtml(rules.label)}</h3>
+          <small>Engine ${escapeHtml(rules.rulesEngineVersion)}</small>
+        </div>
+        <span class="option-status-badge">${escapeHtml(rules.activeWaiverCount)} waiver(s)</span>
+      </div>
+      <div class="button-grid mini">
+        <button data-rules-mode="enforced" class="${rules.mode === "enforced" ? "active" : ""}">Rules Enforced</button>
+        <button data-rules-mode="waived" class="${rules.mode === "waived" ? "active" : ""}">Waive Rules</button>
+        <button data-home-action="rules">Rules Settings</button>
+      </div>
+      <p>${escapeHtml(rules.mode === "waived" ? "Waived actions remain logged and reviewable. AI players cannot waive rules." : "Illegal actions are blocked by default during active games and Dry Run.")}</p>
+    </article>
+  `;
+}
+
+function renderHomeLinkedStatus(linkedApps = []) {
+  return `
+    <article class="home-status-card glass">
+      <p class="eyebrow">Linked App Status</p>
+      <h3>BoardState Ecosystem</h3>
+      <div class="linked-app-mini-grid">
+        ${linkedApps.map((app) => `
+          <section>
+            <strong>${escapeHtml(app.title)}</strong>
+            <span>${escapeHtml(app.status)}</span>
+            <small>${escapeHtml(app.detail)}</small>
+          </section>
+        `).join("")}
+      </div>
+      <div class="button-grid mini">
+        <button data-home-action="linked-apps">Linked Apps</button>
+        <button data-home-action="continue-linked">Continue Linked Game</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderHomeSaveSummary(model = {}) {
+  return `
+    <article class="home-status-card glass">
+      <p class="eyebrow">Saves</p>
+      <h3>${escapeHtml(model.saveCount)} Local Save(s)</h3>
+      <p>Advanced games: ${model.saveGroups.advanced.length} - Dry Runs: ${model.saveGroups.dryRun.length} - Tutorials: ${model.saveGroups.tutorial.length}</p>
+      <div class="button-grid mini">
+        <button data-home-action="saves">Open Saves</button>
+        <button data-home-action="load-state">Load Game State</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderHomeLegacySummary(legacy = []) {
+  const total = legacy.reduce((sum, entry) => sum + Number(entry.count || 0), 0);
+  return `
+    <article class="home-status-card glass">
+      <p class="eyebrow">Legacy / Migration</p>
+      <h3>${escapeHtml(total)} Legacy Item(s)</h3>
+      <p>Decks, collections, friends, tournaments, profiles, notifications, and old saves remain accessible until migration paths exist.</p>
+      <div class="button-grid mini">
+        <button data-home-action="legacy">Open Legacy & Migration</button>
+      </div>
+    </article>
+  `;
 }
 
 function renderLifeTracker(profile, trackerModifier, uiState = {}) {
@@ -4435,6 +4702,21 @@ function renderSimulationSetupModal(selectedOpponents = [], selectedSpeed = "nor
           </div>
           <button type="button" data-close-simulation-setup>Cancel</button>
         </div>
+        <article class="option-card dry-run-setup-summary">
+          <h3>Dry Run Session Defaults</h3>
+          <div class="setup-field-grid">
+            <span><b>Player deck source</b><small>Existing BoardState deck / imported snapshot / temporary test deck</small></span>
+            <span><b>Opponent count</b><small>${escapeHtml(String(selected.size || 1))} selected</small></span>
+            <span><b>Opponent deck source</b><small>Alpha, Beta, and Omega saved simulation decks</small></span>
+            <span><b>AI difficulty</b><small>Rules-legal commander simulation</small></span>
+            <span><b>Starting player</b><small>You, then randomized NPC order</small></span>
+            <span><b>Starting life</b><small>40 Commander</small></span>
+            <span><b>Game format</b><small>1v1, 3-way, or 4-way Commander</small></span>
+            <span><b>Rules enforcement</b><small>Rules Enforced by default; AI cannot waive rules</small></span>
+            <span><b>Deterministic seed</b><small>Prepared for future shared-session replay</small></span>
+            <span><b>Deck Nexus</b><small>Link Deck Nexus after app preparation</small></span>
+          </div>
+        </article>
         <article class="option-card">
           <h3>Choose Opponents</h3>
           <label class="toggle-row npc-identity-card npc-identity-card--alpha">
@@ -7197,13 +7479,17 @@ function renderLocalSaveCard(save = {}) {
   const created = save.createdAt ? new Date(save.createdAt).toLocaleString() : "Unknown";
   const metadata = save.metadata || {};
   const badge = metadata.mode === "tutorial" ? "Tutorial" : save.gameMode === "dry-run" ? "Dry Run" : "Game";
+  const compatibility = save.saveFormatVersion && save.saveFormatVersion !== SHARED_SAVE_FORMAT_VERSION ? "Incompatible save format" : "Compatible";
+  const schema = save.schemaVersion || metadata.schemaVersion || SHARED_CONTRACT_SCHEMA_VERSION;
+  const rulesVersion = save.rulesEngineVersion || metadata.rulesEngineVersion || DEFAULT_RULES_ENGINE_VERSION;
   return `
     <section class="local-save-card">
       <div>
         <strong>${escapeHtml(save.saveName || "BoardState Save")}</strong>
         <small>${escapeHtml(save.profileName || "Player")} - ${escapeHtml(badge)} - Turn ${escapeHtml(metadata.currentTurn || save.gameState?.turn || 1)}</small>
         <small>Created ${escapeHtml(created)} - Updated ${escapeHtml(updated)}</small>
-        <small>Checksum ${escapeHtml(metadata.checksum || "n/a")}</small>
+        <small>Rules ${escapeHtml(rulesVersion)} - Schema ${escapeHtml(schema)} - ${escapeHtml(compatibility)}</small>
+        <small>Source ${escapeHtml(save.sourceApp || metadata.sourceApp || "boardstate")} - Checksum ${escapeHtml(metadata.checksum || "n/a")}</small>
       </div>
       <div class="button-grid mini">
         <button data-local-save-load="${escapeAttribute(save.saveId)}">Load</button>
@@ -7246,83 +7532,82 @@ function renderGameOptionsCommandCenter(profile, page = "life", activeCategory =
 }
 
 function getOptionsCategories(profile, page = "life") {
-  const tournament = profile.tournament || {};
   const multiplayer = getMultiplayerSettings(profile);
-  const notificationStatus = getNotificationStatus(profile);
-  const unread = getUnreadNotificationCount(profile);
-  const localAuth = profile.localAuth || {};
-  const friendStatus = getFriendStatusLabel(profile);
+  const rules = getRulesControlSummary(profile);
+  const saveCount = (profile.localSaves?.items || []).length;
+  const linkedApps = getLinkedAppStatusCards(profile);
+  const linkedCount = linkedApps.filter((entry) => entry.status !== "Not Linked").length;
+  const legacyTotal = getLegacyInventory(profile).reduce((sum, entry) => sum + Number(entry.count || 0), 0);
   return [
     {
-      id: "profile",
-      glyph: "ID",
-      title: "Profile & Saves",
-      description: "Local profile, password protection, import/export.",
-      status: localAuth.mode === "protected" ? "Protected" : localAuth.hasPassword ? "Saved" : "Guest",
+      id: "rules",
+      glyph: "RULE",
+      title: "Rules",
+      description: "Rules Enforced / Waive Rules, active waivers, engine version, and unsupported behavior.",
+      status: rules.label,
     },
     {
       id: "gameplay",
-      glyph: "MP",
-      title: "Gameplay & Multiplayer",
-      description: "Local play, WiFi sync, Dry Run, room settings.",
+      glyph: "PLAY",
+      title: "Gameplay",
+      description: "Advanced gameplay defaults, stack confirmation, combat visualization, and multiplayer room basics.",
       status: multiplayer.mode === "wifi" ? "WiFi" : multiplayer.mode === "simulated" ? "Dry Run" : multiplayer.mode || "Offline",
     },
     {
-      id: "friends",
-      glyph: "FRND",
-      title: "Friends",
-      description: "Friend codes, nearby players, and multiplayer shortcuts.",
-      status: friendStatus,
+      id: "dry-run",
+      glyph: "DRY",
+      title: "Dry Run",
+      description: "Simulation setup, AI speed, difficulty defaults, deterministic mode, and recent simulations.",
+      status: profile.activeSession?.simulation?.enabled ? "Active" : `${getRecentSimulationEntries(profile).length} recent`,
     },
     {
-      id: "tournament",
-      glyph: "TRN",
-      title: "Tournament",
-      description: "Create, join, pin, and manage tournaments.",
-      status: getTournamentStatusLabel(tournament),
+      id: "tutorial",
+      glyph: "HELP",
+      title: "Tutorial",
+      description: "Helper Sprite, tutorial progress, restart, screen-reader prompts, and reduced motion.",
+      status: profile.onboarding?.tutorialCompleted ? "Complete" : profile.onboarding?.tutorialStarted ? "In Progress" : "Ready",
     },
     {
-      id: "notifications",
-      glyph: "ALRT",
-      title: "Notifications",
-      description: "Tournament alerts, sound, haptics, and popup preferences.",
-      status: notificationStatus,
-      badge: unread,
+      id: "saves",
+      glyph: "SAVE",
+      title: "Saves",
+      description: "Profile-bound advanced game, Dry Run, tutorial, imported, legacy, and recovery saves.",
+      status: `${saveCount} saves`,
     },
     {
-      id: "hud",
-      glyph: "HUD",
-      title: "HUD & Layout",
-      description: "Mobile/widescreen layout, pinned widgets, badges.",
-      status: (profile.settings?.appearance?.compositionMode || "auto").toUpperCase(),
+      id: "linked-apps",
+      glyph: "LINK",
+      title: "Linked Apps",
+      description: "BoardState Lite, Deck Nexus, future Hub, shared-session capability, and honest link status.",
+      status: linkedCount ? `${linkedCount} linked` : "Not linked",
     },
     {
       id: "accessibility",
-      glyph: "ADHD",
-      title: "Accessibility / ADHD Assist",
-      description: "Reminders, reduced noise, guidance, assistive prompts.",
+      glyph: "A11Y",
+      title: "Accessibility",
+      description: "ADHD assistance, screen-reader prompts, reduced motion, text, haptics, and sound.",
       status: profile.settings?.adhdMode?.enabled ? "On" : "Standard",
+    },
+    {
+      id: "display",
+      glyph: "HUD",
+      title: "Display & Performance",
+      description: "Portrait/widescreen layout, stats overlay, card density, animation level, and performance mode.",
+      status: (profile.settings?.appearance?.compositionMode || "auto").toUpperCase(),
+    },
+    {
+      id: "legacy",
+      glyph: "MIGR",
+      title: "Legacy & Migration",
+      description: "Preserved decks, collection, profiles, friends, tournaments, notifications, and migration status.",
+      status: `${legacyTotal} items`,
     },
     {
       id: "diagnostics",
       glyph: "LOG",
-      title: "Diagnostics & Support",
-      description: "Logs, debug state, bug reports, sample board.",
+      title: "Diagnostics",
+      description: "Game log, rules log, debug state, compatibility report, app/version info.",
       status: `${collectRulesConfidence(profile).length || 0} events`,
-    },
-    {
-      id: "data",
-      glyph: "DATA",
-      title: "Data Management",
-      description: "Export, import, reset, clear local data.",
-      status: "Local",
-    },
-    {
-      id: "about",
-      glyph: "INFO",
-      title: "About BoardState",
-      description: "App info, important notes, credits/version.",
-      status: `v${getAppVersion()}`,
     },
   ];
 }
@@ -7344,12 +7629,12 @@ function renderOptionsHub(profile, page = "life") {
         </article>
       ` : ""}
       <div class="options-quick-row">
-        ${["tournament", "friends", "notifications"].map((id) => renderOptionCategoryCard(categories.find((entry) => entry.id === id), true)).join("")}
+        ${["rules", "dry-run", "saves"].map((id) => renderOptionCategoryCard(categories.find((entry) => entry.id === id), true)).join("")}
       </div>
       <div class="options-category-grid">
-        ${categories.filter((entry) => !["tournament", "friends", "notifications"].includes(entry.id)).map((entry) => renderOptionCategoryCard(entry)).join("")}
+        ${categories.filter((entry) => !["rules", "dry-run", "saves"].includes(entry.id)).map((entry) => renderOptionCategoryCard(entry)).join("")}
       </div>
-      <p class="options-version-note">BoardState ${escapeHtml(getAppVersion())} - tournament sync remains separate from normal gameplay sync.</p>
+      <p class="options-version-note">BoardState ${escapeHtml(getAppVersion())} - focused on advanced gameplay, Dry Run, tutorials, saves, linked-session preparation, and rules authority.</p>
     </div>
   `;
 }
@@ -7371,16 +7656,29 @@ function renderOptionCategoryCard(category, compact = false) {
 
 function renderOptionsSubpage(profile, page, category) {
   switch (category) {
+    case "rules":
+      return renderRulesOptionsSubpage(profile);
     case "profile":
       return renderProfileOptionsSubpage(profile);
     case "gameplay":
       return renderGameplayOptionsSubpage(profile, page);
+    case "dry-run":
+      return renderDryRunOptionsSubpage(profile);
+    case "tutorial":
+      return renderTutorialOptionsSubpage(profile);
+    case "saves":
+      return renderSavesOptionsSubpage(profile);
+    case "linked-apps":
+      return renderLinkedAppsOptionsSubpage(profile);
     case "friends":
       return renderFriendsOptionsSubpage(profile);
     case "tournament":
       return renderTournamentOptionsSubpage(profile);
     case "notifications":
       return renderNotificationOptionsSubpage(profile);
+    case "legacy":
+      return renderLegacyMigrationSubpage(profile);
+    case "display":
     case "hud":
       return renderHudOptionsSubpage(profile);
     case "accessibility":
@@ -7394,6 +7692,188 @@ function renderOptionsSubpage(profile, page, category) {
     default:
       return renderOptionsHub(profile, page);
   }
+}
+
+function renderRulesOptionsSubpage(profile) {
+  const rules = getRulesControlSummary(profile);
+  const strictPhase = Boolean(profile.settings?.strictPhaseEnforcement);
+  const manualStack = Boolean(profile.settings?.manualStackConfirmation);
+  const activeWaivers = profile.activeSession?.activeRuleWaivers || [];
+  const waiverHistory = profile.activeSession?.waiverHistory || [];
+  return `
+    <div class="options-subpage">
+      <article class="option-card">
+        <h3>Rules</h3>
+        <p>Current mode: <strong>${escapeHtml(rules.label)}</strong>. Rules engine ${escapeHtml(rules.rulesEngineVersion)}. Schema ${escapeHtml(profile.activeSession?.schemaVersion || SHARED_CONTRACT_SCHEMA_VERSION)}.</p>
+        <div class="button-grid">
+          <button data-rules-mode="enforced" class="${rules.mode === "enforced" ? "active" : ""}">Rules Enforced</button>
+          <button data-rules-mode="waived" class="${rules.mode === "waived" ? "active" : ""}">Waive Rules</button>
+          <button data-revoke-waivers ${activeWaivers.length ? "" : "disabled"}>Revoke Active Waivers</button>
+        </div>
+        ${renderToggle("Strict phase enforcement", "strictPhaseEnforcement", strictPhase)}
+        ${renderToggle("Manual stack confirmation", "manualStackConfirmation", manualStack)}
+        <div class="options-setting-group">
+          <h4>Active Waivers</h4>
+          ${activeWaivers.length ? activeWaivers.map((entry) => `<p>${escapeHtml(entry.ruleCode || "Rule")} - ${escapeHtml(entry.reason || "No reason")}</p>`).join("") : "<p>No active rule waivers.</p>"}
+        </div>
+        <div class="options-setting-group">
+          <h4>Waiver History</h4>
+          ${waiverHistory.slice(0, 8).map((entry) => `<p>${escapeHtml(entry.ruleCode || "Rule")} - ${escapeHtml(entry.status || entry.reason || "logged")}</p>`).join("") || "<p>No waiver history yet.</p>"}
+        </div>
+        <p>AI-controlled Dry Run players remain rules-enforced and cannot waive rules.</p>
+      </article>
+    </div>
+  `;
+}
+
+function renderDryRunOptionsSubpage(profile) {
+  return `
+    <div class="options-subpage">
+      <article class="option-card">
+        <h3>Dry Run</h3>
+        <p>Dry Run uses the authoritative rules engine, mana automation, stack/priority, targeting, combat, triggers, and state-based actions where supported.</p>
+        <div class="button-grid">
+          <button data-open-simulation-setup>Start Dry Run</button>
+          <button data-home-action="continue-dry-run">Continue Dry Run</button>
+          <button data-open-simulation-stats>Simulation Stats</button>
+        </div>
+        ${renderToggle("Simulation revenge learning", "multiplayer.simulationRevenge", Boolean(profile.settings?.multiplayer?.simulationRevenge ?? true))}
+      </article>
+      ${renderRecentSimulationsPanel(profile)}
+    </div>
+  `;
+}
+
+function renderTutorialOptionsSubpage(profile) {
+  const progress = profile.onboarding?.tutorialCompleted
+    ? "Completed"
+    : profile.onboarding?.tutorialStarted
+      ? `Turn ${profile.onboarding?.tutorialCurrentTurn || profile.activeSession?.tutorial?.currentTurn || 1}`
+      : "Not started";
+  return `
+    <div class="options-subpage">
+      <article class="option-card">
+        <h3>Tutorial</h3>
+        <p>Progress: ${escapeHtml(progress)}. The Helper Sprite remains the primary guided tutorial surface.</p>
+        <div class="button-grid">
+          <button data-start-guided-tutorial>Start Tutorial</button>
+          ${profile.activeSession?.tutorial?.active || profile.activeSession?.tutorial?.paused || profile.onboarding?.tutorialPaused ? `<button data-tutorial-resume>Resume Tutorial</button>` : ""}
+          <button data-tutorial-restart>Restart Tutorial</button>
+          <button data-reset-onboarding>Reset Tutorial Progress</button>
+        </div>
+        ${renderToggle("Helper Sprite", "helperSprite.enabled", Boolean(profile.settings?.helperSprite?.enabled))}
+        ${renderToggle("Screen-reader prompts", "helperSprite.screenReaderPrompts", Boolean(profile.settings?.helperSprite?.screenReaderPrompts))}
+        ${renderToggle("Reduced visual noise", "adhdMode.reducedNoise", Boolean(profile.settings?.adhdMode?.reducedNoise))}
+      </article>
+    </div>
+  `;
+}
+
+function renderSavesOptionsSubpage(profile) {
+  const groups = getSaveGroups(profile);
+  return `
+    <div class="options-subpage">
+      ${renderLocalSavesPanel(profile)}
+      ${renderSaveGroupSection("Advanced Games", groups.advanced)}
+      ${renderSaveGroupSection("Dry Runs", groups.dryRun)}
+      ${renderSaveGroupSection("Tutorial Saves", groups.tutorial)}
+      ${renderSaveGroupSection("Imported Sessions", groups.imported)}
+      ${renderSaveGroupSection("Legacy Saves", groups.legacy)}
+      ${renderSaveGroupSection("Recovery Saves", groups.recovery)}
+    </div>
+  `;
+}
+
+function renderSaveGroupSection(title, saves = []) {
+  return `
+    <article class="option-card save-group-card">
+      <div class="overlay-header compact">
+        <div><h3>${escapeHtml(title)}</h3><small>${saves.length} item(s)</small></div>
+      </div>
+      <div class="local-save-list compact">
+        ${saves.map(renderLocalSaveCard).join("") || `<p>No ${escapeHtml(title.toLowerCase())} available.</p>`}
+      </div>
+    </article>
+  `;
+}
+
+function renderLinkedAppsOptionsSubpage(profile) {
+  const linkedApps = getLinkedAppStatusCards(profile);
+  const linked = getLinkedSessionCandidate(profile);
+  return `
+    <div class="options-subpage">
+      <article class="option-card">
+        <h3>Continue Linked Game</h3>
+        ${linked ? `<p>${escapeHtml(linked.sourceApp || "External")} session ${escapeHtml(linked.sessionId || "local")} - Turn ${escapeHtml(linked.turn || 1)} - ${escapeHtml(linked.phase || "Beginning")}</p><button data-home-action="continue-linked">Load Supported Snapshot</button>` : `<p>No linked game exists yet. BoardState Lite handoff will be enabled in a later integration. You can import a shared session when adapters provide one.</p>`}
+      </article>
+      ${linkedApps.map((app) => `
+        <article class="option-card linked-app-card">
+          <div class="overlay-header compact">
+            <div><h3>${escapeHtml(app.title)}</h3><small>${escapeHtml(app.detail)}</small></div>
+            <span class="option-status-badge">${escapeHtml(app.status)}</span>
+          </div>
+          <div class="button-grid">
+            <button disabled>${app.status === "Not Linked" ? "Coming after app preparation" : "View Capability"}</button>
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderLegacyMigrationSubpage(profile) {
+  const legacy = getLegacyInventory(profile);
+  return `
+    <div class="options-subpage legacy-migration-page">
+      <article class="option-card">
+        <h3>Legacy & Migration</h3>
+        <p>Legacy systems are preserved and hidden from the primary workflow until Deck Nexus, BoardState Lite, and the Hub migration paths are ready. No destructive migration runs here.</p>
+        <div class="button-grid">
+          <button data-export>Backup Before Migration</button>
+          <button data-option-category="data">Legacy Data Tools</button>
+        </div>
+      </article>
+      ${legacy.map((entry) => `
+        <article class="option-card legacy-migration-card">
+          <div>
+            <p class="eyebrow">${escapeHtml(entry.destination)}</p>
+            <h3>${escapeHtml(entry.label)}</h3>
+            <p>${escapeHtml(entry.count)} item(s) - ${escapeHtml(entry.status)}</p>
+          </div>
+          <div class="button-grid mini">
+            ${entry.page ? `<button data-home-legacy-page="${escapeAttribute(entry.page)}">View Legacy Data</button>` : ""}
+            ${entry.optionsCategory ? `<button data-option-category="${escapeAttribute(entry.optionsCategory)}">Open Legacy Options</button>` : ""}
+            <button disabled>No Delete Until Migrated</button>
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderRecentSimulationsPanel(profile) {
+  const entries = getRecentSimulationEntries(profile);
+  return `
+    <article class="option-card recent-simulations-panel">
+      <div class="overlay-header compact">
+        <div><h3>Recent Simulations</h3><small>${entries.length} simulation record(s)</small></div>
+      </div>
+      <div class="local-save-list">
+        ${entries.map((entry) => `
+          <section class="local-save-card">
+            <div>
+              <strong>${escapeHtml(entry.saveName || "Dry Run")}</strong>
+              <small>Status ${escapeHtml(entry.status)} - Turn ${escapeHtml(entry.turn || 0)} - ${escapeHtml(entry.compatibility)}</small>
+              <small>Rules ${escapeHtml(entry.rulesEngineVersion || DEFAULT_RULES_ENGINE_VERSION)}</small>
+            </div>
+            <div class="button-grid mini">
+              ${entry.saveId ? `<button data-home-load-save="${escapeAttribute(entry.saveId)}">Resume</button><button data-local-save-duplicate="${escapeAttribute(entry.saveId)}">Duplicate</button><button data-local-save-rename="${escapeAttribute(entry.saveId)}" data-local-save-name="${escapeAttribute(entry.saveName || "")}">Rename</button><button data-local-save-export="${escapeAttribute(entry.saveId)}">Export</button><button class="danger-soft" data-local-save-delete="${escapeAttribute(entry.saveId)}">Delete</button>` : `<button disabled>Summary Only</button>`}
+            </div>
+          </section>
+        `).join("") || "<p>No recent simulations. Start a Dry Run to create one.</p>"}
+      </div>
+    </article>
+  `;
 }
 
 function renderProfileOptionsSubpage(profile) {
@@ -7970,7 +8450,7 @@ function getUnreadNotificationCount(profile = {}) {
 }
 
 function getAppVersion() {
-  return "1.18.0";
+  return "1.19.0";
 }
 
 function renderGameOptions(profile, page = "life") {
@@ -8842,6 +9322,195 @@ function getSettings(profile) {
   };
 }
 
+export function getBoardStateHomeModel(profile = {}) {
+  const saveGroups = getSaveGroups(profile);
+  const recentSimulations = getRecentSimulationEntries(profile);
+  const linkedGame = getLinkedSessionCandidate(profile);
+  const canonicalSession = safelyCreateCanonicalSession(profile);
+  return {
+    rules: getRulesControlSummary(profile),
+    versions: {
+      schemaVersion: canonicalSession?.schemaVersion || profile.activeSession?.schemaVersion || SHARED_CONTRACT_SCHEMA_VERSION,
+      rulesEngineVersion: canonicalSession?.rulesEngineVersion || profile.activeSession?.rulesEngineVersion || DEFAULT_RULES_ENGINE_VERSION,
+      saveFormatVersion: SHARED_SAVE_FORMAT_VERSION,
+      syncProtocolVersion: canonicalSession?.syncProtocolVersion || profile.activeSession?.syncProtocolVersion || SHARED_SYNC_PROTOCOL_VERSION,
+    },
+    currentSession: {
+      gameId: profile.activeSession?.gameId || profile.activeSession?.id || "",
+      sessionId: profile.activeSession?.sessionId || profile.activeSession?.id || "",
+      mode: profile.activeSession?.saveMetadata?.mode || profile.activeSession?.gameTracking?.mode || (profile.activeSession?.simulation?.enabled ? "dry-run" : "training-ground"),
+      modeLabel: formatSessionMode(profile.activeSession),
+      turn: profile.activeSession?.turn || 1,
+      phase: PHASES[profile.activeSession?.phaseIndex || 0] || "Beginning",
+    },
+    continueDryRun: getMostRecentDryRunSave(profile),
+    linkedGame,
+    saveGroups,
+    saveCount: Object.values(saveGroups).reduce((sum, saves) => sum + saves.length, 0),
+    recentSimulations,
+    linkedApps: getLinkedAppStatusCards(profile),
+    legacy: getLegacyInventory(profile),
+    tutorial: {
+      resume: Boolean(profile.activeSession?.tutorial?.active || profile.activeSession?.tutorial?.paused || profile.onboarding?.tutorialPaused),
+      completed: Boolean(profile.onboarding?.tutorialCompleted),
+      currentTurn: profile.onboarding?.tutorialCurrentTurn || profile.activeSession?.tutorial?.currentTurn || 0,
+    },
+  };
+}
+
+function safelyCreateCanonicalSession(profile = {}) {
+  try {
+    return boardStateProfileToSharedSession(profile);
+  } catch {
+    return null;
+  }
+}
+
+export function getRulesControlSummary(profile = {}) {
+  const mode = profile.activeSession?.enforcementMode || profile.settings?.rules?.enforcementMode || "enforced";
+  const normalizedMode = mode === "waived" ? "waived" : "enforced";
+  return {
+    mode: normalizedMode,
+    label: normalizedMode === "waived" ? "Rules Waived" : "Rules Enforced",
+    activeWaiverCount: (profile.activeSession?.activeRuleWaivers || []).length,
+    waiverHistoryCount: (profile.activeSession?.waiverHistory || []).length,
+    rulesEngineVersion: profile.activeSession?.rulesEngineVersion || DEFAULT_RULES_ENGINE_VERSION,
+  };
+}
+
+export function getSaveGroups(profile = {}) {
+  const groups = {
+    advanced: [],
+    dryRun: [],
+    tutorial: [],
+    imported: [],
+    legacy: [],
+    recovery: [],
+  };
+  const saves = [...(profile.localSaves?.items || [])].sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0));
+  saves.forEach((save) => {
+    const mode = String(save.gameMode || save.metadata?.mode || "").toLowerCase();
+    const sourceApp = String(save.sourceApp || save.metadata?.sourceApp || "boardstate").toLowerCase();
+    const migrationStatus = String(save.metadata?.migrationStatus || "").toLowerCase();
+    if (/tutorial/.test(mode)) groups.tutorial.push(save);
+    else if (/dry|simulation/.test(mode)) groups.dryRun.push(save);
+    else if (sourceApp && sourceApp !== "boardstate") groups.imported.push(save);
+    else if (/legacy/.test(mode) || migrationStatus === "legacy") groups.legacy.push(save);
+    else if (/recovery/.test(mode)) groups.recovery.push(save);
+    else groups.advanced.push(save);
+  });
+  return groups;
+}
+
+function getMostRecentDryRunSave(profile = {}) {
+  return getSaveGroups(profile).dryRun[0] || null;
+}
+
+function getRecentSimulationEntries(profile = {}) {
+  const saves = getSaveGroups(profile).dryRun.map((save) => ({
+    id: save.saveId,
+    saveId: save.saveId,
+    saveName: save.saveName || "Dry Run Save",
+    status: "saved",
+    turn: save.metadata?.currentTurn || save.gameState?.turn || 1,
+    updatedAt: save.updatedAt || 0,
+    rulesEngineVersion: save.rulesEngineVersion || save.metadata?.rulesEngineVersion || DEFAULT_RULES_ENGINE_VERSION,
+    compatibility: save.saveFormatVersion && save.saveFormatVersion !== SHARED_SAVE_FORMAT_VERSION ? "incompatible" : "compatible",
+  }));
+  const history = (profile.simulationStats?.history || []).slice(0, 8).map((entry, index) => ({
+    id: entry.id || `simulation-history-${index}`,
+    saveName: entry.winnerName ? `Completed - ${entry.winnerName}` : "Completed Simulation",
+    status: "completed",
+    turn: entry.turnCount || 0,
+    updatedAt: entry.completedAt || entry.createdAt || 0,
+    rulesEngineVersion: profile.activeSession?.rulesEngineVersion || DEFAULT_RULES_ENGINE_VERSION,
+    compatibility: "summary-only",
+    result: entry.winnerName || entry.winnerId || "Unknown",
+  }));
+  return [...saves, ...history].sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0)).slice(0, 12);
+}
+
+function getLinkedSessionCandidate(profile = {}) {
+  const current = profile.activeSession || {};
+  if (current.linkedSession?.imported || current.linkedSession?.activeSync || (current.linkedSession?.sourceApp && current.linkedSession.sourceApp !== "boardstate")) {
+    return {
+      saveId: "",
+      sessionId: current.sessionId || current.id || "",
+      sourceApp: current.linkedSession.sourceApp,
+      status: current.linkedSession.status || "local",
+      turn: current.turn || 1,
+      phase: PHASES[current.phaseIndex || 0] || "Beginning",
+    };
+  }
+  return (profile.localSaves?.items || [])
+    .filter((save) => {
+      const sourceApp = String(save.sourceApp || save.metadata?.sourceApp || "").toLowerCase();
+      return sourceApp && sourceApp !== "boardstate";
+    })
+    .sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))
+    .map((save) => ({
+      saveId: save.saveId,
+      saveName: save.saveName,
+      sessionId: save.sourceSession || save.gameState?.activeSession?.sessionId || save.gameState?.activeSession?.id || "",
+      sourceApp: save.sourceApp || save.metadata?.sourceApp || "external",
+      status: save.metadata?.migrationStatus || "imported",
+      turn: save.metadata?.currentTurn || save.gameState?.turn || 1,
+      phase: PHASES[save.metadata?.phaseIndex || save.gameState?.phaseIndex || 0] || "Beginning",
+    }))[0] || null;
+}
+
+export function getLinkedAppStatusCards(profile = {}) {
+  const appLinks = profile.settings?.linkedApps || {};
+  const current = profile.activeSession?.linkedSession || {};
+  const liteLinked = current.sourceApp === "boardstate-lite" || appLinks.boardstateLite?.linked;
+  const nexusLinked = appLinks.deckNexus?.linked;
+  return [
+    {
+      appId: "boardstate-lite",
+      title: "BoardState Lite",
+      status: liteLinked ? "Session Available" : "Not Linked",
+      detail: liteLinked ? `Last source: ${current.status || "local snapshot"}` : "Lite handoff is prepared for a later integration.",
+      capabilities: liteLinked ? ["continue-linked-game"] : ["import-shared-session"],
+    },
+    {
+      appId: "deck-nexus",
+      title: "Deck Nexus",
+      status: nexusLinked ? "Linked" : "Not Linked",
+      detail: nexusLinked ? "Deck snapshot capability detected." : "Deck Nexus linking comes after app preparation.",
+      capabilities: nexusLinked ? ["deck-snapshot-import"] : ["manual-import"],
+    },
+    {
+      appId: "boardstate-hub",
+      title: "Future Hub",
+      status: "Not Linked",
+      detail: "Hub ownership of global profile, friends, tournaments, and backups is planned later.",
+      capabilities: ["future-app-link"],
+    },
+  ];
+}
+
+export function getLegacyInventory(profile = {}) {
+  const friendCount = (profile.friends?.friends || []).length;
+  const notificationCount = (profile.notifications?.items || []).length;
+  const tournamentCount = profile.tournament?.active || profile.tournament?.status !== "idle" ? 1 : 0;
+  return [
+    { id: "legacy-decks", label: "Legacy Decks", count: Object.keys(profile.commanders || {}).length, destination: "Deck Nexus", status: "Not Ready", page: "decks" },
+    { id: "legacy-collection", label: "Legacy Collection", count: (profile.archives || []).length, destination: "Deck Nexus", status: "Not Ready", page: "archive" },
+    { id: "legacy-profiles", label: "Legacy Profiles", count: 1, destination: "Future Hub", status: "Preserved", page: "profile" },
+    { id: "legacy-friends", label: "Legacy Friends", count: friendCount, destination: "Future Hub", status: "Not Ready", optionsCategory: "friends" },
+    { id: "legacy-tournaments", label: "Legacy Tournaments", count: tournamentCount, destination: "Future Hub", status: "Not Ready", page: "tournament" },
+    { id: "legacy-notifications", label: "Legacy Notifications", count: notificationCount, destination: "Future Hub", status: "Preserved", optionsCategory: "notifications" },
+    { id: "legacy-saves", label: "Legacy Saves", count: (profile.localSaves?.items || []).length, destination: "BoardState archive", status: "Preserved", optionsCategory: "saves" },
+  ];
+}
+
+function formatSessionMode(session = {}) {
+  if (session.simulation?.enabled) return "Dry Run";
+  if (session.tutorial?.active || session.tutorial?.completionPending) return "Tutorial";
+  if (session.gameTracking?.active) return session.gameTracking?.mode === "advanced-gameplay" ? "Advanced Gameplay" : "Active Game";
+  return "Training Ground";
+}
+
 function getPagePanels(profile) {
   return {
     lifeTrackerLife: true,
@@ -8858,8 +9527,8 @@ function getPagePanels(profile) {
 }
 
 function getVisiblePages(profile) {
-  const pages = ["life", "battlefield", "tournament", "archive", "decks", "leaderboards"];
-  return profile.settings?.navigation?.showProfileInMainUi ? ["life", "battlefield", "tournament", "profile", "archive", "decks", "leaderboards"] : pages;
+  const pages = ["home", "battlefield"];
+  return profile.settings?.navigation?.showProfileInMainUi ? ["home", "battlefield", "profile"] : pages;
 }
 
 function getSelectedPermanents(session) {
@@ -9000,6 +9669,7 @@ function formatManaLabel(value) {
 }
 
 function formatPageLabel(value) {
+  if (value === "home") return "Home";
   return value === "life" ? "Life Tracker" : formatLabel(value);
 }
 
