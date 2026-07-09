@@ -6,6 +6,7 @@ import {
   SHARED_CONTRACT_SCHEMA_VERSION,
   SHARED_SYNC_PROTOCOL_VERSION,
 } from "../shared-contracts/version.js";
+import { createLegacyMigrationState } from "../migration/legacyMigration.js";
 
 export const PHASES = ["Beginning", "Main 1", "Combat", "Main 2", "Ending"];
 export const MANA_COLORS = ["W", "U", "B", "R", "G", "C", "Generic"];
@@ -261,6 +262,7 @@ export function createDefaultProfile() {
       sharedSessions: [],
       failedImports: [],
     },
+    legacyMigration: createLegacyMigrationState(),
     simulationMemory: {
       patterns: {
         tokenStrategy: 0,

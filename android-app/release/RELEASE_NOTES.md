@@ -2,9 +2,20 @@
 
 ## App
 - Name: BoardState
-- Version: 1.22.0
-- Version code: 37
+- Version: 1.23.0
+- Version code: 38
 - Package: `com.boardstate.app`
+
+## Version 1.23.0
+- Adds a non-destructive legacy migration readiness system that inventories profiles, protected profile metadata, decks, collections, physical table records, saves, tournaments, friends, notifications, sync data, settings, diagnostics, and unknown legacy blocks without mutating source data.
+- Adds migration readiness classification, future owner mapping, archive records, persistent migration history, and safe Legacy Data Browser metadata with no delete or cleanup expansion.
+- Adds full BoardState legacy backup bundles with validation hashes, privacy exclusion lists, safe restore validation, and emergency backup/recovery report actions.
+- Adds destination-specific export bundles for Deck Nexus, BoardState Lite, BoardState keep/archive data, and future Hub migration readiness without claiming external import success.
+- Adds export validation, protected profile handling, unsafe private field exclusion, malformed data rejection, save validation, imported snapshot validation, shared-session reference checks, and recovery reports.
+- Updates the Legacy & Migration UI with Migration Overview, Full Backup, BoardState-Owned Data, Export to Deck Nexus, Export to BoardState Lite, Prepare for Future Hub, Legacy Data Browser, Failed/Unknown Data, Migration History, and Recovery Tools.
+- Preserves existing legacy access paths, old save load behavior, current sync, rules enforcement, Waive Rules, mirrored Advanced Mode, Dry Run, Tutorial, and bridge adapters.
+- Adds focused regression coverage for inventory detection, empty inventory, backup/export validation, private-field exclusion, archive/history persistence, safe browser metadata, recovery reports, and non-destructive reducer behavior.
+- Updates production web package metadata, Android wrapper metadata, Flutter wrapper metadata, local package artifacts, and release notes for version 1.23.0.
 
 ## Version 1.22.0
 - Adds BoardState-side app-link bridge adapter infrastructure for future BoardState Lite, Deck Nexus, and Hub integrations without modifying external app repositories.

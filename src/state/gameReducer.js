@@ -113,6 +113,12 @@ import {
   importDeckNexusSnapshot,
   removeImportedDeckSnapshot,
 } from "../bridge/appLinkAdapters.js";
+import {
+  rebuildMigrationIndex,
+  recordMigrationBackupCreated,
+  recordMigrationExportCreated,
+  recordMigrationRecoveryReport,
+} from "../migration/legacyMigration.js";
 
 export function reduceProfile(profile, event) {
   const actionType = event.actionType || event.type;
@@ -262,6 +268,19 @@ export function reduceProfile(profile, event) {
       break;
     case "LOCAL_SAVE_IMPORT":
       nextProfile = importLocalSave(baseProfile, event.save || event.payload);
+      break;
+    case "MIGRATION_REBUILD_INVENTORY":
+    case "MIGRATION_REBUILD_INDEX":
+      nextProfile = rebuildMigrationIndex(baseProfile);
+      break;
+    case "MIGRATION_RECORD_BACKUP":
+      nextProfile = recordMigrationBackupCreated(baseProfile, event.backupResult || event.result || event);
+      break;
+    case "MIGRATION_RECORD_EXPORT":
+      nextProfile = recordMigrationExportCreated(baseProfile, event.exportResult || event.result || event);
+      break;
+    case "MIGRATION_RECORD_RECOVERY_REPORT":
+      nextProfile = recordMigrationRecoveryReport(baseProfile, event.recoveryResult || event.result || event);
       break;
     case "SET_SETTING":
       nextProfile = updateSetting(baseProfile, event.path, event.value);

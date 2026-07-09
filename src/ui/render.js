@@ -43,6 +43,18 @@ import {
   confidenceLabel,
   safeJson,
 } from "../support/debugExport.js";
+import {
+  FUTURE_OWNER_APPS,
+  LEGACY_MIGRATION_VERSION,
+  MIGRATION_READINESS,
+  buildLegacyDataBrowserModel,
+  buildLegacyDataInventory,
+  buildRecoveryReport,
+  createDestinationExportBundle,
+  createFullLegacyBackupBundle,
+  createLegacyMigrationState,
+  extractProfileFromLegacyBackup,
+} from "../migration/legacyMigration.js";
 
 const MOBILE_LAYOUT_QUERY = "(max-width: 1279px)";
 const SWIPE_DISTANCE_THRESHOLD = 72;
@@ -2252,6 +2264,100 @@ export function mountApp(root, store) {
           isToken: true,
           ownedByCommanderDeck: false,
         },
+      })
+    );
+
+    container.querySelectorAll("[data-migration-create-backup]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = createFullLegacyBackupBundle(store.getState());
+        if (!result.valid) {
+          store.dispatch({ type: "MIGRATION_RECORD_BACKUP", backupResult: result });
+          showNotice(result.validation?.errors?.[0] || "Legacy backup validation failed.", "warning");
+          return;
+        }
+        store.dispatch({ type: "MIGRATION_RECORD_BACKUP", backupResult: result });
+        await copyOrDownloadText(
+          `boardstate-legacy-backup-${new Date().toISOString().slice(0, 10)}.json`,
+          result.text,
+          button.dataset.migrationCreateBackup === "download" ? "Legacy backup download prepared." : "Legacy backup JSON copied."
+        );
+      })
+    );
+    container.querySelector("[data-migration-backup-summary]")?.addEventListener("click", async () => {
+      const inventory = buildLegacyDataInventory(store.getState());
+      await copyOrDownloadText(
+        "boardstate-backup-contents-summary.json",
+        JSON.stringify({ migrationVersion: LEGACY_MIGRATION_VERSION, overview: inventory.overview, categories: inventory.categories }, null, 2),
+        "Backup contents summary copied."
+      );
+    });
+    container.querySelectorAll("[data-migration-export-destination]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const destination = button.dataset.migrationExportDestination || "boardstate";
+        const result = createDestinationExportBundle(store.getState(), destination);
+        if (!result.valid) {
+          store.dispatch({ type: "MIGRATION_RECORD_EXPORT", exportResult: result });
+          showNotice(result.validation?.errors?.[0] || "Legacy export validation failed.", "warning");
+          return;
+        }
+        store.dispatch({ type: "MIGRATION_RECORD_EXPORT", exportResult: result });
+        await copyOrDownloadText(
+          `boardstate-${destination}-legacy-export-${new Date().toISOString().slice(0, 10)}.json`,
+          result.text,
+          `${result.bundle?.exportLabel || "Legacy export"} prepared.`
+        );
+      })
+    );
+    container.querySelectorAll("[data-migration-rebuild-inventory], [data-migration-rebuild-index]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: button.hasAttribute("data-migration-rebuild-index") ? "MIGRATION_REBUILD_INDEX" : "MIGRATION_REBUILD_INVENTORY" });
+        showNotice(button.hasAttribute("data-migration-rebuild-index") ? "Migration index rebuilt without deleting data." : "Legacy inventory rebuilt without modifying source data.");
+      })
+    );
+    container.querySelectorAll("[data-migration-recovery-report], [data-migration-validate-storage]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = buildRecoveryReport(store.getState());
+        store.dispatch({ type: "MIGRATION_RECORD_RECOVERY_REPORT", recoveryResult: result });
+        await copyOrDownloadText(
+          `boardstate-recovery-report-${new Date().toISOString().slice(0, 10)}.json`,
+          result.text,
+          button.hasAttribute("data-migration-validate-storage") ? "Storage validation report copied." : "Recovery report copied."
+        );
+      })
+    );
+    container.querySelector("[data-migration-emergency-backup]")?.addEventListener("click", async () => {
+      const result = createFullLegacyBackupBundle(store.getState());
+      if (!result.valid) {
+        store.dispatch({ type: "MIGRATION_RECORD_BACKUP", backupResult: result });
+        showNotice(result.validation?.errors?.[0] || "Emergency backup validation failed.", "warning");
+        return;
+      }
+      store.dispatch({ type: "MIGRATION_RECORD_BACKUP", backupResult: result });
+      await copyOrDownloadText(`boardstate-emergency-backup-${new Date().toISOString().slice(0, 10)}.json`, result.text, "Emergency backup JSON copied.");
+    });
+    container.querySelectorAll("[data-migration-restore-file]").forEach((input) =>
+      input.addEventListener("change", async (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        try {
+          const extracted = extractProfileFromLegacyBackup(await file.text());
+          if (!extracted.valid) {
+            showNotice(extracted.errors?.[0] || "Backup restore validation failed.", "warning");
+            return;
+          }
+          openConfirmation({
+            id: "import-profile",
+            title: "Restore from legacy backup?",
+            message: "This validates the backup first and then replaces the current local profile. Current data is preserved if validation fails.",
+            confirmLabel: "Restore Backup",
+            danger: true,
+            payload: extracted.profile,
+          });
+        } catch {
+          showNotice("Backup restore failed: malformed backup file.", "warning");
+        } finally {
+          event.target.value = "";
+        }
       })
     );
 
@@ -8425,32 +8531,158 @@ function formatTimestamp(value = 0) {
 }
 
 function renderLegacyMigrationSubpage(profile) {
-  const legacy = getLegacyInventory(profile);
+  const inventory = buildLegacyDataInventory(profile);
+  const migration = createLegacyMigrationState(profile.legacyMigration || {});
+  const browser = buildLegacyDataBrowserModel(profile);
+  const overview = inventory.overview || {};
+  const boardStateOwned = inventory.categories.filter((entry) => entry.futureOwnerApp === FUTURE_OWNER_APPS.BOARDSTATE);
+  const deckNexus = inventory.categories.filter((entry) => entry.futureOwnerApp === FUTURE_OWNER_APPS.DECK_NEXUS);
+  const lite = inventory.categories.filter((entry) => entry.futureOwnerApp === FUTURE_OWNER_APPS.BOARDSTATE_LITE);
+  const hub = inventory.categories.filter((entry) => entry.futureOwnerApp === FUTURE_OWNER_APPS.HUB);
+  const unknown = inventory.categories.filter((entry) => entry.futureOwnerApp === FUTURE_OWNER_APPS.UNKNOWN || entry.migrationReadiness === MIGRATION_READINESS.UNKNOWN || entry.migrationReadiness === MIGRATION_READINESS.NEEDS_REVIEW);
   return `
     <div class="options-subpage legacy-migration-page">
       <article class="option-card">
+        <p class="eyebrow">Migration Overview</p>
         <h3>Legacy & Migration</h3>
-        <p>Legacy systems are preserved and hidden from the primary workflow until Deck Nexus, BoardState Lite, and the Hub migration paths are ready. No destructive migration runs here.</p>
+        <p>Legacy systems are inventoried, backed up, and exported without destructive migration. No destination success is recorded unless a real destination accepts the data.</p>
+        <div class="status-metric-grid">
+          <span><b>${escapeHtml(overview.totalCategoriesDetected || 0)}</b><small>categories detected</small></span>
+          <span><b>${escapeHtml(overview.readyForExportCount || 0)}</b><small>ready for export</small></span>
+          <span><b>${escapeHtml(overview.waitingForDestinationCount || 0)}</b><small>waiting for destination app</small></span>
+          <span><b>${escapeHtml(overview.boardStateOwnedCount || 0)}</b><small>kept in BoardState</small></span>
+          <span><b>${escapeHtml(overview.protectedOrUnknownCount || 0)}</b><small>protected / unknown</small></span>
+        </div>
+        <p>Last inventory scan: ${escapeHtml(formatTimestamp(migration.lastInventoryAt || overview.lastInventoryScan || inventory.scannedAt))}</p>
         <div class="button-grid">
-          <button data-export>Backup Before Migration</button>
-          <button data-option-category="data">Legacy Data Tools</button>
+          <button data-migration-rebuild-inventory>Rebuild Inventory</button>
+          <button data-migration-create-backup="download">Create Full Backup</button>
+          <button data-migration-backup-summary>View Backup Contents Summary</button>
         </div>
       </article>
-      ${legacy.map((entry) => `
-        <article class="option-card legacy-migration-card">
-          <div>
-            <p class="eyebrow">${escapeHtml(entry.destination)}</p>
-            <h3>${escapeHtml(entry.label)}</h3>
-            <p>${escapeHtml(entry.count)} item(s) - ${escapeHtml(entry.status)}</p>
-          </div>
-          <div class="button-grid mini">
-            ${entry.page ? `<button data-home-legacy-page="${escapeAttribute(entry.page)}">View Legacy Data</button>` : ""}
-            ${entry.optionsCategory ? `<button data-option-category="${escapeAttribute(entry.optionsCategory)}">Open Legacy Options</button>` : ""}
-            <button disabled>No Delete Until Migrated</button>
-          </div>
-        </article>
-      `).join("")}
+      <article class="option-card">
+        <p class="eyebrow">Full Backup</p>
+        <h3>Non-Destructive Backup</h3>
+        <p>Includes BoardState-owned data, legacy blocks, saves, imported snapshots, settings, waiver history, migration metadata, version metadata, and privacy exclusion notes. Passwords, private tokens, unsafe sync credentials, browser secrets, and executable scripts are excluded.</p>
+        <div class="button-grid">
+          <button data-migration-create-backup="copy">Copy Backup JSON</button>
+          <button data-migration-create-backup="download">Download Backup</button>
+          <label class="file-pill">Restore From Backup<input type="file" accept="application/json" data-migration-restore-file /></label>
+          <button data-migration-backup-summary>Validate Backup / Contents</button>
+        </div>
+      </article>
+      ${renderMigrationDestinationSection("BoardState-Owned Data", "Kept in BoardState", boardStateOwned, "boardstate", "Create BoardState Keep / Archive Bundle")}
+      ${renderMigrationDestinationSection("Export to Deck Nexus", "Prepared for Deck Nexus", deckNexus, "deck-nexus", "Export Deck Nexus Bundle")}
+      ${renderMigrationDestinationSection("Export to BoardState Lite", "Prepared for BoardState Lite", lite, "boardstate-lite", "Export Lite Table Bundle")}
+      ${renderMigrationDestinationSection("Prepare for Future Hub", "Waiting for Hub App", hub, "hub", "Create Hub-Ready Export Bundle")}
+      <article class="option-card">
+        <p class="eyebrow">Legacy Data Browser</p>
+        <h3>Safe Legacy Data Browser</h3>
+        <p>Browse legacy categories by future destination, export readiness, access path, and safe metadata. Protected data shows only safe metadata.</p>
+        <div class="local-save-list compact">
+          ${browser.categories.map(renderLegacyBrowserRow).join("") || "<p>No legacy categories detected.</p>"}
+        </div>
+      </article>
+      <article class="option-card">
+        <p class="eyebrow">Failed / Unknown Data</p>
+        <h3>Needs Review</h3>
+        ${unknown.length ? unknown.map(renderMigrationCategoryCard).join("") : "<p>No unknown legacy blocks detected. Protected profile metadata is still handled through backup privacy exclusions.</p>"}
+      </article>
+      <article class="option-card">
+        <p class="eyebrow">Migration History</p>
+        <h3>Local Migration Log</h3>
+        <div class="local-save-list compact">
+          ${(migration.history || []).slice(0, 12).map((entry) => `
+            <section class="local-save-card">
+              <div>
+                <strong>${escapeHtml(entry.eventType || "Migration event")}</strong>
+                <small>${escapeHtml(entry.result || "success")} - ${escapeHtml(formatTimestamp(entry.timestamp || 0))}</small>
+                ${entry.relatedExportId ? `<small>Export ${escapeHtml(entry.relatedExportId)}</small>` : ""}
+                ${entry.relatedBackupId ? `<small>Backup ${escapeHtml(entry.relatedBackupId)}</small>` : ""}
+                ${entry.errorSummary ? `<small>Error: ${escapeHtml(entry.errorSummary)}</small>` : ""}
+              </div>
+              <div class="button-grid mini"><button disabled>Audit Record</button></div>
+            </section>
+          `).join("") || "<p>No migration history yet. Create an inventory scan, backup, export, or recovery report to record history.</p>"}
+        </div>
+      </article>
+      <article class="option-card">
+        <p class="eyebrow">Recovery Tools</p>
+        <h3>Validation and Recovery</h3>
+        <p>Recovery tools validate current storage, saves, imported snapshots, shared sessions, and archive records. They never auto-delete data.</p>
+        <div class="button-grid">
+          <button data-migration-validate-storage>Validate Current Storage</button>
+          <button data-migration-recovery-report>Export Recovery Report</button>
+          <button data-migration-rebuild-inventory>Rebuild Inventory</button>
+          <button data-migration-rebuild-index>Rebuild Migration Index</button>
+          <button data-migration-emergency-backup>Create Emergency Backup</button>
+        </div>
+        <p>Bad data is marked as needs review, corrupted, unsupported, or quarantine candidate in the exported report. Quarantine and cleanup are not automatic.</p>
+      </article>
     </div>
+  `;
+}
+
+function renderMigrationDestinationSection(title, statusLabel, categories = [], destination, actionLabel) {
+  const detected = categories.filter((entry) => entry.detected);
+  const count = detected.reduce((sum, entry) => sum + Number(entry.itemCount || 0), 0);
+  return `
+    <article class="option-card legacy-migration-card">
+      <div class="overlay-header compact">
+        <div>
+          <p class="eyebrow">${escapeHtml(statusLabel)}</p>
+          <h3>${escapeHtml(title)}</h3>
+          <p>${escapeHtml(count)} item(s) across ${escapeHtml(detected.length)} detected categor${detected.length === 1 ? "y" : "ies"}.</p>
+        </div>
+        <span class="option-status-badge">${escapeHtml(statusLabel)}</span>
+      </div>
+      <div class="button-grid">
+        <button data-migration-export-destination="${escapeAttribute(destination)}">${escapeHtml(actionLabel)}</button>
+        ${destination === "hub" ? `<button disabled>Hub Import Waiting for Hub App</button>` : ""}
+      </div>
+      <div class="local-save-list compact">
+        ${categories.map(renderMigrationCategoryCard).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderMigrationCategoryCard(entry = {}) {
+  return `
+    <section class="local-save-card">
+      <div>
+        <strong>${escapeHtml(entry.displayName || entry.label || "Legacy Data")}</strong>
+        <small>${escapeHtml(entry.itemCount || 0)} item(s) - ${escapeHtml(entry.destination || "")} - ${escapeHtml(entry.migrationReadiness || entry.status || "")}</small>
+        <small>Storage: ${escapeHtml(entry.storageLocation || "profile")} - Access: ${escapeHtml(entry.preservedLegacyAccessPath || "options:legacy")}</small>
+        ${(entry.compatibilityWarnings || []).slice(0, 2).map((warning) => `<small>Warning: ${escapeHtml(warning)}</small>`).join("")}
+        ${(entry.privacyWarnings || []).slice(0, 2).map((warning) => `<small>Privacy: ${escapeHtml(warning)}</small>`).join("")}
+      </div>
+      <div class="button-grid mini">
+        ${entry.page ? `<button data-home-legacy-page="${escapeAttribute(entry.page)}">View Legacy Data</button>` : ""}
+        ${entry.optionsCategory ? `<button data-option-category="${escapeAttribute(entry.optionsCategory)}">Open Legacy Options</button>` : ""}
+        ${entry.exportAvailable ? `<button data-migration-export-destination="${escapeAttribute(entry.futureOwnerApp === FUTURE_OWNER_APPS.DECK_NEXUS ? "deck-nexus" : entry.futureOwnerApp === FUTURE_OWNER_APPS.BOARDSTATE_LITE ? "boardstate-lite" : entry.futureOwnerApp === FUTURE_OWNER_APPS.HUB ? "hub" : "boardstate")}">Export Prepared</button>` : ""}
+        <button disabled>No Delete Until Verified Migration</button>
+      </div>
+    </section>
+  `;
+}
+
+function renderLegacyBrowserRow(entry = {}) {
+  return `
+    <section class="local-save-card">
+      <div>
+        <strong>${escapeHtml(entry.displayName || "Legacy Data")}</strong>
+        <small>${escapeHtml(entry.itemCount || 0)} item(s) - ${escapeHtml(entry.futureDestination || "")} - ${escapeHtml(entry.exportStatus || "")}</small>
+        <small>${entry.protected ? "Protected data present - safe metadata only" : "Safe metadata shown"} - Source ${escapeHtml(entry.sourceSystem || "Original BoardState")}</small>
+        ${(entry.sampleItems || []).slice(0, 3).map((item) => `<small>${escapeHtml(item.name || item.id || "Item")}</small>`).join("")}
+        ${(entry.warnings || []).slice(0, 2).map((warning) => `<small>Warning: ${escapeHtml(warning)}</small>`).join("")}
+      </div>
+      <div class="button-grid mini">
+        ${entry.openPage ? `<button data-home-legacy-page="${escapeAttribute(entry.openPage)}">Open Legacy Feature</button>` : ""}
+        ${entry.optionsCategory ? `<button data-option-category="${escapeAttribute(entry.optionsCategory)}">Open Settings</button>` : ""}
+        <button disabled>Delete Disabled</button>
+      </div>
+    </section>
   `;
 }
 
@@ -10130,18 +10362,7 @@ export function getLinkedAppStatusCards(profile = {}) {
 }
 
 export function getLegacyInventory(profile = {}) {
-  const friendCount = (profile.friends?.friends || []).length;
-  const notificationCount = (profile.notifications?.items || []).length;
-  const tournamentCount = profile.tournament?.active || profile.tournament?.status !== "idle" ? 1 : 0;
-  return [
-    { id: "legacy-decks", label: "Legacy Decks", count: Object.keys(profile.commanders || {}).length, destination: "Deck Nexus", status: "Not Ready", page: "decks" },
-    { id: "legacy-collection", label: "Legacy Collection", count: (profile.archives || []).length, destination: "Deck Nexus", status: "Not Ready", page: "archive" },
-    { id: "legacy-profiles", label: "Legacy Profiles", count: 1, destination: "Future Hub", status: "Preserved", page: "profile" },
-    { id: "legacy-friends", label: "Legacy Friends", count: friendCount, destination: "Future Hub", status: "Not Ready", optionsCategory: "friends" },
-    { id: "legacy-tournaments", label: "Legacy Tournaments", count: tournamentCount, destination: "Future Hub", status: "Not Ready", page: "tournament" },
-    { id: "legacy-notifications", label: "Legacy Notifications", count: notificationCount, destination: "Future Hub", status: "Preserved", optionsCategory: "notifications" },
-    { id: "legacy-saves", label: "Legacy Saves", count: (profile.localSaves?.items || []).length, destination: "BoardState archive", status: "Preserved", optionsCategory: "saves" },
-  ];
+  return buildLegacyDataInventory(profile).categories;
 }
 
 function formatSessionMode(session = {}) {
