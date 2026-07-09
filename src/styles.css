@@ -1014,6 +1014,21 @@ body[data-composition="widescreen"] .battlefield-group .tile-grid {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
+.session-details-panel {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.session-details-panel section,
+.linked-session-card {
+  border-color: rgba(146, 211, 255, 0.18);
+  background: rgba(5, 12, 24, 0.34);
+}
+
+.session-details-panel p {
+  margin: 0.18rem 0;
+}
+
 .rules-status-pill.is-enforced {
   border-color: rgba(103, 232, 143, 0.45);
 }

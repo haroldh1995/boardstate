@@ -64,6 +64,8 @@ export function validateSharedGameSession(input = null) {
   const version = validateVersionSet(session);
   if (!version.valid) return version;
   if (!Array.isArray(session.players)) errors.push("players must be an array");
+  if (!isObject(session.activeInterfaceByPlayer)) errors.push("activeInterfaceByPlayer must be an object");
+  if (!isObject(session.sessionCapabilities)) errors.push("sessionCapabilities must be an object");
   return errors.length ? createValidationResult("invalid", errors) : createValidationResult("valid");
 }
 

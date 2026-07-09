@@ -17,6 +17,12 @@ import {
   boardStateProfileToSharedSession,
 } from "../shared-contracts/index.js";
 import {
+  createSharedSessionExport,
+  buildSessionDetailsModel,
+  getLinkedSessionRecords,
+  parseLinkedSessionSnapshot,
+} from "../shared-session/handoff.js";
+import {
   buildBugReport,
   buildDebugState,
   buildGameLog,
@@ -1085,8 +1091,8 @@ export function mountApp(root, store) {
     );
     container.querySelectorAll("[data-tutorial-save-current]").forEach((button) =>
       button.addEventListener("click", () => {
-        store.dispatch({ type: "LOCAL_SAVE_CURRENT", saveName: "Tutorial Checkpoint" });
-        showNotice("Current tutorial game saved.");
+        store.dispatch({ type: "LOCAL_SAVE_CURRENT", saveName: button.dataset.saveName || "Session Checkpoint" });
+        showNotice("Current session saved.");
       })
     );
     container.querySelectorAll("[data-tutorial-load-save]").forEach((button) =>
@@ -1168,6 +1174,83 @@ export function mountApp(root, store) {
           return;
         }
         downloadText(`${(save.saveName || "boardstate-save").replace(/[^a-z0-9_-]+/gi, "-")}.json`, exportLocalSave(save), "application/json");
+      })
+    );
+    container.querySelectorAll("[data-linked-session-import]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const text = prompt("Paste canonical linked-session JSON or BoardState handoff bundle.");
+        if (!text) return;
+        const parsed = parseLinkedSessionSnapshot(text);
+        if (!parsed.valid) {
+          showNotice(parsed.errors?.[0] || "Linked session import failed.", "warning");
+          return;
+        }
+        store.dispatch({ type: "IMPORT_LINKED_SESSION", text, sessionName: button.dataset.linkedSessionName || "" });
+        showNotice("Linked session imported.");
+      })
+    );
+    container.querySelectorAll("[data-linked-session-continue]").forEach((button) =>
+      button.addEventListener("click", () => {
+        openConfirmation({
+          id: "linked-session-continue",
+          title: "Open linked session in Advanced Mode?",
+          message: "This replaces the current active session view. Save the current session first if you need a checkpoint.",
+          confirmLabel: "Continue in Advanced Mode",
+          payload: { sessionId: button.dataset.linkedSessionContinue || "" },
+        });
+      })
+    );
+    container.querySelectorAll("[data-linked-session-duplicate]").forEach((button) =>
+      button.addEventListener("click", () => {
+        openConfirmation({
+          id: "linked-session-duplicate",
+          title: "Duplicate linked session as Advanced game?",
+          message: "This creates a new Advanced session from the linked snapshot and replaces the current active session view.",
+          confirmLabel: "Duplicate as Advanced Game",
+          payload: { sessionId: button.dataset.linkedSessionDuplicate || "" },
+        });
+      })
+    );
+    container.querySelectorAll("[data-linked-session-remove]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openConfirmation({
+          id: "linked-session-remove",
+          title: "Remove linked session?",
+          message: "This removes only the imported linked-session record. Existing saves and active games are not deleted.",
+          confirmLabel: "Remove Linked Session",
+          danger: true,
+          payload: { sessionId: button.dataset.linkedSessionRemove },
+        })
+      )
+    );
+    container.querySelectorAll("[data-linked-session-export]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const state = store.getState();
+        const record = getLinkedSessionRecords(state).find((entry) => entry.sessionId === button.dataset.linkedSessionExport);
+        const text = record?.session
+          ? JSON.stringify({ app: "BoardState", bundleType: "boardstate-shared-session-handoff", sourceApp: record.sourceApp, session: record.session }, null, 2)
+          : createSharedSessionExport(state).text;
+        await copyOrDownloadText(`boardstate-shared-session-${button.dataset.linkedSessionExport || "current"}.json`, text, "Shared session handoff data copied.");
+      })
+    );
+    container.querySelectorAll("[data-export-shared-session]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const exported = createSharedSessionExport(store.getState());
+        if (!exported.valid) {
+          showNotice(exported.errors?.[0] || "Shared session export is unsafe.", "warning");
+          return;
+        }
+        await copyOrDownloadText("boardstate-shared-session.json", exported.text, button.dataset.exportSharedSession === "download" ? "Shared session bundle prepared." : "Shared session handoff data copied.");
+      })
+    );
+    container.querySelectorAll("[data-download-shared-session]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const exported = createSharedSessionExport(store.getState());
+        if (!exported.valid) {
+          showNotice(exported.errors?.[0] || "Shared session export is unsafe.", "warning");
+          return;
+        }
+        downloadText("boardstate-shared-session.json", exported.text, "application/json");
       })
     );
     container.querySelectorAll("[data-local-save-import]").forEach((input) =>
@@ -3206,19 +3289,19 @@ export function mountApp(root, store) {
   function openLinkedGameEntry() {
     const state = store.getState();
     const linked = getLinkedSessionCandidate(state);
-    if (linked?.saveId) {
+    if (linked?.sessionId && !linked.saveId) {
       openConfirmation({
-        id: "local-save-load",
-        title: "Load linked session?",
-        message: `Load ${linked.saveName || "the linked session snapshot"} from ${linked.sourceApp || "external source"}?`,
-        confirmLabel: "Load Linked Game",
-        payload: { saveId: linked.saveId },
+        id: "linked-session-continue",
+        title: "Open linked session in Advanced Mode?",
+        message: `Open ${linked.sourceApp || "external"} session ${linked.sessionId}? Save the current session first if needed.`,
+        confirmLabel: "Continue in Advanced Mode",
+        payload: { sessionId: linked.sessionId },
       });
       return;
     }
     optionsOpen = true;
     activeOptionsCategory = "linked-apps";
-    showNotice("No linked game is available yet. BoardState Lite linking is prepared for a later integration.", "info");
+    showNotice(linked?.saveId ? "Open the linked save from Linked Apps after import validation." : "No linked game is active. Import a canonical session or export the current session for future Lite handoff.", "info");
   }
 
   function startOrResumeTutorialFromHome() {
@@ -3943,6 +4026,26 @@ export function mountApp(root, store) {
           showNotice("Local save deleted.");
         }
         break;
+      case "linked-session-remove":
+        if (payload?.sessionId) {
+          store.dispatch({ type: "REMOVE_LINKED_SESSION", sessionId: payload.sessionId });
+          showNotice("Linked session removed.");
+        }
+        break;
+      case "linked-session-continue":
+        if (payload?.sessionId) {
+          store.dispatch({ type: "CONTINUE_LINKED_SESSION", sessionId: payload.sessionId });
+          setActivePage("battlefield");
+          showNotice("Linked session opened in Advanced Mode.");
+        }
+        break;
+      case "linked-session-duplicate":
+        if (payload?.sessionId) {
+          store.dispatch({ type: "DUPLICATE_LINKED_SESSION", sessionId: payload.sessionId });
+          setActivePage("battlefield");
+          showNotice("Linked session duplicated as a new Advanced game.");
+        }
+        break;
       case "load-tutorial-sample":
         store.dispatch({ type: "LOAD_TUTORIAL_SAMPLE_BOARD" });
         setActivePage("battlefield");
@@ -4448,6 +4551,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
             <small class="app-header-role">Advanced gameplay engine</small>
           </div>
           <div class="header-actions">
+            <button class="pill" data-home-action="linked-apps">Advanced Mode</button>
             ${renderRulesStatusPill(profile)}
             <button class="pill" data-game-options>Game Options</button>
             <button class="pill" data-undo>Undo</button>
@@ -4520,6 +4624,8 @@ function renderBoardStateHome(profile = {}) {
           <p>Focused on Dry Run simulation, full advanced gameplay, tutorial practice, canonical saves, linked-session preparation, and rules-engine authority.</p>
         </div>
         <div class="home-hero-status">
+          <span class="status-chip success">${escapeHtml(model.interfaceStatus.label)}</span>
+          <span class="status-chip">${escapeHtml(model.interfaceStatus.connected ? "Connected to shared session" : model.interfaceStatus.simpleModeMessage)}</span>
           <span class="status-chip ${model.rules.mode === "waived" ? "warning" : "success"}">${escapeHtml(model.rules.label)}</span>
           <span class="status-chip">${escapeHtml(model.currentSession.modeLabel)}</span>
           <span class="status-chip">Schema ${escapeHtml(model.versions.schemaVersion)}</span>
@@ -4535,6 +4641,7 @@ function renderBoardStateHome(profile = {}) {
         ${renderHomeActionCard("recent-simulations", "Recent Simulations", `${model.recentSimulations.length} saved or completed simulation record(s).`, "SIM")}
       </div>
       <div class="home-secondary-grid">
+        ${renderHomeInterfaceStatus(model.interfaceStatus)}
         ${renderHomeRulesControl(model.rules)}
         ${renderHomeLinkedStatus(model.linkedApps)}
         ${renderHomeSaveSummary(model)}
@@ -4551,6 +4658,21 @@ function renderHomeActionCard(action, title, description, glyph, variant = "", d
       <strong>${escapeHtml(title)}</strong>
       <small>${escapeHtml(description)}</small>
     </button>
+  `;
+}
+
+function renderHomeInterfaceStatus(status = {}) {
+  return `
+    <article class="home-status-card glass">
+      <p class="eyebrow">Interface Mode</p>
+      <h3>${escapeHtml(status.label || "Advanced Mode")}</h3>
+      <p>${escapeHtml(status.connected ? "Connected to shared session where applicable." : status.simpleModeMessage || "Simple Mode is prepared for a later BoardState Lite update.")}</p>
+      <small>${escapeHtml(status.returnMessage || "Export session handoff data for future Simple Mode consumers.")}</small>
+      <div class="button-grid mini">
+        <button data-export-shared-session="copy">Copy Session Handoff Data</button>
+        <button data-download-shared-session>Export Session for Simple Mode</button>
+      </div>
+    </article>
   `;
 }
 
@@ -7490,6 +7612,7 @@ function renderLocalSaveCard(save = {}) {
         <small>Created ${escapeHtml(created)} - Updated ${escapeHtml(updated)}</small>
         <small>Rules ${escapeHtml(rulesVersion)} - Schema ${escapeHtml(schema)} - ${escapeHtml(compatibility)}</small>
         <small>Source ${escapeHtml(save.sourceApp || metadata.sourceApp || "boardstate")} - Checksum ${escapeHtml(metadata.checksum || "n/a")}</small>
+        <small>Interface ${escapeHtml(metadata.localInterfaceMode || "boardstate-advanced")} - Revision ${escapeHtml(metadata.revision || 0)}</small>
       </div>
       <div class="button-grid mini">
         <button data-local-save-load="${escapeAttribute(save.saveId)}">Load</button>
@@ -7696,6 +7819,7 @@ function renderOptionsSubpage(profile, page, category) {
 
 function renderRulesOptionsSubpage(profile) {
   const rules = getRulesControlSummary(profile);
+  const details = buildSessionDetailsModel(profile);
   const strictPhase = Boolean(profile.settings?.strictPhaseEnforcement);
   const manualStack = Boolean(profile.settings?.manualStackConfirmation);
   const activeWaivers = profile.activeSession?.activeRuleWaivers || [];
@@ -7721,6 +7845,10 @@ function renderRulesOptionsSubpage(profile) {
           ${waiverHistory.slice(0, 8).map((entry) => `<p>${escapeHtml(entry.ruleCode || "Rule")} - ${escapeHtml(entry.status || entry.reason || "logged")}</p>`).join("") || "<p>No waiver history yet.</p>"}
         </div>
         <p>AI-controlled Dry Run players remain rules-enforced and cannot waive rules.</p>
+      </article>
+      <article class="option-card">
+        <h3>Session Details</h3>
+        ${renderSessionDetailsPanel(details)}
       </article>
     </div>
   `;
@@ -7800,11 +7928,28 @@ function renderSaveGroupSection(title, saves = []) {
 function renderLinkedAppsOptionsSubpage(profile) {
   const linkedApps = getLinkedAppStatusCards(profile);
   const linked = getLinkedSessionCandidate(profile);
+  const linkedRecords = getLinkedSessionRecords(profile);
+  const sessionDetails = buildSessionDetailsModel(profile);
   return `
     <div class="options-subpage">
       <article class="option-card">
         <h3>Continue Linked Game</h3>
-        ${linked ? `<p>${escapeHtml(linked.sourceApp || "External")} session ${escapeHtml(linked.sessionId || "local")} - Turn ${escapeHtml(linked.turn || 1)} - ${escapeHtml(linked.phase || "Beginning")}</p><button data-home-action="continue-linked">Load Supported Snapshot</button>` : `<p>No linked game exists yet. BoardState Lite handoff will be enabled in a later integration. You can import a shared session when adapters provide one.</p>`}
+        ${linked ? `<p>${escapeHtml(linked.sourceApp || "External")} session ${escapeHtml(linked.sessionId || "local")} - Turn ${escapeHtml(linked.turn || 1)} - ${escapeHtml(linked.phase || "Beginning")} - ${escapeHtml(linked.compatibility || "valid")}</p>` : `<p>No linked game exists yet. BoardState Lite handoff will be enabled in its own update. You can import a canonical shared-session bundle now, or export the current Advanced session for future Simple Mode consumers.</p>`}
+        <div class="button-grid">
+          ${linked ? `<button data-linked-session-continue="${escapeAttribute(linked.sessionId)}">Continue in Advanced Mode</button>` : ""}
+          <button data-tutorial-save-current>Save Current Session</button>
+          <button data-linked-session-import>Import Linked Session</button>
+          <button data-export-shared-session="copy">Copy Handoff JSON</button>
+          <button data-download-shared-session>Export Shared Session</button>
+        </div>
+      </article>
+      <article class="option-card">
+        <h3>Session Details</h3>
+        ${renderSessionDetailsPanel(sessionDetails)}
+      </article>
+      <article class="option-card">
+        <h3>Imported Linked Sessions</h3>
+        ${linkedRecords.length ? linkedRecords.map(renderLinkedSessionCard).join("") : "<p>No imported linked-session snapshots. Simple Mode live linking is not installed yet.</p>"}
       </article>
       ${linkedApps.map((app) => `
         <article class="option-card linked-app-card">
@@ -7813,12 +7958,71 @@ function renderLinkedAppsOptionsSubpage(profile) {
             <span class="option-status-badge">${escapeHtml(app.status)}</span>
           </div>
           <div class="button-grid">
-            <button disabled>${app.status === "Not Linked" ? "Coming after app preparation" : "View Capability"}</button>
+            ${app.appId === "boardstate-lite" ? `<button data-linked-session-import>Import Linked Session</button><button data-export-shared-session="copy">Export Shared Session</button><button disabled>Return to Simple Mode Coming After Lite Update</button>` : `<button disabled>${app.status === "Not Linked" ? "Coming after app preparation" : "View Capability"}</button>`}
           </div>
         </article>
       `).join("")}
     </div>
   `;
+}
+
+function renderSessionDetailsPanel(details = {}) {
+  const capabilities = details.linkedApps?.capabilities || {};
+  return `
+    <div class="session-details-panel">
+      <section>
+        <p class="eyebrow">Session Identity</p>
+        <p>Game ${escapeHtml(details.identity?.gameId || "unknown")} - Session ${escapeHtml(details.identity?.sessionId || "unknown")} - Revision ${escapeHtml(details.identity?.revision || 0)}</p>
+        <p>Source ${escapeHtml(details.identity?.sourceApp || "boardstate")} - Updated ${formatTimestamp(details.identity?.updatedAt || 0)}</p>
+      </section>
+      <section>
+        <p class="eyebrow">Players</p>
+        ${(details.players || []).map((player) => `<p>${escapeHtml(player.displayName || player.playerId)} - ${escapeHtml(player.controllerType || "human")} - ${escapeHtml(player.activeInterface || "unknown")} - Life ${escapeHtml(player.life ?? "")}</p>`).join("") || "<p>Runtime player data will be inferred when the session is opened.</p>"}
+      </section>
+      <section>
+        <p class="eyebrow">Rules</p>
+        <p>Rules ${escapeHtml(details.rules?.rulesEngineVersion || DEFAULT_RULES_ENGINE_VERSION)} - ${escapeHtml(details.rules?.enforcementMode || "enforced")} - Schema ${escapeHtml(details.rules?.schemaVersion || SHARED_CONTRACT_SCHEMA_VERSION)}</p>
+        <p>${escapeHtml((details.rules?.activeWaivers || []).length)} active waiver(s)</p>
+      </section>
+      <section>
+        <p class="eyebrow">Linked Apps / Capabilities</p>
+        <p>BoardState Lite: ${escapeHtml(details.linkedApps?.boardStateLite || "Waiting for Lite Update")} - Deck Nexus: ${escapeHtml(details.linkedApps?.deckNexus || "Not Linked")} - Hub: ${escapeHtml(details.linkedApps?.hub || "Not Linked")}</p>
+        <p>Export ${capabilities.supportsHandoffExport ? "supported" : "unavailable"} - Import ${capabilities.supportsHandoffImport ? "supported" : "unavailable"} - Mirrored Advanced ${capabilities.supportsMirroredAdvancedView ? "supported" : "not installed"}</p>
+      </section>
+      <section>
+        <p class="eyebrow">Compatibility</p>
+        <p>${escapeHtml(details.compatibility?.status || "valid")}</p>
+        ${(details.compatibility?.warnings || []).map((warning) => `<p>${escapeHtml(warning)}</p>`).join("")}
+      </section>
+    </div>
+  `;
+}
+
+function renderLinkedSessionCard(record = {}) {
+  const session = record.session || {};
+  const players = session.players || [];
+  const activePlayer = players.find((player) => player.playerId === session.turnState?.activePlayerId);
+  return `
+    <section class="local-save-card linked-session-card">
+      <div>
+        <strong>${escapeHtml(record.sessionName || "Linked Session")}</strong>
+        <small>${escapeHtml(record.sourceApp || "unknown")} - ${escapeHtml(record.gameId || "")}/${escapeHtml(record.sessionId || "")}</small>
+        <small>Turn ${escapeHtml(session.turnState?.turnNumber || 1)} - ${escapeHtml(session.turnState?.currentPhase || "beginning")} - Revision ${escapeHtml(record.revision || session.revision || 0)}</small>
+        <small>Active ${escapeHtml(activePlayer?.displayName || session.turnState?.activePlayerId || "unknown")} - ${escapeHtml(record.compatibility || "valid")}</small>
+        ${(record.warnings || []).slice(0, 3).map((warning) => `<small>Warning: ${escapeHtml(warning)}</small>`).join("")}
+      </div>
+      <div class="button-grid mini">
+        <button data-linked-session-continue="${escapeAttribute(record.sessionId)}">Continue in Advanced Mode</button>
+        <button data-linked-session-export="${escapeAttribute(record.sessionId)}">Export Session</button>
+        <button data-linked-session-duplicate="${escapeAttribute(record.sessionId)}">Duplicate as New Advanced Game</button>
+        <button class="danger-soft" data-linked-session-remove="${escapeAttribute(record.sessionId)}">Remove Linked Session</button>
+      </div>
+    </section>
+  `;
+}
+
+function formatTimestamp(value = 0) {
+  return value ? new Date(value).toLocaleString() : "Unknown";
 }
 
 function renderLegacyMigrationSubpage(profile) {
@@ -9343,6 +9547,13 @@ export function getBoardStateHomeModel(profile = {}) {
       turn: profile.activeSession?.turn || 1,
       phase: PHASES[profile.activeSession?.phaseIndex || 0] || "Beginning",
     },
+    interfaceStatus: {
+      label: "Advanced Mode",
+      localInterfaceMode: profile.activeSession?.localInterfaceMode || profile.activeSession?.interfaceMode || "boardstate-advanced",
+      connected: Boolean(profile.activeSession?.linkedSession?.imported || profile.activeSession?.linkedSession?.activeSync),
+      simpleModeMessage: "Simple Mode available after BoardState Lite integration.",
+      returnMessage: "Return to Simple Mode unavailable until Lite integration is installed. Export handoff data instead.",
+    },
     continueDryRun: getMostRecentDryRunSave(profile),
     linkedGame,
     saveGroups,
@@ -9431,6 +9642,19 @@ function getRecentSimulationEntries(profile = {}) {
 }
 
 function getLinkedSessionCandidate(profile = {}) {
+  const linkedRecord = getLinkedSessionRecords(profile)[0];
+  if (linkedRecord?.sessionId) {
+    return {
+      saveId: "",
+      sessionId: linkedRecord.sessionId,
+      sourceApp: linkedRecord.sourceApp,
+      status: linkedRecord.status || linkedRecord.compatibility || "imported",
+      turn: linkedRecord.session?.turnState?.turnNumber || 1,
+      phase: linkedRecord.session?.turnState?.currentPhase || "beginning",
+      revision: linkedRecord.revision || linkedRecord.session?.revision || 0,
+      compatibility: linkedRecord.compatibility || "valid",
+    };
+  }
   const current = profile.activeSession || {};
   if (current.linkedSession?.imported || current.linkedSession?.activeSync || (current.linkedSession?.sourceApp && current.linkedSession.sourceApp !== "boardstate")) {
     return {
@@ -9462,15 +9686,21 @@ function getLinkedSessionCandidate(profile = {}) {
 export function getLinkedAppStatusCards(profile = {}) {
   const appLinks = profile.settings?.linkedApps || {};
   const current = profile.activeSession?.linkedSession || {};
-  const liteLinked = current.sourceApp === "boardstate-lite" || appLinks.boardstateLite?.linked;
+  const linkedRecords = getLinkedSessionRecords(profile);
+  const liteImported = linkedRecords.some((entry) => entry.sourceApp === "boardstate-lite");
+  const liteLinked = (current.sourceApp === "boardstate-lite" && current.imported) || appLinks.boardstateLite?.linked;
   const nexusLinked = appLinks.deckNexus?.linked;
   return [
     {
       appId: "boardstate-lite",
       title: "BoardState Lite",
-      status: liteLinked ? "Session Available" : "Not Linked",
-      detail: liteLinked ? `Last source: ${current.status || "local snapshot"}` : "Lite handoff is prepared for a later integration.",
-      capabilities: liteLinked ? ["continue-linked-game"] : ["import-shared-session"],
+      status: liteLinked ? "Linked Session Active" : liteImported ? "Linked Session Imported" : "Export Supported",
+      detail: liteLinked
+        ? `Last source: ${current.status || "local snapshot"}`
+        : liteImported
+          ? "A Lite-shaped canonical session is stored locally and can continue in Advanced Mode."
+          : "Waiting for Lite update. Import/export handoff bundles are supported; live Lite linking is not installed.",
+      capabilities: liteLinked || liteImported ? ["continue-linked-game", "export-shared-session", "view-session-details"] : ["import-linked-session", "export-shared-session", "waiting-for-lite-update"],
     },
     {
       appId: "deck-nexus",

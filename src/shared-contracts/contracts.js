@@ -113,6 +113,29 @@ export const EVENT_TYPES = Object.freeze([
   "SAVE_LOADED",
 ]);
 
+export function createSessionCapabilities(input = {}) {
+  return {
+    supportsAdvancedMode: Boolean(input.supportsAdvancedMode ?? true),
+    supportsSimpleMode: Boolean(input.supportsSimpleMode ?? false),
+    supportsRulesEngine: Boolean(input.supportsRulesEngine ?? true),
+    supportsEnforcedRules: Boolean(input.supportsEnforcedRules ?? true),
+    supportsWaiveRules: Boolean(input.supportsWaiveRules ?? true),
+    supportsStack: Boolean(input.supportsStack ?? true),
+    supportsPriority: Boolean(input.supportsPriority ?? true),
+    supportsCombat: Boolean(input.supportsCombat ?? true),
+    supportsFullBattlefield: Boolean(input.supportsFullBattlefield ?? true),
+    supportsLiteCompactBattlefield: Boolean(input.supportsLiteCompactBattlefield ?? false),
+    supportsHiddenInformation: Boolean(input.supportsHiddenInformation ?? true),
+    supportsDeckSnapshots: Boolean(input.supportsDeckSnapshots ?? false),
+    supportsHandoffExport: Boolean(input.supportsHandoffExport ?? true),
+    supportsHandoffImport: Boolean(input.supportsHandoffImport ?? true),
+    supportsLiveSync: Boolean(input.supportsLiveSync ?? false),
+    supportsMirroredAdvancedView: Boolean(input.supportsMirroredAdvancedView ?? false),
+    supportsTournamentReference: Boolean(input.supportsTournamentReference ?? true),
+    supportsSaveRoundTrip: Boolean(input.supportsSaveRoundTrip ?? true),
+  };
+}
+
 export function createSharedProfileReference(input = {}) {
   const now = Date.now();
   return {
@@ -242,12 +265,15 @@ export function createDeckSnapshot(input = {}) {
 export function createSharedGameSession(input = {}) {
   const versionInfo = getSharedVersionInfo(input);
   const now = Date.now();
+  const localInterfaceMode = INTERFACE_MODES.includes(input.localInterfaceMode) ? input.localInterfaceMode : "boardstate-advanced";
+  const preferredInterfaceMode = INTERFACE_MODES.includes(input.preferredInterfaceMode) ? input.preferredInterfaceMode : localInterfaceMode;
   return {
     gameId: normalizeContractId(input.gameId || input.id || createContractId("gameId"), "gameId"),
     sessionId: normalizeContractId(input.sessionId || input.gameId || input.id || createContractId("sessionId"), "sessionId"),
     schemaVersion: versionInfo.schemaVersion,
     rulesEngineVersion: versionInfo.rulesEngineVersion,
     syncProtocolVersion: versionInfo.syncProtocolVersion,
+    sourceApp: APP_IDS.includes(input.sourceApp) ? input.sourceApp : String(input.sourceApp || "boardstate"),
     format: String(input.format || "commander"),
     status: GAME_STATUSES.includes(input.status) ? input.status : "setup",
     createdAt: Number(input.createdAt || now),
@@ -255,6 +281,14 @@ export function createSharedGameSession(input = {}) {
     revision: Math.max(0, Number(input.revision || 0)),
     hostPlayerId: input.hostPlayerId ? normalizeContractId(input.hostPlayerId, "playerId") : "local-player",
     activeInterfaceByPlayer: clonePlain(input.activeInterfaceByPlayer || {}),
+    interfaceModeHistory: Array.isArray(input.interfaceModeHistory) ? clonePlain(input.interfaceModeHistory) : [],
+    localInterfaceMode,
+    preferredInterfaceMode,
+    lastInterfaceSwitchAt: Number(input.lastInterfaceSwitchAt || 0),
+    lastInterfaceSwitchBy: String(input.lastInterfaceSwitchBy || ""),
+    interfaceSwitchRevision: Math.max(0, Number(input.interfaceSwitchRevision || 0)),
+    linkedSimpleSessionReference: clonePlain(input.linkedSimpleSessionReference || null),
+    linkedAdvancedSessionReference: clonePlain(input.linkedAdvancedSessionReference || null),
     enforcementMode: ENFORCEMENT_MODES.includes(input.enforcementMode) ? input.enforcementMode : "enforced",
     activeRuleWaivers: Array.isArray(input.activeRuleWaivers) ? input.activeRuleWaivers.map(createRuleWaiver) : [],
     players: Array.isArray(input.players) ? input.players.map(createCanonicalPlayer) : [],
@@ -273,7 +307,7 @@ export function createSharedGameSession(input = {}) {
     tournamentReference: input.tournamentReference ? createTournamentReference(input.tournamentReference) : null,
     deckSnapshotReferences: Array.isArray(input.deckSnapshotReferences) ? clonePlain(input.deckSnapshotReferences) : [],
     saveMetadata: clonePlain(input.saveMetadata || {}),
-    sessionCapabilities: clonePlain(input.sessionCapabilities || {}),
+    sessionCapabilities: createSessionCapabilities(input.sessionCapabilities || {}),
     historyMetadata: clonePlain(input.historyMetadata || {}),
   };
 }

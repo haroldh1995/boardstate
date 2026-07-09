@@ -2,9 +2,21 @@
 
 ## App
 - Name: BoardState
-- Version: 1.19.0
-- Version code: 34
+- Version: 1.20.0
+- Version code: 35
 - Package: `com.boardstate.app`
+
+## Version 1.20.0
+- Adds shared-session handoff infrastructure for future BoardState Lite Simple Mode and original BoardState Advanced Mode continuity without claiming live Lite integration.
+- Adds persisted canonical interface mode state, `activeInterfaceByPlayer`, interface mode history, local/preferred interface metadata, switch revisions, and `INTERFACE_MODE_CHANGED` event records.
+- Identifies original BoardState as Advanced Mode on the home screen, battlefield header, session details, linked-app views, save metadata, and shared-session exports.
+- Adds canonical linked-session snapshot import and safe Advanced continuation from valid external/simple-shaped session bundles, with missing-data warnings and Manual Choice readiness.
+- Adds shared-session export, copy handoff JSON, and downloadable handoff bundle actions for future Simple Mode, Hub, and migration consumers while excluding private credentials.
+- Completes Continue Linked Game with real imported canonical session records, session details, duplicate-as-Advanced, remove, import, and export actions plus honest empty states.
+- Adds session capability metadata for Advanced Mode, rules engine, enforcement, waivers, stack, priority, combat, handoff import/export, save round trips, and unavailable mirrored/Lite live features.
+- Updates sync/save adapters to preserve interface metadata, source app, capabilities, enforcement mode, schema/rules versions, revisions, linked-session metadata, and legacy Advanced Mode defaults.
+- Adds focused regression coverage for interface defaults, interface events, export/import round trips, linked sessions, malformed imports, sync metadata, legacy save defaults, and no false Lite status.
+- Updates production web package metadata, Android wrapper metadata, Flutter wrapper metadata, local package artifacts, and release notes for version 1.20.0.
 
 ## Version 1.19.0
 - Streamlines BoardState around the focused Advanced Gameplay, Dry Run, Tutorial, Saves, Linked Sessions, Rules, Accessibility, and Legacy & Migration experience.

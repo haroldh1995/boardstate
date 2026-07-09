@@ -7,6 +7,7 @@ import {
   legacySaveToCanonicalSaveEnvelope,
   validateSaveEnvelope,
 } from "../shared-contracts/index.js";
+import { ensureInterfaceModeState } from "../shared-session/handoff.js";
 
 export const SAVE_STATE_VERSION = 1;
 
@@ -66,13 +67,14 @@ export function loadLocalSave(profile, saveId = "") {
     return withSaveError(profile, validation.reason || "Save could not be loaded.");
   }
   const gameState = clone(save.gameState || {});
+  const activeSession = ensureInterfaceModeState(gameState.activeSession || profile.activeSession || {});
   return {
     ...profile,
     settings: {
       ...(profile.settings || {}),
       ...(gameState.settingsSnapshot?.restoreSettings ? sanitizeSettingsSnapshot(gameState.settingsSnapshot) : {}),
     },
-    activeSession: clone(gameState.activeSession || profile.activeSession),
+    activeSession,
     localSaves: {
       ...collection,
       activeSaveId: save.saveId,
@@ -227,7 +229,7 @@ export function validateLocalSave(save = null) {
 export function buildLocalSave(profile, options = {}) {
   const now = Date.now();
   const profileId = profile.player?.id || profile.id || "local-player";
-  const activeSession = clone(profile.activeSession || {});
+  const activeSession = ensureInterfaceModeState(clone(profile.activeSession || {}));
   const sharedVersions = {
     schemaVersion: SHARED_CONTRACT_SCHEMA_VERSION,
     rulesEngineVersion: DEFAULT_RULES_ENGINE_VERSION,
@@ -240,7 +242,14 @@ export function buildLocalSave(profile, options = {}) {
     ...sharedVersions,
     ownerApp: "boardstate",
     sourceApp: activeSession.sourceApp || "boardstate",
+    originalSourceApp: activeSession.saveMetadata?.originalSourceApp || activeSession.linkedSession?.sourceApp || activeSession.sourceApp || "boardstate",
     sourceSession: activeSession.sessionId || activeSession.id || "",
+    activeInterfaceByPlayer: clone(activeSession.activeInterfaceByPlayer || {}),
+    localInterfaceMode: activeSession.localInterfaceMode || activeSession.interfaceMode || "boardstate-advanced",
+    linkedSession: clone(activeSession.linkedSession || {}),
+    importedFrom: activeSession.linkedSession?.sourceApp && activeSession.linkedSession.sourceApp !== "boardstate" ? activeSession.linkedSession.sourceApp : "",
+    exportedTo: clone(activeSession.saveMetadata?.exportedTo || []),
+    capabilities: clone(activeSession.sessionCapabilities || {}),
     profileId,
     profileName: profile.player?.name || "Player",
     createdAt: Number(options.createdAt || now),
@@ -279,7 +288,16 @@ export function buildLocalSave(profile, options = {}) {
       ...sharedVersions,
       ownerApp: "boardstate",
       sourceApp: activeSession.sourceApp || "boardstate",
+      originalSourceApp: activeSession.saveMetadata?.originalSourceApp || activeSession.linkedSession?.sourceApp || activeSession.sourceApp || "boardstate",
       sourceSession: activeSession.sessionId || activeSession.id || "",
+      activeInterfaceByPlayer: clone(activeSession.activeInterfaceByPlayer || {}),
+      localInterfaceMode: activeSession.localInterfaceMode || activeSession.interfaceMode || "boardstate-advanced",
+      linkedSession: clone(activeSession.linkedSession || {}),
+      importedFrom: activeSession.linkedSession?.sourceApp && activeSession.linkedSession.sourceApp !== "boardstate" ? activeSession.linkedSession.sourceApp : "",
+      exportedTo: clone(activeSession.saveMetadata?.exportedTo || []),
+      capabilities: clone(activeSession.sessionCapabilities || {}),
+      revision: Number(activeSession.revision || 0),
+      compatibilityWarnings: clone(activeSession.saveMetadata?.compatibilityWarnings || []),
       mode: activeSession.tutorial?.active || activeSession.tutorial?.completionPending ? "tutorial" : activeSession.simulation?.enabled ? "dry-run" : "normal",
       linkedAppReferences: activeSession.saveMetadata?.linkedAppReferences || [],
       migrationStatus: activeSession.saveMetadata?.migrationStatus || "current",
@@ -294,6 +312,15 @@ export function buildLocalSave(profile, options = {}) {
 
 function normalizeLocalSave(save = {}) {
   if (!save || typeof save !== "object") return null;
+  const metadata = {
+    activeInterfaceByPlayer: clone(save.metadata?.activeInterfaceByPlayer || save.activeInterfaceByPlayer || save.gameState?.activeSession?.activeInterfaceByPlayer || { "local-player": "boardstate-advanced" }),
+    localInterfaceMode: save.metadata?.localInterfaceMode || save.localInterfaceMode || save.gameState?.activeSession?.localInterfaceMode || save.gameState?.activeSession?.interfaceMode || "boardstate-advanced",
+    capabilities: clone(save.metadata?.capabilities || save.capabilities || save.gameState?.activeSession?.sessionCapabilities || {}),
+    linkedSession: clone(save.metadata?.linkedSession || save.linkedSession || save.gameState?.activeSession?.linkedSession || {}),
+    revision: Number(save.metadata?.revision || save.revision || save.gameState?.activeSession?.revision || 0),
+    compatibilityWarnings: clone(save.metadata?.compatibilityWarnings || []),
+    ...(save.metadata || {}),
+  };
   return {
     saveId: save.saveId || "",
     saveName: save.saveName || "BoardState Save",
@@ -312,7 +339,7 @@ function normalizeLocalSave(save = {}) {
     gameState: clone(save.gameState || {}),
     tutorialState: clone(save.tutorialState || {}),
     settingsSnapshot: sanitizeSettingsSnapshot(save.settingsSnapshot || {}),
-    metadata: clone(save.metadata || {}),
+    metadata,
     canonicalEnvelope: save.canonicalEnvelope ? clone(save.canonicalEnvelope) : null,
   };
 }

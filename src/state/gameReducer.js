@@ -91,6 +91,14 @@ import {
   SHARED_CONTRACT_SCHEMA_VERSION,
   SHARED_SYNC_PROTOCOL_VERSION,
 } from "../shared-contracts/version.js";
+import {
+  duplicateLinkedSessionAsAdvanced,
+  ensureInterfaceModeState,
+  importLinkedSessionSnapshot,
+  recordInterfaceModeChange,
+  removeLinkedSession,
+  restoreLinkedSessionAsAdvanced,
+} from "../shared-session/handoff.js";
 
 export function reduceProfile(profile, event) {
   const actionType = event.actionType || event.type;
@@ -339,6 +347,29 @@ export function reduceProfile(profile, event) {
       break;
     case "START_ADVANCED_GAMEPLAY":
       nextProfile = startAdvancedGameplay(baseProfile, event);
+      break;
+    case "SWITCH_INTERFACE_MODE":
+      nextProfile = withSession(baseProfile, recordInterfaceModeChange(baseProfile.activeSession, {
+        playerId: event.playerId || baseProfile.player?.id || "local-player",
+        nextInterface: event.nextInterface || event.interfaceMode || "boardstate-advanced",
+        reason: event.reason || "Interface mode metadata updated.",
+        sourceApp: event.sourceApp || "boardstate",
+      }));
+      break;
+    case "IMPORT_LINKED_SESSION":
+      nextProfile = importLinkedSessionSnapshot(baseProfile, event.snapshot || event.payload || event.text || {}, {
+        sessionName: event.sessionName || "",
+        activate: Boolean(event.activate),
+      }).profile;
+      break;
+    case "CONTINUE_LINKED_SESSION":
+      nextProfile = restoreLinkedSessionAsAdvanced(baseProfile, event.sessionId || event.linkedSessionId || "").profile;
+      break;
+    case "DUPLICATE_LINKED_SESSION":
+      nextProfile = duplicateLinkedSessionAsAdvanced(baseProfile, event.sessionId || event.linkedSessionId || "").profile;
+      break;
+    case "REMOVE_LINKED_SESSION":
+      nextProfile = removeLinkedSession(baseProfile, event.sessionId || event.linkedSessionId || "");
       break;
     case "STOP_GAME_TRACKING":
       nextProfile = withSession(baseProfile, stopGameTracking(baseProfile.activeSession));
@@ -4557,7 +4588,7 @@ function normalizeSessionMetadata(session = {}, options = {}) {
   const sessionId = session.sessionId || session.id || createId("session");
   const enforcementMode = options.enforcementMode === "waived" || session.enforcementMode === "waived" ? "waived" : "enforced";
   const mode = options.mode || session.saveMetadata?.mode || session.gameTracking?.mode || (session.simulation?.enabled ? "dry-run" : "training-ground");
-  return {
+  return ensureInterfaceModeState({
     ...session,
     id: session.id || gameId,
     gameId,
@@ -4591,7 +4622,7 @@ function normalizeSessionMetadata(session = {}, options = {}) {
       ...(options.linkedSession || {}),
     },
     updatedAt: now,
-  };
+  });
 }
 
 function setRulesEnforcementMode(profile, mode = "enforced") {
