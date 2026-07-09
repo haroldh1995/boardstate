@@ -572,8 +572,20 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-rules-mode]").forEach((button) => {
       button.addEventListener("click", () => {
-        store.dispatch({ type: "SET_ENFORCEMENT_MODE", mode: button.dataset.rulesMode || "enforced" });
-        showNotice(button.dataset.rulesMode === "waived" ? "Rules Waived mode enabled." : "Rules Enforced mode enabled.");
+        const requestedMode = button.dataset.rulesMode === "waived" ? "waived" : "enforced";
+        const currentMode = store.getState().activeSession?.enforcementMode || "enforced";
+        if (requestedMode === "waived" && currentMode !== "waived") {
+          openConfirmation({
+            id: "rules-waived-mode",
+            title: "Enable Rules Waived mode?",
+            message: "BoardState will keep using the rules engine, log waivers, and keep AI players rules-enforced. Non-waivable errors and Manual Choice Required states are still not bypassed.",
+            confirmLabel: "Enable Waive Rules",
+            danger: true,
+          });
+          return;
+        }
+        store.dispatch({ type: "SET_ENFORCEMENT_MODE", mode: requestedMode });
+        showNotice(requestedMode === "waived" ? "Rules Waived mode enabled." : "Rules Enforced mode enabled.");
       });
     });
     container.querySelector("[data-revoke-waivers]")?.addEventListener("click", () => {
@@ -4245,6 +4257,10 @@ export function mountApp(root, store) {
       case "reset-hud-layout":
         resetHudLayout();
         showNotice("HUD layout reset.");
+        break;
+      case "rules-waived-mode":
+        store.dispatch({ type: "SET_ENFORCEMENT_MODE", mode: "waived" });
+        showNotice("Rules Waived mode enabled with waiver history logging.");
         break;
       case "reset-life-trackers":
         dispatchWithFeedback({ type: "RESET_PLAYER_TRACKERS" }, true);

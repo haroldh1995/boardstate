@@ -143,7 +143,7 @@ test("linked app cards never claim live Lite linking before an imported/active s
   const cards = getLinkedAppStatusCards(createDefaultProfile());
   const lite = cards.find((entry) => entry.appId === "boardstate-lite");
   assert.equal(lite.status, "Handoff Import/Export Supported");
-  assert.match(lite.detail, /live Lite linking is not installed/i);
+  assert.match(lite.detail, /Live Link Not Installed/i);
   assert.equal(lite.capabilities.includes("waiting-for-lite-update"), true);
 });
 

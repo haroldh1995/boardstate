@@ -484,9 +484,9 @@ export function buildSessionDetailsModel(profile = {}) {
       schemaVersion: session.schemaVersion || SHARED_CONTRACT_SCHEMA_VERSION,
     },
     linkedApps: {
-      boardStateLite: "Waiting for Lite Update",
-      deckNexus: profile.settings?.linkedApps?.deckNexus?.linked ? "Linked" : "Not Linked",
-      hub: "Not Linked",
+      boardStateLite: profile.settings?.linkedApps?.boardstateLite?.status || "Waiting for Lite Update",
+      deckNexus: profile.settings?.linkedApps?.deckNexus?.status || "Snapshot Import Supported",
+      hub: "Waiting for Hub",
       capabilities: session.sessionCapabilities || getBoardStateSessionCapabilities(),
     },
     compatibility: {

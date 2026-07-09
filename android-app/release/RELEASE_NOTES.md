@@ -2,9 +2,18 @@
 
 ## App
 - Name: BoardState
-- Version: 1.23.0
-- Version code: 38
+- Version: 1.24.0
+- Version code: 39
 - Package: `com.boardstate.app`
+
+## Version 1.24.0
+- Finalizes the original BoardState ecosystem preparation pass for the next BoardState Lite, Deck Nexus, and Hub prompt series.
+- Adds final handoff readiness documentation that states BoardState remains the authoritative advanced rules engine and that live Lite, Nexus, and Hub integrations are not yet claimed.
+- Hardens Rules Waived mode behind an explicit confirmation while preserving rules-engine validation, waiver logging, non-waivable errors, Manual Choice Required, and AI rules enforcement.
+- Updates linked-session details and bridge status copy to prefer honest import/export readiness labels over legacy linked flags.
+- Adds final regression coverage for future-app boundary documentation, false integration claims, honest linked-app statuses, and Rules Waived confirmation.
+- Preserves legacy data, non-destructive migration readiness, bridge adapters, shared sessions, Advanced Gameplay, mirrored Advanced Mode, Dry Run, Tutorial, saves, sync compatibility, and package workflows.
+- Updates production web package metadata, Android wrapper metadata, Flutter wrapper metadata, local package artifacts, and release notes for version 1.24.0.
 
 ## Version 1.23.0
 - Adds a non-destructive legacy migration readiness system that inventories profiles, protected profile metadata, decks, collections, physical table records, saves, tournaments, friends, notifications, sync data, settings, diagnostics, and unknown legacy blocks without mutating source data.

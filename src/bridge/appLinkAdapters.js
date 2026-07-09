@@ -711,7 +711,7 @@ export function getBoardStateLiteStatus(profile = {}) {
   if (imported.length) {
     return { status: "Imported Lite Session Available", linked: false, detail: `${imported.length} Lite snapshot(s) stored locally.` };
   }
-  return { status: "Handoff Import/Export Supported", linked: false, detail: "Waiting for Lite update; live Lite linking is not installed." };
+  return { status: "Handoff Import/Export Supported", linked: false, detail: "Waiting for Lite update; Live Link Not Installed." };
 }
 
 export function getDeckNexusStatus(profile = {}) {
@@ -719,7 +719,7 @@ export function getDeckNexusStatus(profile = {}) {
   if (snapshots.length) {
     return { status: "Imported Snapshots Available", linked: false, detail: `${snapshots.length} immutable deck snapshot(s) stored locally.` };
   }
-  return { status: "Snapshot Import Supported", linked: false, detail: "Waiting for Nexus update; no live link is installed." };
+  return { status: "Snapshot Import Supported", linked: false, detail: "Waiting for Nexus update; Live Link Not Installed." };
 }
 
 function parseBridgePayload(input = {}, options = {}) {
