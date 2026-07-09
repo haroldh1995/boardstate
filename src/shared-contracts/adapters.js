@@ -125,14 +125,18 @@ export function boardStateProfileToSharedSession(profile = {}, options = {}) {
           externalOwnerApp: "boardstate",
         })
       : null,
-    deckSnapshotReferences: Object.entries(profile.commanders || {}).map(([deckKey, deck]) => createDeckSnapshot({
-      deckSnapshotId: deck.deckSnapshotId || deckKey,
-      sourceDeckId: deckKey,
-      ownerProfileId: profile.id || localPlayerId,
-      name: deck.name || deck.commanderName || deckKey,
-      cards: deck.cards || [],
-      commanderIds: deck.commanderName ? [deck.commanderName] : [],
-    })),
+    deckSnapshotReferences: [
+      ...(session.deckSnapshotReferences || []),
+      ...Object.entries(profile.commanders || {}).map(([deckKey, deck]) => createDeckSnapshot({
+        deckSnapshotId: deck.deckSnapshotId || deckKey,
+        sourceDeckId: deckKey,
+        ownerProfileId: profile.id || localPlayerId,
+        name: deck.name || deck.commanderName || deckKey,
+        cards: deck.cards || [],
+        commanderIds: deck.commanderName ? [deck.commanderName] : [],
+      })),
+      ...(profile.importedData?.deckSnapshots || []).map((snapshot) => createDeckSnapshot(snapshot)),
+    ],
     saveMetadata: {
       ...(session.saveMetadata || {}),
       sourceApp: "boardstate",

@@ -9,6 +9,7 @@ import {
 } from "../shared-contracts/index.js";
 import { ensureInterfaceModeState } from "../shared-session/handoff.js";
 import { createAdvancedMultiplayerState } from "../shared-session/perspective.js";
+import { createImportedDataSnapshotForSession } from "../bridge/appLinkAdapters.js";
 
 export const SAVE_STATE_VERSION = 1;
 
@@ -77,9 +78,11 @@ export function loadLocalSave(profile, saveId = "") {
           viewMode: "solo-advanced",
           localPerspectivePlayerId: save.metadata?.localPerspectivePlayerId || "local-player",
           focusedOpponentId: save.metadata?.focusedOpponentId || "",
-        }
+      }
     ),
   });
+  const embeddedImported = save.metadata?.embeddedImportedData || gameState.importedDataSnapshot || {};
+  const currentImported = profile.importedData || {};
   return {
     ...profile,
     settings: {
@@ -87,6 +90,15 @@ export function loadLocalSave(profile, saveId = "") {
       ...(gameState.settingsSnapshot?.restoreSettings ? sanitizeSettingsSnapshot(gameState.settingsSnapshot) : {}),
     },
     activeSession,
+    importedData: {
+      version: currentImported.version || 1,
+      lastError: currentImported.lastError || "",
+      lastImportAt: currentImported.lastImportAt || 0,
+      liteSessions: mergeImportedById(currentImported.liteSessions, embeddedImported.liteSessions, "sessionId"),
+      deckSnapshots: mergeImportedById(currentImported.deckSnapshots, embeddedImported.deckSnapshots, "deckSnapshotId"),
+      sharedSessions: Array.isArray(currentImported.sharedSessions) ? currentImported.sharedSessions : [],
+      failedImports: Array.isArray(currentImported.failedImports) ? currentImported.failedImports : [],
+    },
     localSaves: {
       ...collection,
       activeSaveId: save.saveId,
@@ -243,6 +255,7 @@ export function buildLocalSave(profile, options = {}) {
   const profileId = profile.player?.id || profile.id || "local-player";
   const activeSession = ensureInterfaceModeState(clone(profile.activeSession || {}));
   const advancedMultiplayer = createAdvancedMultiplayerState(activeSession.advancedMultiplayer || {});
+  const importedDataSnapshot = createImportedDataSnapshotForSession(profile, activeSession);
   const sharedVersions = {
     schemaVersion: SHARED_CONTRACT_SCHEMA_VERSION,
     rulesEngineVersion: DEFAULT_RULES_ENGINE_VERSION,
@@ -289,6 +302,7 @@ export function buildLocalSave(profile, options = {}) {
       commander: clone(activeSession.commander || {}),
       simulation: clone(activeSession.simulation || {}),
       advancedMultiplayer: clone(advancedMultiplayer),
+      importedDataSnapshot: clone(importedDataSnapshot),
       undoStack: clone(activeSession.undoStack || []),
       actionHistory: clone(activeSession.actionHistory || []),
       settingsSnapshot: sanitizeSettingsSnapshot(profile.settings || {}),
@@ -316,6 +330,11 @@ export function buildLocalSave(profile, options = {}) {
       compatibilityWarnings: clone(activeSession.saveMetadata?.compatibilityWarnings || []),
       mode: activeSession.tutorial?.active || activeSession.tutorial?.completionPending ? "tutorial" : activeSession.simulation?.enabled ? "dry-run" : "normal",
       linkedAppReferences: activeSession.saveMetadata?.linkedAppReferences || [],
+      importedDataReferences: {
+        deckSnapshotIds: (activeSession.deckSnapshotReferences || []).map((entry) => entry.deckSnapshotId).filter(Boolean),
+        liteSessionIds: importedDataSnapshot.liteSessions.map((entry) => entry.sessionId),
+      },
+      embeddedImportedData: clone(importedDataSnapshot),
       migrationStatus: activeSession.saveMetadata?.migrationStatus || "current",
       currentTurn: activeSession.turn || 1,
       phaseIndex: activeSession.phaseIndex || 0,
@@ -362,6 +381,19 @@ function normalizeLocalSave(save = {}) {
     metadata,
     canonicalEnvelope: save.canonicalEnvelope ? clone(save.canonicalEnvelope) : null,
   };
+}
+
+function mergeImportedById(current = [], embedded = [], idKey = "id") {
+  const byId = new Map();
+  (Array.isArray(embedded) ? embedded : []).forEach((entry) => {
+    const id = entry?.[idKey];
+    if (id) byId.set(id, clone(entry));
+  });
+  (Array.isArray(current) ? current : []).forEach((entry) => {
+    const id = entry?.[idKey];
+    if (id) byId.set(id, clone(entry));
+  });
+  return [...byId.values()];
 }
 
 function sanitizeSettingsSnapshot(settings = {}) {

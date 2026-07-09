@@ -104,6 +104,15 @@ import {
   buildAdvancedMultiplayerPerspective,
   createAdvancedMultiplayerState,
 } from "../shared-session/perspective.js";
+import {
+  attachDeckSnapshotToSession,
+  createBoardStateLiteHandoffBundle,
+  createImportedDataState,
+  getDeckSnapshotById,
+  importBoardStateLiteSnapshot,
+  importDeckNexusSnapshot,
+  removeImportedDeckSnapshot,
+} from "../bridge/appLinkAdapters.js";
 
 export function reduceProfile(profile, event) {
   const actionType = event.actionType || event.type;
@@ -366,6 +375,42 @@ export function reduceProfile(profile, event) {
         sessionName: event.sessionName || "",
         activate: Boolean(event.activate),
       }).profile;
+      break;
+    case "IMPORT_LITE_SESSION_SNAPSHOT":
+      nextProfile = importBoardStateLiteSnapshot(baseProfile, event.snapshot || event.payload || event.text || {}, {
+        sessionName: event.sessionName || "",
+        activate: Boolean(event.activate),
+      }).profile;
+      break;
+    case "EXPORT_LITE_SESSION_BUNDLE":
+      {
+        const exported = createBoardStateLiteHandoffBundle(baseProfile);
+        nextProfile = {
+          ...baseProfile,
+          importedData: {
+            ...createImportedDataState(baseProfile.importedData || {}),
+            lastError: exported.valid ? "" : exported.errors?.[0] || "Lite handoff export failed.",
+            lastLiteExport: exported.valid ? {
+              exportedAt: Date.now(),
+              bundleType: exported.bundle?.bundleType || "",
+              targetApp: "boardstate-lite",
+              sessionId: exported.bundle?.session?.sessionId || baseProfile.activeSession?.sessionId || "",
+              compatibilityNotes: exported.bundle?.compatibilityNotes || [],
+            } : null,
+          },
+        };
+      }
+      break;
+    case "IMPORT_DECK_NEXUS_SNAPSHOT":
+      nextProfile = importDeckNexusSnapshot(baseProfile, event.snapshot || event.payload || event.text || {}, {
+        overwrite: Boolean(event.overwrite),
+      }).profile;
+      break;
+    case "REMOVE_IMPORTED_DECK_SNAPSHOT":
+      nextProfile = removeImportedDeckSnapshot(baseProfile, event.deckSnapshotId || "", { confirm: Boolean(event.confirm) });
+      break;
+    case "USE_DECK_SNAPSHOT_ADVANCED":
+      nextProfile = startAdvancedGameplay(baseProfile, { ...event, deckSnapshotId: event.deckSnapshotId });
       break;
     case "CONTINUE_LINKED_SESSION":
       nextProfile = restoreLinkedSessionAsAdvanced(baseProfile, event.sessionId || event.linkedSessionId || "").profile;
@@ -1488,6 +1533,7 @@ function getProfileEnforcementMode(profile = {}) {
 function startAdvancedGameplay(profile, event = {}) {
   const now = Date.now();
   const mode = event.enforcementMode === "waived" ? "waived" : getProfileEnforcementMode(profile);
+  const deckSnapshot = event.deckSnapshotId ? getDeckSnapshotById(profile, event.deckSnapshotId) : null;
   const session = startGameTracking(createGameSession(), {
     ...(profile.settings || {}),
     rules: {
@@ -1507,21 +1553,33 @@ function startAdvancedGameplay(profile, event = {}) {
       },
     },
     normalizeSessionMetadata(
-      {
-        ...session,
-        enforcementMode: mode,
-        gameTracking: {
-          ...(session.gameTracking || {}),
-          mode: "advanced-gameplay",
-        },
-        saveMetadata: {
-          ...(session.saveMetadata || {}),
-          ownerApp: "boardstate",
-          sourceApp: "boardstate",
-          mode: "advanced-gameplay",
-          migrationStatus: "current",
-          createdFrom: "advanced-gameplay-home",
-        },
+      attachDeckSnapshotToSession(
+        {
+          ...session,
+          enforcementMode: mode,
+          players: deckSnapshot
+            ? [{
+                playerId: profile.player?.id || "local-player",
+                displayName: profile.player?.name || "Player",
+                controllerType: "human",
+                activeInterface: "boardstate-advanced",
+                life: session.life || 40,
+                deckSnapshotId: deckSnapshot.deckSnapshotId,
+              }]
+            : session.players,
+          gameTracking: {
+            ...(session.gameTracking || {}),
+            mode: "advanced-gameplay",
+          },
+          saveMetadata: {
+            ...(session.saveMetadata || {}),
+            ownerApp: "boardstate",
+            sourceApp: "boardstate",
+            mode: "advanced-gameplay",
+            migrationStatus: "current",
+            createdFrom: "advanced-gameplay-home",
+            deckSource: deckSnapshot ? "imported-deck-snapshot" : "legacy-or-temporary",
+          },
         linkedSession: {
           ...(session.linkedSession || {}),
           sourceApp: "boardstate",
@@ -1538,7 +1596,10 @@ function startAdvancedGameplay(profile, event = {}) {
           },
           ...(session.effectLog || []),
         ].slice(0, 120),
-      },
+        },
+        deckSnapshot,
+        { playerId: profile.player?.id || "local-player", usage: "advanced-player-deck" }
+      ),
       { mode: "advanced-gameplay", enforcementMode: mode }
     )
   );
@@ -1546,6 +1607,7 @@ function startAdvancedGameplay(profile, event = {}) {
 
 function startSimulation(profile, event = {}) {
   const revengeEnabled = event.revengeEnabled !== false;
+  const deckSnapshot = event.deckSnapshotId ? getDeckSnapshotById(profile, event.deckSnapshotId) : null;
   const setup = createSimulationSession(profile, {
     selectedOpponents: event.selectedOpponents || profile.settings?.multiplayer?.selectedSimulatedOpponents || [],
     speed: event.speed || profile.settings?.multiplayer?.simulatedSpeed || "normal",
@@ -1554,7 +1616,24 @@ function startSimulation(profile, event = {}) {
   const connectedPlayers = setup.connectedPlayers || buildSimulationConnectedPlayers(profile, setup.session.simulation.opponents || {});
   return {
     ...profile,
-    activeSession: normalizeSessionMetadata(setup.session, {
+    activeSession: normalizeSessionMetadata(attachDeckSnapshotToSession({
+      ...setup.session,
+      simulation: {
+        ...(setup.session.simulation || {}),
+        playerDeckSnapshot: deckSnapshot ? {
+          deckSnapshotId: deckSnapshot.deckSnapshotId,
+          sourceDeckId: deckSnapshot.sourceDeckId,
+          sourceDeckVersion: deckSnapshot.sourceDeckVersion,
+          sourceApp: deckSnapshot.sourceApp,
+          name: deckSnapshot.name,
+          format: deckSnapshot.format,
+          importedAt: deckSnapshot.importedAt,
+          cardCount: (deckSnapshot.cards || []).reduce((sum, card) => sum + Number(card.quantity || 0), 0),
+          newerSnapshotAvailable: Boolean(deckSnapshot.newerSnapshotAvailable),
+          newerSnapshotId: deckSnapshot.newerSnapshotId || "",
+        } : null,
+      },
+    }, deckSnapshot, { playerId: profile.player?.id || "local-player", usage: "dry-run-player-deck" }), {
       mode: "dry-run",
       enforcementMode: getProfileEnforcementMode(profile),
       linkedSession: {
@@ -1575,6 +1654,7 @@ function startSimulation(profile, event = {}) {
         selectedSimulatedOpponents: [...(setup.session.simulation.selectedOpponents || [])],
         simulatedSpeed: setup.session.simulation.speed || "normal",
         simulationRevenge: revengeEnabled,
+        selectedDeckSnapshotId: deckSnapshot?.deckSnapshotId || profile.settings?.multiplayer?.selectedDeckSnapshotId || "",
       },
     },
   };

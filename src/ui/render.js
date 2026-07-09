@@ -27,6 +27,15 @@ import {
   buildAdvancedTargetingVisualModel,
 } from "../shared-session/perspective.js";
 import {
+  buildDeckSourceOptions,
+  createBoardStateLiteHandoffBundle,
+  getAppLinkAdapters,
+  getImportedDataManagementModel,
+  parseAppLinkHandoffFromLocation,
+  validateBoardStateLiteSnapshot,
+  validateDeckNexusSnapshotPayload,
+} from "../bridge/appLinkAdapters.js";
+import {
   buildBugReport,
   buildDebugState,
   buildGameLog,
@@ -198,7 +207,8 @@ export function parseTournamentInviteFromLocation(locationLike = globalThis.loca
 export function mountApp(root, store) {
   const allPages = ["home", "life", "battlefield", "tournament", "profile", "archive", "decks", "leaderboards"];
   const initialTournamentInvite = parseTournamentInviteFromLocation(location);
-  let activePage = initialTournamentInvite ? "tournament" : normalizePageFromHash(location.hash);
+  const initialAppLinkHandoff = parseAppLinkHandoffFromLocation(location);
+  let activePage = initialTournamentInvite ? "tournament" : initialAppLinkHandoff ? "home" : normalizePageFromHash(location.hash);
   let searchResults = [];
   let searchMessage = "";
   let searchQuery = "";
@@ -213,8 +223,9 @@ export function mountApp(root, store) {
   let searchAbortController = null;
   let keepSearchInputFocus = false;
   let searchSelection = { start: null, end: null, direction: "none" };
-  let optionsOpen = false;
-  let activeOptionsCategory = "";
+  let optionsOpen = Boolean(initialAppLinkHandoff);
+  let activeOptionsCategory = initialAppLinkHandoff ? "linked-apps" : "";
+  let pendingAppLinkHandoff = initialAppLinkHandoff;
   let tournamentInvite = initialTournamentInvite;
   let inviteNotificationCode = "";
   const notificationFeedbackDeliveredIds = new Set();
@@ -233,6 +244,7 @@ export function mountApp(root, store) {
   let simulationSelectedOpponents = new Set(["alpha"]);
   let simulationSelectedSpeed = "normal";
   let simulationRevengeEnabled = true;
+  let simulationSelectedDeckSnapshotId = "";
   let simulationSetupError = "";
   let simulationStatsOpen = false;
   let simulationSetupSuppressOpenUntil = 0;
@@ -333,6 +345,9 @@ export function mountApp(root, store) {
     if (typeof profile.settings?.multiplayer?.simulationRevenge === "boolean") {
       simulationRevengeEnabled = Boolean(profile.settings.multiplayer.simulationRevenge);
     }
+    if (!simulationSetupOpen && profile.settings?.multiplayer?.selectedDeckSnapshotId) {
+      simulationSelectedDeckSnapshotId = profile.settings.multiplayer.selectedDeckSnapshotId;
+    }
     const syncedTurnOrderState = profile.activeSession?.syncedMultiplayer || {};
     if (!syncedTurnOrderSetupOpen && !syncedTurnOrderOrder.length && Array.isArray(syncedTurnOrderState.turnOrder) && syncedTurnOrderState.turnOrder.length) {
       syncedTurnOrderOrder = [...syncedTurnOrderState.turnOrder];
@@ -402,6 +417,7 @@ export function mountApp(root, store) {
     root.innerHTML = layout(profile, activePage, searchResults, searchMessage, {
       optionsOpen,
       activeOptionsCategory,
+      pendingAppLinkHandoff,
       tournamentInvite,
       activeNotification,
       statsOpen,
@@ -431,6 +447,7 @@ export function mountApp(root, store) {
       simulationSelectedOpponents: [...simulationSelectedOpponents],
       simulationSelectedSpeed,
       simulationRevengeEnabled,
+      simulationSelectedDeckSnapshotId,
       simulationSetupError,
       simulationStatsOpen,
       isMobilePortrait: resolvedCompositionMode === "mobile",
@@ -784,6 +801,13 @@ export function mountApp(root, store) {
       input.addEventListener("change", () => {
         if (input.checked) {
           simulationSelectedSpeed = input.dataset.simSpeed || "normal";
+        }
+      })
+    );
+    container.querySelectorAll("[data-sim-deck-snapshot]").forEach((input) =>
+      input.addEventListener("change", () => {
+        if (input.checked) {
+          simulationSelectedDeckSnapshotId = input.dataset.simDeckSnapshot || "";
         }
       })
     );
@@ -1192,6 +1216,126 @@ export function mountApp(root, store) {
         store.dispatch({ type: "IMPORT_LINKED_SESSION", text, sessionName: button.dataset.linkedSessionName || "" });
         showNotice("Linked session imported.");
       })
+    );
+    container.querySelectorAll("[data-import-lite-session]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const text = prompt("Paste a BoardState Lite shared-session snapshot or Lite handoff bundle.");
+        if (!text) return;
+        const report = validateBoardStateLiteSnapshot(text);
+        if (!report.valid) {
+          showNotice(report.errors?.[0] || "Lite session import failed validation.", "warning");
+          return;
+        }
+        store.dispatch({
+          type: "IMPORT_LITE_SESSION_SNAPSHOT",
+          payload: text,
+          sessionName: button.dataset.sessionName || "BoardState Lite Imported Session",
+        });
+        showNotice(report.warnings?.length ? "Lite session imported with compatibility warnings." : "Lite session imported.");
+      })
+    );
+    container.querySelectorAll("[data-lite-session-file]").forEach((input) =>
+      input.addEventListener("change", async (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const report = validateBoardStateLiteSnapshot(text);
+          if (!report.valid) {
+            showNotice(report.errors?.[0] || "Lite session import failed validation.", "warning");
+            return;
+          }
+          store.dispatch({ type: "IMPORT_LITE_SESSION_SNAPSHOT", payload: text, sessionName: file.name.replace(/\.json$/i, "") });
+          showNotice(report.warnings?.length ? "Lite session file imported with warnings." : "Lite session file imported.");
+        } catch {
+          showNotice("Lite session import failed: malformed file.", "warning");
+        } finally {
+          event.target.value = "";
+        }
+      })
+    );
+    container.querySelectorAll("[data-export-lite-session]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const exported = createBoardStateLiteHandoffBundle(store.getState());
+        if (!exported.valid) {
+          showNotice(exported.errors?.[0] || "Lite handoff export is unsafe.", "warning");
+          return;
+        }
+        store.dispatch({ type: "EXPORT_LITE_SESSION_BUNDLE" });
+        await copyOrDownloadText(
+          "boardstate-lite-session-handoff.json",
+          exported.text,
+          button.dataset.exportLiteSession === "download" ? "Lite handoff bundle prepared." : "Lite handoff data copied."
+        );
+      })
+    );
+    container.querySelectorAll("[data-import-deck-snapshot]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const text = prompt("Paste a Deck Nexus deck snapshot JSON payload.");
+        if (!text) return;
+        const report = validateDeckNexusSnapshotPayload(text);
+        if (!report.valid) {
+          showNotice(report.errors?.[0] || "Deck snapshot import failed validation.", "warning");
+          return;
+        }
+        store.dispatch({ type: "IMPORT_DECK_NEXUS_SNAPSHOT", payload: text, overwrite: button.dataset.overwrite === "true" });
+        simulationSelectedDeckSnapshotId = report.deckSnapshot?.deckSnapshotId || simulationSelectedDeckSnapshotId;
+        showNotice(report.warnings?.length ? "Deck snapshot imported with compatibility warnings." : "Deck snapshot imported.");
+      })
+    );
+    container.querySelectorAll("[data-deck-snapshot-file]").forEach((input) =>
+      input.addEventListener("change", async (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const report = validateDeckNexusSnapshotPayload(text);
+          if (!report.valid) {
+            showNotice(report.errors?.[0] || "Deck snapshot import failed validation.", "warning");
+            return;
+          }
+          store.dispatch({ type: "IMPORT_DECK_NEXUS_SNAPSHOT", payload: text });
+          simulationSelectedDeckSnapshotId = report.deckSnapshot?.deckSnapshotId || simulationSelectedDeckSnapshotId;
+          showNotice(report.warnings?.length ? "Deck snapshot file imported with warnings." : "Deck snapshot file imported.");
+        } catch {
+          showNotice("Deck snapshot import failed: malformed file.", "warning");
+        } finally {
+          event.target.value = "";
+        }
+      })
+    );
+    container.querySelectorAll("[data-remove-deck-snapshot]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openConfirmation({
+          id: "remove-deck-snapshot",
+          title: "Remove imported deck snapshot?",
+          message: "This removes only the local imported snapshot record. Existing saves keep embedded snapshot data where available.",
+          confirmLabel: "Remove Snapshot",
+          danger: true,
+          payload: { deckSnapshotId: button.dataset.removeDeckSnapshot || "" },
+        })
+      )
+    );
+    container.querySelectorAll("[data-use-snapshot-dry-run]").forEach((button) =>
+      button.addEventListener("click", () => {
+        simulationSelectedDeckSnapshotId = button.dataset.useSnapshotDryRun || "";
+        optionsOpen = false;
+        activeOptionsCategory = "";
+        simulationSetupError = "";
+        simulationSetupOpen = true;
+        render(store.getState());
+      })
+    );
+    container.querySelectorAll("[data-use-snapshot-advanced]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openConfirmation({
+          id: "use-deck-snapshot-advanced",
+          title: "Start Advanced Gameplay with imported snapshot?",
+          message: "This creates a new Advanced Gameplay session using an immutable imported Deck Nexus snapshot reference.",
+          confirmLabel: "Start Advanced",
+          payload: { deckSnapshotId: button.dataset.useSnapshotAdvanced || "" },
+        })
+      )
     );
     container.querySelectorAll("[data-linked-session-continue]").forEach((button) =>
       button.addEventListener("click", () => {
@@ -3150,6 +3294,7 @@ export function mountApp(root, store) {
         selectedOpponents,
         speed: simulationSelectedSpeed || "normal",
         revengeEnabled: simulationRevengeEnabled,
+        deckSnapshotId: simulationSelectedDeckSnapshotId || "",
       })
       .catch(() => {
         simulationSetupError = "Simulation failed to start. Check setup and try again.";
@@ -4050,6 +4195,19 @@ export function mountApp(root, store) {
           showNotice("Linked session duplicated as a new Advanced game.");
         }
         break;
+      case "remove-deck-snapshot":
+        if (payload?.deckSnapshotId) {
+          store.dispatch({ type: "REMOVE_IMPORTED_DECK_SNAPSHOT", deckSnapshotId: payload.deckSnapshotId, confirm: true });
+          showNotice("Imported deck snapshot removed.");
+        }
+        break;
+      case "use-deck-snapshot-advanced":
+        if (payload?.deckSnapshotId) {
+          store.dispatch({ type: "USE_DECK_SNAPSHOT_ADVANCED", deckSnapshotId: payload.deckSnapshotId });
+          setActivePage("battlefield");
+          showNotice("Advanced gameplay started with imported snapshot.");
+        }
+        break;
       case "load-tutorial-sample":
         store.dispatch({ type: "LOAD_TUTORIAL_SAMPLE_BOARD" });
         setActivePage("battlefield");
@@ -4579,9 +4737,9 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       ${page === "battlefield" ? renderUtilityDock(profile, uiState.utilityDockOpen, uiState.activeUtilityPanel, uiState.hudBadgePositions || HUD_BADGE_DEFAULTS, Boolean(uiState.isMobilePortrait), Boolean(uiState.hudBadgesLocked), searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.castActionPopup) : ""}
       ${uiState.quickPanelOpen ? renderQuickAdjustmentPanel(profile, uiState.quickPanelOpen) : ""}
       ${uiState.modifierPanelOpen ? renderTrackerModifierPanel(uiState.pendingTrackerModifier) : ""}
-      ${uiState.optionsOpen ? renderGameOptionsCommandCenter(profile, page, uiState.activeOptionsCategory || "") : ""}
+      ${uiState.optionsOpen ? renderGameOptionsCommandCenter(profile, page, uiState.activeOptionsCategory || "", uiState.pendingAppLinkHandoff || null) : ""}
       ${uiState.statsOpen ? renderStatsOverlay(profile, uiState.statsMode) : ""}
-      ${uiState.simulationSetupOpen ? renderSimulationSetupModal(uiState.simulationSelectedOpponents, uiState.simulationSelectedSpeed, uiState.simulationRevengeEnabled, uiState.simulationSetupError) : ""}
+      ${uiState.simulationSetupOpen ? renderSimulationSetupModal(profile, uiState.simulationSelectedOpponents, uiState.simulationSelectedSpeed, uiState.simulationRevengeEnabled, uiState.simulationSetupError, uiState.simulationSelectedDeckSnapshotId) : ""}
       ${uiState.simulationStatsOpen ? renderSimulationStatsOverlay(profile) : ""}
       ${uiState.syncedTurnOrderSetupOpen ? renderSyncedTurnOrderModal(uiState.syncedTurnOrderPlayers || [], uiState.syncedTurnOrderRolls || {}, uiState.syncedTurnOrderOrder || [], uiState.syncedTurnOrderSuggested || [], uiState.syncedTurnOrderTiePlayerIds || [], uiState.syncedTurnOrderError || "") : ""}
       ${page !== "tournament" ? renderPinnedTournamentPanel(profile) : ""}
@@ -4812,12 +4970,15 @@ function renderLifeTracker(profile, trackerModifier, uiState = {}) {
   `;
 }
 
-function renderSimulationSetupModal(selectedOpponents = [], selectedSpeed = "normal", revengeEnabled = true, setupError = "") {
+function renderSimulationSetupModal(profile = {}, selectedOpponents = [], selectedSpeed = "normal", revengeEnabled = true, setupError = "", selectedDeckSnapshotId = "") {
   const selected = new Set(selectedOpponents || []);
   const speed = selectedSpeed || "normal";
   const alphaDeck = getSimulationDeckById("alpha");
   const betaDeck = getSimulationDeckById("beta");
   const omegaDeck = getSimulationDeckById("omega");
+  const deckSources = buildDeckSourceOptions(profile);
+  const importedDeckSources = deckSources.filter((entry) => entry.type === "imported-deck-snapshot");
+  const selectedDeck = importedDeckSources.find((entry) => entry.deckSnapshotId === selectedDeckSnapshotId);
   return `
     <section class="overlay-backdrop" data-simulation-setup-backdrop>
       <div class="floating-overlay glass simulation-setup">
@@ -4831,7 +4992,7 @@ function renderSimulationSetupModal(selectedOpponents = [], selectedSpeed = "nor
         <article class="option-card dry-run-setup-summary">
           <h3>Dry Run Session Defaults</h3>
           <div class="setup-field-grid">
-            <span><b>Player deck source</b><small>Existing BoardState deck / imported snapshot / temporary test deck</small></span>
+            <span><b>Player deck source</b><small>${selectedDeck ? `Imported snapshot: ${escapeHtml(selectedDeck.label)}` : "Legacy BoardState deck / temporary test deck"}</small></span>
             <span><b>Opponent count</b><small>${escapeHtml(String(selected.size || 1))} selected</small></span>
             <span><b>Opponent deck source</b><small>Alpha, Beta, and Omega saved simulation decks</small></span>
             <span><b>AI difficulty</b><small>Rules-legal commander simulation</small></span>
@@ -4841,6 +5002,33 @@ function renderSimulationSetupModal(selectedOpponents = [], selectedSpeed = "nor
             <span><b>Rules enforcement</b><small>Rules Enforced by default; AI cannot waive rules</small></span>
             <span><b>Deterministic seed</b><small>Prepared for future shared-session replay</small></span>
             <span><b>Deck Nexus</b><small>Link Deck Nexus after app preparation</small></span>
+          </div>
+        </article>
+        <article class="option-card">
+          <h3>Player Deck Source</h3>
+          <label class="toggle-row">
+            <span><b>Legacy BoardState / Temporary Test Deck</b><small>Current built-in Dry Run behavior remains unchanged.</small></span>
+            <input type="radio" name="sim-deck-snapshot" data-sim-deck-snapshot="" ${selectedDeckSnapshotId ? "" : "checked"} />
+          </label>
+          ${
+            importedDeckSources.length
+              ? importedDeckSources
+                  .map((deck) => `
+                    <label class="toggle-row">
+                      <span>
+                        <b>${escapeHtml(deck.label || "Imported Snapshot")}</b>
+                        <small>${escapeHtml(deck.sourceApp || "deck-nexus")} ${escapeHtml(deck.sourceDeckVersion || "")} - ${escapeHtml(deck.format || "custom")} - ${escapeHtml(String(deck.cardCount || 0))} card(s)${deck.newerSnapshotAvailable ? " - newer snapshot available" : ""}</small>
+                      </span>
+                      <input type="radio" name="sim-deck-snapshot" data-sim-deck-snapshot="${escapeAttribute(deck.deckSnapshotId)}" ${selectedDeckSnapshotId === deck.deckSnapshotId ? "checked" : ""} />
+                    </label>
+                  `)
+                  .join("")
+              : "<p>No imported Deck Nexus snapshots. Import is supported, but live Deck Nexus linking is not installed.</p>"
+          }
+          <div class="button-grid mini">
+            <button type="button" data-import-deck-snapshot>Import Deck Nexus Snapshot</button>
+            <label class="file-pill">Upload Snapshot<input type="file" accept="application/json" data-deck-snapshot-file /></label>
+            <button type="button" disabled>Future Deck Nexus Link Coming After Nexus Update</button>
           </div>
         </article>
         <article class="option-card">
@@ -7735,7 +7923,7 @@ function defaultLocalSaveName(profile = {}) {
   return `Game Turn ${session.turn || 1}`;
 }
 
-function renderGameOptionsCommandCenter(profile, page = "life", activeCategory = "") {
+function renderGameOptionsCommandCenter(profile, page = "life", activeCategory = "", pendingHandoff = null) {
   const category = getOptionsCategories(profile, page).find((entry) => entry.id === activeCategory);
   return `
     <section class="overlay-backdrop">
@@ -7751,7 +7939,7 @@ function renderGameOptionsCommandCenter(profile, page = "life", activeCategory =
             <button data-close-overlay>Close</button>
           </div>
         </div>
-        ${category ? renderOptionsSubpage(profile, page, category.id) : renderOptionsHub(profile, page)}
+        ${category ? renderOptionsSubpage(profile, page, category.id, pendingHandoff) : renderOptionsHub(profile, page)}
       </div>
     </section>
   `;
@@ -7762,7 +7950,7 @@ function getOptionsCategories(profile, page = "life") {
   const rules = getRulesControlSummary(profile);
   const saveCount = (profile.localSaves?.items || []).length;
   const linkedApps = getLinkedAppStatusCards(profile);
-  const linkedCount = linkedApps.filter((entry) => entry.status !== "Not Linked").length;
+  const linkedCount = linkedApps.filter((entry) => /active|available|imported/i.test(entry.status || "")).length;
   const legacyTotal = getLegacyInventory(profile).reduce((sum, entry) => sum + Number(entry.count || 0), 0);
   return [
     {
@@ -7805,7 +7993,7 @@ function getOptionsCategories(profile, page = "life") {
       glyph: "LINK",
       title: "Linked Apps",
       description: "BoardState Lite, Deck Nexus, future Hub, shared-session capability, and honest link status.",
-      status: linkedCount ? `${linkedCount} linked` : "Not linked",
+      status: linkedCount ? `${linkedCount} imported/active` : "Import ready",
     },
     {
       id: "accessibility",
@@ -7880,7 +8068,7 @@ function renderOptionCategoryCard(category, compact = false) {
   `;
 }
 
-function renderOptionsSubpage(profile, page, category) {
+function renderOptionsSubpage(profile, page, category, pendingHandoff = null) {
   switch (category) {
     case "rules":
       return renderRulesOptionsSubpage(profile);
@@ -7895,7 +8083,7 @@ function renderOptionsSubpage(profile, page, category) {
     case "saves":
       return renderSavesOptionsSubpage(profile);
     case "linked-apps":
-      return renderLinkedAppsOptionsSubpage(profile);
+      return renderLinkedAppsOptionsSubpage(profile, pendingHandoff);
     case "friends":
       return renderFriendsOptionsSubpage(profile);
     case "tournament":
@@ -8028,13 +8216,18 @@ function renderSaveGroupSection(title, saves = []) {
   `;
 }
 
-function renderLinkedAppsOptionsSubpage(profile) {
+function renderLinkedAppsOptionsSubpage(profile, pendingHandoff = null) {
   const linkedApps = getLinkedAppStatusCards(profile);
   const linked = getLinkedSessionCandidate(profile);
   const linkedRecords = getLinkedSessionRecords(profile);
   const sessionDetails = buildSessionDetailsModel(profile);
+  const importedData = getImportedDataManagementModel(profile);
+  const adapters = getAppLinkAdapters(profile);
+  const liteCapabilities = adapters["boardstate-lite"].getCapabilities();
+  const nexusCapabilities = adapters["deck-nexus"].getCapabilities();
   return `
     <div class="options-subpage">
+      ${pendingHandoff ? renderPendingAppLinkHandoff(pendingHandoff) : ""}
       <article class="option-card">
         <h3>Continue Linked Game</h3>
         ${linked ? `<p>${escapeHtml(linked.sourceApp || "External")} session ${escapeHtml(linked.sessionId || "local")} - Turn ${escapeHtml(linked.turn || 1)} - ${escapeHtml(linked.phase || "Beginning")} - ${escapeHtml(linked.compatibility || "valid")}</p>` : `<p>No linked game exists yet. BoardState Lite handoff will be enabled in its own update. You can import a canonical shared-session bundle now, or export the current Advanced session for future Simple Mode consumers.</p>`}
@@ -8042,7 +8235,8 @@ function renderLinkedAppsOptionsSubpage(profile) {
           ${linked ? `<button data-linked-session-continue="${escapeAttribute(linked.sessionId)}">Continue in Advanced Mode</button>` : ""}
           <button data-tutorial-save-current>Save Current Session</button>
           <button data-linked-session-import>Import Linked Session</button>
-          <button data-export-shared-session="copy">Copy Handoff JSON</button>
+          <button data-import-lite-session>Import Lite Session Snapshot</button>
+          <button data-export-lite-session="copy">Export for BoardState Lite Future Handoff</button>
           <button data-download-shared-session>Export Shared Session</button>
         </div>
       </article>
@@ -8054,18 +8248,120 @@ function renderLinkedAppsOptionsSubpage(profile) {
         <h3>Imported Linked Sessions</h3>
         ${linkedRecords.length ? linkedRecords.map(renderLinkedSessionCard).join("") : "<p>No imported linked-session snapshots. Simple Mode live linking is not installed yet.</p>"}
       </article>
-      ${linkedApps.map((app) => `
-        <article class="option-card linked-app-card">
-          <div class="overlay-header compact">
-            <div><h3>${escapeHtml(app.title)}</h3><small>${escapeHtml(app.detail)}</small></div>
-            <span class="option-status-badge">${escapeHtml(app.status)}</span>
-          </div>
-          <div class="button-grid">
-            ${app.appId === "boardstate-lite" ? `<button data-linked-session-import>Import Linked Session</button><button data-export-shared-session="copy">Export Shared Session</button><button disabled>Return to Simple Mode Coming After Lite Update</button>` : `<button disabled>${app.status === "Not Linked" ? "Coming after app preparation" : "View Capability"}</button>`}
-          </div>
-        </article>
-      `).join("")}
+      <article class="option-card linked-app-card">
+        <div class="overlay-header compact">
+          <div><h3>BoardState Lite Bridge</h3><small>${escapeHtml(liteCapabilities.limitations.join(" "))}</small></div>
+          <span class="option-status-badge">${escapeHtml(linkedApps.find((app) => app.appId === "boardstate-lite")?.status || liteCapabilities.status)}</span>
+        </div>
+        <p>Supported now: file/clipboard handoff import, shared-session export, compatibility reports, and Advanced continuation from valid snapshots. Live Lite switching is not installed.</p>
+        <div class="button-grid">
+          <button data-import-lite-session>Import Lite Session Snapshot</button>
+          <label class="file-pill">Upload Lite Snapshot<input type="file" accept="application/json" data-lite-session-file /></label>
+          <button data-export-lite-session="copy">Copy Lite Handoff JSON</button>
+          <button data-export-lite-session="download">Download Lite Handoff Bundle</button>
+          <button disabled>Return to Simple Mode Coming After Lite Update</button>
+        </div>
+      </article>
+      <article class="option-card linked-app-card">
+        <div class="overlay-header compact">
+          <div><h3>Deck Nexus Bridge</h3><small>${escapeHtml(nexusCapabilities.limitations.join(" "))}</small></div>
+          <span class="option-status-badge">${escapeHtml(linkedApps.find((app) => app.appId === "deck-nexus")?.status || nexusCapabilities.status)}</span>
+        </div>
+        <p>Supported now: immutable Deck Nexus snapshot import, local snapshot storage, Dry Run source selection, and Advanced Gameplay snapshot references. Live Deck Nexus linking is not installed.</p>
+        <div class="button-grid">
+          <button data-import-deck-snapshot>Import Deck Snapshot</button>
+          <label class="file-pill">Upload Deck Snapshot<input type="file" accept="application/json" data-deck-snapshot-file /></label>
+          <button data-open-simulation-setup>Use Snapshot in Dry Run</button>
+          <button disabled>Live Link Coming After Nexus Update</button>
+        </div>
+      </article>
+      ${renderImportedDataManagement(importedData)}
     </div>
+  `;
+}
+
+function renderPendingAppLinkHandoff(pendingHandoff = {}) {
+  return `
+    <article class="option-card">
+      <h3>Pending Handoff Link</h3>
+      <p>${pendingHandoff.valid ? "A handoff reference was detected in the URL. Confirm import manually before anything is stored." : "A handoff URL was rejected before import."}</p>
+      <p>Type: ${escapeHtml(pendingHandoff.type || "unknown")} - Status: ${escapeHtml(pendingHandoff.status || "pending")}</p>
+      ${(pendingHandoff.errors || []).map((error) => `<p class="simulation-setup-error">${escapeHtml(error)}</p>`).join("")}
+      <div class="button-grid mini">
+        <button disabled>Automatic Cross-App Launch Not Installed</button>
+        ${pendingHandoff.type === "session" ? `<button data-import-lite-session>Paste Session Payload</button>` : `<button data-import-deck-snapshot>Paste Deck Snapshot</button>`}
+      </div>
+    </article>
+  `;
+}
+
+function renderImportedDataManagement(importedData = {}) {
+  return `
+    <article class="option-card imported-data-management">
+      <div class="overlay-header compact">
+        <div><h3>Imported Data Management</h3><small>Lite sessions, Deck Nexus snapshots, shared sessions, and quarantined imports.</small></div>
+      </div>
+      <div class="local-save-list compact">
+        <h4>Imported Lite Sessions</h4>
+        ${(importedData.liteSessions || []).map(renderImportedLiteSessionCard).join("") || "<p>No Lite session snapshots imported.</p>"}
+        <h4>Imported Deck Snapshots</h4>
+        ${(importedData.deckSnapshots || []).map(renderImportedDeckSnapshotCard).join("") || "<p>No Deck Nexus snapshots imported.</p>"}
+        <h4>Failed / Quarantined Imports</h4>
+        ${(importedData.failedImports || []).slice(0, 8).map(renderFailedImportCard).join("") || "<p>No failed imports recorded.</p>"}
+      </div>
+    </article>
+  `;
+}
+
+function renderImportedLiteSessionCard(record = {}) {
+  return `
+    <section class="local-save-card">
+      <div>
+        <strong>${escapeHtml(record.name || "Imported Lite Session")}</strong>
+        <small>${escapeHtml(record.sourceApp || "boardstate-lite")} - ${escapeHtml(record.sessionId || "")} - Revision ${escapeHtml(record.revision || 0)}</small>
+        <small>${escapeHtml(record.compatibilityStatus || record.compatibilityReport?.status || "valid")} - ${escapeHtml(formatTimestamp(record.importedAt || 0))}</small>
+        ${(record.unknownDataMarkers || []).slice(0, 2).map((marker) => `<small>Unknown: ${escapeHtml(marker)}</small>`).join("")}
+      </div>
+      <div class="button-grid mini">
+        <button data-linked-session-continue="${escapeAttribute(record.sessionId || "")}">Open Advanced</button>
+        <button data-linked-session-export="${escapeAttribute(record.sessionId || "")}">Export</button>
+        <button class="danger-soft" data-linked-session-remove="${escapeAttribute(record.sessionId || "")}">Remove</button>
+      </div>
+    </section>
+  `;
+}
+
+function renderImportedDeckSnapshotCard(snapshot = {}) {
+  const warnings = snapshot.compatibilityReport?.warnings || [];
+  return `
+    <section class="local-save-card">
+      <div>
+        <strong>${escapeHtml(snapshot.name || "Deck Nexus Snapshot")}</strong>
+        <small>${escapeHtml(snapshot.sourceApp || "deck-nexus")} - ${escapeHtml(snapshot.sourceDeckVersion || "")} - ${escapeHtml(snapshot.format || "custom")}</small>
+        <small>${escapeHtml(String(snapshot.cardCount || 0))} card(s) - ${escapeHtml(snapshot.compatibilityStatus || snapshot.status || "valid")}${snapshot.newerSnapshotAvailable ? " - newer snapshot available" : ""}</small>
+        ${snapshot.commander ? `<small>Commander: ${escapeHtml(snapshot.commander)}</small>` : ""}
+        ${warnings.slice(0, 2).map((warning) => `<small>Warning: ${escapeHtml(warning)}</small>`).join("")}
+      </div>
+      <div class="button-grid mini">
+        <button data-use-snapshot-dry-run="${escapeAttribute(snapshot.deckSnapshotId || "")}">Use in Dry Run</button>
+        <button data-use-snapshot-advanced="${escapeAttribute(snapshot.deckSnapshotId || "")}">Use in Advanced Gameplay</button>
+        <button class="danger-soft" data-remove-deck-snapshot="${escapeAttribute(snapshot.deckSnapshotId || "")}">Remove</button>
+      </div>
+    </section>
+  `;
+}
+
+function renderFailedImportCard(entry = {}) {
+  const report = entry.compatibilityReport || {};
+  return `
+    <section class="local-save-card">
+      <div>
+        <strong>${escapeHtml(entry.sourceApp || "Unknown Source")}</strong>
+        <small>${escapeHtml(entry.payloadType || "payload")} - ${escapeHtml(report.status || "failed")} - ${escapeHtml(formatTimestamp(entry.failedAt || 0))}</small>
+        ${(report.errors || []).slice(0, 2).map((error) => `<small>Error: ${escapeHtml(error)}</small>`).join("")}
+      </div>
+      <div class="button-grid mini"><button disabled>Quarantined</button></div>
+    </section>
   `;
 }
 
@@ -9794,37 +10090,41 @@ function getLinkedSessionCandidate(profile = {}) {
 }
 
 export function getLinkedAppStatusCards(profile = {}) {
-  const appLinks = profile.settings?.linkedApps || {};
-  const current = profile.activeSession?.linkedSession || {};
-  const linkedRecords = getLinkedSessionRecords(profile);
-  const liteImported = linkedRecords.some((entry) => entry.sourceApp === "boardstate-lite");
-  const liteLinked = (current.sourceApp === "boardstate-lite" && current.imported) || appLinks.boardstateLite?.linked;
-  const nexusLinked = appLinks.deckNexus?.linked;
+  const adapters = getAppLinkAdapters(profile);
+  const liteStatus = adapters["boardstate-lite"].getConnectionStatus();
+  const nexusStatus = adapters["deck-nexus"].getConnectionStatus();
+  const hubStatus = adapters["boardstate-hub"].getConnectionStatus();
+  const liteCapabilities = adapters["boardstate-lite"].getCapabilities();
+  const nexusCapabilities = adapters["deck-nexus"].getCapabilities();
+  const hubCapabilities = adapters["boardstate-hub"].getCapabilities();
   return [
     {
       appId: "boardstate-lite",
       title: "BoardState Lite",
-      status: liteLinked ? "Linked Session Active" : liteImported ? "Linked Session Imported" : "Export Supported",
-      detail: liteLinked
-        ? `Last source: ${current.status || "local snapshot"}`
-        : liteImported
-          ? "A Lite-shaped canonical session is stored locally and can continue in Advanced Mode."
-          : "Waiting for Lite update. Import/export handoff bundles are supported; live Lite linking is not installed.",
-      capabilities: liteLinked || liteImported ? ["continue-linked-game", "export-shared-session", "view-session-details"] : ["import-linked-session", "export-shared-session", "waiting-for-lite-update"],
+      status: liteStatus.status,
+      detail: liteStatus.detail,
+      capabilities: [
+        ...(liteCapabilities.supportsFileImport ? ["import-lite-session-snapshot"] : []),
+        ...(liteCapabilities.supportsSharedSessions ? ["export-lite-handoff"] : []),
+        "waiting-for-lite-update",
+      ],
     },
     {
       appId: "deck-nexus",
       title: "Deck Nexus",
-      status: nexusLinked ? "Linked" : "Not Linked",
-      detail: nexusLinked ? "Deck snapshot capability detected." : "Deck Nexus linking comes after app preparation.",
-      capabilities: nexusLinked ? ["deck-snapshot-import"] : ["manual-import"],
+      status: nexusStatus.status,
+      detail: nexusStatus.detail,
+      capabilities: [
+        ...(nexusCapabilities.supportsDeckSnapshots ? ["import-deck-snapshot"] : []),
+        "waiting-for-nexus-update",
+      ],
     },
     {
       appId: "boardstate-hub",
       title: "Future Hub",
-      status: "Not Linked",
-      detail: "Hub ownership of global profile, friends, tournaments, and backups is planned later.",
-      capabilities: ["future-app-link"],
+      status: hubStatus.status,
+      detail: hubStatus.detail,
+      capabilities: hubCapabilities.limitations,
     },
   ];
 }

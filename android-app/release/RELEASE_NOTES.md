@@ -2,9 +2,20 @@
 
 ## App
 - Name: BoardState
-- Version: 1.21.0
-- Version code: 36
+- Version: 1.22.0
+- Version code: 37
 - Package: `com.boardstate.app`
+
+## Version 1.22.0
+- Adds BoardState-side app-link bridge adapter infrastructure for future BoardState Lite, Deck Nexus, and Hub integrations without modifying external app repositories.
+- Adds honest capability handshakes for supported payload types, file/clipboard import, handoff export, shared sessions, deck snapshots, unavailable live sync, and future Hub coordination.
+- Adds BoardState Lite snapshot validation/import, compatibility reports, safe unknown-data handling, and future Lite handoff export bundles that avoid private credentials.
+- Adds Deck Nexus immutable deck snapshot validation/import, local imported snapshot management, newer-snapshot warnings, and Dry Run / Advanced Gameplay deck-source references.
+- Adds linked-app UI actions for Lite session import/export, Deck Nexus snapshot import, imported data management, failed import quarantine, and explicit “coming after app update” states.
+- Adds deep-link handoff parser foundations that require user confirmation, reject oversized payloads, and safely ignore malformed app-link data.
+- Updates save/load metadata so imported Deck Nexus snapshots and Lite session records can be embedded or restored without requiring live external app availability.
+- Adds focused regression coverage for capability metadata, Lite snapshot import/export, Deck Nexus import/use, deep-link safety, malformed/private payload rejection, and imported-data save round trips.
+- Updates production web package metadata, Android wrapper metadata, Flutter wrapper metadata, local package artifacts, and release notes for version 1.22.0.
 
 ## Version 1.21.0
 - Adds synchronized mirrored Advanced Mode support so two BoardState Advanced clients can render the same canonical session from each local player's perspective.

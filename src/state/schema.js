@@ -183,6 +183,26 @@ export function createDefaultProfile() {
           tutorialSave: true,
         },
       },
+      linkedApps: {
+        boardstateLite: {
+          linked: false,
+          status: "Handoff Import/Export Supported",
+          lastSyncAt: 0,
+          availableCapabilities: ["handoff-import", "handoff-export"],
+        },
+        deckNexus: {
+          linked: false,
+          status: "Snapshot Import Supported",
+          lastSyncAt: 0,
+          availableCapabilities: ["snapshot-import"],
+        },
+        boardstateHub: {
+          linked: false,
+          status: "Not Linked",
+          lastSyncAt: 0,
+          availableCapabilities: [],
+        },
+      },
     },
     onboarding: {
       firstLaunchComplete: false,
@@ -231,6 +251,15 @@ export function createDefaultProfile() {
       activeSessionId: "",
       lastError: "",
       items: [],
+    },
+    importedData: {
+      version: 1,
+      lastError: "",
+      lastImportAt: 0,
+      liteSessions: [],
+      deckSnapshots: [],
+      sharedSessions: [],
+      failedImports: [],
     },
     simulationMemory: {
       patterns: {
@@ -318,6 +347,7 @@ export function createGameSession() {
       imported: false,
       activeSync: false,
     },
+    deckSnapshotReferences: [],
     advancedMultiplayer: {
       viewMode: "solo-advanced",
       localPerspectivePlayerId: "local-player",

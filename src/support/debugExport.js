@@ -242,8 +242,8 @@ function redactSecrets(key, value) {
 function getAppVersion() {
   return {
     name: "BoardState",
-    version: "1.21.0",
-    build: "guided-tutorial-save-release",
+    version: "1.22.0",
+    build: "bridge-adapters-release",
   };
 }
 
