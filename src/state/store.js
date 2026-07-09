@@ -319,6 +319,15 @@ function withRemotePeerState(profile, publicState) {
     life: publicState.life,
     turn: publicState.turn,
     phaseIndex: publicState.phaseIndex,
+    activeInterface: publicState.localInterfaceMode || publicState.activeInterfaceByPlayer?.[publicState.player?.id] || "unknown",
+    connectionStatus: "online",
+    priority: publicState.priority || {},
+    stackSummary: publicState.stack || [],
+    combatSummary: publicState.combat || {},
+    rulesEngineVersion: publicState.rulesEngineVersion || "",
+    schemaVersion: publicState.schemaVersion || "",
+    sessionRevision: publicState.revision || 0,
+    sourceApp: "boardstate",
     spectator: profile.settings?.multiplayer?.spectatorMode || false,
   };
   const connectedPlayers = [...existing.filter((entry) => entry.id !== remotePeer.id), remotePeer];

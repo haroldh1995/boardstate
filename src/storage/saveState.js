@@ -8,6 +8,7 @@ import {
   validateSaveEnvelope,
 } from "../shared-contracts/index.js";
 import { ensureInterfaceModeState } from "../shared-session/handoff.js";
+import { createAdvancedMultiplayerState } from "../shared-session/perspective.js";
 
 export const SAVE_STATE_VERSION = 1;
 
@@ -67,7 +68,18 @@ export function loadLocalSave(profile, saveId = "") {
     return withSaveError(profile, validation.reason || "Save could not be loaded.");
   }
   const gameState = clone(save.gameState || {});
-  const activeSession = ensureInterfaceModeState(gameState.activeSession || profile.activeSession || {});
+  const activeSession = ensureInterfaceModeState({
+    ...(gameState.activeSession || profile.activeSession || {}),
+    advancedMultiplayer: createAdvancedMultiplayerState(
+      gameState.activeSession?.advancedMultiplayer ||
+        save.metadata?.advancedMultiplayer ||
+        {
+          viewMode: "solo-advanced",
+          localPerspectivePlayerId: save.metadata?.localPerspectivePlayerId || "local-player",
+          focusedOpponentId: save.metadata?.focusedOpponentId || "",
+        }
+    ),
+  });
   return {
     ...profile,
     settings: {
@@ -230,6 +242,7 @@ export function buildLocalSave(profile, options = {}) {
   const now = Date.now();
   const profileId = profile.player?.id || profile.id || "local-player";
   const activeSession = ensureInterfaceModeState(clone(profile.activeSession || {}));
+  const advancedMultiplayer = createAdvancedMultiplayerState(activeSession.advancedMultiplayer || {});
   const sharedVersions = {
     schemaVersion: SHARED_CONTRACT_SCHEMA_VERSION,
     rulesEngineVersion: DEFAULT_RULES_ENGINE_VERSION,
@@ -250,6 +263,7 @@ export function buildLocalSave(profile, options = {}) {
     importedFrom: activeSession.linkedSession?.sourceApp && activeSession.linkedSession.sourceApp !== "boardstate" ? activeSession.linkedSession.sourceApp : "",
     exportedTo: clone(activeSession.saveMetadata?.exportedTo || []),
     capabilities: clone(activeSession.sessionCapabilities || {}),
+    advancedMultiplayer: clone(advancedMultiplayer),
     profileId,
     profileName: profile.player?.name || "Player",
     createdAt: Number(options.createdAt || now),
@@ -274,6 +288,7 @@ export function buildLocalSave(profile, options = {}) {
       pendingEffects: clone(activeSession.pendingEffects || []),
       commander: clone(activeSession.commander || {}),
       simulation: clone(activeSession.simulation || {}),
+      advancedMultiplayer: clone(advancedMultiplayer),
       undoStack: clone(activeSession.undoStack || []),
       actionHistory: clone(activeSession.actionHistory || []),
       settingsSnapshot: sanitizeSettingsSnapshot(profile.settings || {}),
@@ -296,6 +311,7 @@ export function buildLocalSave(profile, options = {}) {
       importedFrom: activeSession.linkedSession?.sourceApp && activeSession.linkedSession.sourceApp !== "boardstate" ? activeSession.linkedSession.sourceApp : "",
       exportedTo: clone(activeSession.saveMetadata?.exportedTo || []),
       capabilities: clone(activeSession.sessionCapabilities || {}),
+      advancedMultiplayer: clone(advancedMultiplayer),
       revision: Number(activeSession.revision || 0),
       compatibilityWarnings: clone(activeSession.saveMetadata?.compatibilityWarnings || []),
       mode: activeSession.tutorial?.active || activeSession.tutorial?.completionPending ? "tutorial" : activeSession.simulation?.enabled ? "dry-run" : "normal",
@@ -303,6 +319,9 @@ export function buildLocalSave(profile, options = {}) {
       migrationStatus: activeSession.saveMetadata?.migrationStatus || "current",
       currentTurn: activeSession.turn || 1,
       phaseIndex: activeSession.phaseIndex || 0,
+      viewMode: advancedMultiplayer.viewMode,
+      localPerspectivePlayerId: advancedMultiplayer.localPerspectivePlayerId,
+      focusedOpponentId: advancedMultiplayer.focusedOpponentId,
       tutorialStep: activeSession.tutorial?.currentStep ?? activeSession.tutorial?.step ?? 0,
       battlefieldCount: (activeSession.battlefield?.player || []).reduce((sum, entry) => sum + Number(entry.quantity || 1), 0),
       checksum: buildSaveChecksum(activeSession),
@@ -316,6 +335,7 @@ function normalizeLocalSave(save = {}) {
     activeInterfaceByPlayer: clone(save.metadata?.activeInterfaceByPlayer || save.activeInterfaceByPlayer || save.gameState?.activeSession?.activeInterfaceByPlayer || { "local-player": "boardstate-advanced" }),
     localInterfaceMode: save.metadata?.localInterfaceMode || save.localInterfaceMode || save.gameState?.activeSession?.localInterfaceMode || save.gameState?.activeSession?.interfaceMode || "boardstate-advanced",
     capabilities: clone(save.metadata?.capabilities || save.capabilities || save.gameState?.activeSession?.sessionCapabilities || {}),
+    advancedMultiplayer: clone(save.metadata?.advancedMultiplayer || save.advancedMultiplayer || save.gameState?.advancedMultiplayer || save.gameState?.activeSession?.advancedMultiplayer || createAdvancedMultiplayerState({})),
     linkedSession: clone(save.metadata?.linkedSession || save.linkedSession || save.gameState?.activeSession?.linkedSession || {}),
     revision: Number(save.metadata?.revision || save.revision || save.gameState?.activeSession?.revision || 0),
     compatibilityWarnings: clone(save.metadata?.compatibilityWarnings || []),

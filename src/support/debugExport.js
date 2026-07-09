@@ -242,7 +242,7 @@ function redactSecrets(key, value) {
 function getAppVersion() {
   return {
     name: "BoardState",
-    version: "1.20.0",
+    version: "1.21.0",
     build: "guided-tutorial-save-release",
   };
 }

@@ -2,9 +2,21 @@
 
 ## App
 - Name: BoardState
-- Version: 1.20.0
-- Version code: 35
+- Version: 1.21.0
+- Version code: 36
 - Package: `com.boardstate.app`
+
+## Version 1.21.0
+- Adds synchronized mirrored Advanced Mode support so two BoardState Advanced clients can render the same canonical session from each local player's perspective.
+- Adds Advanced multiplayer view modes for solo Advanced, two-player mirrored Arena, Commander pod Advanced, mixed-interface sessions, imported-session views, and recovery views.
+- Adds a local perspective layer that keeps the local player's board primary, focuses relevant opponent boards, and exposes compact Commander pod opponent lanes without mutating canonical rules state.
+- Adds participant status, interface mode, priority, pass, waiting-for-choice, and connection indicators for Advanced shared sessions.
+- Routes priority prompts, required choices, blocker prompts, and AI-owned choices to the correct owner while other clients show waiting/manual recovery states.
+- Adds public-only opponent board inspection, synchronized presentation-only full-card preview metadata, cross-board targeting metadata, and shared stack context.
+- Adds Advanced sync event handling for gameplay namespace events with duplicate-event protection, stale-revision recovery, and no tournament/friend/deck namespace crossover.
+- Persists Advanced multiplayer perspective metadata in saves and defaults legacy saves safely to solo Advanced mode.
+- Adds focused regression coverage for mirrored perspectives, Commander pod focus, mixed interfaces, choice ownership, sync dedupe/stale recovery, targeting metadata, save/load metadata, and hidden information protection.
+- Updates production web package metadata, Android wrapper metadata, Flutter wrapper metadata, local package artifacts, and release notes for version 1.21.0.
 
 ## Version 1.20.0
 - Adds shared-session handoff infrastructure for future BoardState Lite Simple Mode and original BoardState Advanced Mode continuity without claiming live Lite integration.

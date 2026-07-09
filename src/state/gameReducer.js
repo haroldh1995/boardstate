@@ -99,6 +99,11 @@ import {
   removeLinkedSession,
   restoreLinkedSessionAsAdvanced,
 } from "../shared-session/handoff.js";
+import {
+  applyAdvancedSyncEvent,
+  buildAdvancedMultiplayerPerspective,
+  createAdvancedMultiplayerState,
+} from "../shared-session/perspective.js";
 
 export function reduceProfile(profile, event) {
   const actionType = event.actionType || event.type;
@@ -370,6 +375,17 @@ export function reduceProfile(profile, event) {
       break;
     case "REMOVE_LINKED_SESSION":
       nextProfile = removeLinkedSession(baseProfile, event.sessionId || event.linkedSessionId || "");
+      break;
+    case "SET_ADVANCED_PERSPECTIVE_FOCUS":
+      nextProfile = withSession(baseProfile, updateAdvancedPerspectiveFocus(baseProfile.activeSession, event.playerId || event.focusedOpponentId || ""));
+      break;
+    case "APPLY_ADVANCED_SYNC_EVENT":
+      {
+        const result = applyAdvancedSyncEvent(baseProfile.activeSession, event.event || event.payload || event);
+        nextProfile = result.applied || result.session !== baseProfile.activeSession
+          ? withSession(baseProfile, result.session)
+          : baseProfile;
+      }
       break;
     case "STOP_GAME_TRACKING":
       nextProfile = withSession(baseProfile, stopGameTracking(baseProfile.activeSession));
@@ -4588,7 +4604,7 @@ function normalizeSessionMetadata(session = {}, options = {}) {
   const sessionId = session.sessionId || session.id || createId("session");
   const enforcementMode = options.enforcementMode === "waived" || session.enforcementMode === "waived" ? "waived" : "enforced";
   const mode = options.mode || session.saveMetadata?.mode || session.gameTracking?.mode || (session.simulation?.enabled ? "dry-run" : "training-ground");
-  return ensureInterfaceModeState({
+  const normalized = ensureInterfaceModeState({
     ...session,
     id: session.id || gameId,
     gameId,
@@ -4623,6 +4639,47 @@ function normalizeSessionMetadata(session = {}, options = {}) {
     },
     updatedAt: now,
   });
+  const perspective = buildAdvancedMultiplayerPerspective({ activeSession: normalized, player: { id: "local-player", name: "Player" }, settings: {} });
+  const advancedMultiplayer = createAdvancedMultiplayerState({
+    ...(normalized.advancedMultiplayer || {}),
+    viewMode: normalized.advancedMultiplayer?.viewMode || perspective.viewMode,
+    localPerspectivePlayerId: normalized.advancedMultiplayer?.localPerspectivePlayerId || "local-player",
+    focusedOpponentId: normalized.advancedMultiplayer?.focusedOpponentId || perspective.focusedOpponentId || "",
+    participantStatus: Object.fromEntries((perspective.participants || []).map((participant) => [participant.playerId, {
+      interfaceMode: participant.interfaceMode,
+      connectionStatus: participant.connectionStatus,
+      priorityStatus: participant.priorityStatus,
+      activeTurn: participant.activeTurn,
+      waitingForChoice: participant.waitingForChoice,
+    }])),
+    lastPerspectiveUpdatedAt: now,
+  });
+  return {
+    ...normalized,
+    advancedMultiplayer,
+    saveMetadata: {
+      ...(normalized.saveMetadata || {}),
+      perspective: {
+        localPerspectivePlayerId: advancedMultiplayer.localPerspectivePlayerId,
+        viewMode: advancedMultiplayer.viewMode,
+        focusedOpponentId: advancedMultiplayer.focusedOpponentId,
+        compactOpponentPanelOpen: advancedMultiplayer.compactOpponentPanelOpen,
+      },
+    },
+  };
+}
+
+function updateAdvancedPerspectiveFocus(session = {}, focusedOpponentId = "") {
+  const state = createAdvancedMultiplayerState(session.advancedMultiplayer || {});
+  return {
+    ...session,
+    advancedMultiplayer: {
+      ...state,
+      focusedOpponentId,
+      compactOpponentPanelOpen: Boolean(focusedOpponentId),
+      lastPerspectiveUpdatedAt: Date.now(),
+    },
+  };
 }
 
 function setRulesEnforcementMode(profile, mode = "enforced") {

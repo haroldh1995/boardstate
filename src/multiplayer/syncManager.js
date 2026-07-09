@@ -1,3 +1,5 @@
+import { ADVANCED_SYNC_EVENT_TYPES } from "../shared-session/perspective.js";
+
 const LOCAL_CHANNEL_PREFIX = "boardstate-sync";
 
 export function createSyncManager({ onRemoteAction, onPresence } = {}) {
@@ -10,6 +12,7 @@ export function createSyncManager({ onRemoteAction, onPresence } = {}) {
   let socket = null;
   let reconnectTimer = null;
   const seenActionIds = new Set();
+  const seenEventIds = new Set();
   const localPeerId = `peer-${Math.random().toString(36).slice(2, 8)}`;
 
   function configure(nextMode = "offline", settings = {}) {
@@ -48,10 +51,22 @@ export function createSyncManager({ onRemoteAction, onPresence } = {}) {
     seenActionIds.add(action.actionId);
     const payload = {
       type: "action",
+      namespace: "gameplay",
+      messageType: "ACTION_SUBMITTED",
       roomId,
       peerId: localPeerId,
       action: sanitizeActionForSync(action),
       publicState: createPublicSyncState(state),
+      activeInterfaceByPlayer: state.activeSession?.activeInterfaceByPlayer || {},
+      sourceApp: "boardstate",
+      capabilities: state.activeSession?.sessionCapabilities || {},
+      sessionRevision: state.activeSession?.revision || 0,
+      enforcementMode: state.activeSession?.enforcementMode || "enforced",
+      rulesEngineVersion: state.activeSession?.rulesEngineVersion || "",
+      schemaVersion: state.activeSession?.schemaVersion || "",
+      syncProtocolVersion: state.activeSession?.syncProtocolVersion || "",
+      advancedEvent: createAdvancedPresentationEvent(action, state),
+      createdAt: Date.now(),
     };
     if (localChannel) {
       localChannel.postMessage(payload);
@@ -134,12 +149,38 @@ export function createSyncManager({ onRemoteAction, onPresence } = {}) {
       onPresence?.(message.peers);
       return;
     }
-    if (message.type === "action" && message.action?.actionId) {
+    const advancedType = String(message.eventType || message.messageType || message.advancedEvent?.eventType || "").toUpperCase();
+    const advancedEventId = message.eventId || message.messageId || message.advancedEvent?.eventId || message.action?.actionId || "";
+    if (advancedType && ADVANCED_SYNC_EVENT_TYPES.includes(advancedType)) {
+      if (message.namespace && message.namespace !== "gameplay") {
+        return;
+      }
+      if (advancedEventId && seenEventIds.has(advancedEventId)) {
+        return;
+      }
+      if (advancedEventId) {
+        seenEventIds.add(advancedEventId);
+      }
+    }
+    if ((message.type === "action" || advancedType === "ACTION_SUBMITTED") && message.action?.actionId) {
       if (seenActionIds.has(message.action.actionId)) {
         return;
       }
       seenActionIds.add(message.action.actionId);
-      onRemoteAction?.(message.action, message.publicState || null);
+      onRemoteAction?.(
+        {
+          ...message.action,
+          remoteSyncMetadata: {
+            namespace: message.namespace || "gameplay",
+            messageType: message.messageType || advancedType || "ACTION_SUBMITTED",
+            eventId: advancedEventId,
+            sessionRevision: message.sessionRevision || message.publicState?.revision || 0,
+            sourceApp: message.sourceApp || "boardstate",
+            activeInterfaceByPlayer: message.activeInterfaceByPlayer || message.publicState?.activeInterfaceByPlayer || {},
+          },
+        },
+        message.publicState || null
+      );
     }
   }
 
@@ -165,11 +206,59 @@ function createPublicSyncState(state) {
     life: session.life,
     turn: session.turn,
     phaseIndex: session.phaseIndex,
+    namespace: "gameplay",
+    gameId: session.gameId || session.id || "",
+    sessionId: session.sessionId || session.id || "",
+    revision: Number(session.revision || 0),
+    schemaVersion: session.schemaVersion || "",
+    rulesEngineVersion: session.rulesEngineVersion || "",
+    syncProtocolVersion: session.syncProtocolVersion || "",
+    enforcementMode: session.enforcementMode || "enforced",
+    activeRuleWaivers: session.activeRuleWaivers || [],
+    activeInterfaceByPlayer: session.activeInterfaceByPlayer || {},
+    localInterfaceMode: session.localInterfaceMode || session.interfaceMode || "boardstate-advanced",
+    capabilities: session.sessionCapabilities || {},
+    priority: {
+      activePlayerId: session.priority?.activePlayerId || "local-player",
+      passedPlayerIds: session.priority?.passedPlayerIds || [],
+      waiting: Boolean(session.priority?.waiting),
+    },
+    stack: (session.stack || []).map((object) => ({
+      id: object.id,
+      name: object.name || object.card?.name || "Stack Object",
+      objectType: object.objectType || object.typeLine || "spell",
+      controller: object.controller || "player",
+      targetIds: object.targetIds || [],
+      selectedModes: object.selectedModes || [],
+      xValue: object.xValue,
+      copied: Boolean(object.copied || object.isCopy),
+      status: object.status || "pending",
+    })),
+    combat: {
+      step: session.combat?.step || "idle",
+      attackingPlayerId: session.combat?.attackingPlayerId || "local-player",
+      defendingPlayerId: session.combat?.defendingPlayerId || "",
+      attackerIds: session.combat?.attackerIds || [],
+      attackTargetsByAttacker: session.combat?.attackTargetsByAttacker || {},
+      blockersByAttacker: session.combat?.blockersByAttacker || {},
+    },
+    selectedTargetIds: session.selectedIds || [],
+    presentation: sanitizePresentation(session.presentation),
     battlefield: {
       player: sanitizePermanents(session.battlefield.player),
       opponent: sanitizePermanents(session.battlefield.opponent),
     },
     triggerQueueSize: (session.triggerQueue || []).filter((entry) => entry.status === "pending").length,
+    pendingChoices: (session.pendingEffects || [])
+      .filter((entry) => !["resolved", "skipped", "ignored"].includes(entry.status))
+      .map((entry) => ({
+        id: entry.id,
+        sourceName: entry.sourceName,
+        controller: entry.controller || "",
+        stackObjectId: entry.stackObjectId || "",
+        choiceKind: entry.effect?.choiceKind || entry.effect?.action || "manual-choice",
+        status: entry.status || "pending",
+      })),
     updatedAt: Date.now(),
   };
 }
@@ -186,5 +275,70 @@ function sanitizePermanents(permanents = []) {
     currentToughness: permanent.currentToughness,
     isToken: permanent.isToken,
     isCommander: permanent.isCommander,
+    controller: permanent.controller,
+    owner: permanent.owner,
+    attacking: permanent.attacking,
+    blocking: permanent.blocking,
+    markedDamage: permanent.markedDamage,
+    loyalty: permanent.loyalty || permanent.counters?.Loyalty || 0,
+    defense: permanent.defense || 0,
+    attachments: permanent.attachments || [],
+    attachedToId: permanent.attachedToId || "",
   }));
+}
+
+function sanitizePresentation(presentation = null) {
+  if (!presentation || Number(presentation.expiresAt || 0) <= Date.now()) {
+    return null;
+  }
+  return {
+    id: presentation.id || "",
+    kind: presentation.kind || "preview",
+    controller: presentation.controller || "",
+    card: {
+      name: presentation.card?.name || "",
+      typeLine: presentation.card?.typeLine || "",
+      imageSmall: presentation.card?.imageSmall || "",
+      imageUrl: presentation.card?.imageUrl || "",
+    },
+    expiresAt: presentation.expiresAt || 0,
+    presentationOnly: true,
+  };
+}
+
+function createAdvancedPresentationEvent(action = {}, state = {}) {
+  const actionType = action.actionType || action.type || "";
+  const session = state.activeSession || {};
+  if (!["CAST_SPELL", "ADD_PERMANENT", "DECLARE_ATTACKERS", "CONFIRM_BLOCKERS", "PASS_PRIORITY", "RESOLVE_TOP_SPELL"].includes(actionType)) {
+    return null;
+  }
+  const eventType = actionType === "CAST_SPELL"
+    ? "SPELL_CAST"
+    : actionType === "ADD_PERMANENT"
+      ? "PERMANENT_ENTERED"
+      : actionType === "DECLARE_ATTACKERS"
+        ? "ATTACKERS_DECLARED"
+        : actionType === "CONFIRM_BLOCKERS"
+          ? "BLOCKERS_DECLARED"
+          : actionType === "PASS_PRIORITY"
+            ? "PLAYER_PASSED_PRIORITY"
+            : "STACK_OBJECT_RESOLVED";
+  return {
+    eventId: action.actionId || `sync-event-${Date.now()}`,
+    eventType,
+    namespace: "gameplay",
+    gameId: session.gameId || session.id || "",
+    sessionId: session.sessionId || session.id || "",
+    revision: session.revision || 0,
+    playerId: action.playerId || "local-player",
+    card: action.card ? {
+      name: action.card.name,
+      typeLine: action.card.typeLine,
+      imageSmall: action.card.imageSmall,
+      imageUrl: action.card.imageUrl,
+    } : null,
+    targetIds: action.targetIds || session.selectedIds || [],
+    createdAt: Date.now(),
+    presentationOnly: true,
+  };
 }

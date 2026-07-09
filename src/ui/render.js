@@ -5,7 +5,7 @@ import { buildFriendInviteLink } from "../social/friendSystem.js";
 import { buildTutorialHelperMessage, buildTutorialScreenReaderText, getTutorialProgress, shouldShowFirstLaunch } from "../onboarding/tutorialSystem.js";
 import { exportLocalSave } from "../storage/saveState.js";
 import { canBeCommander } from "../game/commanderSystem.js";
-import { getPermanentManaOptions } from "../rules-engine/index.js";
+import { calculateLegalTargets, getPermanentManaOptions } from "../rules-engine/index.js";
 import { createPermanent, PHASES } from "../state/schema.js";
 import { buildPredictiveActions } from "../game/predictiveActions.js";
 import { getSimulationDeckById } from "../simulation/decks/index.js";
@@ -22,6 +22,10 @@ import {
   getLinkedSessionRecords,
   parseLinkedSessionSnapshot,
 } from "../shared-session/handoff.js";
+import {
+  buildAdvancedMultiplayerPerspective,
+  buildAdvancedTargetingVisualModel,
+} from "../shared-session/perspective.js";
 import {
   buildBugReport,
   buildDebugState,
@@ -5236,8 +5240,24 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
   const activeOpponentVisible = Boolean(activeOpponent && visibility[activeOpponent.id || "opponent"]);
   const showOpponentZone = Boolean(panels.boardOpponent && hasOpponentBoards && activeOpponentVisible);
   const showStatsOverlay = Boolean(profile.settings?.battlefield?.statsOverlay);
+  const perspective = buildAdvancedMultiplayerPerspective(profile, {
+    viewport: isMobilePortrait ? "phone" : "widescreen",
+    focusedOpponentId: profile.settings?.battlefield?.focusedOpponentId || session.advancedMultiplayer?.focusedOpponentId || "",
+  });
+  const perspectiveOpponentBoards = perspective.opponentBoards?.length ? perspective.opponentBoards : opponentBoards;
+  const perspectiveOpponentIndex = perspectiveOpponentBoards.findIndex((opponent) => opponent.id === perspective.focusedOpponentId);
+  const mirroredOpponentIndex = perspectiveOpponentIndex >= 0 ? perspectiveOpponentIndex : activeOpponentIndex;
+  const mirroredOpponent = perspectiveOpponentBoards[mirroredOpponentIndex] || activeOpponent;
+  const mirroredOpponentVisible = Boolean(
+    mirroredOpponent &&
+      (visibility[mirroredOpponent.id || "opponent"] || perspective.fullOpponentBoard || perspective.viewMode === "two-player-mirrored")
+  );
+  const showPerspectiveOpponentZone = Boolean(panels.boardOpponent && mirroredOpponent && mirroredOpponentVisible);
+  const sourceForTargets = getSelectedPermanents(session)[0] || session.stack?.[0]?.card || null;
+  const legalTargetResult = sourceForTargets ? calculateLegalTargets(session, sourceForTargets, "all-permanents") : null;
+  const targetingVisuals = buildAdvancedTargetingVisualModel(profile, perspective, { legalTargets: legalTargetResult });
   return `
-    <section class="battlefield-page battlefield-page--focused ui-layer-surface-${escapeAttribute(uiLayer)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${isMobilePortrait && mobileFocusView ? "mobile-focus-view" : ""}">
+    <section class="battlefield-page battlefield-page--focused advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${isMobilePortrait && mobileFocusView ? "mobile-focus-view" : ""}">
       <div class="battlefield-state-strip">
         <div>
           <strong>Turn ${escapeHtml(session.turn)} · ${escapeHtml(PHASES[session.phaseIndex] || "Beginning")} · ${escapeHtml(resolvePhaseTrackerActorLabel(session).replace(/^Active turn:\s*/i, ""))}</strong>
@@ -5248,12 +5268,14 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
           <button data-setting-button="battlefield.focusMode" data-value="${profile.settings?.battlefield?.focusMode ? "false" : "true"}">Focus View</button>
         </div>
       </div>
-      ${hasOpponentBoards ? renderOpponentVisibilityControls(opponentBoards, visibility) : ""}
-      <section class="arena glass ${playerDensityClass} ${profile.settings?.battlefield?.focusMode && session.selectedIds?.length ? "focus-mode" : ""} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${showOpponentZone ? "" : "arena--opponent-hidden"} ${panels.boardCombat ? "" : "arena--combat-hidden"}" data-set-tool-context="empty">
-        ${showOpponentZone ? `
+      ${renderAdvancedMultiplayerStatus(perspective)}
+      ${perspective.compactOpponentLanes ? renderCompactOpponentLanes(perspective) : ""}
+      ${perspectiveOpponentBoards.length ? renderOpponentVisibilityControls(perspectiveOpponentBoards, visibility, perspective) : ""}
+      <section class="arena glass ${playerDensityClass} ${perspective.viewMode === "two-player-mirrored" ? "arena--two-player-mirrored" : ""} ${perspective.viewMode === "commander-pod-advanced" || perspective.viewMode === "mixed-interface-session" ? "arena--commander-pod" : ""} ${profile.settings?.battlefield?.focusMode && session.selectedIds?.length ? "focus-mode" : ""} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${showPerspectiveOpponentZone ? "" : "arena--opponent-hidden"} ${panels.boardCombat ? "" : "arena--combat-hidden"}" data-set-tool-context="empty">
+        ${showPerspectiveOpponentZone ? `
         <div class="opponent-zone ${opponentDensityClass}" data-opponent-swipe data-set-tool-context="empty">
-          ${renderOpponentZoneHeader(opponentBoards, activeOpponentIndex, activeOpponent)}
-          ${activeOpponent ? renderBattlefieldGroups(activeOpponent.permanents, {
+          ${renderOpponentZoneHeader(perspectiveOpponentBoards, mirroredOpponentIndex, mirroredOpponent, perspective)}
+          ${mirroredOpponent ? renderBattlefieldGroups(mirroredOpponent.permanents, {
             readonly: true,
             allowTargeting: true,
             emptyText: "No visible opponent permanents",
@@ -5265,6 +5287,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
             showStatsOverlay,
             session,
             settings: profile.settings,
+            targetingVisuals,
           }) : empty("No visible opponent permanents")}
         </div>
         ` : ""}
@@ -5278,7 +5301,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
         </div>
         ` : ""}
         <div class="player-zone">
-          <h2>${showOpponentZone ? "Your Battlefield" : "Battlefield"}</h2>
+          <h2>${showPerspectiveOpponentZone ? "Your Battlefield" : "Battlefield"}</h2>
           ${renderBattlefieldGroups(session.battlefield.player, {
             emptyText: "No permanents yet",
             expandedAll: profile.settings?.battlefield?.expandedAll,
@@ -5289,6 +5312,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
             showStatsOverlay,
             session,
             settings: profile.settings,
+            targetingVisuals,
           })}
         </div>
       </section>
@@ -5299,24 +5323,69 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
       </aside>
     </section>
     ${renderMobileBattlefieldDock(profile, activeUtilityPanel, uiState.utilityDockOpen, Boolean(panels.boardCombat), Boolean(combatResolving), isMobilePortrait)}
-    ${panels.advancedRulesHelpers || (session.pendingEffects || []).some((entry) => !["resolved", "skipped", "ignored"].includes(entry.status)) ? renderPending(session, Boolean(uiState.manualChoicePanelCollapsed)) : ""}
+    ${panels.advancedRulesHelpers || (session.pendingEffects || []).some((entry) => !["resolved", "skipped", "ignored"].includes(entry.status)) ? renderPending(session, Boolean(uiState.manualChoicePanelCollapsed), perspective) : ""}
     ${session.tutorial?.active ? renderTutorialSamplePanel(session) : ""}
     ${activeUtilityPanel === "history" ? renderActionTimeline(profile) : ""}
     ${activeUtilityPanel === "triggers" ? renderTriggerQueuePanel(profile) : ""}
-    ${uiState.opponentOverlayOpen && activeOpponent ? renderOpponentBattlefieldOverlay(profile, activeOpponent, activeOpponentIndex, opponentBoards.length, detailMode, compressionMode, selectedIds, expandedStackIds) : ""}
-    ${session.combat?.step === "declare-blockers" && !session.simulation?.enabled ? renderBlockerDeclaration(profile) : ""}
+    ${uiState.opponentOverlayOpen && mirroredOpponent ? renderOpponentBattlefieldOverlay(profile, mirroredOpponent, mirroredOpponentIndex, perspectiveOpponentBoards.length, detailMode, compressionMode, selectedIds, expandedStackIds) : ""}
+    ${session.combat?.step === "declare-blockers" && !session.simulation?.enabled ? renderBlockerDeclaration(profile, perspective) : ""}
   `;
 }
 
-function renderOpponentVisibilityControls(opponentBoards = [], visibility = {}) {
+function renderOpponentVisibilityControls(opponentBoards = [], visibility = {}, perspective = null) {
   return `
     <div class="opponent-visibility-controls glass" aria-label="Opponent battlefield visibility">
       ${opponentBoards.map((opponent) => {
         const id = opponent.id || "opponent";
-        const visible = Boolean(visibility[id]);
+        const visible = Boolean(visibility[id] || perspective?.focusedOpponentId === id || perspective?.viewMode === "two-player-mirrored");
         return `<button class="${visible ? "active" : ""}" data-setting-button="battlefield.opponentVisibility.${escapeAttribute(id)}" data-value="${visible ? "false" : "true"}" aria-pressed="${visible}">${escapeHtml(opponent.name || id)} ${visible ? "Shown" : "Hidden"}</button>`;
       }).join("")}
     </div>
+  `;
+}
+
+function renderAdvancedMultiplayerStatus(perspective = {}) {
+  const priority = perspective.promptOwnership?.priority || {};
+  return `
+    <section class="advanced-multiplayer-status glass" aria-label="Advanced multiplayer session status">
+      <div>
+        <p class="eyebrow">Advanced Multiplayer View</p>
+        <strong>${escapeHtml(formatLabel(perspective.viewMode || "solo-advanced"))}</strong>
+        <span>${escapeHtml(priority.statusText || "No priority window")}</span>
+      </div>
+      <div class="advanced-participant-strip">
+        ${(perspective.participants || []).map((player) => `
+          <article class="${player.playerId === perspective.localPlayerId ? "is-local" : ""} ${player.priorityStatus === "has-priority" ? "has-priority" : ""} ${player.waitingForChoice ? "needs-choice" : ""}">
+            <strong>${escapeHtml(player.displayName || player.playerId)}</strong>
+            <span>${escapeHtml(player.interfaceMode || "unknown")}</span>
+            <small>${player.activeTurn ? "Active turn" : player.priorityStatus === "passed" ? "Passed priority" : player.priorityStatus === "has-priority" ? "Priority" : "Waiting"}${player.waitingForChoice ? " · choice" : ""}</small>
+          </article>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderCompactOpponentLanes(perspective = {}) {
+  const boards = perspective.opponentBoards || [];
+  if (!boards.length) {
+    return "";
+  }
+  return `
+    <section class="compact-opponent-lanes glass" aria-label="Commander pod opponent boards">
+      ${boards.map((board) => {
+        const focused = board.id === perspective.focusedOpponentId;
+        const participant = (perspective.participants || []).find((entry) => entry.playerId === board.id) || {};
+        return `
+          <button class="${focused ? "is-focused" : ""} ${participant.priorityStatus === "has-priority" ? "has-priority" : ""}" data-setting-button="battlefield.focusedOpponentId" data-value="${escapeAttribute(board.id)}">
+            <strong>${escapeHtml(board.name || board.id)}</strong>
+            <span>Life ${escapeHtml(board.life ?? 40)} · ${escapeHtml(board.interfaceMode || "unknown")}</span>
+            <small>${escapeHtml(board.creatureCount || 0)} creatures · ${escapeHtml(board.landCount || 0)} lands · ${escapeHtml(board.nonCreaturePermanentCount || 0)} other</small>
+            ${board.detailsLimited ? "<em>details limited</em>" : ""}
+          </button>
+        `;
+      }).join("")}
+    </section>
   `;
 }
 
@@ -5326,8 +5395,9 @@ function renderCardPresentation(presentation) {
   }
   const card = presentation.card || {};
   const imageUrl = getBattlefieldCardImageUrl(card);
+  const controller = presentation.sourcePlayerId || presentation.controller || "Player";
   const label = presentation.kind === "cast"
-    ? `${presentation.controller || "Player"} casts ${card.name || "a spell"}`
+    ? `${controller} casts ${card.name || "a spell"}`
     : `${card.name || "Card"} enters the battlefield`;
   return `
     <aside class="card-presentation" aria-live="polite" aria-label="${escapeAttribute(label)}">
@@ -5336,14 +5406,30 @@ function renderCardPresentation(presentation) {
         <span>${escapeHtml(label)}</span>
         <strong>${escapeHtml(card.name || "Card")}</strong>
         <small>${escapeHtml(card.typeLine || "")}</small>
+        <small>${presentation.presentationOnly || presentation.synced ? "Presentation only - rules state comes from the engine." : ""}</small>
       </div>
     </aside>
   `;
 }
 
-function renderBlockerDeclaration(profile) {
+function renderBlockerDeclaration(profile, perspective = null) {
   const session = profile.activeSession;
   const combat = session.combat || {};
+  const defenderId = combat.defendingPlayerId || "opponent";
+  const localPlayerId = perspective?.localPlayerId || profile.player?.id || "local-player";
+  const localCanBlock = ["local-player", "player"].includes(defenderId) || defenderId === localPlayerId;
+  if (!localCanBlock) {
+    const defenderName = perspective?.participants?.find((player) => player.playerId === defenderId)?.displayName || defenderId;
+    return `
+      <section class="floating-overlay blocker-declaration glass" data-no-swipe role="dialog" aria-modal="true" aria-label="Waiting for blockers">
+        <div class="overlay-header compact">
+          <div><p class="eyebrow">Combat</p><h2>Waiting for ${escapeHtml(defenderName)}</h2></div>
+          <span>Blocker choice belongs to the defending player.</span>
+        </div>
+        <p>BoardState will not ask this Advanced client to make another human player's blocker choices. If routing is unavailable, use Manual Choice Required or session recovery.</p>
+      </section>
+    `;
+  }
   const attackers = (session.battlefield.player || []).filter((entry) => (combat.attackerIds || []).includes(entry.id));
   const blockers = (session.battlefield.opponent || []).filter((entry) => entry.isCreature);
   const assignments = combat.blockersByAttacker || {};
@@ -5432,7 +5518,7 @@ function renderBattlefieldHeaderTurnStatus(profile) {
   return `<p class="battlefield-header-turn-status">${session.simulation?.enabled ? `<span class="dry-run-inline-badge">Dry Run</span>` : ""}Turn ${session.turn} · ${escapeHtml(phaseLabel)} · ${escapeHtml(actor)}</p>`;
 }
 
-function renderOpponentZoneHeader(opponentBoards, activeIndex, activeOpponent) {
+function renderOpponentZoneHeader(opponentBoards, activeIndex, activeOpponent, perspective = null) {
   if (!opponentBoards.length) {
     return "<h2>Opponent Battlefield</h2>";
   }
@@ -5440,7 +5526,7 @@ function renderOpponentZoneHeader(opponentBoards, activeIndex, activeOpponent) {
     <div class="opponent-zone-header">
       <div>
         <h2>${escapeHtml(activeOpponent?.name || "Opponent Battlefield")}</h2>
-        <p class="eyebrow">${activeIndex + 1}/${opponentBoards.length} · ${escapeHtml(activeOpponent?.deckName || "Opponent")}</p>
+        <p class="eyebrow">${activeIndex + 1}/${opponentBoards.length} - ${escapeHtml(activeOpponent?.deckName || "Opponent")}${perspective?.viewMode ? ` - ${escapeHtml(formatLabel(perspective.viewMode))}` : ""}</p>
       </div>
       <div class="opponent-swipe-rail" aria-label="Opponent battlefield selector">
         ${opponentBoards.map((opponent, index) => `
@@ -5448,6 +5534,7 @@ function renderOpponentZoneHeader(opponentBoards, activeIndex, activeOpponent) {
             <strong>${escapeHtml(getInitials(opponent.name || "OP"))}</strong>
             <span>${escapeHtml(opponent.name || "Opponent")}</span>
             <b>${escapeHtml(opponent.life ?? 40)}</b>
+            ${opponent.detailsLimited ? "<em>Limited</em>" : ""}
           </button>
         `).join("")}
       </div>
@@ -5662,9 +5749,13 @@ function renderPermanent(permanent, options = {}) {
   const fallbackClass = getBattlefieldCardFallbackClass(permanent);
   const damageMarked = Math.max(0, Number(permanent.damageMarked || permanent.damage || 0));
   const lethalDamage = Boolean(permanent.isCreature && damageMarked >= Math.max(0, Number(permanent.currentToughness || 0)));
+  const targetVisual = options.targetingVisuals?.candidates?.find((candidate) => candidate.id === permanent.id);
   const stateClasses = [
     selected ? "selected" : "",
     permanent.targeted || permanent.isTargeted ? "targeted" : "",
+    targetVisual?.valid ? "target-valid" : "",
+    targetVisual && !targetVisual.valid ? "target-invalid" : "",
+    targetVisual?.source ? "target-source" : "",
     permanent.tapped ? "tapped" : "",
     permanent.attacking ? "attacking" : "",
     permanent.blocking ? "blocking" : "",
@@ -5681,7 +5772,7 @@ function renderPermanent(permanent, options = {}) {
       : ""
     : `data-permanent="${permanent.id}"`;
   return `
-    <article class="permanent detail-${detailMode} ${stateClasses}" data-permanent-card data-permanent-id="${permanent.id}" data-readonly="${options.readonly ? "true" : "false"}">
+    <article class="permanent detail-${detailMode} ${stateClasses}" data-permanent-card data-permanent-id="${permanent.id}" data-readonly="${options.readonly ? "true" : "false"}" data-target-valid="${targetVisual?.valid ? "true" : targetVisual ? "false" : "unknown"}">
       <div class="permanent-art-layer ${fallbackClass} ${imageUrl ? "has-card-art" : "uses-fallback"}" ${imageUrl ? `style="--card-image:url(&quot;${escapeAttribute(imageUrl)}&quot;)"` : ""} data-card-image="${imageUrl ? "available" : "fallback"}" aria-hidden="true"></div>
       <div class="permanent-readability-layer" aria-hidden="true"></div>
       ${permanent.quantity > 1 ? `<i class="stack-silhouette stack-silhouette--one" aria-hidden="true"></i><i class="stack-silhouette stack-silhouette--two" aria-hidden="true"></i>` : ""}
@@ -5699,6 +5790,7 @@ function renderPermanent(permanent, options = {}) {
         </button>
         ${renderPermanentStateBadges(permanent, damageMarked, lethalDamage)}
         ${showStatsOverlay ? renderStatusIconRow(statusIcons) : ""}
+        ${targetVisual ? `<small class="target-visual-note">${targetVisual.valid ? "Legal target" : `Invalid: ${escapeHtml(targetVisual.reason || "not legal")}`}</small>` : ""}
         ${showStatsOverlay && detailMode !== "compact" ? renderPermanentDetails(permanent, detailMode) : ""}
         ${permanent.quantity > 1 ? `<button class="stack-toggle" type="button" data-toggle-stack="${permanent.id}">${stackExpanded ? "Collapse Stack" : "Expand Stack"}</button>` : ""}
         ${stackExpanded ? renderStackMemberDetails(stackMembers, detailMode, permanent) : ""}
@@ -5729,11 +5821,12 @@ function renderPermanentSurfaceActions(permanent = {}) {
 }
 
 function renderSelectedPermanentMenu(session = {}) {
-  const selected = [...(session.battlefield?.player || [])]
+  const selected = [...(session.battlefield?.player || []), ...(session.battlefield?.opponent || [])]
     .find((permanent) => (session.selectedIds || []).includes(permanent.id));
   if (!selected) {
     return "";
   }
+  const isLocalPermanent = selected.controller === "player" || selected.controller === "local-player" || !selected.controller;
   const isSimpleLand = selected.isLand && !selected.supportsStation && !selected.supportsMaxSpeed;
   return `
     <aside class="selected-permanent-menu glass scroll-safe" role="dialog" aria-label="${escapeAttribute(`${selected.name} actions`)}">
@@ -5741,7 +5834,12 @@ function renderSelectedPermanentMenu(session = {}) {
         <div><p class="eyebrow">Selected permanent</p><strong>${escapeHtml(selected.name)}</strong><small>${escapeHtml(selected.typeLine)}</small></div>
         <button data-selected-action="clear" aria-label="Close selected permanent actions">Close</button>
       </div>
-      ${isSimpleLand ? `<p>Use +1 or Tap directly on the land tile.</p>${selected.tapped ? `<button data-tap="${escapeAttribute(selected.id)}">Untap</button>` : ""}` : `
+      ${!isLocalPermanent ? `
+        <p>Public opponent permanent. You can inspect details, counters, tapped state, attachments, and targetability, but hidden zones remain private.</p>
+        <div class="button-grid selected-permanent-menu__actions">
+          <button data-open-tool-panel="inspect">Details</button>
+        </div>
+      ` : isSimpleLand ? `<p>Use +1 or Tap directly on the land tile.</p>${selected.tapped ? `<button data-tap="${escapeAttribute(selected.id)}">Untap</button>` : ""}` : `
       <div class="button-grid selected-permanent-menu__actions">
         ${selected.isLand ? "" : `<button data-selected-menu-counter="Charge">Add counter</button><button data-selected-menu-counter="+1/+1">Add +1/+1 counter</button>`}
         ${selected.isLand ? "" : `<button data-tap="${escapeAttribute(selected.id)}">${selected.tapped ? "Untap" : "Tap"}</button>`}
@@ -6101,8 +6199,9 @@ function renderStackPriorityPanel(profile) {
   const queue = profile.activeSession.triggerQueue || [];
   const stackItems = [...spells, ...queue, ...(profile.activeSession.pendingEffects || []).filter((entry) => !entry.stackObjectId)];
   const priority = profile.activeSession.priority || {};
-  const activePriorityName = ["local-player", "player"].includes(priority.activePlayerId) ? "You" : priority.activePlayerId || "No responder";
-  const userCanRespond = priority.waiting && ["local-player", "player"].includes(priority.activePlayerId);
+  const perspective = buildAdvancedMultiplayerPerspective(profile);
+  const activePriorityName = perspective.promptOwnership?.priority?.ownerName || (["local-player", "player"].includes(priority.activePlayerId) ? "You" : priority.activePlayerId || "No responder");
+  const userCanRespond = Boolean(perspective.promptOwnership?.priority?.localCanAct);
   return `
     <section class="stack-priority-panel">
       <p class="eyebrow">The Stack</p>
@@ -6127,7 +6226,7 @@ function renderStackPriorityPanel(profile) {
       </div>
       <article class="priority-message">
         <strong>Priority: ${escapeHtml(activePriorityName)}</strong>
-        <span>${priority.waiting ? "Waiting for a response or pass." : stackItems.length ? "All applicable priority has passed; auto-run is ready." : "No priority window."}</span>
+        <span>${priority.waiting ? (userCanRespond ? "Your response window is active." : `Waiting for ${activePriorityName}.`) : stackItems.length ? "All applicable priority has passed; auto-run is ready." : "No priority window."}</span>
       </article>
       <div class="stack-priority-actions">
         ${userCanRespond ? `<button data-pass-priority>Pass Priority</button><button data-respond-stack>Respond...</button>` : ""}
@@ -6864,7 +6963,7 @@ function renderCommanderTools(profile) {
   `;
 }
 
-function renderPending(session, collapsed = false) {
+function renderPending(session, collapsed = false, perspective = null) {
   const activeEffects = (session.pendingEffects || []).filter((effect) => !["resolved", "skipped", "ignored"].includes(effect.status));
   if (!activeEffects.length) {
     return "";
@@ -6883,21 +6982,25 @@ function renderPending(session, collapsed = false) {
         <h2>Manual Choice Required</h2>
         <button data-helper-remind>Remind Me</button>
       </div>
-      ${activeEffects.map((effect) => `
+      ${activeEffects.map((effect) => {
+        const ownership = perspective?.promptOwnership?.pendingChoices?.find((choice) => choice.choiceId === effect.id);
+        const localCanResolve = ownership ? ownership.localCanResolve : true;
+        const ownerLabel = ownership?.ownerName || effect.controller || "Player";
+        return `
         <article>
           <strong>${escapeHtml(effect.sourceName)}</strong>
           <span>${escapeHtml(effect.status === "pending" ? "manual choice required" : effect.status)} <i class="confidence-pill ${confidenceClass(effect.rulesConfidence)}">${escapeHtml(confidenceLabel(effect.rulesConfidence))}</i></span>
+          <small>Decision owner: ${escapeHtml(ownerLabel)}${localCanResolve ? "" : " - waiting on that player"}</small>
           <p>${escapeHtml(effect.summary || effect.effect?.summary || effect.effect?.reason || effect.effect?.action || "Manual decision required.")}</p>
           ${effect.oracleText ? `<small>${escapeHtml(effect.oracleText)}</small>` : ""}
           ${effect.stackObjectId ? `<small>Stack object: ${escapeHtml(effect.stackObjectId)} · Controller: ${escapeHtml(effect.controller || "player")}</small>` : ""}
-          ${renderSpellTargetChoices(session, effect)}
-          ${effect.effect?.action === "entry-choice" ? `<div class="manual-target-grid"><button data-entry-choice="${escapeAttribute(effect.id)}" data-entry-untapped="false">Enter Tapped / Decline</button><button data-entry-choice="${escapeAttribute(effect.id)}" data-entry-untapped="true">Condition Met / Pay Cost / Enter Untapped</button></div>` : ""}
-          <button data-pending-effect="${effect.id}" data-status="resolved">Resolved</button>
-          <button data-pending-effect="${effect.id}" data-status="skipped">Skipped</button>
-          <button data-pending-effect="${effect.id}" data-status="ignored">Ignored</button>
+          ${localCanResolve ? renderSpellTargetChoices(session, effect) : `<small>Prompt routed to ${escapeHtml(ownerLabel)}. This client can inspect the state but cannot answer for them.</small>`}
+          ${localCanResolve && effect.effect?.action === "entry-choice" ? `<div class="manual-target-grid"><button data-entry-choice="${escapeAttribute(effect.id)}" data-entry-untapped="false">Enter Tapped / Decline</button><button data-entry-choice="${escapeAttribute(effect.id)}" data-entry-untapped="true">Condition Met / Pay Cost / Enter Untapped</button></div>` : ""}
+          ${localCanResolve ? `<button data-pending-effect="${effect.id}" data-status="resolved">Resolved</button><button data-pending-effect="${effect.id}" data-status="skipped">Skipped</button><button data-pending-effect="${effect.id}" data-status="ignored">Ignored</button>` : ""}
           <button data-helper-remind>Remind Me</button>
         </article>
-      `).join("")}
+      `;
+      }).join("")}
     </section>
   `;
 }
@@ -9133,6 +9236,13 @@ function renderInspectPanel(profile) {
             </div>
           </div>
           ${renderPermanentLayerInspector(permanent, profile)}
+          <div class="inspect-public-state">
+            <p>Controller: ${escapeHtml(permanent.controller || "player")} · Owner: ${escapeHtml(permanent.owner || permanent.controller || "player")}</p>
+            <p>State: ${permanent.tapped ? "Tapped" : "Untapped"}${permanent.attacking ? " · attacking" : ""}${permanent.blocking ? " · blocking" : ""}${permanent.summoningSick ? " · summoning sick" : ""}</p>
+            <p>Counters: ${Object.entries(permanent.counters || {}).filter(([, value]) => Number(value) > 0).map(([type, value]) => `${escapeHtml(type)} ${escapeHtml(value)}`).join(" / ") || "none"} · Damage: ${escapeHtml(permanent.markedDamage || permanent.damageMarked || 0)} · Loyalty/Defense: ${escapeHtml(permanent.counters?.Loyalty || permanent.loyalty || permanent.defense || 0)}</p>
+            <p>Attachments: ${(permanent.attachments || []).map(escapeHtml).join(", ") || permanent.attachedToId || "none"} · Token/copy count: ${escapeHtml(permanent.quantity || 1)}${permanent.isToken ? " token" : ""}${permanent.isCopy ? " copy" : ""}</p>
+            ${permanent.controller && permanent.controller !== "player" ? "<p>Opponent inspection shows public battlefield information only. Private hand, library, deck notes, and hidden data are not exposed.</p>" : ""}
+          </div>
           ${
             adhdMode.enabled
               ? `

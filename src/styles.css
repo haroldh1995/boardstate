@@ -1029,6 +1029,97 @@ body[data-composition="widescreen"] .battlefield-group .tile-grid {
   margin: 0.18rem 0;
 }
 
+.advanced-multiplayer-status,
+.compact-opponent-lanes {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+  padding: 0.85rem;
+}
+
+.advanced-multiplayer-status {
+  grid-template-columns: minmax(10rem, 0.8fr) 2fr;
+  align-items: stretch;
+}
+
+.advanced-participant-strip,
+.compact-opponent-lanes {
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+}
+
+.advanced-participant-strip {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.advanced-participant-strip article,
+.compact-opponent-lanes button {
+  border: 1px solid rgba(241, 192, 107, 0.32);
+  border-radius: 0.8rem;
+  background: linear-gradient(180deg, rgba(12, 15, 30, 0.78), rgba(6, 8, 18, 0.6));
+  color: var(--text);
+  padding: 0.65rem;
+  text-align: left;
+}
+
+.advanced-participant-strip article.is-local,
+.compact-opponent-lanes button.is-focused {
+  border-color: rgba(143, 211, 255, 0.72);
+  box-shadow: 0 0 0 1px rgba(143, 211, 255, 0.18), 0 0 18px rgba(113, 179, 255, 0.16);
+}
+
+.advanced-participant-strip article.has-priority,
+.compact-opponent-lanes button.has-priority {
+  border-color: rgba(255, 229, 138, 0.8);
+}
+
+.advanced-participant-strip article.needs-choice {
+  outline: 2px solid rgba(255, 126, 205, 0.45);
+}
+
+.compact-opponent-lanes button em {
+  display: inline-block;
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.arena--two-player-mirrored .opponent-zone {
+  border-color: rgba(143, 211, 255, 0.45);
+}
+
+.arena--commander-pod .opponent-zone {
+  max-height: min(42svh, 34rem);
+  overflow: auto;
+}
+
+.permanent.target-valid {
+  box-shadow: 0 0 0 1px rgba(143, 211, 255, 0.45), 0 0 18px rgba(143, 211, 255, 0.18);
+}
+
+.permanent.target-invalid {
+  opacity: 0.62;
+  filter: saturate(0.72);
+}
+
+.permanent.target-source {
+  box-shadow: 0 0 0 1px rgba(255, 229, 138, 0.7), 0 0 20px rgba(241, 192, 107, 0.22);
+}
+
+.target-visual-note,
+.inspect-public-state {
+  display: block;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.inspect-public-state {
+  border: 1px solid rgba(236, 200, 122, 0.22);
+  border-radius: 0.75rem;
+  margin: 0.7rem 0;
+  padding: 0.7rem;
+}
+
 .rules-status-pill.is-enforced {
   border-color: rgba(103, 232, 143, 0.45);
 }
@@ -1048,6 +1139,22 @@ body[data-composition="widescreen"] .battlefield-group .tile-grid {
 @media (max-width: 720px) {
   .home-hero {
     grid-template-columns: 1fr;
+  }
+
+  .advanced-multiplayer-status,
+  .compact-opponent-lanes {
+    grid-template-columns: 1fr;
+    padding: 0.7rem;
+  }
+
+  .advanced-participant-strip,
+  .compact-opponent-lanes {
+    grid-template-columns: 1fr;
+  }
+
+  .arena--commander-pod .opponent-zone,
+  .arena--mixed-interface-session .opponent-zone {
+    max-height: 36svh;
   }
 
   .boardstate-home-page {
