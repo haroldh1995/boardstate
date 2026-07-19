@@ -2,9 +2,16 @@
 
 ## App
 - Name: BoardState
-- Version: 1.24.0
-- Version code: 39
+- Version: 1.25.0
+- Version code: 40
 - Package: `com.boardstate.app`
+
+## Version 1.25.0
+- Adds the Commander/Brawl modernization audit documenting the reuse map, state ownership, current multiplayer/battlefield limits, event knowledge reuse, confidence/recovery readiness, and Hub readiness.
+- Adds low-risk modernization foundation contracts for Commander/Brawl two-to-ten-player support, Live Tracking and Full Control input modes, battlefield camera modes, question types, confidence levels, and unanimous rule-amendment policy.
+- Adds tests for Commander/Brawl player-count limits, false Lite/Nexus/Hub live-link prevention, unanimous-only rule amendments, safe non-executable rule-reference import text, and approved question/camera/confidence vocabularies.
+- Preserves the existing background, visual identity, rules engine, gameplay, Dry Run, tutorials, saves, sync, bridge adapters, legacy migration readiness, and package workflows.
+- Updates production web package metadata, Android wrapper metadata, Flutter wrapper metadata, local package artifacts, and release notes for version 1.25.0.
 
 ## Version 1.24.0
 - Finalizes the original BoardState ecosystem preparation pass for the next BoardState Lite, Deck Nexus, and Hub prompt series.

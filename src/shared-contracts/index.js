@@ -3,3 +3,4 @@ export * from "./ids.js";
 export * from "./contracts.js";
 export * from "./validation.js";
 export * from "./adapters.js";
+export * from "./commanderModernization.js";

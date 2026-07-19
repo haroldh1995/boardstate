@@ -242,8 +242,8 @@ function redactSecrets(key, value) {
 function getAppVersion() {
   return {
     name: "BoardState",
-    version: "1.24.0",
-    build: "final-ecosystem-preparation-release",
+    version: "1.25.0",
+    build: "commander-modernization-foundation-release",
   };
 }
 
