@@ -10,8 +10,8 @@ import { createContractId, normalizeContractId, normalizeFriendCode } from "./id
 export const APP_IDS = Object.freeze(["boardstate", "boardstate-lite", "deck-nexus", "boardstate-hub"]);
 export const INTERFACE_MODES = Object.freeze(["boardstate-lite", "boardstate-advanced", "unknown"]);
 export const CONTROLLER_TYPES = Object.freeze(["human", "ai", "remote", "tutorial"]);
-export const CONNECTION_STATUSES = Object.freeze(["local", "online", "offline", "nearby", "disconnected", "unknown"]);
-export const GAME_STATUSES = Object.freeze(["setup", "active", "paused", "complete", "abandoned", "recovery-required"]);
+export const CONNECTION_STATUSES = Object.freeze(["local", "online", "offline", "nearby", "disconnected", "reconnecting", "unknown"]);
+export const GAME_STATUSES = Object.freeze(["setup", "lobby", "ready-check", "initializing", "active", "paused", "reconnecting", "suspended", "complete", "completed", "abandoned", "archived", "corrupted", "incompatible", "replay-only", "recovery-required"]);
 export const ENFORCEMENT_MODES = Object.freeze(["enforced", "waived"]);
 export const ZONE_NAMES = Object.freeze(["library", "hand", "battlefield", "graveyard", "exile", "command", "stack", "companion", "sideboard", "ante", "unknown"]);
 export const VISIBILITY_LEVELS = Object.freeze(["public", "private", "known", "hidden", "owner-only"]);
@@ -169,6 +169,8 @@ export function createLinkedAppState(input = {}) {
 export function createCanonicalPlayer(input = {}) {
   return {
     playerId: normalizeContractId(input.playerId || input.id || "local-player", "playerId"),
+    participantId: input.participantId ? normalizeContractId(input.participantId, "participantId") : "",
+    seatId: input.seatId ? normalizeContractId(input.seatId, "seatId") : "",
     profileId: input.profileId ? normalizeContractId(input.profileId, "profileId") : "",
     displayName: String(input.displayName || input.name || "Player").trim() || "Player",
     seatIndex: Number(input.seatIndex || 0),
@@ -179,13 +181,20 @@ export function createCanonicalPlayer(input = {}) {
     startingLife: Number(input.startingLife || 40),
     commanderDamage: normalizeCommanderDamage(input.commanderDamage),
     poisonCounters: Math.max(0, Number(input.poisonCounters || 0)),
+    energyCounters: Math.max(0, Number(input.energyCounters || input.energy || 0)),
     playerCounters: clonePlain(input.playerCounters || {}),
     eliminated: Boolean(input.eliminated),
     eliminationReason: String(input.eliminationReason || ""),
     conceded: Boolean(input.conceded),
+    priorityEligible: input.priorityEligible !== false && !input.eliminated && !input.conceded,
+    turnEligible: input.turnEligible !== false && !input.eliminated && !input.conceded,
     teamId: String(input.teamId || ""),
     deckSnapshotId: input.deckSnapshotId ? normalizeContractId(input.deckSnapshotId, "deckSnapshotId") : "",
     commanderCardInstanceIds: Array.isArray(input.commanderCardInstanceIds) ? input.commanderCardInstanceIds.map((id) => normalizeContractId(id, "cardInstanceId")) : [],
+    commanderSourceIds: Array.isArray(input.commanderSourceIds) ? input.commanderSourceIds.map((id) => normalizeContractId(id, "cardInstanceId")) : [],
+    commanderTaxByCommanderId: clonePlain(input.commanderTaxByCommanderId || {}),
+    commanderCastCountByCommanderId: clonePlain(input.commanderCastCountByCommanderId || {}),
+    commanderZoneByCommanderId: clonePlain(input.commanderZoneByCommanderId || {}),
     publicMetadata: clonePlain(input.publicMetadata || {}),
     privateMetadataReference: String(input.privateMetadataReference || ""),
   };
@@ -267,6 +276,7 @@ export function createSharedGameSession(input = {}) {
   const now = Date.now();
   const localInterfaceMode = INTERFACE_MODES.includes(input.localInterfaceMode) ? input.localInterfaceMode : "boardstate-advanced";
   const preferredInterfaceMode = INTERFACE_MODES.includes(input.preferredInterfaceMode) ? input.preferredInterfaceMode : localInterfaceMode;
+  const players = Array.isArray(input.players) ? input.players.map(createCanonicalPlayer) : [];
   return {
     gameId: normalizeContractId(input.gameId || input.id || createContractId("gameId"), "gameId"),
     sessionId: normalizeContractId(input.sessionId || input.gameId || input.id || createContractId("sessionId"), "sessionId"),
@@ -279,7 +289,25 @@ export function createSharedGameSession(input = {}) {
     createdAt: Number(input.createdAt || now),
     updatedAt: Number(input.updatedAt || now),
     revision: Math.max(0, Number(input.revision || 0)),
+    gameStateRevision: Math.max(0, Number(input.gameStateRevision || input.revision || 0)),
+    eventRevision: Math.max(0, Number(input.eventRevision || 0)),
+    sessionLifecycle: String(input.sessionLifecycle || input.lifecycle || input.status || "setup"),
     hostPlayerId: input.hostPlayerId ? normalizeContractId(input.hostPlayerId, "playerId") : "local-player",
+    hostParticipantId: input.hostParticipantId ? normalizeContractId(input.hostParticipantId, "participantId") : "",
+    authority: clonePlain(input.authority || { rulesAuthorityOwner: "boardstate", sessionAuthority: "local", hostParticipantId: input.hostParticipantId || "" }),
+    participants: Array.isArray(input.participants) ? clonePlain(input.participants) : [],
+    seats: Array.isArray(input.seats) ? clonePlain(input.seats) : [],
+    seatOrder: Array.isArray(input.seatOrder) ? clonePlain(input.seatOrder) : [],
+    turnOrder: clonePlain(input.turnOrder || {}),
+    identityAliases: clonePlain(input.identityAliases || {}),
+    localPerspective: clonePlain(input.localPerspective || {}),
+    visibilityPolicy: clonePlain(input.visibilityPolicy || {}),
+    rolePermissions: clonePlain(input.rolePermissions || {}),
+    reconnectState: clonePlain(input.reconnectState || {}),
+    capabilityManifest: clonePlain(input.capabilityManifest || {}),
+    launchContext: clonePlain(input.launchContext || null),
+    returnContext: clonePlain(input.returnContext || null),
+    commanderSession: clonePlain(input.commanderSession || {}),
     activeInterfaceByPlayer: clonePlain(input.activeInterfaceByPlayer || {}),
     interfaceModeHistory: Array.isArray(input.interfaceModeHistory) ? clonePlain(input.interfaceModeHistory) : [],
     localInterfaceMode,
@@ -291,7 +319,7 @@ export function createSharedGameSession(input = {}) {
     linkedAdvancedSessionReference: clonePlain(input.linkedAdvancedSessionReference || null),
     enforcementMode: ENFORCEMENT_MODES.includes(input.enforcementMode) ? input.enforcementMode : "enforced",
     activeRuleWaivers: Array.isArray(input.activeRuleWaivers) ? input.activeRuleWaivers.map(createRuleWaiver) : [],
-    players: Array.isArray(input.players) ? input.players.map(createCanonicalPlayer) : [],
+    players,
     turnState: createTurnState(input.turnState || {}),
     priorityState: createPriorityState(input.priorityState || {}),
     battlefieldState: createBattlefieldState(input.battlefieldState || {}),
@@ -317,6 +345,10 @@ export function createTurnState(input = {}) {
     turnNumber: Math.max(1, Number(input.turnNumber || 1)),
     activePlayerId: input.activePlayerId || "local-player",
     startingPlayerId: input.startingPlayerId || input.activePlayerId || "local-player",
+    turnOrder: Array.isArray(input.turnOrder) ? [...input.turnOrder] : [],
+    currentTurnIndex: Math.max(0, Number(input.currentTurnIndex || 0)),
+    controlledByPlayerId: String(input.controlledByPlayerId || ""),
+    turnOrderRevision: Math.max(0, Number(input.turnOrderRevision || 0)),
     currentPhase: String(input.currentPhase || "beginning"),
     currentStep: String(input.currentStep || "setup"),
     extraTurns: Array.isArray(input.extraTurns) ? clonePlain(input.extraTurns) : [],

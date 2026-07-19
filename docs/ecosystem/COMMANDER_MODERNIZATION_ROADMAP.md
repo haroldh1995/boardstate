@@ -10,10 +10,11 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 
 ## Prompt 2: Canonical Commander Session And Ten-Player Readiness
 
-- Normalize Commander/Brawl sessions around stable game IDs, session IDs, player IDs, seat IDs, and two-to-ten-player support.
-- Remove remaining authoritative dependence on UI positions such as player/opponent arrays.
-- Preserve one-player training/simulation as a nonstandard mode while keeping Commander/Brawl sessions two-to-ten players.
-- Harden commander tax, commander damage, partner/background/multiple commander metadata, elimination, concession, turn order, extra turns, controlled turns, spectators, and reconnect metadata.
+- Completed foundation: `src/shared-contracts/commanderSession.js` adds the canonical Commander session topology over `createSharedGameSession()` rather than creating a second game state.
+- Stable IDs now cover participants, seats, clients, connections, invitations, replays, backups, rule amendments, and sync revisions in `src/shared-contracts/ids.js`.
+- `src/state/schema.js`, `src/shared-contracts/adapters.js`, `src/storage/saveState.js`, and `src/multiplayer/syncManager.js` preserve participants, players, seats, seat order, independent turn order, visibility policy, reconnect metadata, lifecycle, revisions, capabilities, and Commander metadata.
+- One-player training/simulation remains a nonstandard safe state; canonical Commander/Brawl architecture validates two through ten active players.
+- Deferred to later prompts: removing all visual local/opponent layout assumptions, carousel rendering, camera behavior, Event Knowledge, Question System, Remind Me, Rules Recovery UI, and live external-app counterparts.
 
 ## Prompt 3: Event Knowledge Engine Modernization
 

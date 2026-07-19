@@ -167,3 +167,17 @@ No legacy data should be deleted during modernization. Legacy features should re
 - A modernization capability report that keeps Lite, Deck Nexus, and Hub live links false by default.
 
 Focused tests for these foundations live in `test/commander-modernization-foundation.test.js`.
+
+## Prompt 2 Commander Session Foundation
+
+`src/shared-contracts/commanderSession.js` now records the canonical Commander/Brawl topology used by later battlefield, camera, Event Knowledge, Live Tracking, Full Control, Question System, Remind Me, Rules Recovery, and Hub-readiness prompts. It extends `createSharedGameSession()` with participants, seats, independent seat/turn order, role permissions, visibility policy, reconnect metadata, capability manifests, launch/return contexts, immutable deck snapshot references, Commander source ledgers, and local perspective selectors. It does not create a second game state or second rules engine.
+
+State ownership remains unchanged: `profile.activeSession` and the reducer/rules-engine path own runtime transitions. `src/shared-contracts/adapters.js`, `src/storage/saveState.js`, and `src/multiplayer/syncManager.js` now preserve the new Commander session metadata when exporting/importing shared sessions, saving/loading games, and publishing privacy-safe sync summaries.
+
+The participant/player/seat distinction is explicit. Participants are humans, AI/system agents, tutorial agents, local guests, spectators, or external-app clients. Players are in-game rules entities. Seats are stable table positions and carousel anchors. `seatOrder` is separate from `turnOrder`, so extra turns, skipped turns, controlled turns, elimination, and concession do not rewrite table identity.
+
+Commander metadata is keyed by stable commander source identity. Partner commanders, background commanders, multiple Commander objects, Commander tax, cast count, zone, and Commander damage ledgers are represented without a fixed two-player or four-player matrix.
+
+Visibility is enforced through projection helpers before data leaves the canonical session. Hosts and spectators do not receive hidden zones by default. Future Hub summaries remain privacy-safe and explicitly report that the Hub is not gameplay authority.
+
+Focused tests for this foundation live in `test/commander-session-architecture.test.js` with reusable fixtures in `test/fixtures/commanderSessionFixtures.js`. Detailed Prompt 2 handoff documentation lives in `docs/ecosystem/COMMANDER_SESSION_ARCHITECTURE.md`.

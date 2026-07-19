@@ -2,9 +2,18 @@
 
 ## App
 - Name: BoardState
-- Version: 1.25.0
-- Version code: 40
+- Version: 1.26.0
+- Version code: 41
 - Package: `com.boardstate.app`
+
+## Version 1.26.0
+- Adds the canonical Commander/Brawl session architecture over the existing shared-session and rules-engine foundations, preserving BoardState as the rules authority.
+- Adds stable participant, player, seat, client, connection, replay, backup, rule-amendment, and sync-revision identities without using display names, UI positions, or array indexes as persistent identity.
+- Separates seat order from turn order for two through ten active players, with selectors for seat-relative opponents, active player, priority holder, reconnect state, public summaries, and local perspectives.
+- Adds Commander-native metadata for partners, backgrounds, multiple Commander source objects, per-commander tax/cast/zone tracking, and scalable Commander damage ledgers.
+- Adds privacy-safe visibility projections, role and permission checks, spectator/host hidden-information protections, reconnect helpers, lifecycle metadata, capability manifests, launch/return contexts, immutable Deck Nexus snapshot references, and non-destructive legacy-session migration helpers.
+- Preserves existing gameplay, rules enforcement, Waive Rules, Dry Run, tutorials, saves, sync, bridge adapters, legacy data, background, and visual identity.
+- Updates focused tests, documentation, production web package metadata, Android wrapper metadata, Flutter wrapper metadata, local package artifacts, and release notes for version 1.26.0.
 
 ## Version 1.25.0
 - Adds the Commander/Brawl modernization audit documenting the reuse map, state ownership, current multiplayer/battlefield limits, event knowledge reuse, confidence/recovery readiness, and Hub readiness.

@@ -23,7 +23,7 @@ import {
   isSupportedSchemaVersion,
   isSupportedSyncProtocolVersion,
 } from "./version.js";
-import { ID_TYPES, assertNoPrivateToken } from "./ids.js";
+import { ID_TYPES } from "./ids.js";
 
 export const VALIDATION_STATUSES = Object.freeze([
   "valid",
@@ -64,8 +64,25 @@ export function validateSharedGameSession(input = null) {
   const version = validateVersionSet(session);
   if (!version.valid) return version;
   if (!Array.isArray(session.players)) errors.push("players must be an array");
+  if (session.players.length > 10) errors.push("Commander sessions support at most ten active players");
+  const duplicatePlayerIds = collectDuplicateIds(session.players, "playerId");
+  duplicatePlayerIds.forEach((id) => errors.push(`duplicate player ID ${id}`));
+  if (!Array.isArray(session.participants)) errors.push("participants must be an array");
+  const duplicateParticipantIds = collectDuplicateIds(session.participants, "participantId");
+  duplicateParticipantIds.forEach((id) => errors.push(`duplicate participant ID ${id}`));
+  if (!Array.isArray(session.seats)) errors.push("seats must be an array");
+  const duplicateSeatIds = collectDuplicateIds(session.seats, "seatId");
+  duplicateSeatIds.forEach((id) => errors.push(`duplicate seat ID ${id}`));
+  const playerIds = new Set(session.players.map((player) => player.playerId));
+  session.seats.forEach((seat) => {
+    if (seat.assignedPlayerId && !playerIds.has(seat.assignedPlayerId)) {
+      errors.push(`seat ${seat.seatId} references missing player ${seat.assignedPlayerId}`);
+    }
+  });
   if (!isObject(session.activeInterfaceByPlayer)) errors.push("activeInterfaceByPlayer must be an object");
   if (!isObject(session.sessionCapabilities)) errors.push("sessionCapabilities must be an object");
+  if (session.launchContext && !isObject(session.launchContext)) errors.push("launchContext must be an object when present");
+  if (session.returnContext && !isObject(session.returnContext)) errors.push("returnContext must be an object when present");
   return errors.length ? createValidationResult("invalid", errors) : createValidationResult("valid");
 }
 
@@ -172,10 +189,8 @@ export function validateRuleWaiver(input = null) {
 export function validateNoPrivateExportTokens(input = {}) {
   const serialized = JSON.stringify(input || {});
   const errors = [];
-  ["password", "authToken", "privateToken", "secret"].forEach((key) => {
-    if (serialized.includes(`"${key}"`)) errors.push(`private export key ${key} is not allowed`);
-  });
-  if (!assertNoPrivateToken(serialized.replace(/"token"/gi, ""))) errors.push("private token-like value detected");
+  collectPrivateExportKeys(input).forEach((key) => errors.push(`private export key ${key} is not allowed`));
+  if (/bearer\s+[a-z0-9._-]{8,}/i.test(serialized)) errors.push("private bearer credential text is not allowed");
   return errors.length ? createValidationResult("invalid", errors) : createValidationResult("valid");
 }
 
@@ -197,4 +212,31 @@ function required(value = {}, fields = []) {
 
 function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function collectDuplicateIds(entries = [], key = "id") {
+  const seen = new Set();
+  const duplicates = new Set();
+  entries.forEach((entry) => {
+    const id = entry?.[key];
+    if (!id) return;
+    if (seen.has(id)) duplicates.add(id);
+    seen.add(id);
+  });
+  return [...duplicates];
+}
+
+function collectPrivateExportKeys(value = {}) {
+  const blocked = new Set(["password", "authtoken", "privatetoken", "secret", "synccredential", "synccredentials", "accesstoken", "refreshtoken", "idtoken", "apikey", "authorization"]);
+  const keys = new Set();
+  const stack = [value];
+  while (stack.length) {
+    const current = stack.pop();
+    if (!current || typeof current !== "object") continue;
+    Object.entries(current).forEach(([key, child]) => {
+      if (blocked.has(key.toLowerCase())) keys.add(key);
+      if (child && typeof child === "object") stack.push(child);
+    });
+  }
+  return [...keys];
 }

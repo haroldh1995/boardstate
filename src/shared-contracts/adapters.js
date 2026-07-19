@@ -24,6 +24,7 @@ import {
   createTrigger,
   clonePlain,
 } from "./contracts.js";
+import { createCommanderSession } from "./commanderSession.js";
 import { createContractId, normalizeContractId } from "./ids.js";
 
 const PHASE_ID_BY_LABEL = {
@@ -39,18 +40,79 @@ export function boardStateProfileToSharedSession(profile = {}, options = {}) {
   const localPlayerId = profile.player?.id || "local-player";
   const players = buildPlayers(profile, options);
   const battlefield = buildBattlefieldState(session);
+  const lifecycle = session.sessionLifecycle || session.lifecycle || session.status || (session.gameTracking?.active || session.simulation?.enabled ? "active" : "setup");
+  const revision = Number(session.revision || session.actionHistory?.length || session.eventHistory?.length || 0);
+  const commanderSession = createCommanderSession({
+    gameId: session.gameId || session.id || options.gameId || createContractId("gameId"),
+    sessionId: session.sessionId || options.sessionId || session.id || createContractId("sessionId"),
+    sourceApp: session.sourceApp || "boardstate",
+    format: session.simulation?.format || session.gameTracking?.format || "commander",
+    sessionLifecycle: lifecycle,
+    createdAt: session.createdAt || Date.now(),
+    updatedAt: session.updatedAt || Date.now(),
+    revision,
+    players,
+    turnOrder: {
+      playerIds: session.syncedMultiplayer?.turnOrder?.length
+        ? session.syncedMultiplayer.turnOrder
+        : session.simulation?.turnOrder?.length
+          ? session.simulation.turnOrder
+          : players.map((player) => player.playerId),
+      activePlayerId: session.simulation?.currentPlayerId || session.priority?.activePlayerId || localPlayerId,
+      currentTurnIndex: session.syncedMultiplayer?.currentPlayerIndex || session.simulation?.turnIndex || 0,
+      revision: session.syncedMultiplayer?.updatedAt || session.simulation?.updatedAt || 0,
+    },
+    commanderSession: {
+      commanderSources: session.commander?.name
+        ? [{
+            commanderObjectId: session.commander.cardId || session.commander.name,
+            name: session.commander.name,
+            ownerPlayerId: localPlayerId,
+            controllerPlayerId: localPlayerId,
+            zone: session.commander.zone || "command",
+            castCount: session.commander.castCount || 0,
+            commanderTax: session.commander.commanderTax || 0,
+          }]
+        : [],
+      commanderDamageByRecipient: {
+        [localPlayerId]: session.commander?.damageByOpponent || {},
+      },
+    },
+    localPerspective: {
+      participantId: `participant-${localPlayerId}`,
+      playerId: localPlayerId,
+    },
+    reconnectState: session.reconnectState || {},
+    capabilityManifest: session.capabilityManifest || {},
+  });
   return createSharedGameSession({
-    gameId: session.id || options.gameId || createContractId("gameId"),
-    sessionId: options.sessionId || session.id || createContractId("sessionId"),
+    gameId: commanderSession.gameId,
+    sessionId: commanderSession.sessionId,
     schemaVersion: SHARED_CONTRACT_SCHEMA_VERSION,
     rulesEngineVersion: options.rulesEngineVersion || DEFAULT_RULES_ENGINE_VERSION,
     syncProtocolVersion: SHARED_SYNC_PROTOCOL_VERSION,
     format: session.simulation?.format || session.gameTracking?.format || "commander",
-    status: session.gameTracking?.active || session.simulation?.enabled ? "active" : "setup",
+    status: lifecycle,
+    sessionLifecycle: commanderSession.sessionLifecycle,
     createdAt: session.createdAt || Date.now(),
     updatedAt: session.updatedAt || Date.now(),
-    revision: Number(session.actionHistory?.length || session.eventHistory?.length || 0),
+    revision,
+    gameStateRevision: Number(session.gameStateRevision || session.revision || 0),
+    eventRevision: Number(session.eventHistory?.length || 0),
     hostPlayerId: localPlayerId,
+    hostParticipantId: commanderSession.hostParticipantId,
+    authority: commanderSession.authority,
+    participants: commanderSession.participants,
+    seats: commanderSession.seats,
+    seatOrder: commanderSession.seatOrder,
+    turnOrder: commanderSession.turnOrder,
+    identityAliases: commanderSession.identityAliases,
+    localPerspective: commanderSession.localPerspective,
+    visibilityPolicy: commanderSession.visibilityPolicy,
+    rolePermissions: commanderSession.rolePermissions,
+    reconnectState: commanderSession.reconnectState,
+    capabilityManifest: commanderSession.capabilityManifest,
+    commanderSession: commanderSession.commanderSession,
     activeInterfaceByPlayer: session.activeInterfaceByPlayer || Object.fromEntries(players.map((player) => [player.playerId, player.activeInterface])),
     interfaceModeHistory: session.interfaceModeHistory || [],
     localInterfaceMode: session.localInterfaceMode || session.interfaceMode || "boardstate-advanced",
@@ -205,6 +267,24 @@ export function sharedSessionToBoardStateRuntime(sharedSession = {}, fallbackRun
     schemaVersion: session.schemaVersion,
     rulesEngineVersion: session.rulesEngineVersion,
     syncProtocolVersion: session.syncProtocolVersion,
+    sessionLifecycle: session.sessionLifecycle || session.status || "setup",
+    gameStateRevision: session.gameStateRevision || session.revision || 0,
+    eventRevision: session.eventRevision || 0,
+    hostParticipantId: session.hostParticipantId || "",
+    authority: clonePlain(session.authority || {}),
+    participants: clonePlain(session.participants || []),
+    seats: clonePlain(session.seats || []),
+    seatOrder: clonePlain(session.seatOrder || []),
+    turnOrder: clonePlain(session.turnOrder || {}),
+    identityAliases: clonePlain(session.identityAliases || {}),
+    localPerspective: clonePlain(session.localPerspective || {}),
+    visibilityPolicy: clonePlain(session.visibilityPolicy || {}),
+    rolePermissions: clonePlain(session.rolePermissions || {}),
+    reconnectState: clonePlain(session.reconnectState || {}),
+    capabilityManifest: clonePlain(session.capabilityManifest || {}),
+    launchContext: clonePlain(session.launchContext || null),
+    returnContext: clonePlain(session.returnContext || null),
+    commanderSession: clonePlain(session.commanderSession || {}),
     enforcementMode: session.enforcementMode,
     activeRuleWaivers: clonePlain(session.activeRuleWaivers || []),
     activeInterfaceByPlayer: clonePlain(session.activeInterfaceByPlayer || {}),
@@ -383,6 +463,8 @@ function buildPlayers(profile = {}, options = {}) {
   const players = [
     createCanonicalPlayer({
       playerId: localPlayerId,
+      participantId: `participant-${localPlayerId}`,
+      seatId: "seat-local-player",
       profileId: profile.id || localPlayerId,
       displayName: profile.player?.name || "Player",
       seatIndex: 0,
@@ -402,6 +484,8 @@ function buildPlayers(profile = {}, options = {}) {
     if (player.id === localPlayerId) return;
     players.push(createCanonicalPlayer({
       playerId: player.id || createContractId("playerId", player.name),
+      participantId: player.participantId || `participant-${player.id || createContractId("participantId", player.name)}`,
+      seatId: player.seatId || `seat-${index + 2}`,
       displayName: player.name || `Player ${index + 2}`,
       seatIndex: index + 1,
       controllerType: player.role === "ai" ? "ai" : "remote",
@@ -415,6 +499,8 @@ function buildPlayers(profile = {}, options = {}) {
   Object.values(session.simulation?.opponents || {}).forEach((opponent, index) => {
     players.push(createCanonicalPlayer({
       playerId: opponent.id || opponent.name || `ai-${index + 1}`,
+      participantId: opponent.participantId || `participant-${opponent.id || opponent.name || `ai-${index + 1}`}`,
+      seatId: opponent.seatId || `seat-${players.length + 1}`,
       displayName: opponent.name || `AI ${index + 1}`,
       seatIndex: players.length,
       controllerType: "ai",
