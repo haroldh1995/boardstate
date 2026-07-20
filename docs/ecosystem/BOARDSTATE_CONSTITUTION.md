@@ -62,7 +62,7 @@ Today, runtime state is centralized through `src/state/schema.js`, `src/state/st
 
 The Event Knowledge Engine owns immutable history, provenance, replay metadata, undo relationships, confidence, event groups, synchronization history, and AI references. It answers: How did we get here?
 
-Prompt 3 will promote existing action history, event history, effect logs, replay state, undo/redo state, simulation records, sync metadata, rules traces, and confidence logs into this engine. It must extend existing evidence sources rather than create a disconnected second history system.
+The Prompt 3 foundation promotes existing action history, event history, effect logs, replay state, undo/redo state, simulation records, sync metadata, rules traces, and confidence logs into this engine. It extends existing evidence sources rather than creating a disconnected second history system.
 
 ## Authoritative Pipeline
 
@@ -79,6 +79,8 @@ Permanent gameplay architecture follows this pipeline:
 9. Synchronization
 10. Question System
 11. Remind Me
+12. Analytics
+13. Spectator Mode
 
 No production system may bypass this architecture for rules-sensitive gameplay. UI shortcuts, AI actions, Live Tracking reports, Full Control actions, replay, synchronization, and future Hub/Lite/Nexus entry points must route through the same authority.
 
@@ -104,7 +106,6 @@ Every future prompt must review this Constitution, `docs/ecosystem/COMMANDER_MOD
 
 The active modernization roadmap is maintained in `docs/ecosystem/COMMANDER_MODERNIZATION_ROADMAP.md`:
 
-- Prompt 3: Authoritative Core Architecture And Event Knowledge Engine
 - Prompt 4: Persistence, Replay And Save Architecture
 - Prompt 5: Commander Battlefield Modernization
 - Prompt 6: Battlefield Camera And Opponent Carousel

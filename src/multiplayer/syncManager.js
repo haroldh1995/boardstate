@@ -212,6 +212,12 @@ function createPublicSyncState(state) {
     revision: Number(session.revision || 0),
     gameStateRevision: Number(session.gameStateRevision || session.revision || 0),
     eventRevision: Number(session.eventRevision || 0),
+    eventKnowledge: {
+      engineVersion: session.eventKnowledge?.engineVersion || "",
+      eventCount: Number(session.eventKnowledge?.eventCount || 0),
+      lastEventId: session.eventKnowledge?.lastEventId || "",
+      lastEventRevision: Number(session.eventKnowledge?.lastEventRevision || 0),
+    },
     sessionLifecycle: session.sessionLifecycle || "setup",
     hostParticipantId: session.hostParticipantId || "",
     participants: (session.participants || []).map((participant) => ({

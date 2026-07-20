@@ -12,6 +12,7 @@ Prompt 1 output files:
 - `COMMANDER_MODERNIZATION_ROADMAP.md`
 - `COMMANDER_SESSION_ARCHITECTURE.md`
 - `BOARDSTATE_CONSTITUTION.md`
+- `AUTHORITATIVE_CORE_ARCHITECTURE.md`
 
 These files document the preparation baseline, permanent Constitution, architecture inventory, rules-engine extraction risks, shared contracts, migration plan, handoff risks, future navigation, and future test matrix.
 
@@ -22,4 +23,6 @@ The Commander modernization audit and roadmap start the next controlled moderniz
 The Commander session architecture document records the Prompt 2 canonical session, participant, player, seat, visibility, reconnect, capability, and ecosystem contract foundation. It does not claim live BoardState Lite, Deck Nexus, or Hub integration.
 
 `BOARDSTATE_CONSTITUTION.md` is the permanent architectural charter for future modernization. Future prompts must review it before changing runtime systems.
+
+`AUTHORITATIVE_CORE_ARCHITECTURE.md` records the Prompt 3 Rules Engine, State Engine, Event Knowledge Engine, authoritative pipeline, provenance, reconstruction, save, and sync foundation.
 

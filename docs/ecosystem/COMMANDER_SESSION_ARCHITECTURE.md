@@ -68,7 +68,6 @@ This document records the Prompt 2 canonical Commander session foundation. Board
 
 ## Deferred Work
 
-- Prompt 3 will promote existing action, event, effect, sync, replay, and rules trace data into the Event Knowledge Engine.
 - Prompt 4 will modernize the landscape battlefield using this canonical session and existing BoardState background.
 - Prompt 5 will implement the opponent carousel and Battlefield Camera System over `seatOrder`, `turnOrder`, and local perspectives.
 - Prompt 6 will wire Full Control and Live Tracking input models over this same canonical session and rules engine.

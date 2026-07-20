@@ -7,6 +7,8 @@ import {
   SHARED_SYNC_PROTOCOL_VERSION,
 } from "../shared-contracts/version.js";
 import { createLegacyMigrationState } from "../migration/legacyMigration.js";
+import { createEventKnowledgeState, EVENT_KNOWLEDGE_ENGINE_VERSION } from "../authoritative-core/eventKnowledgeEngine.js";
+import { createStateEngineMetadata, STATE_ENGINE_VERSION } from "../authoritative-core/stateEngine.js";
 
 export const PHASES = ["Beginning", "Main 1", "Combat", "Main 2", "Ending"];
 export const MANA_COLORS = ["W", "U", "B", "R", "G", "C", "Generic"];
@@ -299,6 +301,13 @@ export function createGameSession() {
     sessionLifecycle: "setup",
     gameStateRevision: 0,
     eventRevision: 0,
+    stateEngine: createStateEngineMetadata({
+      stateEngineVersion: STATE_ENGINE_VERSION,
+      rulesEngineVersion: DEFAULT_RULES_ENGINE_VERSION,
+    }),
+    eventKnowledge: createEventKnowledgeState({
+      engineVersion: EVENT_KNOWLEDGE_ENGINE_VERSION,
+    }),
     hostParticipantId: "participant-local-player",
     authority: {
       rulesAuthorityOwner: "boardstate",

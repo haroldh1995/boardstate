@@ -1,4 +1,5 @@
 import { createId } from "../state/ids.js";
+import { recordGameEventKnowledge } from "../authoritative-core/eventKnowledgeEngine.js";
 
 export const GAME_EVENT_TYPES = {
   ENTER_BATTLEFIELD: "ENTER_BATTLEFIELD",
@@ -32,16 +33,26 @@ export function createGameEvent(eventType, payload = {}, meta = {}) {
     payload,
     sourceId: meta.sourceId || "",
     playerId: meta.playerId || "",
+    parentEventId: meta.parentEventId || "",
+    rootEventId: meta.rootEventId || "",
+    eventGroupId: meta.eventGroupId || "",
+    causedByActionId: meta.causedByActionId || payload.actionId || "",
   };
 }
 
 export function queueGameEvent(session, eventType, payload = {}, meta = {}) {
   const gameEvent = createGameEvent(eventType, payload, meta);
-  return {
+  const queued = {
     ...session,
     eventQueue: [...(session.eventQueue || []), gameEvent],
     eventHistory: [gameEvent, ...(session.eventHistory || [])].slice(0, 300),
   };
+  return recordGameEventKnowledge(queued, gameEvent, {
+    eventGroupId: meta.eventGroupId || "",
+    parentEventId: meta.parentEventId || "",
+    rootEventId: meta.rootEventId || "",
+    causedByActionId: meta.causedByActionId || "",
+  });
 }
 
 export function drainGameEvents(session, handler) {

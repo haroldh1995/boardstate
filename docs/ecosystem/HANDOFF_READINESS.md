@@ -15,3 +15,5 @@ Live cross-app integration is not claimed in this repository. Legacy data remain
 Commander/Brawl modernization now begins from this prepared baseline. BoardState remains the rules authority and will evolve Live Tracking and Full Control as input models over the same canonical sessions, event stream, save system, sync foundation, and rules engine.
 
 Future modernization work is governed by `BOARDSTATE_CONSTITUTION.md`. That Constitution is the authoritative project charter for reuse-first engineering, Commander-first architecture, one-source-of-truth ownership, ecosystem boundaries, and documentation continuity.
+
+The Prompt 3 authoritative core foundation is documented in `AUTHORITATIVE_CORE_ARCHITECTURE.md`. Future replay, AI, synchronization, Question System, Remind Me, analytics, and spectator work should consume State Engine and Event Knowledge Engine records instead of creating separate histories.

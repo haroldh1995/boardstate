@@ -78,7 +78,7 @@ This audit covers the existing BoardState application before the Commander/Brawl
 
 Authoritative runtime state is currently stored on the active profile in `profile.activeSession`, created by `createGameSession()` in `src/state/schema.js`. Actions are created through `src/state/actions.js`, dispatched through `src/state/store.js`, and reduced in `src/state/gameReducer.js`. Rules actions use `src/rules-engine/boardStateAdapter.js` and `src/rules-engine/engine.js` for validation and resolution.
 
-Transitions are recorded through `history`, `undoStack`, `redoStack`, `actionHistory`, `eventQueue`, `eventHistory`, `effectLog`, `recoveryLog`, and `rulesConfidenceLog`. These records are not yet one unified Event Knowledge Engine, but they are reusable evidence sources.
+Transitions are recorded through `history`, `undoStack`, `redoStack`, `actionHistory`, `eventQueue`, `eventHistory`, `effectLog`, `recoveryLog`, and `rulesConfidenceLog`. Prompt 3 promotes those reusable evidence sources into the explicit Event Knowledge Engine foundation in `src/authoritative-core/eventKnowledgeEngine.js`.
 
 Multiplayer synchronization is owned by `src/multiplayer/syncManager.js` and wired in `src/state/store.js`. Gameplay sync uses a gameplay namespace and public peer state. Tournament and friend sync managers are separate and should remain separate. Revisions are present in canonical sessions, save metadata, sync messages, and advanced sync event handling.
 
@@ -187,3 +187,9 @@ Focused tests for this foundation live in `test/commander-session-architecture.t
 `docs/ecosystem/BOARDSTATE_CONSTITUTION.md` now serves as the permanent repository Constitution, ecosystem architecture, architecture charter, authoritative pipeline, engineering standard, UI philosophy, modernization strategy, continuity guide, and roadmap entry point. Future modernization prompts must review it alongside this audit, `COMMANDER_SESSION_ARCHITECTURE.md`, and `COMMANDER_MODERNIZATION_ROADMAP.md` before changing source code.
 
 The active roadmap now uses the Prompt 3 through Prompt 15 sequence for Event Knowledge, persistence/replay, battlefield modernization, camera/carousel, Full Control and Live Tracking convergence, Question System, Remind Me, Rules Recovery, AI integration, Hub/Lite/Nexus interoperability, performance/accessibility, visual polish, and final production audit.
+
+## Prompt 3 Authoritative Core Architecture
+
+`src/authoritative-core/` now provides the permanent authoritative pipeline, State Engine metadata/commit helpers, Event Knowledge Engine records, event grouping, provenance, confidence metadata, undo references, deterministic event IDs, and state reconstruction helpers. It reuses the existing `src/rules-engine/` implementation as the sole Rules Engine and does not create a second rules engine or state store.
+
+`src/game/eventBus.js` and `src/state/gameReducer.js` now feed existing game events and reducer action history into Event Knowledge. `src/storage/saveState.js` preserves State Engine and Event Knowledge data in saves, and `src/multiplayer/syncManager.js` shares only privacy-safe Event Knowledge summaries. Detailed handoff documentation lives in `docs/ecosystem/AUTHORITATIVE_CORE_ARCHITECTURE.md`.

@@ -119,6 +119,8 @@ import {
   recordMigrationExportCreated,
   recordMigrationRecoveryReport,
 } from "../migration/legacyMigration.js";
+import { createEventKnowledgeState, recordActionKnowledge } from "../authoritative-core/eventKnowledgeEngine.js";
+import { commitStateTransition } from "../authoritative-core/stateEngine.js";
 
 export function reduceProfile(profile, event) {
   const actionType = event.actionType || event.type;
@@ -4327,6 +4329,7 @@ function clearGameHistory(session) {
     history: [],
     actionHistory: [],
     eventHistory: [],
+    eventKnowledge: createEventKnowledgeState({}),
     effectLog: [
       {
         id: createId("effect"),
@@ -4712,6 +4715,8 @@ function normalizeSessionMetadata(session = {}, options = {}) {
     rulesEngineVersion: session.rulesEngineVersion || DEFAULT_RULES_ENGINE_VERSION,
     syncProtocolVersion: session.syncProtocolVersion || SHARED_SYNC_PROTOCOL_VERSION,
     sourceApp: session.sourceApp || "boardstate",
+    stateEngine: session.stateEngine || {},
+    eventKnowledge: createEventKnowledgeState(session.eventKnowledge || {}),
     interfaceMode: session.interfaceMode || "boardstate-advanced",
     enforcementMode,
     activeRuleWaivers: Array.isArray(session.activeRuleWaivers) ? session.activeRuleWaivers : [],
@@ -4907,6 +4912,10 @@ function withHistory(profile, event) {
   if (actionType === "CLEAR_GAME_HISTORY") {
     return profile;
   }
+  const committedSession = commitStateTransition(profile.activeSession, profile.activeSession, {
+    action: event,
+    actionId: event.actionId || "",
+  });
   const actionRecord = {
     actionId: event.actionId || createId("action"),
     timestamp: event.timestamp || Date.now(),
@@ -4915,25 +4924,31 @@ function withHistory(profile, event) {
     targetIds: Array.isArray(event.targetIds) ? event.targetIds : [],
     actionType,
     payload: event.payload || {},
-    resultingStateReference: event.resultingStateReference || `${profile.activeSession.id}:${profile.activeSession.updatedAt}`,
+    resultingStateReference: event.resultingStateReference || `${committedSession.id}:${committedSession.updatedAt}`,
     replayable: event.replayable !== false,
     undoable: event.undoable !== false,
-    snapshot: createReplaySnapshot(profile.activeSession),
+    snapshot: createReplaySnapshot(committedSession),
   };
+  const knowledgeSession = recordActionKnowledge(committedSession, actionRecord, {
+    beforeSession: profile.activeSession.undoStack?.[0]?.snapshot || null,
+    syncRevision: Number(committedSession.eventRevision || 0),
+  });
+  const knowledgeEventId = knowledgeSession.eventKnowledge?.lastEventId || "";
   return {
     ...profile,
     activeSession: {
-      ...profile.activeSession,
+      ...knowledgeSession,
       history: [
         {
           id: actionRecord.actionId,
           at: actionRecord.timestamp,
           type: actionType,
           summary: event.summary || actionType,
+          knowledgeEventId,
         },
-        ...profile.activeSession.history,
+        ...(knowledgeSession.history || []),
       ].slice(0, 250),
-      actionHistory: [actionRecord, ...(profile.activeSession.actionHistory || [])].slice(0, 600),
+      actionHistory: [{ ...actionRecord, knowledgeEventId }, ...(knowledgeSession.actionHistory || [])].slice(0, 600),
     },
   };
 }
@@ -5012,6 +5027,12 @@ function createUndoSnapshot(session) {
   snapshot.history = [];
   snapshot.eventQueue = [];
   snapshot.eventHistory = [];
+  snapshot.eventKnowledge = createEventKnowledgeState({
+    engineVersion: session.eventKnowledge?.engineVersion,
+    eventCount: session.eventKnowledge?.eventCount || 0,
+    lastEventId: session.eventKnowledge?.lastEventId || "",
+    lastEventRevision: session.eventKnowledge?.lastEventRevision || 0,
+  });
   snapshot.runtime = undefined;
   return snapshot;
 }

@@ -22,14 +22,14 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - `docs/ecosystem/BOARDSTATE_CONSTITUTION.md` is the permanent project Constitution, ecosystem architecture, architecture charter, authoritative pipeline, engineering standard, UI philosophy, modernization strategy, continuity guide, and roadmap entry point.
 - Future prompts must review the Constitution, prior audit, session architecture, and roadmap before changing code.
 
-## Remaining Roadmap
-
 ### Prompt 3: Authoritative Core Architecture And Event Knowledge Engine
 
-- Promote existing actions, game events, effect logs, rules confidence logs, replay state, undo/redo state, simulation records, and sync metadata into one reusable Event Knowledge Engine.
-- Preserve existing saves and histories through adapters.
-- Add provenance and confidence metadata for costs, targets, zones, stack placement, priority transitions, triggers, replacement effects, prevention effects, layers, state-based actions, combat, counters, commander tax, commander damage, token creation, copies, attachments, control changes, corrections, and sync causation.
-- Do not create a disconnected history system.
+- `src/authoritative-core/` now establishes the permanent State Engine, Event Knowledge Engine, and authoritative pipeline seams while preserving the existing rules engine and reducer/store integration.
+- `src/game/eventBus.js` and `src/state/gameReducer.js` promote existing game events and action history into Event Knowledge records with provenance, event groups, confidence, tags, undo references, sync metadata, and reconstructable snapshots.
+- `src/storage/saveState.js` and `src/multiplayer/syncManager.js` preserve or summarize State Engine and Event Knowledge metadata without exposing hidden information.
+- `docs/ecosystem/AUTHORITATIVE_CORE_ARCHITECTURE.md` records the Prompt 3 architecture.
+
+## Remaining Roadmap
 
 ### Prompt 4: Persistence, Replay And Save Architecture
 
