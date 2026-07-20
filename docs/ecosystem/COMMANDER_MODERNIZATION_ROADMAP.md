@@ -36,14 +36,14 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - `src/state/schema.js`, `src/state/gameReducer.js`, and `src/multiplayer/syncManager.js` preserve persistence metadata, append checkpoints, and publish privacy-safe persistence summaries.
 - `docs/ecosystem/PERSISTENCE_REPLAY_ARCHITECTURE.md` records the Prompt 4 architecture.
 
-## Remaining Roadmap
-
 ### Prompt 5: Commander Battlefield Modernization
 
-- Modernize the existing landscape battlefield into the approved Commander-first layout without replacing the BoardState background or identity.
-- Keep the local battlefield on the bottom, one opponent battlefield on top, life totals at corresponding ends, and stack/phase/priority/triggers/combat/card previews in a central shared interaction space.
-- Replace gameplay-time navigation jumps with overlays where practical.
-- Do not split life tracking and battlefield inspection into separate gameplay pages.
+- `src/ui/landscapeBattlefield.js` adds a non-authoritative landscape battlefield model over existing perspective, runtime session, and permanent data.
+- `src/ui/render.js` now renders a landscape-first gameplay surface with global info rail, one focused opponent battlefield, central command center, bottom local battlefield, right context actions, expanded permanent lanes, Commander HUD summaries, selected-card inspection, stack/priority, triggers, phase, and combat controls.
+- `src/styles.css` preserves the existing BoardState background and visual language while adding the landscape Commander battlefield layout.
+- `docs/ecosystem/LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md` records the Prompt 5 architecture.
+
+## Remaining Roadmap
 
 ### Prompt 6: Battlefield Camera And Opponent Carousel
 

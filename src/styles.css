@@ -6692,6 +6692,415 @@ body[data-simulation-active="true"] .battlefield-mobile-dock button {
   background: rgba(9, 11, 20, 0.45);
 }
 
+/* Prompt 5: landscape-first Commander battlefield organization.
+   Uses the existing BoardState background, glass panels, and gold/cosmic HUD language. */
+.landscape-battlefield-page {
+  width: min(100%, 1760px);
+  min-height: calc(100svh - 112px);
+  display: grid;
+  grid-template-columns: minmax(188px, 244px) minmax(0, 1fr) minmax(210px, 284px);
+  grid-template-areas:
+    "state state state"
+    "status status status"
+    "lanes lanes lanes"
+    "visibility visibility visibility"
+    "info arena actions";
+  gap: 0.75rem;
+  align-items: stretch;
+  justify-content: stretch;
+  overflow: hidden;
+}
+
+.landscape-battlefield-page .landscape-state-strip {
+  grid-area: state;
+}
+
+.landscape-battlefield-page .advanced-multiplayer-status {
+  grid-area: status;
+}
+
+.landscape-battlefield-page .compact-opponent-lanes {
+  grid-area: lanes;
+}
+
+.landscape-battlefield-page .opponent-visibility-controls {
+  grid-area: visibility;
+}
+
+.landscape-info-rail,
+.landscape-actions-rail,
+.landscape-arena {
+  min-height: 0;
+}
+
+.landscape-info-rail {
+  grid-area: info;
+}
+
+.landscape-actions-rail {
+  grid-area: actions;
+}
+
+.landscape-arena {
+  grid-area: arena;
+  height: min(78svh, 900px);
+  min-height: 620px;
+  grid-template-areas:
+    "opponent"
+    "command"
+    "player";
+  grid-template-rows: minmax(136px, 0.92fr) minmax(210px, auto) minmax(220px, 1.2fr);
+  gap: 0.7rem;
+  padding: 0.7rem;
+  background:
+    radial-gradient(circle at 50% 48%, rgba(143, 211, 255, 0.08), transparent 28%),
+    radial-gradient(circle at 50% 102%, rgba(236, 200, 122, 0.08), transparent 34%),
+    rgba(4, 6, 16, 0.24);
+}
+
+.landscape-arena .opponent-zone,
+.landscape-arena .player-zone,
+.landscape-command-center {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(236, 200, 122, 0.055), transparent 42%),
+    rgba(3, 5, 13, 0.32);
+  border-color: rgba(236, 200, 122, 0.16);
+}
+
+.landscape-command-center {
+  grid-area: command;
+  display: grid;
+  gap: 0.55rem;
+  align-content: stretch;
+  overflow: hidden;
+}
+
+.landscape-command-core {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.72fr) minmax(220px, 1.2fr) minmax(180px, 0.9fr);
+  gap: 0.55rem;
+  min-height: 0;
+}
+
+.landscape-phase-core,
+.landscape-selected-card,
+.landscape-stack-core {
+  display: grid;
+  align-content: start;
+  gap: 0.35rem;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--hud-radius, 16px);
+  background:
+    linear-gradient(180deg, rgba(7, 10, 24, 0.72), rgba(3, 5, 14, 0.48));
+}
+
+.landscape-phase-core h2,
+.landscape-phase-core p,
+.landscape-selected-card p,
+.landscape-stack-core p {
+  margin: 0;
+}
+
+.landscape-phase-core strong,
+.landscape-selected-card strong,
+.landscape-stack-core strong {
+  color: var(--gold-bright);
+  text-shadow: var(--gold-text-contrast-shadow);
+}
+
+.landscape-selected-card {
+  overflow: auto;
+}
+
+.landscape-selected-card p {
+  color: rgba(247, 239, 255, 0.9);
+  font-size: 0.82rem;
+  line-height: 1.34;
+}
+
+.landscape-selected-meta,
+.landscape-stack-list,
+.landscape-floating-notices,
+.landscape-commander-tax-strip {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.landscape-selected-meta small,
+.landscape-stack-list p,
+.landscape-floating-notices small,
+.landscape-commander-tax-strip span {
+  margin: 0;
+  color: rgba(238, 203, 132, 0.78);
+  font-size: 0.72rem;
+}
+
+.landscape-stack-list {
+  max-height: 5.6rem;
+  overflow: auto;
+}
+
+.landscape-combat-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 0.85fr);
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--hud-radius-sm, 10px);
+  background: rgba(2, 4, 12, 0.42);
+}
+
+.landscape-combat-strip p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.landscape-commander-tax-strip {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.landscape-board-region {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 0.5rem;
+  overflow: hidden;
+}
+
+.landscape-board-region--opponent {
+  grid-area: opponent;
+}
+
+.landscape-board-region--local {
+  grid-area: player;
+}
+
+.landscape-board-region.is-hidden {
+  align-content: center;
+}
+
+.landscape-board-title,
+.landscape-rail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.landscape-board-title h2,
+.landscape-rail-header strong {
+  margin: 0;
+  color: var(--gold-bright);
+}
+
+.landscape-board-title strong {
+  color: var(--gold-bright);
+  font-size: 1.15rem;
+}
+
+.landscape-commander-hud {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.45rem;
+}
+
+.landscape-commander-hud article {
+  display: grid;
+  gap: 0.14rem;
+  padding: 0.48rem 0.58rem;
+  border: 1px solid rgba(236, 200, 122, 0.34);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(236, 200, 122, 0.15), transparent 38%),
+    rgba(6, 8, 18, 0.62);
+}
+
+.landscape-commander-hud strong {
+  color: var(--gold-bright);
+}
+
+.landscape-commander-hud span,
+.landscape-commander-hud small {
+  color: rgba(247, 239, 255, 0.78);
+  font-size: 0.72rem;
+}
+
+.landscape-battlefield-groups {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 0.15rem;
+}
+
+body[data-composition="widescreen"] .landscape-battlefield-groups {
+  grid-auto-flow: row;
+  grid-auto-columns: unset;
+  grid-template-columns: 1fr;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0;
+}
+
+body[data-composition="widescreen"] .landscape-battlefield-groups .battlefield-group .tile-grid {
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+}
+
+.landscape-density-dense .landscape-battlefield-groups .battlefield-group .tile-grid,
+.landscape-density-compressed .landscape-battlefield-groups .battlefield-group .tile-grid {
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 0.36rem;
+}
+
+.landscape-density-compressed .permanent {
+  min-height: 88px;
+}
+
+.landscape-info-rail,
+.landscape-actions-rail {
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  overflow: auto;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(236, 200, 122, 0.08), transparent 34%),
+    rgba(4, 6, 16, 0.22);
+}
+
+.landscape-player-list,
+.landscape-action-grid,
+.landscape-rail-actions {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.landscape-player-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.32rem 0.5rem;
+  align-items: center;
+  padding: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(4, 7, 18, 0.42);
+}
+
+.landscape-player-card.is-local {
+  border-color: rgba(143, 211, 255, 0.34);
+}
+
+.landscape-player-card.is-active,
+.landscape-player-card.has-priority {
+  border-color: rgba(236, 200, 122, 0.48);
+  box-shadow: 0 0 18px rgba(236, 200, 122, 0.1);
+}
+
+.landscape-player-card b {
+  color: var(--gold-bright);
+  font-size: 1.35rem;
+}
+
+.landscape-player-card span,
+.landscape-player-card small,
+.landscape-table-status,
+.landscape-hidden-info {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.landscape-table-status {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 0.55rem;
+  background: rgba(4, 7, 18, 0.36);
+}
+
+.landscape-table-status summary {
+  cursor: pointer;
+  color: var(--gold-bright);
+  font-weight: 800;
+}
+
+.landscape-action-grid {
+  grid-template-columns: 1fr;
+}
+
+.landscape-action-grid button {
+  justify-content: space-between;
+  min-height: 42px;
+}
+
+.landscape-action-grid button:disabled {
+  border-color: rgba(255, 255, 255, 0.08);
+  color: rgba(238, 203, 132, 0.46);
+  background: rgba(4, 6, 14, 0.32);
+  cursor: not-allowed;
+}
+
+.landscape-action-grid b,
+.landscape-action-grid small {
+  color: inherit;
+}
+
+.landscape-quick-add {
+  display: grid;
+  gap: 0.55rem;
+  min-height: 0;
+}
+
+@media (max-width: 1279px) {
+  .landscape-battlefield-page {
+    min-height: auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "state"
+      "status"
+      "lanes"
+      "visibility"
+      "arena"
+      "info"
+      "actions";
+    overflow: visible;
+  }
+
+  .landscape-arena {
+    min-height: 620px;
+    height: auto;
+  }
+
+  .landscape-command-core {
+    grid-template-columns: 1fr;
+  }
+
+  .landscape-combat-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .landscape-info-rail,
+  .landscape-actions-rail {
+    max-height: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .landscape-arena {
+    grid-template-rows: auto auto auto;
+    min-height: auto;
+  }
+
+  .landscape-board-region {
+    max-height: none;
+  }
+
+  .landscape-commander-hud,
+  .landscape-combat-strip .row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .npc-identity-card {
   position: relative;
   overflow: hidden;

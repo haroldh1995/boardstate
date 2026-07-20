@@ -199,3 +199,13 @@ The active roadmap now uses the Prompt 3 through Prompt 15 sequence for Event Kn
 `src/persistence/canonicalPersistence.js` now provides the canonical save, checkpoint, replay timeline, auto-save, recovery, import/export, validation, corruption detection, and legacy migration foundation. It uses Prompt 3 Event Knowledge and State Engine snapshots rather than creating a separate persistence authority.
 
 `src/storage/saveState.js` embeds canonical saves and replay export bundles while preserving the existing local save shape, legacy imports, tutorial autosaves, and profile persistence compatibility. `src/state/gameReducer.js` appends persistence checkpoints after relevant reducer actions, and `src/multiplayer/syncManager.js` publishes only privacy-safe persistence summaries. Detailed documentation lives in `docs/ecosystem/PERSISTENCE_REPLAY_ARCHITECTURE.md`.
+
+## Prompt 5 Landscape Battlefield Modernization
+
+`src/ui/landscapeBattlefield.js` now provides the reusable landscape-first Commander battlefield presentation model used by the gameplay renderer. It derives local/opponent public boards through the existing perspective layer, groups permanents into Commander-readable lanes, summarizes Commander HUD data, creates selected-card details, reports token stack summaries, and marks future Question, Remind Me, visual replay, and AI panels as unavailable instead of live.
+
+`src/ui/render.js` now renders gameplay as stable regions: global information rail, focused opponent battlefield, center command center, local battlefield, and context action rail. The command center keeps stack, priority, phase, trigger, selected-card, Commander tax, and combat information in the active battlefield instead of requiring page navigation for standard gameplay information.
+
+`src/styles.css` adds the landscape Commander battlefield layout while preserving the existing BoardState background assets, glass panels, cosmic palette, and gold accents. Prompt 5 does not implement the opponent carousel, camera system, Follow Active Player, Spectator Mode, Question UI, Remind Me UI, visual replay UI, or AI battlefield interface.
+
+Focused tests live in `test/landscape-battlefield.test.js` and cover region modeling, lane classification, token stack summaries, selected-card details, high-player-count public projection, hidden-information protection, and honest future-action availability. Detailed documentation lives in `docs/ecosystem/LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md`.

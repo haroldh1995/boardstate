@@ -27,6 +27,12 @@ import {
   buildAdvancedTargetingVisualModel,
 } from "../shared-session/perspective.js";
 import {
+  PERMANENT_LANE_LABELS,
+  PERMANENT_LANE_ORDER,
+  createLandscapeBattlefieldModel,
+  getPermanentLaneKey,
+} from "./landscapeBattlefield.js";
+import {
   buildDeckSourceOptions,
   createBoardStateLiteHandoffBundle,
   getAppLinkAdapters,
@@ -5566,9 +5572,14 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
   const sourceForTargets = getSelectedPermanents(session)[0] || session.stack?.[0]?.card || null;
   const legalTargetResult = sourceForTargets ? calculateLegalTargets(session, sourceForTargets, "all-permanents") : null;
   const targetingVisuals = buildAdvancedTargetingVisualModel(profile, perspective, { legalTargets: legalTargetResult });
+  const landscapeModel = createLandscapeBattlefieldModel(profile, {
+    perspective,
+    viewport: isMobilePortrait ? "portrait-support" : "desktop",
+    compressionMode,
+  });
   return `
-    <section class="battlefield-page battlefield-page--focused advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${isMobilePortrait && mobileFocusView ? "mobile-focus-view" : ""}">
-      <div class="battlefield-state-strip">
+    <section class="battlefield-page battlefield-page--focused landscape-battlefield-page landscape-density-${escapeAttribute(landscapeModel.density)} advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${isMobilePortrait && mobileFocusView ? "mobile-focus-view" : ""}" data-layout-version="${escapeAttribute(landscapeModel.version)}">
+      <div class="battlefield-state-strip landscape-state-strip">
         <div>
           <strong>Turn ${escapeHtml(session.turn)} · ${escapeHtml(PHASES[session.phaseIndex] || "Beginning")} · ${escapeHtml(resolvePhaseTrackerActorLabel(session).replace(/^Active turn:\s*/i, ""))}</strong>
           <span>${escapeHtml(resolveBattlefieldActionHint(session))}</span>
@@ -5581,56 +5592,45 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
       ${renderAdvancedMultiplayerStatus(perspective)}
       ${perspective.compactOpponentLanes ? renderCompactOpponentLanes(perspective) : ""}
       ${perspectiveOpponentBoards.length ? renderOpponentVisibilityControls(perspectiveOpponentBoards, visibility, perspective) : ""}
-      <section class="arena glass ${playerDensityClass} ${perspective.viewMode === "two-player-mirrored" ? "arena--two-player-mirrored" : ""} ${perspective.viewMode === "commander-pod-advanced" || perspective.viewMode === "mixed-interface-session" ? "arena--commander-pod" : ""} ${profile.settings?.battlefield?.focusMode && session.selectedIds?.length ? "focus-mode" : ""} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${showPerspectiveOpponentZone ? "" : "arena--opponent-hidden"} ${panels.boardCombat ? "" : "arena--combat-hidden"}" data-set-tool-context="empty">
-        ${showPerspectiveOpponentZone ? `
-        <div class="opponent-zone ${opponentDensityClass}" data-opponent-swipe data-set-tool-context="empty">
-          ${renderOpponentZoneHeader(perspectiveOpponentBoards, mirroredOpponentIndex, mirroredOpponent, perspective)}
-          ${mirroredOpponent ? renderBattlefieldGroups(mirroredOpponent.permanents, {
-            readonly: true,
-            allowTargeting: true,
-            emptyText: "No visible opponent permanents",
-            expandedAll: profile.settings?.battlefield?.expandedAll,
-            selectedIds,
-            detailMode,
-            compressionMode,
-            expandedStackIds,
-            showStatsOverlay,
-            session,
-            settings: profile.settings,
-            targetingVisuals,
-          }) : empty("No visible opponent permanents")}
-        </div>
-        ` : ""}
-        ${panels.boardCombat ? `
-        <div class="combat-zone">
-          ${session.combat.damagePreview ? `<p>${session.combat.damagePreview.total} damage estimated</p>` : ""}
-          <div class="row">
-            <button data-declare-attackers ${combatResolving ? "disabled" : ""}>Declare Attackers</button>
-            <button data-resolve-combat ${combatResolving ? "disabled" : ""}>${combatResolving ? "Resolving…" : "Resolve"}</button>
-          </div>
-        </div>
-        ` : ""}
-        <div class="player-zone">
-          <h2>${showPerspectiveOpponentZone ? "Your Battlefield" : "Battlefield"}</h2>
-          ${renderBattlefieldGroups(session.battlefield.player, {
-            emptyText: "No permanents yet",
-            expandedAll: profile.settings?.battlefield?.expandedAll,
-            selectedIds,
-            detailMode,
-            compressionMode,
-            expandedStackIds,
-            showStatsOverlay,
-            session,
-            settings: profile.settings,
-            targetingVisuals,
-          })}
-        </div>
+      ${renderLandscapeGlobalInfoRail(landscapeModel, profile)}
+      <section class="arena glass landscape-arena ${playerDensityClass} ${perspective.viewMode === "two-player-mirrored" ? "arena--two-player-mirrored" : ""} ${perspective.viewMode === "commander-pod-advanced" || perspective.viewMode === "mixed-interface-session" ? "arena--commander-pod" : ""} ${profile.settings?.battlefield?.focusMode && session.selectedIds?.length ? "focus-mode" : ""} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${showPerspectiveOpponentZone ? "" : "arena--opponent-hidden"} ${panels.boardCombat ? "" : "arena--combat-hidden"}" data-set-tool-context="empty">
+        ${renderLandscapeOpponentRegion(landscapeModel.opponentBattlefield, {
+          opponentBoards: perspectiveOpponentBoards,
+          activeIndex: mirroredOpponentIndex,
+          activeOpponent: mirroredOpponent,
+          perspective,
+          opponentDensityClass,
+          showPerspectiveOpponentZone,
+          expandedAll: profile.settings?.battlefield?.expandedAll,
+          selectedIds,
+          detailMode,
+          compressionMode,
+          expandedStackIds,
+          showStatsOverlay,
+          session,
+          settings: profile.settings,
+          targetingVisuals,
+        })}
+        ${renderLandscapeCommandCenter(landscapeModel, profile, {
+          panels,
+          combatResolving,
+          phaseControlMessage: uiState.phaseControlMessage || "",
+        })}
+        ${renderLandscapeLocalRegion(landscapeModel.localBattlefield, {
+          showPerspectiveOpponentZone,
+          expandedAll: profile.settings?.battlefield?.expandedAll,
+          selectedIds,
+          detailMode,
+          compressionMode,
+          expandedStackIds,
+          showStatsOverlay,
+          session,
+          settings: profile.settings,
+          targetingVisuals,
+        })}
       </section>
+      ${renderLandscapeContextActionsRail(landscapeModel, searchResults, searchMessage, searchLoading, searchQuery, activeUtilityPanel, uiState, isMobilePortrait, panels)}
       ${renderSelectedPermanentMenu(session)}
-      <aside class="search-panel glass ${isMobilePortrait ? "mobile-hud-column" : ""}">
-        ${!isMobilePortrait && panels.archiveQuickAdd ? `<h2>Battlefield Quick Add</h2>` : ""}
-        ${!isMobilePortrait && panels.archiveQuickAdd && activeUtilityPanel !== "search" ? renderSearch(searchResults, searchMessage, searchLoading, searchQuery, "battlefield", uiState.castActionPopup) : ""}
-      </aside>
     </section>
     ${renderMobileBattlefieldDock(profile, activeUtilityPanel, uiState.utilityDockOpen, Boolean(panels.boardCombat), Boolean(combatResolving), isMobilePortrait)}
     ${panels.advancedRulesHelpers || (session.pendingEffects || []).some((entry) => !["resolved", "skipped", "ignored"].includes(entry.status)) ? renderPending(session, Boolean(uiState.manualChoicePanelCollapsed), perspective) : ""}
@@ -5640,6 +5640,253 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
     ${uiState.opponentOverlayOpen && mirroredOpponent ? renderOpponentBattlefieldOverlay(profile, mirroredOpponent, mirroredOpponentIndex, perspectiveOpponentBoards.length, detailMode, compressionMode, selectedIds, expandedStackIds) : ""}
     ${session.combat?.step === "declare-blockers" && !session.simulation?.enabled ? renderBlockerDeclaration(profile, perspective) : ""}
   `;
+}
+
+function renderLandscapeGlobalInfoRail(model = {}, profile = {}) {
+  const globalInfo = model.globalInfo || {};
+  const localPlayerId = model.perspective?.localPlayerId || "local-player";
+  const players = globalInfo.players || [];
+  return `
+    <aside class="landscape-info-rail glass" aria-label="Global game information">
+      <div class="landscape-rail-header">
+        <p class="eyebrow">Commander Table</p>
+        <strong>${escapeHtml(String(globalInfo.tableStatus?.playerCount || players.length || 1))} Player${(globalInfo.tableStatus?.playerCount || players.length || 1) === 1 ? "" : "s"}</strong>
+        <small>Landscape-first battlefield</small>
+      </div>
+      <div class="landscape-player-list">
+        ${players.map((player) => `
+          <article class="landscape-player-card ${player.playerId === localPlayerId ? "is-local" : ""} ${player.activeTurn ? "is-active" : ""} ${player.priorityStatus === "has-priority" ? "has-priority" : ""}">
+            <div>
+              <strong>${escapeHtml(player.displayName || player.playerId)}</strong>
+              <small>${escapeHtml(player.playerId === localPlayerId ? "Local" : player.connectionStatus || "Remote")} · ${escapeHtml(player.interfaceMode || "unknown")}</small>
+            </div>
+            <b>${escapeHtml(player.life ?? 40)}</b>
+            <span>Poison ${escapeHtml(player.poisonCounters || 0)}</span>
+            ${Object.keys(player.commanderDamage || {}).length ? `<small>Commander dmg ${Object.entries(player.commanderDamage || {}).map(([source, value]) => `${escapeHtml(source)}:${escapeHtml(value)}`).join(" / ")}</small>` : ""}
+          </article>
+        `).join("") || empty("No player summary available")}
+      </div>
+      <details class="landscape-table-status" open>
+        <summary>Table Status</summary>
+        <p>Active: ${escapeHtml(resolveParticipantDisplay(players, globalInfo.activePlayerId))}</p>
+        <p>Priority: ${escapeHtml(resolveParticipantDisplay(players, globalInfo.priorityHolderId))}</p>
+        <p>Monarch: ${escapeHtml(globalInfo.tableStatus?.monarch || "none")}</p>
+        <p>Initiative: ${escapeHtml(globalInfo.tableStatus?.initiative || "none")}</p>
+        <p>City blessing: ${globalInfo.tableStatus?.cityBlessing ? "yes" : "no"}</p>
+      </details>
+      ${globalInfo.hiddenIndicators?.length ? `
+        <div class="landscape-hidden-info">
+          <p class="eyebrow">Visibility</p>
+          ${globalInfo.hiddenIndicators.slice(0, 4).map((entry) => `<small>${escapeHtml(entry.playerId || "opponent")}: ${escapeHtml(entry.label || entry.kind || "hidden information protected")}</small>`).join("")}
+        </div>
+      ` : ""}
+      <div class="landscape-rail-actions">
+        <button class="${profile.settings?.battlefield?.statsOverlay ? "active" : ""}" data-setting-button="battlefield.statsOverlay" data-value="${profile.settings?.battlefield?.statsOverlay ? "false" : "true"}">Stats ${profile.settings?.battlefield?.statsOverlay ? "On" : "Off"}</button>
+        <button data-setting-button="battlefield.focusMode" data-value="${profile.settings?.battlefield?.focusMode ? "false" : "true"}">Focus View</button>
+      </div>
+    </aside>
+  `;
+}
+
+function renderLandscapeOpponentRegion(region = {}, options = {}) {
+  if (!options.showPerspectiveOpponentZone) {
+    return `
+      <div class="opponent-zone landscape-board-region landscape-board-region--opponent is-hidden" data-opponent-swipe data-set-tool-context="empty">
+        <div class="opponent-zone-header">
+          <div><h2>Opponent Battlefield</h2><p class="eyebrow">Public board hidden by current view settings</p></div>
+        </div>
+        ${empty("No focused opponent battlefield is visible. Public opponent data remains protected and synchronized.")}
+      </div>
+    `;
+  }
+  return `
+    <div class="opponent-zone landscape-board-region landscape-board-region--opponent ${escapeAttribute(options.opponentDensityClass || "")}" data-opponent-swipe data-set-tool-context="empty">
+      ${renderOpponentZoneHeader(options.opponentBoards || [], options.activeIndex || 0, options.activeOpponent, options.perspective)}
+      ${renderCommanderHud(region)}
+      ${renderLandscapeBattlefieldGroups(region, {
+        readonly: true,
+        allowTargeting: true,
+        emptyText: "No visible opponent permanents",
+        expandedAll: options.expandedAll,
+        selectedIds: options.selectedIds,
+        detailMode: options.detailMode,
+        compressionMode: options.compressionMode,
+        expandedStackIds: options.expandedStackIds,
+        showStatsOverlay: options.showStatsOverlay,
+        session: options.session,
+        settings: options.settings,
+        targetingVisuals: options.targetingVisuals,
+      })}
+    </div>
+  `;
+}
+
+function renderLandscapeLocalRegion(region = {}, options = {}) {
+  return `
+    <div class="player-zone landscape-board-region landscape-board-region--local">
+      <div class="landscape-board-title">
+        <div>
+          <p class="eyebrow">Bottom Battlefield</p>
+          <h2>${escapeHtml(options.showPerspectiveOpponentZone ? "Your Battlefield" : "Battlefield")}</h2>
+        </div>
+        <strong>Life ${escapeHtml(region.life ?? 40)}</strong>
+      </div>
+      ${renderCommanderHud(region)}
+      ${renderLandscapeBattlefieldGroups(region, {
+        emptyText: "No permanents yet",
+        expandedAll: options.expandedAll,
+        selectedIds: options.selectedIds,
+        detailMode: options.detailMode,
+        compressionMode: options.compressionMode,
+        expandedStackIds: options.expandedStackIds,
+        showStatsOverlay: options.showStatsOverlay,
+        session: options.session,
+        settings: options.settings,
+        targetingVisuals: options.targetingVisuals,
+      })}
+    </div>
+  `;
+}
+
+function renderLandscapeCommandCenter(model = {}, profile = {}, options = {}) {
+  const center = model.commandCenter || {};
+  const stackCount = (center.stackObjects || []).length;
+  const triggerCount = (center.triggerQueue || []).filter((entry) => entry.status === "pending").length;
+  const pendingChoiceCount = (center.pendingChoices || []).length;
+  return `
+    <div class="combat-zone landscape-command-center" aria-label="Command center">
+      <div class="landscape-command-core">
+        <article class="landscape-phase-core">
+          <p class="eyebrow">Command Center</p>
+          <h2>Turn ${escapeHtml(center.turn || 1)}</h2>
+          <strong>${escapeHtml(center.phaseLabel || "Beginning")}</strong>
+          <span>Active: ${escapeHtml(center.activePlayerName || center.activePlayerId || "Player")}</span>
+          <span>Priority: ${escapeHtml(center.priorityHolderName || center.priorityHolderId || "Player")}</span>
+          ${options.phaseControlMessage ? `<small>${escapeHtml(options.phaseControlMessage)}</small>` : ""}
+          <button class="wide" data-next-phase>Next Phase</button>
+        </article>
+        ${renderLandscapeSelectedCardPanel(center.selectedCard)}
+        <article class="landscape-stack-core">
+          <p class="eyebrow">Stack / Priority</p>
+          <strong>${stackCount ? `${stackCount} object${stackCount === 1 ? "" : "s"}` : "Stack empty"}</strong>
+          <span>${triggerCount} trigger${triggerCount === 1 ? "" : "s"} · ${pendingChoiceCount} choice${pendingChoiceCount === 1 ? "" : "s"}</span>
+          <div class="landscape-stack-list">
+            ${(center.stackObjects || []).slice(0, 3).map((entry, index) => `
+              <p><b>${index + 1}</b> ${escapeHtml(entry.name || entry.card?.name || "Stack object")} <small>${escapeHtml(entry.controllerName || entry.controller || entry.controllerPlayerId || "")}</small></p>
+            `).join("") || "<p>Ready for the next action.</p>"}
+          </div>
+          <div class="row mini">
+            ${center.localCanAct ? `<button data-pass-priority>Pass Priority</button><button data-respond-stack>Respond</button>` : ""}
+            <button data-open-utility="stack">Open Stack</button>
+            <button data-open-utility="triggers">Triggers</button>
+          </div>
+        </article>
+      </div>
+      ${options.panels?.boardCombat ? `
+        <div class="landscape-combat-strip">
+          ${center.combat?.damagePreview ? `<p>${escapeHtml(center.combat.damagePreview.total)} damage estimated</p>` : "<p>Combat actions stay in the center shared space.</p>"}
+          <div class="row">
+            <button data-declare-attackers ${options.combatResolving ? "disabled" : ""}>Declare Attackers</button>
+            <button data-resolve-combat ${options.combatResolving ? "disabled" : ""}>${options.combatResolving ? "Resolving..." : "Resolve Combat"}</button>
+          </div>
+        </div>
+      ` : ""}
+      ${center.commanderTaxSummary?.length ? `
+        <div class="landscape-commander-tax-strip">
+          ${center.commanderTaxSummary.slice(0, 4).map((entry) => `<span>${escapeHtml(entry.name || entry.commanderId)} · Tax ${escapeHtml(entry.tax || 0)} · Cast ${escapeHtml(entry.castCount || 0)}</span>`).join("")}
+        </div>
+      ` : ""}
+      ${center.floatingNotifications?.length ? `
+        <div class="landscape-floating-notices">
+          ${center.floatingNotifications.map((entry) => `<small>${escapeHtml(entry.kind)}: ${escapeHtml(entry.label)}</small>`).join("")}
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+
+function renderLandscapeContextActionsRail(model = {}, searchResults, searchMessage, searchLoading, searchQuery, activeUtilityPanel, uiState = {}, isMobilePortrait = false, panels = {}) {
+  return `
+    <aside class="landscape-actions-rail search-panel glass ${isMobilePortrait ? "mobile-hud-column" : ""}" aria-label="Context actions">
+      <div class="landscape-rail-header">
+        <p class="eyebrow">Context Actions</p>
+        <strong>Battlefield Tools</strong>
+        <small>Unavailable future systems are disabled.</small>
+      </div>
+      <div class="landscape-action-grid">
+        ${(model.contextActions || []).map((action) => {
+          if (action.available && action.utilityPanel) {
+            return `<button class="${activeUtilityPanel === action.utilityPanel ? "active" : ""}" data-open-utility="${escapeAttribute(action.utilityPanel)}">${escapeHtml(action.label)}${action.badge ? ` <b>${escapeHtml(action.badge)}</b>` : ""}</button>`;
+          }
+          if (action.available && action.opensOptions) {
+            return `<button data-open-game-options>${escapeHtml(action.label)}</button>`;
+          }
+          return `<button disabled title="${escapeAttribute(action.reason || "Future integration")}">${escapeHtml(action.label)} <small>Future</small></button>`;
+        }).join("")}
+      </div>
+      ${!isMobilePortrait && panels.archiveQuickAdd && activeUtilityPanel !== "search" ? `
+        <section class="landscape-quick-add">
+          <h2>Battlefield Quick Add</h2>
+          ${renderSearch(searchResults, searchMessage, searchLoading, searchQuery, "battlefield", uiState.castActionPopup)}
+        </section>
+      ` : ""}
+    </aside>
+  `;
+}
+
+function renderLandscapeBattlefieldGroups(region = {}, options = {}) {
+  const lanes = (region.lanes || []).filter((lane) => !lane.empty);
+  if (!lanes.length) {
+    return empty(options.emptyText || "No permanents yet");
+  }
+  return `
+    <div class="battlefield-groups landscape-battlefield-groups">
+      ${lanes.map((lane) => renderPermanentGroup(lane.label, lane.permanents, { ...options, zoneKey: lane.key, lane })).join("")}
+    </div>
+  `;
+}
+
+function renderCommanderHud(region = {}) {
+  const commanders = region.commanderHud || [];
+  if (!commanders.length) {
+    return "";
+  }
+  return `
+    <div class="landscape-commander-hud" aria-label="${escapeAttribute(`${region.displayName || "Player"} commander information`)}">
+      ${commanders.slice(0, 3).map((commander) => `
+        <article>
+          <strong>${escapeHtml(commander.name || "Commander")}</strong>
+          <span>${escapeHtml(commander.zone || "unknown")} · Tax ${escapeHtml(commander.commanderTax || 0)} · Cast ${escapeHtml(commander.castCount || 0)}</span>
+          ${Object.keys(commander.damageByOpponent || {}).length ? `<small>Damage ${Object.entries(commander.damageByOpponent || {}).map(([opponent, value]) => `${escapeHtml(opponent)}:${escapeHtml(value)}`).join(" / ")}</small>` : ""}
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderLandscapeSelectedCardPanel(details = {}) {
+  const characteristics = details.currentCharacteristics || {};
+  return `
+    <article class="landscape-selected-card">
+      <p class="eyebrow">${escapeHtml(details.mode === "stack-top" ? "Stack Preview" : details.mode === "selected-card" ? "Selected Card" : "Card Preview")}</p>
+      <strong>${escapeHtml(details.title || "Select a card")}</strong>
+      <span>${escapeHtml(characteristics.typeLine || "")}</span>
+      ${details.powerToughness ? `<b>${escapeHtml(details.powerToughness)}</b>` : ""}
+      <p>${escapeHtml(details.oracleText || "No Oracle text available.")}</p>
+      <div class="landscape-selected-meta">
+        ${details.owner ? `<small>Owner: ${escapeHtml(details.owner)}</small>` : ""}
+        ${details.controller ? `<small>Controller: ${escapeHtml(details.controller)}</small>` : ""}
+        ${details.counters?.length ? `<small>Counters: ${details.counters.map((entry) => `${escapeHtml(entry.counterType)} ${escapeHtml(entry.value)}`).join(" / ")}</small>` : ""}
+        ${details.attachments?.length ? `<small>Attachments: ${details.attachments.map(escapeHtml).join(", ")}</small>` : ""}
+        ${details.statuses?.length ? `<small>Status: ${details.statuses.map(escapeHtml).join(", ")}</small>` : ""}
+        ${details.publicOnly ? `<small>Public information only where applicable.</small>` : ""}
+      </div>
+    </article>
+  `;
+}
+
+function resolveParticipantDisplay(players = [], playerId = "") {
+  return players.find((player) => player.playerId === playerId)?.displayName || playerId || "unknown";
 }
 
 function renderOpponentVisibilityControls(opponentBoards = [], visibility = {}, perspective = null) {
@@ -5849,7 +6096,7 @@ function renderOpponentZoneHeader(opponentBoards, activeIndex, activeOpponent, p
         `).join("")}
       </div>
       <div class="row mini">
-        ${opponentBoards.length > 1 ? `<button data-opponent-nav="prev">‹</button><button data-opponent-nav="next">›</button>` : ""}
+        ${opponentBoards.length > 1 ? `<button data-opponent-nav="prev">&lsaquo;</button><button data-opponent-nav="next">&rsaquo;</button>` : ""}
         <button data-open-opponent-overlay>Expand Battlefield</button>
       </div>
     </div>
@@ -5876,7 +6123,7 @@ function renderOpponentBattlefieldOverlay(profile, opponentBoard, activeIndex, t
             <strong>${activeIndex + 1}/${totalOpponents}</strong>
           </div>
           <div class="row mini">
-            ${totalOpponents > 1 ? `<button data-opponent-nav="prev">‹</button><button data-opponent-nav="next">›</button>` : ""}
+            ${totalOpponents > 1 ? `<button data-opponent-nav="prev">&lsaquo;</button><button data-opponent-nav="next">&rsaquo;</button>` : ""}
             <button data-close-opponent-overlay>Close</button>
           </div>
         </div>
@@ -6029,6 +6276,15 @@ function renderPermanentGroup(label, permanents, options = {}) {
   const tappedCount = Math.max(0, count - untappedCount);
   return `
     <section class="battlefield-group battlefield-zone-${escapeAttribute(options.zoneKey || "other")}" aria-label="${escapeAttribute(`${label}: ${count} permanents, ${untappedCount} ready, ${tappedCount} tapped`)}">
+      <div class="battlefield-group-header">
+        <span>${escapeHtml(label)}</span>
+        <span class="battlefield-zone-summary">
+          <i>${escapeHtml(count)} total</i>
+          <i>${escapeHtml(untappedCount)} ready</i>
+          ${tappedCount ? `<i>${escapeHtml(tappedCount)} tapped</i>` : ""}
+          ${options.lane?.tokenStacks?.length ? `<i>${escapeHtml(options.lane.tokenStacks.length)} token stack${options.lane.tokenStacks.length === 1 ? "" : "s"}</i>` : ""}
+        </span>
+      </div>
       <div class="tile-grid ${options.readonly ? "readonly" : ""} ${options.compressionMode === "compact" ? "density-high" : ""}">
         ${permanents.map((permanent) => renderPermanent(permanent, options)).join("")}
       </div>
@@ -6036,16 +6292,13 @@ function renderPermanentGroup(label, permanents, options = {}) {
   `;
 }
 
-const BATTLEFIELD_ZONE_ORDER = [
-  { key: "creatures", label: "Creatures" },
-  { key: "lands", label: "Lands" },
-  { key: "support", label: "Non-creature permanents" },
-];
+const BATTLEFIELD_ZONE_ORDER = PERMANENT_LANE_ORDER.map((key) => ({
+  key,
+  label: PERMANENT_LANE_LABELS[key] || formatLabel(key),
+}));
 
 function getBattlefieldZoneKey(permanent = {}) {
-  if (permanent.isCreature) return "creatures";
-  if (permanent.isLand) return "lands";
-  return "support";
+  return getPermanentLaneKey(permanent);
 }
 
 function renderPermanent(permanent, options = {}) {
@@ -7962,7 +8215,7 @@ function renderTutorialCompletionPanel(profile, progress) {
           <div>
             <p class="eyebrow">Tutorial Complete</p>
             <h2>Tutorial Complete</h2>
-            <p>You’ve completed the first five guided turns. You can now continue playing freely, finish the practice game, begin a new simulation, or create your profile.</p>
+            <p>You've completed the first five guided turns. You can now continue playing freely, finish the practice game, begin a new simulation, or create your profile.</p>
           </div>
         </div>
         <div class="tutorial-completion-grid">
@@ -9377,7 +9630,7 @@ function renderGameOptions(profile, page = "life") {
             </div>
             <p>Mode: ${escapeHtml(multiplayer.mode)}</p>
             <p>Connected players: ${multiplayer.connectedPlayers.length ? multiplayer.connectedPlayers.map((player) => escapeHtml(player.name)).join(", ") : "None"}</p>
-            <p>Confirmed turn order: ${multiplayer.confirmedTurnOrder?.length ? multiplayer.confirmedTurnOrder.map((id) => escapeHtml(id === "local-player" ? `${profile.player?.name || "Player"} (You)` : id)).join(" → ") : "Not confirmed"}</p>
+            <p>Confirmed turn order: ${multiplayer.confirmedTurnOrder?.length ? multiplayer.confirmedTurnOrder.map((id) => escapeHtml(id === "local-player" ? `${profile.player?.name || "Player"} (You)` : id)).join(" -> ") : "Not confirmed"}</p>
             ${renderToggle("Simulation Revenge Learning", "multiplayer.simulationRevenge", Boolean(multiplayer.simulationRevenge ?? true))}
             <label class="stacked-form">Room ID
               <input data-mp-setting="multiplayer.roomId" value="${escapeAttribute(multiplayer.roomId || "boardstate-room")}" />
@@ -10028,7 +10281,7 @@ function renderAdhdAssistPanel(profile, page, uiLayer) {
       )}</p>
       <div class="adhd-assist-grid">
         ${adhdMode.triggerReminders ? `<article><strong>Trigger reminders</strong><p>${pendingQueue.length} unresolved</p></article>` : ""}
-        ${adhdMode.unresolvedReminders ? `<article><strong>Manual choices</strong><p>${manualPending.length} pending Â· ${manualIgnored.length} ignored</p></article>` : ""}
+        ${adhdMode.unresolvedReminders ? `<article><strong>Manual choices</strong><p>${manualPending.length} pending / ${manualIgnored.length} ignored</p></article>` : ""}
         ${adhdMode.missedTriggerReminders ? `<article><strong>Missed trigger reminders</strong><p>${missedQueue.length} flagged</p></article>` : ""}
         ${adhdMode.resourceReminders ? `<article><strong>Resource reminders</strong><p>Mana ${Object.values(session.manaPool || {}).reduce((sum, value) => sum + Number(value || 0), 0)} · Counters ${Object.values(session.playerCounters || {}).reduce((sum, value) => sum + Number(value || 0), 0)}</p></article>` : ""}
         ${

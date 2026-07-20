@@ -14,6 +14,7 @@ Prompt 1 output files:
 - `BOARDSTATE_CONSTITUTION.md`
 - `AUTHORITATIVE_CORE_ARCHITECTURE.md`
 - `PERSISTENCE_REPLAY_ARCHITECTURE.md`
+- `LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md`
 
 These files document the preparation baseline, permanent Constitution, architecture inventory, rules-engine extraction risks, shared contracts, migration plan, handoff risks, future navigation, and future test matrix.
 
@@ -28,4 +29,6 @@ The Commander session architecture document records the Prompt 2 canonical sessi
 `AUTHORITATIVE_CORE_ARCHITECTURE.md` records the Prompt 3 Rules Engine, State Engine, Event Knowledge Engine, authoritative pipeline, provenance, reconstruction, save, and sync foundation.
 
 `PERSISTENCE_REPLAY_ARCHITECTURE.md` records the Prompt 4 canonical save, replay timeline, checkpoint, auto-save, recovery, import/export, validation, and migration foundation.
+
+`LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md` records the Prompt 5 landscape-first Commander battlefield interface, permanent gameplay regions, battlefield lanes, Commander HUD treatment, selected-card center panel, and deferred camera/carousel/replay/question/reminder boundaries.
 

@@ -108,7 +108,6 @@ Every future prompt must review this Constitution, `docs/ecosystem/COMMANDER_MOD
 
 The active modernization roadmap is maintained in `docs/ecosystem/COMMANDER_MODERNIZATION_ROADMAP.md`:
 
-- Prompt 5: Commander Battlefield Modernization
 - Prompt 6: Battlefield Camera And Opponent Carousel
 - Prompt 7: Full Control And Live Tracking Convergence
 - Prompt 8: Question System
