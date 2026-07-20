@@ -72,4 +72,4 @@ This document records the Prompt 2 canonical Commander session foundation. Board
 - Prompt 4 will modernize the landscape battlefield using this canonical session and existing BoardState background.
 - Prompt 5 will implement the opponent carousel and Battlefield Camera System over `seatOrder`, `turnOrder`, and local perspectives.
 - Prompt 6 will wire Full Control and Live Tracking input models over this same canonical session and rules engine.
-- Prompts 7 through 10 will add Question System, Remind Me/replay, Rules Recovery/unanimous amendments, and final Hub-ready hardening without making external apps authoritative.
+- Later roadmap prompts will add Question System, Remind Me/replay, Rules Recovery/unanimous amendments, AI integration, Hub/Lite/Nexus interoperability, performance/accessibility, visual polish, and final production audit without making external apps authoritative.

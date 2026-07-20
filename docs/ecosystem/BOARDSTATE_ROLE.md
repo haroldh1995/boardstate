@@ -6,6 +6,8 @@ This repository remains the authoritative advanced BoardState application during
 
 This document is preparation only. It does not remove features, migrate data, or replace runtime systems.
 
+The permanent project charter is `BOARDSTATE_CONSTITUTION.md`. If this role document and the Constitution appear to conflict, follow the Constitution and update this document.
+
 ## Final BoardState Responsibilities
 
 - Own the authoritative MTG rules engine used by BoardState, BoardState Lite, Deck Nexus, and the future Hub.

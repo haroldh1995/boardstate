@@ -13,3 +13,5 @@ Next app work:
 Live cross-app integration is not claimed in this repository. Legacy data remains preserved, destructive migration remains disabled, and export/backup paths are readiness tools until destination apps accept the data.
 
 Commander/Brawl modernization now begins from this prepared baseline. BoardState remains the rules authority and will evolve Live Tracking and Full Control as input models over the same canonical sessions, event stream, save system, sync foundation, and rules engine.
+
+Future modernization work is governed by `BOARDSTATE_CONSTITUTION.md`. That Constitution is the authoritative project charter for reuse-first engineering, Commander-first architecture, one-source-of-truth ownership, ecosystem boundaries, and documentation continuity.

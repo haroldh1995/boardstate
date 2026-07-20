@@ -181,3 +181,9 @@ Commander metadata is keyed by stable commander source identity. Partner command
 Visibility is enforced through projection helpers before data leaves the canonical session. Hosts and spectators do not receive hidden zones by default. Future Hub summaries remain privacy-safe and explicitly report that the Hub is not gameplay authority.
 
 Focused tests for this foundation live in `test/commander-session-architecture.test.js` with reusable fixtures in `test/fixtures/commanderSessionFixtures.js`. Detailed Prompt 2 handoff documentation lives in `docs/ecosystem/COMMANDER_SESSION_ARCHITECTURE.md`.
+
+## Prompt 2.5 Constitution And Engineering Charter
+
+`docs/ecosystem/BOARDSTATE_CONSTITUTION.md` now serves as the permanent repository Constitution, ecosystem architecture, architecture charter, authoritative pipeline, engineering standard, UI philosophy, modernization strategy, continuity guide, and roadmap entry point. Future modernization prompts must review it alongside this audit, `COMMANDER_SESSION_ARCHITECTURE.md`, and `COMMANDER_MODERNIZATION_ROADMAP.md` before changing source code.
+
+The active roadmap now uses the Prompt 3 through Prompt 15 sequence for Event Knowledge, persistence/replay, battlefield modernization, camera/carousel, Full Control and Live Tracking convergence, Question System, Remind Me, Rules Recovery, AI integration, Hub/Lite/Nexus interoperability, performance/accessibility, visual polish, and final production audit.

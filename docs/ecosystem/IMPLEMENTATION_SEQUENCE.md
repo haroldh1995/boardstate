@@ -1,24 +1,20 @@
 # Ecosystem Implementation Sequence
 
-## Remaining Prompt Sequence
+## Authoritative Sequence
 
-1. Rules-engine extraction.
-2. Canonical contracts.
-3. Enforcement and Waive Rules.
-4. BoardState streamlining.
-5. Shared-session handoff.
-6. Mirrored Arena mode.
-7. Lite/Nexus bridge adapters.
-8. Legacy migration.
-9. Final audit/release.
+Future prompt sequencing is maintained in `COMMANDER_MODERNIZATION_ROADMAP.md` and governed by `BOARDSTATE_CONSTITUTION.md`. This file preserves continuity procedure and test-matrix guidance only; it is not a competing roadmap.
 
 ## Safe Baseline Procedure for Each Prompt
 
-- Start from a clean branch.
+- Review `BOARDSTATE_CONSTITUTION.md`, `COMMANDER_MODERNIZATION_AUDIT.md`, `COMMANDER_SESSION_ARCHITECTURE.md`, and `COMMANDER_MODERNIZATION_ROADMAP.md`.
+- Inspect existing source files referenced by those documents.
+- Start from a clean branch or clean worktree.
 - Record current commit, branch, build status, and test status.
+- Reuse existing implementations before refactoring, extending, replacing, or creating code.
 - Avoid destructive data migration unless the prompt specifically authorizes it.
 - Add tests before replacing runtime behavior.
 - Keep legacy paths until adapters and migration are verified.
+- Keep BoardState Hub, BoardState Lite, and Deck Nexus integration statuses honest until counterpart apps are implemented and verified.
 - Do not use Xcode or iPhone build steps unless a future prompt explicitly changes scope.
 
 ## Future Test Matrix
