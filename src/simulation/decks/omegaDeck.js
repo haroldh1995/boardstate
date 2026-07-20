@@ -94,7 +94,7 @@ export const omegaDeck = {
   name: "Omega",
   deckName: "Zhulodok Colorless Eldrazi Ramp",
   status: "static-assigned",
-  isPlaceholder: false,
+  isFallback: false,
   commander: {
     name: "Zhulodok, Void Gorger",
     role: "primary-commander",
@@ -135,4 +135,3 @@ export const omegaDeck = {
   },
   cards: parseDeckLines(omegaMainboard),
 };
-

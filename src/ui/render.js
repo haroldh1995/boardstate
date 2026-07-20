@@ -3485,9 +3485,10 @@ export function mountApp(root, store) {
         continueMostRecentDryRun();
         break;
       case "start-advanced":
+        clearTimeout(showNotice.timer);
+        uiNotice = null;
         store.dispatch({ type: "START_ADVANCED_GAMEPLAY" });
         setActivePage("battlefield");
-        showNotice("Advanced gameplay started.");
         break;
       case "continue-linked":
         openLinkedGameEntry();
@@ -4823,6 +4824,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
   const tabs = uiState.visiblePages || getVisiblePages(profile);
   const uiLayer = uiState.uiLayerState || resolveUiLayerState(profile, page, uiState);
   const appLayerClasses = [
+    `app-shell--${page}`,
     `ui-layer-${uiLayer.current}`,
     uiLayer.passive ? "ui-layer-passive" : "",
     uiLayer.active ? "ui-layer-active" : "",
@@ -4877,7 +4879,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       ${renderAdhdAssistPanel(profile, page, uiLayer.current)}
       ${renderHelperSprite(profile, uiState.helperMessage, uiState.hudBadgePositions || HUD_BADGE_DEFAULTS, Boolean(uiState.isMobilePortrait), Boolean(uiState.hudBadgesLocked))}
       ${renderCardPresentation(profile.activeSession?.presentation)}
-      ${renderRecoveryToasts(profile, uiState.uiNotice)}
+      ${renderRecoveryToasts(profile, uiState.uiNotice, page)}
       ${uiState.activeNotification ? renderFullWindowNotification(uiState.activeNotification) : ""}
       ${uiState.confirmationDialog ? renderConfirmationDialog(uiState.confirmationDialog) : ""}
       ${renderEdgeSwipeZones(profile)}
@@ -5120,7 +5122,7 @@ function renderSimulationSetupModal(profile = {}, selectedOpponents = [], select
         <article class="option-card dry-run-setup-summary">
           <h3>Dry Run Session Defaults</h3>
           <div class="setup-field-grid">
-            <span><b>Player deck source</b><small>${selectedDeck ? `Imported snapshot: ${escapeHtml(selectedDeck.label)}` : "Legacy BoardState deck / temporary test deck"}</small></span>
+            <span><b>Player deck source</b><small>${selectedDeck ? `Imported snapshot: ${escapeHtml(selectedDeck.label)}` : "BoardState practice deck"}</small></span>
             <span><b>Opponent count</b><small>${escapeHtml(String(selected.size || 1))} selected</small></span>
             <span><b>Opponent deck source</b><small>Alpha, Beta, and Omega saved simulation decks</small></span>
             <span><b>AI difficulty</b><small>Rules-legal commander simulation</small></span>
@@ -5128,14 +5130,14 @@ function renderSimulationSetupModal(profile = {}, selectedOpponents = [], select
             <span><b>Starting life</b><small>40 Commander</small></span>
             <span><b>Game format</b><small>1v1, 3-way, or 4-way Commander</small></span>
             <span><b>Rules enforcement</b><small>Rules Enforced by default; AI cannot waive rules</small></span>
-            <span><b>Deterministic seed</b><small>Prepared for future shared-session replay</small></span>
+            <span><b>Deterministic seed</b><small>Ready for shared-session replay data</small></span>
             <span><b>Deck Nexus</b><small>Link Deck Nexus after app preparation</small></span>
           </div>
         </article>
         <article class="option-card">
           <h3>Player Deck Source</h3>
           <label class="toggle-row">
-            <span><b>Legacy BoardState / Temporary Test Deck</b><small>Current built-in Dry Run behavior remains unchanged.</small></span>
+            <span><b>BoardState Practice Deck</b><small>Current built-in Dry Run behavior remains unchanged.</small></span>
             <input type="radio" name="sim-deck-snapshot" data-sim-deck-snapshot="" ${selectedDeckSnapshotId ? "" : "checked"} />
           </label>
           ${
@@ -5156,7 +5158,6 @@ function renderSimulationSetupModal(profile = {}, selectedOpponents = [], select
           <div class="button-grid mini">
             <button type="button" data-import-deck-snapshot>Import Deck Nexus Snapshot</button>
             <label class="file-pill">Upload Snapshot<input type="file" accept="application/json" data-deck-snapshot-file /></label>
-            <button type="button" disabled>Future Deck Nexus Link Coming After Nexus Update</button>
           </div>
         </article>
         <article class="option-card">
@@ -5589,7 +5590,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
           <button data-setting-button="battlefield.focusMode" data-value="${profile.settings?.battlefield?.focusMode ? "false" : "true"}">Focus View</button>
         </div>
       </div>
-      ${renderAdvancedMultiplayerStatus(perspective)}
+      ${shouldRenderAdvancedMultiplayerStatus(perspective) ? renderAdvancedMultiplayerStatus(perspective) : ""}
       ${perspective.compactOpponentLanes ? renderCompactOpponentLanes(perspective) : ""}
       ${perspectiveOpponentBoards.length ? renderOpponentVisibilityControls(perspectiveOpponentBoards, visibility, perspective) : ""}
       ${renderLandscapeGlobalInfoRail(landscapeModel, profile)}
@@ -5629,7 +5630,6 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
           targetingVisuals,
         })}
       </section>
-      ${renderLandscapeContextActionsRail(landscapeModel, searchResults, searchMessage, searchLoading, searchQuery, activeUtilityPanel, uiState, isMobilePortrait, panels)}
       ${renderSelectedPermanentMenu(session)}
     </section>
     ${renderMobileBattlefieldDock(profile, activeUtilityPanel, uiState.utilityDockOpen, Boolean(panels.boardCombat), Boolean(combatResolving), isMobilePortrait)}
@@ -5647,43 +5647,37 @@ function renderLandscapeGlobalInfoRail(model = {}, profile = {}) {
   const localPlayerId = model.perspective?.localPlayerId || "local-player";
   const players = globalInfo.players || [];
   return `
-    <aside class="landscape-info-rail glass" aria-label="Global game information">
+    <aside class="landscape-info-rail landscape-table-ribbon glass" aria-label="Global game information">
       <div class="landscape-rail-header">
-        <p class="eyebrow">Commander Table</p>
-        <strong>${escapeHtml(String(globalInfo.tableStatus?.playerCount || players.length || 1))} Player${(globalInfo.tableStatus?.playerCount || players.length || 1) === 1 ? "" : "s"}</strong>
-        <small>Landscape-first battlefield</small>
+        <p class="eyebrow">Table</p>
+        <strong>${escapeHtml(String(globalInfo.tableStatus?.playerCount || players.length || 1))}P</strong>
       </div>
       <div class="landscape-player-list">
         ${players.map((player) => `
           <article class="landscape-player-card ${player.playerId === localPlayerId ? "is-local" : ""} ${player.activeTurn ? "is-active" : ""} ${player.priorityStatus === "has-priority" ? "has-priority" : ""}">
             <div>
               <strong>${escapeHtml(player.displayName || player.playerId)}</strong>
-              <small>${escapeHtml(player.playerId === localPlayerId ? "Local" : player.connectionStatus || "Remote")} · ${escapeHtml(player.interfaceMode || "unknown")}</small>
+              <small>${escapeHtml(player.activeTurn ? "Active" : player.priorityStatus === "has-priority" ? "Priority" : player.playerId === localPlayerId ? "Local" : player.connectionStatus || "Remote")}</small>
             </div>
             <b>${escapeHtml(player.life ?? 40)}</b>
-            <span>Poison ${escapeHtml(player.poisonCounters || 0)}</span>
+            ${player.poisonCounters ? `<span>Poison ${escapeHtml(player.poisonCounters)}</span>` : ""}
             ${Object.keys(player.commanderDamage || {}).length ? `<small>Commander dmg ${Object.entries(player.commanderDamage || {}).map(([source, value]) => `${escapeHtml(source)}:${escapeHtml(value)}`).join(" / ")}</small>` : ""}
           </article>
         `).join("") || empty("No player summary available")}
       </div>
-      <details class="landscape-table-status" open>
-        <summary>Table Status</summary>
-        <p>Active: ${escapeHtml(resolveParticipantDisplay(players, globalInfo.activePlayerId))}</p>
-        <p>Priority: ${escapeHtml(resolveParticipantDisplay(players, globalInfo.priorityHolderId))}</p>
-        <p>Monarch: ${escapeHtml(globalInfo.tableStatus?.monarch || "none")}</p>
-        <p>Initiative: ${escapeHtml(globalInfo.tableStatus?.initiative || "none")}</p>
-        <p>City blessing: ${globalInfo.tableStatus?.cityBlessing ? "yes" : "no"}</p>
-      </details>
+      <div class="landscape-table-status">
+        <span>Active ${escapeHtml(resolveParticipantDisplay(players, globalInfo.activePlayerId))}</span>
+        <span>Priority ${escapeHtml(resolveParticipantDisplay(players, globalInfo.priorityHolderId))}</span>
+        ${globalInfo.tableStatus?.monarch ? `<span>Monarch ${escapeHtml(globalInfo.tableStatus.monarch)}</span>` : ""}
+        ${globalInfo.tableStatus?.initiative ? `<span>Initiative ${escapeHtml(globalInfo.tableStatus.initiative)}</span>` : ""}
+        ${globalInfo.tableStatus?.cityBlessing ? "<span>City blessing</span>" : ""}
+      </div>
       ${globalInfo.hiddenIndicators?.length ? `
         <div class="landscape-hidden-info">
           <p class="eyebrow">Visibility</p>
           ${globalInfo.hiddenIndicators.slice(0, 4).map((entry) => `<small>${escapeHtml(entry.playerId || "opponent")}: ${escapeHtml(entry.label || entry.kind || "hidden information protected")}</small>`).join("")}
         </div>
       ` : ""}
-      <div class="landscape-rail-actions">
-        <button class="${profile.settings?.battlefield?.statsOverlay ? "active" : ""}" data-setting-button="battlefield.statsOverlay" data-value="${profile.settings?.battlefield?.statsOverlay ? "false" : "true"}">Stats ${profile.settings?.battlefield?.statsOverlay ? "On" : "Off"}</button>
-        <button data-setting-button="battlefield.focusMode" data-value="${profile.settings?.battlefield?.focusMode ? "false" : "true"}">Focus View</button>
-      </div>
     </aside>
   `;
 }
@@ -5693,9 +5687,8 @@ function renderLandscapeOpponentRegion(region = {}, options = {}) {
     return `
       <div class="opponent-zone landscape-board-region landscape-board-region--opponent is-hidden" data-opponent-swipe data-set-tool-context="empty">
         <div class="opponent-zone-header">
-          <div><h2>Opponent Battlefield</h2><p class="eyebrow">Public board hidden by current view settings</p></div>
+          <div><h2>Opponent Battlefield</h2><p class="eyebrow">Public board not shown</p></div>
         </div>
-        ${empty("No focused opponent battlefield is visible. Public opponent data remains protected and synchronized.")}
       </div>
     `;
   }
@@ -5758,12 +5751,10 @@ function renderLandscapeCommandCenter(model = {}, profile = {}, options = {}) {
       <div class="landscape-command-core">
         <article class="landscape-phase-core">
           <p class="eyebrow">Command Center</p>
-          <h2>Turn ${escapeHtml(center.turn || 1)}</h2>
-          <strong>${escapeHtml(center.phaseLabel || "Beginning")}</strong>
-          <span>Active: ${escapeHtml(center.activePlayerName || center.activePlayerId || "Player")}</span>
-          <span>Priority: ${escapeHtml(center.priorityHolderName || center.priorityHolderId || "Player")}</span>
+          <h2>Turn ${escapeHtml(center.turn || 1)} / ${escapeHtml(center.phaseLabel || "Beginning")}</h2>
+          <span>Active ${escapeHtml(center.activePlayerName || center.activePlayerId || "Player")} / Priority ${escapeHtml(center.priorityHolderName || center.priorityHolderId || "Player")}</span>
           ${options.phaseControlMessage ? `<small>${escapeHtml(options.phaseControlMessage)}</small>` : ""}
-          <button class="wide" data-next-phase>Next Phase</button>
+          <button class="phase-next-chip" data-next-phase>Next Phase</button>
         </article>
         ${renderLandscapeSelectedCardPanel(center.selectedCard)}
         <article class="landscape-stack-core">
@@ -5784,7 +5775,7 @@ function renderLandscapeCommandCenter(model = {}, profile = {}, options = {}) {
       </div>
       ${options.panels?.boardCombat ? `
         <div class="landscape-combat-strip">
-          ${center.combat?.damagePreview ? `<p>${escapeHtml(center.combat.damagePreview.total)} damage estimated</p>` : "<p>Combat actions stay in the center shared space.</p>"}
+          ${center.combat?.damagePreview ? `<p>${escapeHtml(center.combat.damagePreview.total)} damage estimated</p>` : ""}
           <div class="row">
             <button data-declare-attackers ${options.combatResolving ? "disabled" : ""}>Declare Attackers</button>
             <button data-resolve-combat ${options.combatResolving ? "disabled" : ""}>${options.combatResolving ? "Resolving..." : "Resolve Combat"}</button>
@@ -5811,7 +5802,7 @@ function renderLandscapeContextActionsRail(model = {}, searchResults, searchMess
       <div class="landscape-rail-header">
         <p class="eyebrow">Context Actions</p>
         <strong>Battlefield Tools</strong>
-        <small>Unavailable future systems are disabled.</small>
+        <small>Contextual tools open over the battlefield.</small>
       </div>
       <div class="landscape-action-grid">
         ${(model.contextActions || []).map((action) => {
@@ -5821,7 +5812,7 @@ function renderLandscapeContextActionsRail(model = {}, searchResults, searchMess
           if (action.available && action.opensOptions) {
             return `<button data-open-game-options>${escapeHtml(action.label)}</button>`;
           }
-          return `<button disabled title="${escapeAttribute(action.reason || "Future integration")}">${escapeHtml(action.label)} <small>Future</small></button>`;
+          return "";
         }).join("")}
       </div>
       ${!isMobilePortrait && panels.archiveQuickAdd && activeUtilityPanel !== "search" ? `
@@ -5866,6 +5857,15 @@ function renderCommanderHud(region = {}) {
 
 function renderLandscapeSelectedCardPanel(details = {}) {
   const characteristics = details.currentCharacteristics || {};
+  const hasDetails = Boolean(details.title || details.oracleText || characteristics.typeLine || details.powerToughness || details.owner || details.controller);
+  if (!hasDetails) {
+    return `
+      <article class="landscape-selected-card is-empty">
+        <p class="eyebrow">Card Preview</p>
+        <strong>Select a card</strong>
+      </article>
+    `;
+  }
   return `
     <article class="landscape-selected-card">
       <p class="eyebrow">${escapeHtml(details.mode === "stack-top" ? "Stack Preview" : details.mode === "selected-card" ? "Selected Card" : "Card Preview")}</p>
@@ -5887,6 +5887,19 @@ function renderLandscapeSelectedCardPanel(details = {}) {
 
 function resolveParticipantDisplay(players = [], playerId = "") {
   return players.find((player) => player.playerId === playerId)?.displayName || playerId || "unknown";
+}
+
+function shouldRenderAdvancedMultiplayerStatus(perspective = {}) {
+  const priority = perspective.promptOwnership?.priority || {};
+  const pendingChoices = perspective.promptOwnership?.pendingChoices || [];
+  return Boolean(
+    Number(perspective.playerCount || 1) > 1 ||
+      pendingChoices.length ||
+      (priority.ownerPlayerId && priority.ownerPlayerId !== perspective.localPlayerId) ||
+      perspective.viewMode === "two-player-mirrored" ||
+      perspective.viewMode === "commander-pod-advanced" ||
+      perspective.viewMode === "mixed-interface-session"
+  );
 }
 
 function renderOpponentVisibilityControls(opponentBoards = [], visibility = {}, perspective = null) {
@@ -8611,7 +8624,7 @@ function renderLinkedAppsOptionsSubpage(profile, pendingHandoff = null) {
           <button data-tutorial-save-current>Save Current Session</button>
           <button data-linked-session-import>Import Linked Session</button>
           <button data-import-lite-session>Import Lite Session Snapshot</button>
-          <button data-export-lite-session="copy">Export for BoardState Lite Future Handoff</button>
+          <button data-export-lite-session="copy">Export BoardState Lite Handoff Bundle</button>
           <button data-download-shared-session>Export Shared Session</button>
         </div>
       </article>
@@ -8843,7 +8856,7 @@ function renderLegacyMigrationSubpage(profile) {
       ${renderMigrationDestinationSection("BoardState-Owned Data", "Kept in BoardState", boardStateOwned, "boardstate", "Create BoardState Keep / Archive Bundle")}
       ${renderMigrationDestinationSection("Export to Deck Nexus", "Prepared for Deck Nexus", deckNexus, "deck-nexus", "Export Deck Nexus Bundle")}
       ${renderMigrationDestinationSection("Export to BoardState Lite", "Prepared for BoardState Lite", lite, "boardstate-lite", "Export Lite Table Bundle")}
-      ${renderMigrationDestinationSection("Prepare for Future Hub", "Waiting for Hub App", hub, "hub", "Create Hub-Ready Export Bundle")}
+      ${renderMigrationDestinationSection("Prepare Hub Export", "Waiting for Hub App", hub, "hub", "Create Hub-Ready Export Bundle")}
       <article class="option-card">
         <p class="eyebrow">Legacy Data Browser</p>
         <h3>Safe Legacy Data Browser</h3>
@@ -9040,7 +9053,6 @@ function renderGameplayOptionsSubpage(profile, page = "life") {
         <div class="button-grid">
           <button data-multiplayer-mode="local">Local Multiplayer</button>
           <button data-multiplayer-mode="wifi">Connect via WiFi</button>
-          <button data-multiplayer-mode="bluetooth">Bluetooth Placeholder</button>
           <button data-multiplayer-mode="simulated">Simulated Local</button>
           <button data-multiplayer-mode="offline">Disconnect</button>
           <button data-open-synced-turn-order-setup>d20 Turn Order</button>
@@ -9621,7 +9633,6 @@ function renderGameOptions(profile, page = "life") {
             <div class="button-grid">
               <button data-multiplayer-mode="local">Local Multiplayer</button>
               <button data-multiplayer-mode="wifi">Connect via WiFi</button>
-              <button data-multiplayer-mode="bluetooth">Bluetooth Placeholder</button>
               <button data-multiplayer-mode="simulated">Simulated Local</button>
               <button data-multiplayer-mode="offline">Disconnect</button>
               <button data-open-synced-turn-order-setup>d20 Turn Order</button>
@@ -9814,20 +9825,25 @@ function renderFullWindowNotification(notification) {
   `;
 }
 
-function getNotificationToastEntries(profile = {}) {
+function getNotificationToastEntries(profile = {}, page = "") {
   const preferences = getNotificationPreferences(profile);
   if (!preferences.master || !preferences.toast) {
     return [];
   }
   const dismissed = new Set(profile.notifications?.dismissedIds || []);
   return (profile.notifications?.items || [])
-    .filter((entry) => entry.toast !== false && !entry.acknowledged && !dismissed.has(entry.id))
+    .filter((entry) => {
+      if (entry.toast === false || entry.acknowledged || dismissed.has(entry.id)) {
+        return false;
+      }
+      return page !== "battlefield" || entry.critical || entry.category !== "friend";
+    })
     .slice(0, 2);
 }
 
-function renderRecoveryToasts(profile, notice = null) {
+function renderRecoveryToasts(profile, notice = null, page = "") {
   const entries = (profile.activeSession?.recoveryLog || []).filter((entry) => !entry.dismissed).slice(0, 3);
-  const notificationToasts = getNotificationToastEntries(profile);
+  const notificationToasts = getNotificationToastEntries(profile, page);
   if (!entries.length && !notice && !notificationToasts.length) {
     return "";
   }
@@ -10622,7 +10638,7 @@ export function getLinkedAppStatusCards(profile = {}) {
     },
     {
       appId: "boardstate-hub",
-      title: "Future Hub",
+      title: "BoardState Hub",
       status: hubStatus.status,
       detail: hubStatus.detail,
       capabilities: hubCapabilities.limitations,

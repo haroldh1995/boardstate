@@ -169,11 +169,11 @@ function createNpcStateFromDeck(id) {
   const deck = getSimulationDeckById(id) || {
     id,
     name: id,
-    deckName: `${id} Deck Placeholder`,
-    status: "placeholder",
-    isPlaceholder: true,
+    deckName: `${id} Practice Deck`,
+    status: "practice",
+    isFallback: true,
     commander: {
-      name: `${id} Commander Placeholder`,
+      name: `${id} Practice Commander`,
       typeLine: "Legendary Creature",
       manaCost: "{3}",
       manaValue: 3,
@@ -199,8 +199,8 @@ function createNpcStateFromDeck(id) {
     id: deck.id,
     name: deck.name,
     deckName: deck.deckName,
-    deckStatus: deck.status || "placeholder",
-    isPlaceholder: Boolean(deck.isPlaceholder),
+    deckStatus: deck.status || "practice",
+    isFallback: Boolean(deck.isFallback),
     strategy: deck.strategy || {},
     commanderProfile: {
       primary: deck.commander?.name || "",
@@ -246,7 +246,7 @@ export function toDeckCard(card, ownerId = "npc") {
   const unresolvedDefinition = Boolean(enrichedCard.unresolvedDefinition || !enrichedCard.typeLine);
   return {
     cardId: enrichedCard.cardId || createId("simcard"),
-    name: enrichedCard.name || "Simulation Card Placeholder",
+    name: enrichedCard.name || "Simulation Card",
     manaCost: enrichedCard.manaCost || "",
     manaValue: inferredManaValue,
     typeLine: inferredTypeLine || "Permanent",

@@ -82,7 +82,7 @@ export const betaDeck = {
   name: "Beta",
   deckName: "Stella Lee Spellslinger Storm",
   status: "static-assigned",
-  isPlaceholder: false,
+  isFallback: false,
   commander: {
     name: "Stella Lee, Wild Card",
     role: "primary-commander",
@@ -119,4 +119,3 @@ export const betaDeck = {
   },
   cards: parseDeckLines(betaMainboard),
 };
-

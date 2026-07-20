@@ -40,7 +40,7 @@ export function getAppLinkAdapters(profile = {}) {
   return {
     "boardstate-lite": createBoardStateLiteBridgeAdapter(profile),
     "deck-nexus": createDeckNexusBridgeAdapter(profile),
-    "boardstate-hub": createHubPlaceholderAdapter(profile),
+    "boardstate-hub": createHubBridgeAdapter(profile),
   };
 }
 
@@ -168,7 +168,7 @@ export function createDeckNexusBridgeAdapter(profile = {}) {
   };
 }
 
-function createHubPlaceholderAdapter(profile = {}) {
+function createHubBridgeAdapter(profile = {}) {
   return {
     getAppId: () => "boardstate-hub",
     getDisplayName: () => "BoardState Hub",
@@ -507,8 +507,7 @@ export function buildDeckSourceOptions(profile = {}) {
   return [
     ...legacy,
     ...imported,
-    { type: "temporary-test-deck", label: "Temporary Test Deck", sourceApp: "boardstate", compatibilityStatus: "available" },
-    { type: "future-deck-nexus-link", label: "Future Deck Nexus Link", sourceApp: "deck-nexus", compatibilityStatus: "coming-after-nexus-update", disabled: true },
+    { type: "boardstate-practice-deck", label: "BoardState Practice Deck", sourceApp: "boardstate", compatibilityStatus: "available" },
   ];
 }
 

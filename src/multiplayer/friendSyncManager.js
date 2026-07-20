@@ -100,7 +100,7 @@ export function createFriendSyncManager({ onRemoteAction, onNearbyPlayers, onSta
 
   function initWebSocket() {
     if (typeof WebSocket === "undefined") {
-      notifyStatus("wifi-unavailable", "Friend WiFi Unavailable", "This browser does not support WebSocket relay discovery.");
+      notifyStatus("wifi-unavailable", "Friend WiFi Relay Missing", "This browser does not support WebSocket relay discovery.");
       return;
     }
     try {

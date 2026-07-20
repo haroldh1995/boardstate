@@ -66,6 +66,17 @@ Commander HUD summaries now remain close to each battlefield region and display 
 
 Selecting a card updates a central selected-card panel with Oracle text, current characteristics, counters, continuous effects, attachments, owner, controller, power/toughness, and status labels. Opponent cards remain public-only projections and do not expose hand, library, private deck notes, hidden choices, or unauthorized private zones.
 
+## Prompt 5.5 Completion Pass
+
+Prompt 5.5 completes the first commercial-quality battlefield pass without changing gameplay authority:
+
+- `src/ui/render.js` keeps the active battlefield visible by using a compact table ribbon, focused opponent region, center command center, bottom local board, contextual card preview, and compact battlefield action dock.
+- `src/ui/landscapeBattlefield.js` reports only available context actions in the production battlefield model; future Question, Remind Me, replay, AI, and external-app actions remain hidden until implemented.
+- `src/styles.css` makes the battlefield dominate desktop, tablet, foldable, and landscape-phone play by suppressing duplicate state strips, mobile swipe scaffolding, oversized command controls, and permanent empty rails on the gameplay page.
+- Non-gameplay friend-discovery status toasts are filtered from the battlefield so Commander play is not obscured by ecosystem status noise.
+
+The completion pass preserves the existing background image, cosmic glass treatment, gold accents, card/permanent rendering, rules engine integration, State Engine state, Event Knowledge metadata, persistence, tutorials, Dry Run, and sync foundations.
+
 ## Deferred Work
 
 Prompt 5 does not implement the opponent carousel, camera system, Follow Active Player, Spectator Mode, visual replay UI, Question UI, Remind Me UI, or AI battlefield interface. Those remain deferred to later modernization prompts and must reuse this landscape battlefield foundation.

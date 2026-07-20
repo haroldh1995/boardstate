@@ -95,8 +95,8 @@ test("landscape model exposes permanent Commander battlefield regions without ch
   assert.equal(model.commandCenter.phaseLabel, "Combat");
   assert.equal(model.commandCenter.stackObjects.length, 1);
   assert.equal(model.commandCenter.triggerQueue.length, 1);
-  assert.equal(model.contextActions.find((entry) => entry.id === "question").available, false);
-  assert.equal(model.contextActions.find((entry) => entry.id === "remind-me").available, false);
+  assert.equal(model.contextActions.some((entry) => entry.status !== "available"), false);
+  assert.deepEqual(model.contextActions.map((entry) => entry.id), ["search", "stack", "triggers", "history", "display", "settings"]);
   assert.equal(model.accessibility.touchTargetMinimumPx, 44);
 });
 

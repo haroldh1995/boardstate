@@ -489,7 +489,7 @@ export function buildLegacyDataBrowserModel(profile = {}) {
       "Deck Nexus",
       "BoardState Lite",
       "BoardState-Owned",
-      "Future Hub",
+      "BoardState Hub",
       "Protected",
       "Needs Review",
       "Unknown",
@@ -976,10 +976,10 @@ function buildDeckNexusExportPayload(profile = {}, inventory = {}) {
     data,
     warnings: [
       "Deck Nexus repository is not modified by this export.",
-      "This bundle is prepared for future Deck Nexus import; it does not prove external import success.",
+      "This bundle is prepared for Deck Nexus import; it does not prove external import success.",
     ],
     compatibility: {
-      status: "Ready for Future Migration",
+      status: "Ready for Migration",
       destinationAvailable: false,
       requiresDestinationAppUpdate: true,
     },
@@ -1033,7 +1033,7 @@ function buildBoardStateLiteExportPayload(profile = {}, inventory = {}) {
       "This bundle contains compact public table state and does not include full Advanced private rules state.",
     ],
     compatibility: {
-      status: "Ready for Future Migration",
+      status: "Ready for Migration",
       destinationAvailable: false,
       requiresDestinationAppUpdate: true,
     },
@@ -1552,7 +1552,7 @@ function formatOwnerApp(appId = "") {
     [FUTURE_OWNER_APPS.BOARDSTATE]: "BoardState archive",
     [FUTURE_OWNER_APPS.BOARDSTATE_LITE]: "BoardState Lite",
     [FUTURE_OWNER_APPS.DECK_NEXUS]: "Deck Nexus",
-    [FUTURE_OWNER_APPS.HUB]: "Future Hub",
+    [FUTURE_OWNER_APPS.HUB]: "BoardState Hub",
     [FUTURE_OWNER_APPS.UNKNOWN]: "Needs Review",
   };
   return labels[appId] || labels[FUTURE_OWNER_APPS.UNKNOWN];

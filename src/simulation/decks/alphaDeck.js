@@ -97,7 +97,7 @@ export const alphaDeck = {
   name: "Alpha",
   deckName: "Hearthhull Land Recursion Engine",
   status: "static-assigned",
-  isPlaceholder: false,
+  isFallback: false,
   commander: {
     name: "Hearthhull, the Worldseed",
     role: "primary-commander",
@@ -135,4 +135,3 @@ export const alphaDeck = {
   },
   cards: parseDeckLines(alphaMainboard),
 };
-

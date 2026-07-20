@@ -2,7 +2,7 @@ import { PHASES } from "../state/schema.js";
 import { buildAdvancedMultiplayerPerspective } from "../shared-session/perspective.js";
 import { clonePlain } from "../shared-contracts/index.js";
 
-export const LANDSCAPE_BATTLEFIELD_VERSION = "boardstate-landscape-battlefield-0.1.0";
+export const LANDSCAPE_BATTLEFIELD_VERSION = "boardstate-landscape-battlefield-0.2.0";
 
 export const LANDSCAPE_BATTLEFIELD_REGIONS = Object.freeze([
   "global-info",
@@ -43,10 +43,6 @@ export const LANDSCAPE_CONTEXT_ACTIONS = Object.freeze([
   { id: "history", label: "History", status: "available", utilityPanel: "history" },
   { id: "display", label: "Display", status: "available", utilityPanel: "display" },
   { id: "settings", label: "Settings", status: "available", opensOptions: true },
-  { id: "question", label: "Question", status: "future", reason: "Question System arrives in a later prompt." },
-  { id: "remind-me", label: "Remind Me", status: "future", reason: "Remind Me timeline arrives in a later prompt." },
-  { id: "replay-ui", label: "Replay UI", status: "future", reason: "Replay data exists; visual replay UI arrives later." },
-  { id: "ai-panel", label: "AI Panel", status: "future", reason: "AI battlefield interface arrives in a later prompt." },
 ]);
 
 const KEYWORD_STATUS_LABELS = Object.freeze([

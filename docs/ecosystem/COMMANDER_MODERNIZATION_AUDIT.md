@@ -209,3 +209,11 @@ The active roadmap now uses the Prompt 3 through Prompt 15 sequence for Event Kn
 `src/styles.css` adds the landscape Commander battlefield layout while preserving the existing BoardState background assets, glass panels, cosmic palette, and gold accents. Prompt 5 does not implement the opponent carousel, camera system, Follow Active Player, Spectator Mode, Question UI, Remind Me UI, visual replay UI, or AI battlefield interface.
 
 Focused tests live in `test/landscape-battlefield.test.js` and cover region modeling, lane classification, token stack summaries, selected-card details, high-player-count public projection, hidden-information protection, and honest future-action availability. Detailed documentation lives in `docs/ecosystem/LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md`.
+
+## Prompt 5.5 Battlefield Completion
+
+Prompt 5.5 hardens the Prompt 5 battlefield into the production gameplay surface instead of adding another architecture layer. The active battlefield now suppresses duplicate mobile/state navigation, hides unfinished future action surfaces, filters non-gameplay friend-discovery status toasts during gameplay, and presents the command center as a compact contextual surface rather than a dashboard.
+
+The renderer continues to use the existing rules/reducer action path, landscape model, perspective projection, State Engine state, Event Knowledge metadata, save architecture, tutorials, Dry Run, and synchronization foundations. No second battlefield authority, rules engine, game state, or save format was introduced.
+
+The battlefield remains visually BoardState: the existing cosmic background, glass surfaces, gold accents, card treatment, and established artwork are preserved. The modernization only changes organization, density, responsiveness, and visible production maturity.

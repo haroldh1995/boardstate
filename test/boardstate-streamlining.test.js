@@ -97,12 +97,12 @@ test("save grouping separates dry runs, tutorials, imported sessions, legacy, an
   assert.equal(groups.legacy.length, 1);
 });
 
-test("linked app and legacy status remain honest placeholders until integrations exist", () => {
+test("linked app and legacy status stay honest without claiming live integrations", () => {
   const profile = createDefaultProfile();
   const linked = getLinkedAppStatusCards(profile);
   assert.equal(linked.find((entry) => entry.appId === "boardstate-lite").status, "Handoff Import/Export Supported");
   assert.match(linked.find((entry) => entry.appId === "deck-nexus").detail, /Waiting for Nexus update/i);
   const legacy = getLegacyInventory(profile);
   assert.equal(legacy.some((entry) => entry.destination === "Deck Nexus"), true);
-  assert.equal(legacy.some((entry) => entry.destination === "Future Hub"), true);
+  assert.equal(legacy.some((entry) => entry.destination === "BoardState Hub"), true);
 });
