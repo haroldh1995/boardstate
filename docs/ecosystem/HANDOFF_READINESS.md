@@ -17,3 +17,5 @@ Commander/Brawl modernization now begins from this prepared baseline. BoardState
 Future modernization work is governed by `BOARDSTATE_CONSTITUTION.md`. That Constitution is the authoritative project charter for reuse-first engineering, Commander-first architecture, one-source-of-truth ownership, ecosystem boundaries, and documentation continuity.
 
 The Prompt 3 authoritative core foundation is documented in `AUTHORITATIVE_CORE_ARCHITECTURE.md`. Future replay, AI, synchronization, Question System, Remind Me, analytics, and spectator work should consume State Engine and Event Knowledge Engine records instead of creating separate histories.
+
+The Prompt 4 persistence foundation is documented in `PERSISTENCE_REPLAY_ARCHITECTURE.md`. Future replay UI, recovery tooling, import/export tooling, spectator packages, judge review exports, and Hub backup flows should consume canonical saves, checkpoints, replay timelines, and Event Knowledge history instead of introducing parallel save formats.

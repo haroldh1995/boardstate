@@ -218,6 +218,14 @@ function createPublicSyncState(state) {
       lastEventId: session.eventKnowledge?.lastEventId || "",
       lastEventRevision: Number(session.eventKnowledge?.lastEventRevision || 0),
     },
+    persistence: {
+      persistenceVersion: session.persistence?.persistenceVersion || "",
+      canonicalSaveVersion: session.persistence?.canonicalSaveVersion || "",
+      replayVersion: session.persistence?.replayVersion || "",
+      checkpointCount: (session.persistence?.checkpoints || []).length,
+      latestCheckpointId: session.persistence?.latestCheckpointId || "",
+      recoveryStatus: session.persistence?.recovery?.status || "clean",
+    },
     sessionLifecycle: session.sessionLifecycle || "setup",
     hostParticipantId: session.hostParticipantId || "",
     participants: (session.participants || []).map((participant) => ({

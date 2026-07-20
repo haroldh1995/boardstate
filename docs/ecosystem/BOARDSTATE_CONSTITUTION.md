@@ -44,6 +44,8 @@ The ecosystem revolves around one canonical Commander session. Applications must
 
 The current Prompt 2 foundation is documented in `docs/ecosystem/COMMANDER_SESSION_ARCHITECTURE.md` and implemented through `src/shared-contracts/commanderSession.js`, `src/shared-contracts/contracts.js`, `src/shared-contracts/adapters.js`, `src/state/schema.js`, `src/storage/saveState.js`, and `src/multiplayer/syncManager.js`.
 
+The Prompt 4 persistence foundation is documented in `docs/ecosystem/PERSISTENCE_REPLAY_ARCHITECTURE.md` and implemented through `src/persistence/canonicalPersistence.js`, `src/storage/saveState.js`, `src/state/gameReducer.js`, and `src/multiplayer/syncManager.js`.
+
 ## Architecture Charter
 
 ### Rules Engine
@@ -106,7 +108,6 @@ Every future prompt must review this Constitution, `docs/ecosystem/COMMANDER_MOD
 
 The active modernization roadmap is maintained in `docs/ecosystem/COMMANDER_MODERNIZATION_ROADMAP.md`:
 
-- Prompt 4: Persistence, Replay And Save Architecture
 - Prompt 5: Commander Battlefield Modernization
 - Prompt 6: Battlefield Camera And Opponent Carousel
 - Prompt 7: Full Control And Live Tracking Convergence

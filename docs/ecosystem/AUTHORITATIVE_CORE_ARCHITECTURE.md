@@ -117,4 +117,4 @@ Existing regression tests continue to cover legality evaluation, trigger generat
 
 Prompt 3 does not redesign the battlefield, navigation, animations, camera, loading screens, wallpapers, artwork, styling, or visual effects.
 
-Prompt 4 will harden persistence/replay/save architecture. Later prompts will expand Event Knowledge usage in battlefield replay, Question System answers, Remind Me timelines, Rules Recovery, AI reasoning, Hub/Lite/Nexus interoperability, analytics, and spectator mode.
+Prompt 4 persistence/replay/save architecture is documented in `PERSISTENCE_REPLAY_ARCHITECTURE.md`. Later prompts will expand Event Knowledge usage in battlefield replay UI, Question System answers, Remind Me timelines, Rules Recovery, AI reasoning, Hub/Lite/Nexus interoperability, analytics, and spectator mode.

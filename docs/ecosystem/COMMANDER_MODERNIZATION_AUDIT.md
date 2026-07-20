@@ -193,3 +193,9 @@ The active roadmap now uses the Prompt 3 through Prompt 15 sequence for Event Kn
 `src/authoritative-core/` now provides the permanent authoritative pipeline, State Engine metadata/commit helpers, Event Knowledge Engine records, event grouping, provenance, confidence metadata, undo references, deterministic event IDs, and state reconstruction helpers. It reuses the existing `src/rules-engine/` implementation as the sole Rules Engine and does not create a second rules engine or state store.
 
 `src/game/eventBus.js` and `src/state/gameReducer.js` now feed existing game events and reducer action history into Event Knowledge. `src/storage/saveState.js` preserves State Engine and Event Knowledge data in saves, and `src/multiplayer/syncManager.js` shares only privacy-safe Event Knowledge summaries. Detailed handoff documentation lives in `docs/ecosystem/AUTHORITATIVE_CORE_ARCHITECTURE.md`.
+
+## Prompt 4 Persistence, Replay, Save Architecture And Recovery
+
+`src/persistence/canonicalPersistence.js` now provides the canonical save, checkpoint, replay timeline, auto-save, recovery, import/export, validation, corruption detection, and legacy migration foundation. It uses Prompt 3 Event Knowledge and State Engine snapshots rather than creating a separate persistence authority.
+
+`src/storage/saveState.js` embeds canonical saves and replay export bundles while preserving the existing local save shape, legacy imports, tutorial autosaves, and profile persistence compatibility. `src/state/gameReducer.js` appends persistence checkpoints after relevant reducer actions, and `src/multiplayer/syncManager.js` publishes only privacy-safe persistence summaries. Detailed documentation lives in `docs/ecosystem/PERSISTENCE_REPLAY_ARCHITECTURE.md`.

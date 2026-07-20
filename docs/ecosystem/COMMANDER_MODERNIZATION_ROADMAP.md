@@ -29,13 +29,14 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - `src/storage/saveState.js` and `src/multiplayer/syncManager.js` preserve or summarize State Engine and Event Knowledge metadata without exposing hidden information.
 - `docs/ecosystem/AUTHORITATIVE_CORE_ARCHITECTURE.md` records the Prompt 3 architecture.
 
-## Remaining Roadmap
-
 ### Prompt 4: Persistence, Replay And Save Architecture
 
-- Harden the save envelope, replay references, event history references, migration metadata, imported snapshot references, backup metadata, and recovery paths.
-- Preserve legacy saves and current local profile storage.
-- Add version detection, migration attempts, backup preservation, compatibility reporting, and recovery/export paths where schemas change.
+- `src/persistence/canonicalPersistence.js` establishes canonical save, checkpoint, replay timeline, auto-save, recovery, import/export, validation, corruption detection, and legacy migration foundations over Event Knowledge and State Engine snapshots.
+- `src/storage/saveState.js` embeds canonical saves and replay exports while preserving existing local save compatibility.
+- `src/state/schema.js`, `src/state/gameReducer.js`, and `src/multiplayer/syncManager.js` preserve persistence metadata, append checkpoints, and publish privacy-safe persistence summaries.
+- `docs/ecosystem/PERSISTENCE_REPLAY_ARCHITECTURE.md` records the Prompt 4 architecture.
+
+## Remaining Roadmap
 
 ### Prompt 5: Commander Battlefield Modernization
 

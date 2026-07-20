@@ -121,6 +121,7 @@ import {
 } from "../migration/legacyMigration.js";
 import { createEventKnowledgeState, recordActionKnowledge } from "../authoritative-core/eventKnowledgeEngine.js";
 import { commitStateTransition } from "../authoritative-core/stateEngine.js";
+import { createPersistenceState, recordPersistenceAfterAction } from "../persistence/canonicalPersistence.js";
 
 export function reduceProfile(profile, event) {
   const actionType = event.actionType || event.type;
@@ -4330,6 +4331,7 @@ function clearGameHistory(session) {
     actionHistory: [],
     eventHistory: [],
     eventKnowledge: createEventKnowledgeState({}),
+    persistence: createPersistenceState({}),
     effectLog: [
       {
         id: createId("effect"),
@@ -4717,6 +4719,7 @@ function normalizeSessionMetadata(session = {}, options = {}) {
     sourceApp: session.sourceApp || "boardstate",
     stateEngine: session.stateEngine || {},
     eventKnowledge: createEventKnowledgeState(session.eventKnowledge || {}),
+    persistence: createPersistenceState(session.persistence || {}),
     interfaceMode: session.interfaceMode || "boardstate-advanced",
     enforcementMode,
     activeRuleWaivers: Array.isArray(session.activeRuleWaivers) ? session.activeRuleWaivers : [],
@@ -4929,15 +4932,19 @@ function withHistory(profile, event) {
     undoable: event.undoable !== false,
     snapshot: createReplaySnapshot(committedSession),
   };
+  const beforeSession = profile.activeSession.undoStack?.[0]?.snapshot || null;
   const knowledgeSession = recordActionKnowledge(committedSession, actionRecord, {
-    beforeSession: profile.activeSession.undoStack?.[0]?.snapshot || null,
+    beforeSession,
     syncRevision: Number(committedSession.eventRevision || 0),
+  });
+  const persistedSession = recordPersistenceAfterAction(knowledgeSession, actionRecord, {
+    beforeSession,
   });
   const knowledgeEventId = knowledgeSession.eventKnowledge?.lastEventId || "";
   return {
     ...profile,
     activeSession: {
-      ...knowledgeSession,
+      ...persistedSession,
       history: [
         {
           id: actionRecord.actionId,
@@ -4946,9 +4953,9 @@ function withHistory(profile, event) {
           summary: event.summary || actionType,
           knowledgeEventId,
         },
-        ...(knowledgeSession.history || []),
+        ...(persistedSession.history || []),
       ].slice(0, 250),
-      actionHistory: [{ ...actionRecord, knowledgeEventId }, ...(knowledgeSession.actionHistory || [])].slice(0, 600),
+      actionHistory: [{ ...actionRecord, knowledgeEventId }, ...(persistedSession.actionHistory || [])].slice(0, 600),
     },
   };
 }
@@ -5032,6 +5039,10 @@ function createUndoSnapshot(session) {
     eventCount: session.eventKnowledge?.eventCount || 0,
     lastEventId: session.eventKnowledge?.lastEventId || "",
     lastEventRevision: session.eventKnowledge?.lastEventRevision || 0,
+  });
+  snapshot.persistence = createPersistenceState({
+    ...(session.persistence || {}),
+    checkpoints: [],
   });
   snapshot.runtime = undefined;
   return snapshot;

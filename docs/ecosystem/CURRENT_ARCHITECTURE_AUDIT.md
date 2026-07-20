@@ -118,6 +118,6 @@
 - Medium risk: `activeSession.battlefield.player/opponent` assumes two board sides, while the future shared session must support multi-player Commander and Lite/Advanced perspective switching.
 - Medium risk: sync payloads are action-based plus limited public snapshots; they do not yet carry deterministic revision/conflict metadata.
 - Medium risk: rule enforcement mode is split across `gameTracking.active`, `strictPhaseEnforcement`, and free-training assumptions.
-- Medium risk: local saves serialize the whole current session; useful for rollback but not yet a versioned ecosystem save-bundle contract.
+- Prompt 4 update: local saves still preserve whole-session rollback compatibility, and `src/persistence/canonicalPersistence.js` now adds a versioned canonical save, checkpoint, replay, recovery, and migration bundle foundation.
 - Lower risk: effects, targeting, mana, combat, and layer modules are already separated enough to become extraction seeds once schemas are stabilized.
 

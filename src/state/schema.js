@@ -9,6 +9,7 @@ import {
 import { createLegacyMigrationState } from "../migration/legacyMigration.js";
 import { createEventKnowledgeState, EVENT_KNOWLEDGE_ENGINE_VERSION } from "../authoritative-core/eventKnowledgeEngine.js";
 import { createStateEngineMetadata, STATE_ENGINE_VERSION } from "../authoritative-core/stateEngine.js";
+import { createPersistenceState } from "../persistence/canonicalPersistence.js";
 
 export const PHASES = ["Beginning", "Main 1", "Combat", "Main 2", "Ending"];
 export const MANA_COLORS = ["W", "U", "B", "R", "G", "C", "Generic"];
@@ -308,6 +309,7 @@ export function createGameSession() {
     eventKnowledge: createEventKnowledgeState({
       engineVersion: EVENT_KNOWLEDGE_ENGINE_VERSION,
     }),
+    persistence: createPersistenceState({}),
     hostParticipantId: "participant-local-player",
     authority: {
       rulesAuthorityOwner: "boardstate",

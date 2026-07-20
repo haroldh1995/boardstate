@@ -10,6 +10,18 @@ import {
 import { ensureInterfaceModeState } from "../shared-session/handoff.js";
 import { createAdvancedMultiplayerState } from "../shared-session/perspective.js";
 import { createImportedDataSnapshotForSession } from "../bridge/appLinkAdapters.js";
+import {
+  CANONICAL_SAVE_VERSION,
+  CHECKPOINT_VERSION,
+  MIGRATION_VERSION,
+  REPLAY_ENGINE_VERSION,
+  SERIALIZATION_VERSION,
+  createCanonicalSave,
+  createPersistenceState,
+  createPersistenceExportBundle,
+  migrateCanonicalSave,
+  validateCanonicalSave,
+} from "../persistence/canonicalPersistence.js";
 
 export const SAVE_STATE_VERSION = 1;
 
@@ -71,6 +83,7 @@ export function loadLocalSave(profile, saveId = "") {
   const gameState = clone(save.gameState || {});
   const activeSession = ensureInterfaceModeState({
     ...(gameState.activeSession || profile.activeSession || {}),
+    persistence: createPersistenceState(gameState.activeSession?.persistence || save.canonicalSave?.stateSnapshot?.persistence || {}),
     advancedMultiplayer: createAdvancedMultiplayerState(
       gameState.activeSession?.advancedMultiplayer ||
         save.metadata?.advancedMultiplayer ||
@@ -182,7 +195,10 @@ export function importLocalSave(profile, payload = {}) {
   const source = payload.saveEnvelope || payload.canonicalEnvelope
     ? canonicalSaveEnvelopeToLegacySave(payload.saveEnvelope || payload.canonicalEnvelope)
     : payload.profile ? payload.profile : payload.save || payload;
-  const save = normalizeLocalSave(source);
+  const normalizedSource = normalizeLocalSave(source);
+  const save = normalizedSource?.canonicalSave
+    ? normalizedSource
+    : { ...normalizedSource, canonicalSave: migrateCanonicalSave(normalizedSource || {}).save };
   const validation = validateLocalSave(save);
   if (!validation.valid) {
     return withSaveError(profile, validation.reason || "Imported save is invalid.");
@@ -214,6 +230,8 @@ export function importLocalSave(profile, payload = {}) {
 export function exportLocalSave(save = {}) {
   const normalized = normalizeLocalSave(save);
   const canonicalEnvelope = legacySaveToCanonicalSaveEnvelope(normalized);
+  const canonicalSave = normalized.canonicalSave || migrateCanonicalSave(normalized).save;
+  const persistenceExport = canonicalSave ? createPersistenceExportBundle(canonicalSave, { exportType: "replay" }) : null;
   return JSON.stringify(
     {
       app: "BoardState",
@@ -222,6 +240,8 @@ export function exportLocalSave(save = {}) {
       saveFormatVersion: SHARED_SAVE_FORMAT_VERSION,
       save: normalized,
       canonicalEnvelope,
+      canonicalSave,
+      persistenceExport,
     },
     null,
     2
@@ -247,12 +267,21 @@ export function validateLocalSave(save = null) {
       return { valid: false, reason: envelopeValidation.errors[0] || "Canonical save envelope is invalid." };
     }
   }
+  if (save.canonicalSave) {
+    const canonicalValidation = validateCanonicalSave(save.canonicalSave);
+    if (!canonicalValidation.valid) {
+      return { valid: false, reason: canonicalValidation.errors[0] || "Canonical save architecture data is invalid." };
+    }
+  }
   return { valid: true, reason: "" };
 }
 
 export function buildLocalSave(profile, options = {}) {
   const now = Date.now();
   const profileId = profile.player?.id || profile.id || "local-player";
+  const saveId = options.saveId || createId("save");
+  const createdAt = Number(options.createdAt || now);
+  const updatedAt = Number(options.updatedAt || now);
   const activeSession = ensureInterfaceModeState(clone(profile.activeSession || {}));
   const advancedMultiplayer = createAdvancedMultiplayerState(activeSession.advancedMultiplayer || {});
   const importedDataSnapshot = createImportedDataSnapshotForSession(profile, activeSession);
@@ -261,10 +290,23 @@ export function buildLocalSave(profile, options = {}) {
     rulesEngineVersion: DEFAULT_RULES_ENGINE_VERSION,
     saveFormatVersion: SHARED_SAVE_FORMAT_VERSION,
   };
+  const canonicalSave = createCanonicalSave(
+    { ...profile, activeSession },
+    {
+      saveId,
+      createdAt,
+      updatedAt,
+    }
+  );
   return {
-    saveId: options.saveId || createId("save"),
+    saveId,
     saveName: String(options.saveName || defaultSaveName(profile)).trim() || defaultSaveName(profile),
     saveVersion: SAVE_STATE_VERSION,
+    canonicalSaveVersion: CANONICAL_SAVE_VERSION,
+    replayVersion: REPLAY_ENGINE_VERSION,
+    checkpointVersion: CHECKPOINT_VERSION,
+    serializationVersion: SERIALIZATION_VERSION,
+    migrationVersion: MIGRATION_VERSION,
     ...sharedVersions,
     ownerApp: "boardstate",
     sourceApp: activeSession.sourceApp || "boardstate",
@@ -291,8 +333,8 @@ export function buildLocalSave(profile, options = {}) {
     eventKnowledge: clone(activeSession.eventKnowledge || {}),
     profileId,
     profileName: profile.player?.name || "Player",
-    createdAt: Number(options.createdAt || now),
-    updatedAt: Number(options.updatedAt || now),
+    createdAt,
+    updatedAt,
     gameMode: activeSession.simulation?.enabled
       ? "dry-run"
       : activeSession.tutorial?.active || activeSession.tutorial?.completionPending
@@ -324,8 +366,10 @@ export function buildLocalSave(profile, options = {}) {
       capabilityManifest: clone(activeSession.capabilityManifest || {}),
       stateEngine: clone(activeSession.stateEngine || {}),
       eventKnowledge: clone(activeSession.eventKnowledge || {}),
+      persistence: clone(activeSession.persistence || {}),
       importedDataSnapshot: clone(importedDataSnapshot),
       undoStack: clone(activeSession.undoStack || []),
+      redoStack: clone(activeSession.redoStack || []),
       actionHistory: clone(activeSession.actionHistory || []),
       settingsSnapshot: sanitizeSettingsSnapshot(profile.settings || {}),
     },
@@ -365,6 +409,24 @@ export function buildLocalSave(profile, options = {}) {
         lastEventId: activeSession.eventKnowledge?.lastEventId || "",
         lastEventRevision: Number(activeSession.eventKnowledge?.lastEventRevision || 0),
       },
+      persistence: {
+        persistenceVersion: activeSession.persistence?.persistenceVersion || "",
+        canonicalSaveVersion: activeSession.persistence?.canonicalSaveVersion || CANONICAL_SAVE_VERSION,
+        replayVersion: activeSession.persistence?.replayVersion || REPLAY_ENGINE_VERSION,
+        checkpointVersion: activeSession.persistence?.checkpointVersion || CHECKPOINT_VERSION,
+        checkpointCount: (activeSession.persistence?.checkpoints || []).length,
+        latestCheckpointId: activeSession.persistence?.latestCheckpointId || "",
+        autoSavePolicy: activeSession.persistence?.autoSave?.policy || "every-action",
+        recoveryStatus: activeSession.persistence?.recovery?.status || "clean",
+      },
+      canonicalSave: {
+        saveId: canonicalSave.saveId,
+        canonicalSaveVersion: canonicalSave.canonicalSaveVersion,
+        replayVersion: canonicalSave.replayVersion,
+        checkpointCount: canonicalSave.checkpoints.length,
+        eventCount: canonicalSave.eventHistory.eventCount,
+        checksum: canonicalSave.integrity.checksum,
+      },
       revision: Number(activeSession.revision || 0),
       compatibilityWarnings: clone(activeSession.saveMetadata?.compatibilityWarnings || []),
       mode: activeSession.tutorial?.active || activeSession.tutorial?.completionPending ? "tutorial" : activeSession.simulation?.enabled ? "dry-run" : "normal",
@@ -384,6 +446,7 @@ export function buildLocalSave(profile, options = {}) {
       battlefieldCount: (activeSession.battlefield?.player || []).reduce((sum, entry) => sum + Number(entry.quantity || 1), 0),
       checksum: buildSaveChecksum(activeSession),
     },
+    canonicalSave,
   };
 }
 
@@ -404,6 +467,7 @@ function normalizeLocalSave(save = {}) {
     capabilityManifest: clone(save.metadata?.capabilityManifest || save.capabilityManifest || save.gameState?.capabilityManifest || save.gameState?.activeSession?.capabilityManifest || {}),
     stateEngine: clone(save.metadata?.stateEngine || save.stateEngine || save.gameState?.stateEngine || save.gameState?.activeSession?.stateEngine || {}),
     eventKnowledge: clone(save.metadata?.eventKnowledge || save.eventKnowledge || save.gameState?.eventKnowledge || save.gameState?.activeSession?.eventKnowledge || {}),
+    persistence: clone(save.metadata?.persistence || save.persistence || save.gameState?.persistence || save.gameState?.activeSession?.persistence || {}),
     linkedSession: clone(save.metadata?.linkedSession || save.linkedSession || save.gameState?.activeSession?.linkedSession || {}),
     revision: Number(save.metadata?.revision || save.revision || save.gameState?.activeSession?.revision || 0),
     compatibilityWarnings: clone(save.metadata?.compatibilityWarnings || []),
@@ -428,6 +492,7 @@ function normalizeLocalSave(save = {}) {
     tutorialState: clone(save.tutorialState || {}),
     settingsSnapshot: sanitizeSettingsSnapshot(save.settingsSnapshot || {}),
     metadata,
+    canonicalSave: save.canonicalSave || null,
     canonicalEnvelope: save.canonicalEnvelope ? clone(save.canonicalEnvelope) : null,
   };
 }

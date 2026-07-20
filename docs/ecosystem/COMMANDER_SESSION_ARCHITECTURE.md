@@ -28,7 +28,7 @@ This document records the Prompt 2 canonical Commander session foundation. Board
 
 - `createCommanderSession()` and `createCommanderSessionState()` model one commander, partners, backgrounds, and multiple Commander objects through stable commander source IDs.
 - Commander tax, cast count, current zone, and damage are keyed by commander source identity, not card name or a fixed player matrix.
-- `getCommanderSources()` and `getCommanderDamage()` provide stable selectors for Prompt 3 event knowledge and Prompt 4/5 battlefield work.
+- `getCommanderSources()` and `getCommanderDamage()` provide stable selectors for Event Knowledge and Prompt 5 battlefield work.
 
 ## Perspective And Visibility
 
@@ -68,7 +68,7 @@ This document records the Prompt 2 canonical Commander session foundation. Board
 
 ## Deferred Work
 
-- Prompt 4 will modernize the landscape battlefield using this canonical session and existing BoardState background.
+- Prompt 5 will modernize the landscape battlefield using this canonical session and existing BoardState background.
 - Prompt 5 will implement the opponent carousel and Battlefield Camera System over `seatOrder`, `turnOrder`, and local perspectives.
 - Prompt 6 will wire Full Control and Live Tracking input models over this same canonical session and rules engine.
 - Later roadmap prompts will add Question System, Remind Me/replay, Rules Recovery/unanimous amendments, AI integration, Hub/Lite/Nexus interoperability, performance/accessibility, visual polish, and final production audit without making external apps authoritative.
