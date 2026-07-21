@@ -50,14 +50,14 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - `src/ui/landscapeBattlefield.js` now exposes only production-available context actions; future Question, Remind Me, visual replay, AI, carousel, and camera interfaces remain intentionally deferred.
 - Focused UI validation verifies no visible Future, Coming Soon, Unavailable, Placeholder, Scaffold, Prototype, Developer, or Mock text appears in the active battlefield.
 
-## Remaining Roadmap
-
 ### Prompt 6: Battlefield Camera And Opponent Carousel
 
-- Implement the reusable Battlefield Camera System over canonical player/seat state.
-- Add opponent carousel behavior for two through ten players, preserving seating order and rendering only the focused opponent fully.
-- Add Follow Active Player, manual interruption, temporary inspection, focus lock, deterministic smart exceptions, and standard cinematic transitions.
-- Respect reduced motion and performance limits.
+- `src/ui/landscapeBattlefield.js` adds the intelligent battlefield presentation model: opponent carousel, contextual HUD states, token intelligence, adaptive density, and deterministic camera focus priorities.
+- `src/ui/render.js` replaces static opponent visibility controls with a compact carousel that renders one focused public opponent battlefield, supports loop navigation, quick jump seats, keyboard/controller-compatible arrows, mouse wheel, and swipe navigation.
+- `src/styles.css` keeps the Prompt 5.5 battlefield dominant while adding compact carousel presentation and contextual stack/combat collapse behavior.
+- The camera foundation records focus targets for selected permanents, stack, priority, combat, Commander status, crowded boards, and active player following without implementing the later animation overhaul.
+
+## Remaining Roadmap
 
 ### Prompt 7: Full Control And Live Tracking Convergence
 

@@ -5,7 +5,9 @@ import { createDefaultProfile, createPermanent } from "../src/state/schema.js";
 import {
   LANDSCAPE_BATTLEFIELD_REGIONS,
   LANDSCAPE_BATTLEFIELD_VERSION,
+  createBattlefieldCameraModel,
   createLandscapeBattlefieldModel,
+  createOpponentCarouselModel,
   createSelectedCardDetails,
   createTokenStacks,
   getPermanentLaneKey,
@@ -150,4 +152,96 @@ test("opponent projection stays public and does not expose hidden zones or all t
   assert.equal(model.opponentBattlefield.visibility.publicOnly, true);
   assert.equal(model.opponentBattlefield.visibility.hiddenZonesExcluded, true);
   assert.equal(model.opponentBattlefield.lanes.flatMap((lane) => lane.permanents).some((permanent) => permanent.zone === "hand" || permanent.zone === "library"), false);
+});
+
+test("opponent carousel focuses one public opponent while preserving ten-player table context", () => {
+  const players = createCommanderPlayers(10);
+  const canonical = createCommanderTestSession(10, {
+    players,
+    activePlayerId: "player-f",
+  });
+  const model = createLandscapeBattlefieldModel(canonical, {
+    viewport: "tablet-landscape",
+    localPlayerId: "player-a",
+    focusedOpponentId: "player-e",
+  });
+  assert.equal(model.opponentCarousel.enabled, true);
+  assert.equal(model.opponentCarousel.totalOpponents, 9);
+  assert.equal(model.opponentCarousel.totalPlayerCount, 10);
+  assert.equal(model.opponentCarousel.renderedOpponentBattlefields, 1);
+  assert.equal(model.opponentCarousel.focusedOpponentId, "player-e");
+  assert.equal(model.opponentCarousel.nextOpponentId, "player-f");
+  assert.equal(model.opponentCarousel.previousOpponentId, "player-d");
+  assert.equal(model.opponentCarousel.followActivePlayer.available, true);
+  assert.equal(model.opponentCarousel.followActivePlayer.targetOpponentId, "player-f");
+  assert.equal(model.opponentCarousel.publicOnly, true);
+});
+
+test("opponent carousel defaults to active opponent when no manual focus is provided", () => {
+  const players = createCommanderPlayers(4);
+  const canonical = createCommanderTestSession(4, {
+    players,
+    activePlayerId: "player-c",
+  });
+  const perspective = {
+    localPlayerId: "player-a",
+    playerCount: 4,
+    opponentBoards: players.slice(1).map((player) => ({
+      id: player.playerId,
+      playerId: player.playerId,
+      name: player.displayName,
+      life: player.life,
+      permanents: [],
+    })),
+    promptOwnership: { activePlayerId: "player-c" },
+  };
+  const carousel = createOpponentCarouselModel(canonical, perspective);
+  assert.equal(carousel.focusedOpponentId, "player-c");
+  assert.equal(carousel.followActivePlayer.enabled, true);
+});
+
+test("battlefield intelligence collapses idle HUD and expands relevant stack or combat controls", () => {
+  const idleProfile = createLandscapeProfile();
+  idleProfile.activeSession.stack = [];
+  idleProfile.activeSession.triggerQueue = [];
+  idleProfile.activeSession.pendingEffects = [];
+  idleProfile.activeSession.selectedIds = [];
+  idleProfile.activeSession.phaseIndex = 0;
+  idleProfile.activeSession.combat = {};
+  const idleModel = createLandscapeBattlefieldModel(idleProfile, { viewport: "desktop" });
+  assert.equal(idleModel.intelligence.contextualHud.stack, "collapsed");
+  assert.equal(idleModel.intelligence.contextualHud.combatControls, "hidden");
+
+  const activeModel = createLandscapeBattlefieldModel(createLandscapeProfile(), { viewport: "desktop" });
+  assert.equal(activeModel.intelligence.contextualHud.stack, "expanded");
+  assert.equal(activeModel.intelligence.contextualHud.triggers, "expanded");
+  assert.equal(activeModel.intelligence.contextualHud.combatControls, "expanded");
+});
+
+test("camera focus priority is deterministic and selected permanents outrank stack and combat", () => {
+  const profile = createLandscapeProfile();
+  const model = createLandscapeBattlefieldModel(profile, { viewport: "desktop" });
+  assert.equal(model.camera.activeFocus.kind, "selected-permanent");
+  assert.equal(model.camera.focusQueue[0].priority > model.camera.focusQueue.find((entry) => entry.kind === "stack-object").priority, true);
+
+  const stackOnlyDetails = createSelectedCardDetails({
+    ...profile.activeSession,
+    selectedIds: [],
+  });
+  const camera = createBattlefieldCameraModel({
+    session: profile.activeSession,
+    selectedCard: stackOnlyDetails,
+    commandCenter: {
+      stackObjects: profile.activeSession.stack,
+      triggerQueue: profile.activeSession.triggerQueue,
+      pendingChoices: [],
+      combat: profile.activeSession.combat,
+      phaseLabel: "Combat",
+      activePlayerId: "opponent",
+      activePlayerName: "Opponent",
+    },
+    opponentCarousel: { focusedOpponentId: "opponent", followActivePlayer: { enabled: true } },
+  });
+  assert.equal(camera.activeFocus.kind, "stack-object");
+  assert.equal(camera.deterministicPriority, true);
 });

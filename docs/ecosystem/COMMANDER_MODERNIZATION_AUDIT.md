@@ -217,3 +217,13 @@ Prompt 5.5 hardens the Prompt 5 battlefield into the production gameplay surface
 The renderer continues to use the existing rules/reducer action path, landscape model, perspective projection, State Engine state, Event Knowledge metadata, save architecture, tutorials, Dry Run, and synchronization foundations. No second battlefield authority, rules engine, game state, or save format was introduced.
 
 The battlefield remains visually BoardState: the existing cosmic background, glass surfaces, gold accents, card treatment, and established artwork are preserved. The modernization only changes organization, density, responsiveness, and visible production maturity.
+
+## Prompt 6 Intelligent Battlefield
+
+Prompt 6 promotes the existing opponent board index, perspective projection, and landscape battlefield model into an intelligent presentation layer. `src/ui/landscapeBattlefield.js` now produces opponent carousel metadata, contextual HUD states, adaptive density signals, token intelligence, and deterministic camera focus priorities without becoming gameplay authority.
+
+The renderer uses `src/ui/render.js` to show one focused public opponent battlefield at a time and compact seat summaries for all opponents. Navigation supports arrows, quick jump seats, keyboard/controller-compatible directional keys, mouse wheel, and swipe. The carousel preserves synchronized opponent state without rendering all opponent battlefields simultaneously.
+
+The command center now uses game-state-aware HUD metadata so idle stack, trigger, priority, and combat surfaces collapse until relevant. Selected permanents, stack objects, priority decisions, combat, Commander status, crowded boards, and active-player following are ordered through the camera foundation for later animation work.
+
+No hidden zones, private opponent information, fake Hub/Lite/Nexus linkage, duplicate rules engine, duplicate State Engine, second save format, or visual identity replacement was introduced.

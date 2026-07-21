@@ -77,6 +77,19 @@ Prompt 5.5 completes the first commercial-quality battlefield pass without chang
 
 The completion pass preserves the existing background image, cosmic glass treatment, gold accents, card/permanent rendering, rules engine integration, State Engine state, Event Knowledge metadata, persistence, tutorials, Dry Run, and sync foundations.
 
+## Prompt 6 Intelligent Battlefield
+
+Prompt 6 extends the same non-authoritative battlefield model with intelligent presentation behavior:
+
+- `src/ui/landscapeBattlefield.js` now exposes `createOpponentCarouselModel()`, `createBattlefieldCameraModel()`, and `createBattlefieldIntelligenceModel()`.
+- The opponent carousel supports two through ten Commander players by rendering one focused public opponent battlefield while keeping compact opponent summaries, loop navigation, quick jump seats, keyboard/controller-compatible arrows, mouse wheel, and swipe navigation.
+- The camera foundation records deterministic focus priorities for selected permanents, stack objects, priority decisions, combat, Commander status, large battlefield changes, active player following, and table fallback. It does not animate or create a second camera authority.
+- Contextual HUD metadata lets the renderer collapse idle stack, trigger, priority, and combat controls while expanding them when the current game state makes them relevant.
+- Token intelligence summarizes large token boards with stack counts and total token counts while preserving individual permanent IDs internally.
+- Public opponent summaries include Commander, tax, life, poison, energy, experience, hand count when known, permanent count, Commander damage, monarch, initiative, city blessing, and public effects without exposing private zones.
+
+The intelligent battlefield remains presentation-only. It does not mutate game state, replace the rules engine, duplicate State Engine state, create a new save format, claim future camera animation work, or expose hidden opponent information.
+
 ## Deferred Work
 
-Prompt 5 does not implement the opponent carousel, camera system, Follow Active Player, Spectator Mode, visual replay UI, Question UI, Remind Me UI, or AI battlefield interface. Those remain deferred to later modernization prompts and must reuse this landscape battlefield foundation.
+Prompt 6 does not implement the animation overhaul, particle effects, spectator mode, visual replay UI, Question UI, Remind Me UI, sound, haptics, or AI battlefield interface. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.

@@ -559,6 +559,27 @@ export function mountApp(root, store) {
     ].join(":");
   }
 
+  function moveOpponentCarousel(direction = 1) {
+    const boards = getOpponentBoards(store.getState());
+    if (!boards.length) {
+      return;
+    }
+    opponentBoardIndex = (opponentBoardIndex + Number(direction || 1) + boards.length) % boards.length;
+    render(store.getState());
+  }
+
+  function focusOpponentCarousel(opponentId = "") {
+    const boards = getOpponentBoards(store.getState());
+    if (!boards.length) {
+      return;
+    }
+    const index = boards.findIndex((board) => board.id === opponentId || board.playerId === opponentId);
+    if (index >= 0) {
+      opponentBoardIndex = index;
+      render(store.getState());
+    }
+  }
+
   function bind(container, profile) {
     container.querySelectorAll("[data-page]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -899,6 +920,47 @@ export function mountApp(root, store) {
         render(store.getState());
       })
     );
+    container.querySelectorAll("[data-opponent-carousel-step]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const direction = Number(button.dataset.opponentCarouselStep || 0);
+        moveOpponentCarousel(direction || 1);
+      })
+    );
+    container.querySelectorAll("[data-opponent-carousel-jump]").forEach((button) =>
+      button.addEventListener("click", () => {
+        focusOpponentCarousel(button.dataset.opponentCarouselJump || "");
+      })
+    );
+    container.querySelectorAll("[data-opponent-carousel-follow]").forEach((button) =>
+      button.addEventListener("click", () => {
+        focusOpponentCarousel(button.dataset.opponentCarouselFollow || "");
+      })
+    );
+    container.querySelectorAll("[data-opponent-carousel]").forEach((carousel) => {
+      carousel.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowLeft" || event.key === "GamepadDPadLeft") {
+          event.preventDefault();
+          moveOpponentCarousel(-1);
+        } else if (event.key === "ArrowRight" || event.key === "GamepadDPadRight") {
+          event.preventDefault();
+          moveOpponentCarousel(1);
+        } else if (event.key === "Home") {
+          event.preventDefault();
+          focusOpponentCarousel(getOpponentBoards(store.getState())[0]?.id || "");
+        } else if (event.key === "End") {
+          event.preventDefault();
+          const boards = getOpponentBoards(store.getState());
+          focusOpponentCarousel(boards[boards.length - 1]?.id || "");
+        }
+      });
+      carousel.addEventListener("wheel", (event) => {
+        if (Math.abs(event.deltaX) < 8 && Math.abs(event.deltaY) < 8) {
+          return;
+        }
+        event.preventDefault();
+        moveOpponentCarousel(Math.abs(event.deltaX) > Math.abs(event.deltaY) ? Math.sign(event.deltaX) : Math.sign(event.deltaY));
+      }, { passive: false });
+    });
     container.querySelectorAll("[data-open-opponent-overlay]").forEach((button) =>
       button.addEventListener("click", () => {
         opponentOverlayOpen = true;
@@ -5551,30 +5613,25 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
   const opponentDensityClass = getDensityClass(session.battlefield.opponent, compressionMode);
   const opponentBoards = getOpponentBoards(profile);
   const hasOpponentBoards = opponentBoards.length > 0;
-  const visibility = profile.settings?.battlefield?.opponentVisibility || {};
   const activeOpponentIndex = hasOpponentBoards ? Math.max(0, Math.min(opponentBoards.length - 1, Number(uiState.opponentBoardIndex) || 0)) : 0;
   const activeOpponent = hasOpponentBoards ? opponentBoards[activeOpponentIndex] : null;
-  const activeOpponentVisible = Boolean(activeOpponent && visibility[activeOpponent.id || "opponent"]);
-  const showOpponentZone = Boolean(panels.boardOpponent && hasOpponentBoards && activeOpponentVisible);
   const showStatsOverlay = Boolean(profile.settings?.battlefield?.statsOverlay);
+  const focusedOpponentId = activeOpponent?.id || profile.settings?.battlefield?.focusedOpponentId || session.advancedMultiplayer?.focusedOpponentId || "";
   const perspective = buildAdvancedMultiplayerPerspective(profile, {
     viewport: isMobilePortrait ? "phone" : "widescreen",
-    focusedOpponentId: profile.settings?.battlefield?.focusedOpponentId || session.advancedMultiplayer?.focusedOpponentId || "",
+    focusedOpponentId,
   });
   const perspectiveOpponentBoards = perspective.opponentBoards?.length ? perspective.opponentBoards : opponentBoards;
-  const perspectiveOpponentIndex = perspectiveOpponentBoards.findIndex((opponent) => opponent.id === perspective.focusedOpponentId);
+  const perspectiveOpponentIndex = perspectiveOpponentBoards.findIndex((opponent) => opponent.id === focusedOpponentId || opponent.playerId === focusedOpponentId);
   const mirroredOpponentIndex = perspectiveOpponentIndex >= 0 ? perspectiveOpponentIndex : activeOpponentIndex;
   const mirroredOpponent = perspectiveOpponentBoards[mirroredOpponentIndex] || activeOpponent;
-  const mirroredOpponentVisible = Boolean(
-    mirroredOpponent &&
-      (visibility[mirroredOpponent.id || "opponent"] || perspective.fullOpponentBoard || perspective.viewMode === "two-player-mirrored")
-  );
-  const showPerspectiveOpponentZone = Boolean(panels.boardOpponent && mirroredOpponent && mirroredOpponentVisible);
+  const showPerspectiveOpponentZone = Boolean(panels.boardOpponent && mirroredOpponent);
   const sourceForTargets = getSelectedPermanents(session)[0] || session.stack?.[0]?.card || null;
   const legalTargetResult = sourceForTargets ? calculateLegalTargets(session, sourceForTargets, "all-permanents") : null;
   const targetingVisuals = buildAdvancedTargetingVisualModel(profile, perspective, { legalTargets: legalTargetResult });
   const landscapeModel = createLandscapeBattlefieldModel(profile, {
     perspective,
+    focusedOpponentId: mirroredOpponent?.id || mirroredOpponent?.playerId || focusedOpponentId,
     viewport: isMobilePortrait ? "portrait-support" : "desktop",
     compressionMode,
   });
@@ -5591,8 +5648,8 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
         </div>
       </div>
       ${shouldRenderAdvancedMultiplayerStatus(perspective) ? renderAdvancedMultiplayerStatus(perspective) : ""}
-      ${perspective.compactOpponentLanes ? renderCompactOpponentLanes(perspective) : ""}
-      ${perspectiveOpponentBoards.length ? renderOpponentVisibilityControls(perspectiveOpponentBoards, visibility, perspective) : ""}
+      ${perspective.compactOpponentLanes && !landscapeModel.opponentCarousel?.enabled ? renderCompactOpponentLanes(perspective) : ""}
+      ${landscapeModel.opponentCarousel?.enabled ? renderOpponentCarouselControls(landscapeModel.opponentCarousel) : ""}
       ${renderLandscapeGlobalInfoRail(landscapeModel, profile)}
       <section class="arena glass landscape-arena ${playerDensityClass} ${perspective.viewMode === "two-player-mirrored" ? "arena--two-player-mirrored" : ""} ${perspective.viewMode === "commander-pod-advanced" || perspective.viewMode === "mixed-interface-session" ? "arena--commander-pod" : ""} ${profile.settings?.battlefield?.focusMode && session.selectedIds?.length ? "focus-mode" : ""} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${showPerspectiveOpponentZone ? "" : "arena--opponent-hidden"} ${panels.boardCombat ? "" : "arena--combat-hidden"}" data-set-tool-context="empty">
         ${renderLandscapeOpponentRegion(landscapeModel.opponentBattlefield, {
@@ -5743,11 +5800,14 @@ function renderLandscapeLocalRegion(region = {}, options = {}) {
 
 function renderLandscapeCommandCenter(model = {}, profile = {}, options = {}) {
   const center = model.commandCenter || {};
+  const hud = model.intelligence?.contextualHud || {};
   const stackCount = (center.stackObjects || []).length;
   const triggerCount = (center.triggerQueue || []).filter((entry) => entry.status === "pending").length;
   const pendingChoiceCount = (center.pendingChoices || []).length;
+  const stackExpanded = hud.stack === "expanded" || stackCount > 0 || triggerCount > 0 || pendingChoiceCount > 0;
+  const combatExpanded = hud.combatControls === "expanded";
   return `
-    <div class="combat-zone landscape-command-center" aria-label="Command center">
+    <div class="combat-zone landscape-command-center hud-stack-${escapeAttribute(hud.stack || "collapsed")} hud-triggers-${escapeAttribute(hud.triggers || "collapsed")} hud-priority-${escapeAttribute(hud.priority || "collapsed")} hud-combat-${escapeAttribute(hud.combatControls || "hidden")}" aria-label="Command center">
       <div class="landscape-command-core">
         <article class="landscape-phase-core">
           <p class="eyebrow">Command Center</p>
@@ -5757,23 +5817,25 @@ function renderLandscapeCommandCenter(model = {}, profile = {}, options = {}) {
           <button class="phase-next-chip" data-next-phase>Next Phase</button>
         </article>
         ${renderLandscapeSelectedCardPanel(center.selectedCard)}
-        <article class="landscape-stack-core">
+        <article class="landscape-stack-core ${stackExpanded ? "is-active" : "is-idle"}">
           <p class="eyebrow">Stack / Priority</p>
           <strong>${stackCount ? `${stackCount} object${stackCount === 1 ? "" : "s"}` : "Stack empty"}</strong>
           <span>${triggerCount} trigger${triggerCount === 1 ? "" : "s"} · ${pendingChoiceCount} choice${pendingChoiceCount === 1 ? "" : "s"}</span>
-          <div class="landscape-stack-list">
-            ${(center.stackObjects || []).slice(0, 3).map((entry, index) => `
-              <p><b>${index + 1}</b> ${escapeHtml(entry.name || entry.card?.name || "Stack object")} <small>${escapeHtml(entry.controllerName || entry.controller || entry.controllerPlayerId || "")}</small></p>
-            `).join("") || "<p>Ready for the next action.</p>"}
-          </div>
-          <div class="row mini">
+          ${stackExpanded ? `
+            <div class="landscape-stack-list">
+              ${(center.stackObjects || []).slice(0, 3).map((entry, index) => `
+                <p><b>${index + 1}</b> ${escapeHtml(entry.name || entry.card?.name || "Stack object")} <small>${escapeHtml(entry.controllerName || entry.controller || entry.controllerPlayerId || "")}</small></p>
+              `).join("") || (triggerCount || pendingChoiceCount ? "<p>Resolve pending prompts.</p>" : "")}
+            </div>
+          ` : ""}
+          <div class="row mini ${stackExpanded ? "" : "is-contextual"}">
             ${center.localCanAct ? `<button data-pass-priority>Pass Priority</button><button data-respond-stack>Respond</button>` : ""}
-            <button data-open-utility="stack">Open Stack</button>
-            <button data-open-utility="triggers">Triggers</button>
+            ${stackCount ? `<button data-open-utility="stack">Open Stack</button>` : ""}
+            ${triggerCount ? `<button data-open-utility="triggers">Triggers</button>` : ""}
           </div>
         </article>
       </div>
-      ${options.panels?.boardCombat ? `
+      ${options.panels?.boardCombat && combatExpanded ? `
         <div class="landscape-combat-strip">
           ${center.combat?.damagePreview ? `<p>${escapeHtml(center.combat.damagePreview.total)} damage estimated</p>` : ""}
           <div class="row">
@@ -5902,15 +5964,38 @@ function shouldRenderAdvancedMultiplayerStatus(perspective = {}) {
   );
 }
 
-function renderOpponentVisibilityControls(opponentBoards = [], visibility = {}, perspective = null) {
+function renderOpponentCarouselControls(carousel = {}) {
+  const opponents = carousel.opponents || [];
+  if (!opponents.length) {
+    return "";
+  }
+  const focused = carousel.focusedOpponent || opponents[0] || {};
+  const commanderLabel = focused.commanderSummary?.length
+    ? focused.commanderSummary.map((entry) => `${entry.name || "Commander"} Tax ${entry.tax || 0}`).join(" / ")
+    : "Commander tracked";
+  const handLabel = focused.cardsInHand === "unknown" ? "Hand ?" : `Hand ${focused.cardsInHand}`;
   return `
-    <div class="opponent-visibility-controls glass" aria-label="Opponent battlefield visibility">
-      ${opponentBoards.map((opponent) => {
-        const id = opponent.id || "opponent";
-        const visible = Boolean(visibility[id] || perspective?.focusedOpponentId === id || perspective?.viewMode === "two-player-mirrored");
-        return `<button class="${visible ? "active" : ""}" data-setting-button="battlefield.opponentVisibility.${escapeAttribute(id)}" data-value="${visible ? "false" : "true"}" aria-pressed="${visible}">${escapeHtml(opponent.name || id)} ${visible ? "Shown" : "Hidden"}</button>`;
-      }).join("")}
-    </div>
+    <section class="opponent-carousel glass" data-opponent-carousel data-opponent-swipe tabindex="0" role="region" aria-label="Opponent carousel">
+      <button class="opponent-carousel__nav" data-opponent-carousel-step="-1" ${opponents.length > 1 ? "" : "disabled"} aria-label="Previous opponent">&lsaquo;</button>
+      <div class="opponent-carousel__focus">
+        <p class="eyebrow">Focused Opponent</p>
+        <strong>${escapeHtml(focused.name || "Opponent")}</strong>
+        <span>Life ${escapeHtml(focused.life ?? 40)} / Poison ${escapeHtml(focused.poisonCounters || 0)} / ${escapeHtml(handLabel)} / Board ${escapeHtml(focused.permanentCount || 0)}</span>
+        <small>${escapeHtml(commanderLabel)}</small>
+        ${Object.keys(focused.commanderDamage || {}).length ? `<small>Commander damage ${Object.entries(focused.commanderDamage).map(([source, value]) => `${escapeHtml(source)}:${escapeHtml(value)}`).join(" / ")}</small>` : ""}
+      </div>
+      <div class="opponent-carousel__seats" aria-label="Opponent quick jump">
+        ${opponents.map((opponent, index) => `
+          <button class="${opponent.focused ? "active" : ""} ${opponent.activeTurn ? "is-active-turn" : ""}" data-opponent-carousel-jump="${escapeAttribute(opponent.playerId)}" aria-label="Focus ${escapeAttribute(opponent.name || "opponent")}">
+            <strong>${escapeHtml(String(index + 1))}</strong>
+            <span>${escapeHtml(getInitials(opponent.name || "OP"))}</span>
+            <b>${escapeHtml(opponent.life ?? 40)}</b>
+          </button>
+        `).join("")}
+      </div>
+      ${carousel.followActivePlayer?.available ? `<button class="opponent-carousel__follow" data-opponent-carousel-follow="${escapeAttribute(carousel.followActivePlayer.targetOpponentId || "")}">Follow Active Player</button>` : ""}
+      <button class="opponent-carousel__nav" data-opponent-carousel-step="1" ${opponents.length > 1 ? "" : "disabled"} aria-label="Next opponent">&rsaquo;</button>
+    </section>
   `;
 }
 
@@ -6097,16 +6182,6 @@ function renderOpponentZoneHeader(opponentBoards, activeIndex, activeOpponent, p
       <div>
         <h2>${escapeHtml(activeOpponent?.name || "Opponent Battlefield")}</h2>
         <p class="eyebrow">${activeIndex + 1}/${opponentBoards.length} - ${escapeHtml(activeOpponent?.deckName || "Opponent")}${perspective?.viewMode ? ` - ${escapeHtml(formatLabel(perspective.viewMode))}` : ""}</p>
-      </div>
-      <div class="opponent-swipe-rail" aria-label="Opponent battlefield selector">
-        ${opponentBoards.map((opponent, index) => `
-          <button class="${index === activeIndex ? "active" : ""}" data-opponent-nav="${index < activeIndex ? "prev" : index > activeIndex ? "next" : "current"}" ${index === activeIndex ? "disabled" : ""}>
-            <strong>${escapeHtml(getInitials(opponent.name || "OP"))}</strong>
-            <span>${escapeHtml(opponent.name || "Opponent")}</span>
-            <b>${escapeHtml(opponent.life ?? 40)}</b>
-            ${opponent.detailsLimited ? "<em>Limited</em>" : ""}
-          </button>
-        `).join("")}
       </div>
       <div class="row mini">
         ${opponentBoards.length > 1 ? `<button data-opponent-nav="prev">&lsaquo;</button><button data-opponent-nav="next">&rsaquo;</button>` : ""}

@@ -622,11 +622,6 @@ body[data-composition="widescreen"] .battlefield-group .tile-grid {
   padding: 0.38rem 0.48rem;
 }
 
-.landscape-battlefield-page .opponent-visibility-controls {
-  margin: 0;
-  padding: 0.28rem;
-}
-
 .landscape-table-ribbon {
   display: flex;
   align-items: center;
@@ -1737,24 +1732,13 @@ body[data-composition="widescreen"] .battlefield-wheel-action .dock-icon {
 }
 
 /* Event-ready battlefield lanes, presentation, combat, and tournament surfaces. */
-.battlefield-top-controls,
-.opponent-visibility-controls {
+.battlefield-top-controls {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.35rem;
 }
 
-.opponent-visibility-controls {
-  position: relative;
-  z-index: 5;
-  margin: 0 0 0.45rem auto;
-  width: fit-content;
-  max-width: 100%;
-  padding: 0.35rem;
-}
-
-.opponent-visibility-controls button,
 .battlefield-top-controls button {
   min-height: 30px;
   padding: 0.28rem 0.58rem;
@@ -7129,10 +7113,6 @@ body[data-simulation-active="true"] .battlefield-mobile-dock button {
   grid-area: lanes;
 }
 
-.landscape-battlefield-page .opponent-visibility-controls {
-  grid-area: visibility;
-}
-
 .landscape-info-rail,
 .landscape-actions-rail,
 .landscape-arena {
@@ -8298,9 +8278,122 @@ body[data-page="battlefield"] .landscape-state-strip {
   display: none;
 }
 
+body[data-page="battlefield"] .opponent-carousel {
+  grid-area: visibility;
+  min-height: 42px;
+  max-height: 58px;
+  display: grid;
+  grid-template-columns: auto minmax(12rem, 0.82fr) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.36rem;
+  padding: 0.28rem 0.46rem;
+  border-color: rgba(236, 200, 122, 0.3);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(117, 178, 255, 0.12), transparent 34%),
+    linear-gradient(90deg, rgba(5, 7, 18, 0.76), rgba(12, 10, 28, 0.58), rgba(5, 7, 18, 0.74));
+  overflow: hidden;
+}
+
+body[data-page="battlefield"] .opponent-carousel__focus {
+  min-width: 0;
+  display: grid;
+  gap: 0.04rem;
+}
+
+body[data-page="battlefield"] .opponent-carousel__focus .eyebrow,
+body[data-page="battlefield"] .opponent-carousel__focus strong,
+body[data-page="battlefield"] .opponent-carousel__focus span,
+body[data-page="battlefield"] .opponent-carousel__focus small {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-page="battlefield"] .opponent-carousel__focus strong {
+  color: var(--gold-bright);
+  font-size: 0.86rem;
+}
+
+body[data-page="battlefield"] .opponent-carousel__focus span,
+body[data-page="battlefield"] .opponent-carousel__focus small {
+  color: rgba(247, 239, 255, 0.74);
+  font-size: 0.62rem;
+  line-height: 1.05;
+}
+
+body[data-page="battlefield"] .opponent-carousel__seats {
+  min-width: 0;
+  display: flex;
+  gap: 0.24rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+body[data-page="battlefield"] .opponent-carousel__seats::-webkit-scrollbar {
+  display: none;
+}
+
+body[data-page="battlefield"] .opponent-carousel__seats button,
+body[data-page="battlefield"] .opponent-carousel__nav,
+body[data-page="battlefield"] .opponent-carousel__follow {
+  min-height: 32px;
+  border-radius: 999px;
+  border-color: rgba(236, 200, 122, 0.24);
+  background: rgba(5, 8, 18, 0.52);
+}
+
+body[data-page="battlefield"] .opponent-carousel__seats button {
+  min-width: 58px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.22rem;
+  padding: 0.18rem 0.34rem;
+  color: rgba(247, 239, 255, 0.78);
+  font-size: 0.58rem;
+}
+
+body[data-page="battlefield"] .opponent-carousel__seats button.active {
+  border-color: var(--mock-label);
+  color: var(--gold-bright);
+  box-shadow: 0 0 14px rgba(236, 200, 122, 0.2);
+}
+
+body[data-page="battlefield"] .opponent-carousel__seats button.is-active-turn:not(.active) {
+  border-color: rgba(117, 178, 255, 0.5);
+}
+
+body[data-page="battlefield"] .opponent-carousel__seats strong,
+body[data-page="battlefield"] .opponent-carousel__seats b {
+  color: var(--gold-bright);
+}
+
+body[data-page="battlefield"] .opponent-carousel__nav {
+  min-width: 32px;
+  padding: 0;
+  color: var(--gold-bright);
+  font-size: 1.08rem;
+}
+
+body[data-page="battlefield"] .opponent-carousel__follow {
+  padding: 0.2rem 0.58rem;
+  color: var(--gold-bright);
+  font-size: 0.62rem;
+  white-space: nowrap;
+}
+
 body[data-page="battlefield"] .landscape-selected-card.is-empty {
   place-items: center;
   text-align: center;
+}
+
+body[data-page="battlefield"] .landscape-stack-core.is-idle .row.mini.is-contextual {
+  display: none;
+}
+
+body[data-page="battlefield"] .landscape-command-center.hud-combat-hidden .landscape-combat-strip {
+  display: none;
 }
 
 body[data-page="battlefield"] .landscape-combat-strip {
@@ -8328,7 +8421,22 @@ body[data-page="battlefield"] .landscape-combat-strip button {
   }
 
   body[data-page="battlefield"] .landscape-battlefield-page {
-    grid-template-rows: 0 0 0 0 minmax(0, 1fr);
+    grid-template-rows: 0 0 0 auto minmax(0, 1fr);
+  }
+
+  body[data-page="battlefield"] .opponent-carousel {
+    min-height: 34px;
+    max-height: 40px;
+    grid-template-columns: auto minmax(8rem, 0.9fr) minmax(0, 1fr) auto;
+    padding: 0.18rem 0.32rem;
+  }
+
+  body[data-page="battlefield"] .opponent-carousel__follow {
+    display: none;
+  }
+
+  body[data-page="battlefield"] .opponent-carousel__focus small {
+    display: none;
   }
 
   body[data-page="battlefield"] .landscape-arena {
