@@ -92,7 +92,7 @@ const TEMPORARY_SCROLL_SELECTORS = [
   ".cast-action-popup",
   ".simulation-log",
   ".battlefield-groups",
-  ".selected-permanent-menu",
+  ".gameplay-context-dock",
   ".manual-choice-panel",
   ".trigger-queue-panel",
   ".history-timeline",
@@ -5687,7 +5687,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
           targetingVisuals,
         })}
       </section>
-      ${renderSelectedPermanentMenu(session)}
+      ${renderGameplayContextDock(landscapeModel.gameplayFlow, session)}
     </section>
     ${renderMobileBattlefieldDock(profile, activeUtilityPanel, uiState.utilityDockOpen, Boolean(panels.boardCombat), Boolean(combatResolving), isMobilePortrait)}
     ${panels.advancedRulesHelpers || (session.pendingEffects || []).some((entry) => !["resolved", "skipped", "ignored"].includes(entry.status)) ? renderPending(session, Boolean(uiState.manualChoicePanelCollapsed), perspective) : ""}
@@ -5806,6 +5806,9 @@ function renderLandscapeCommandCenter(model = {}, profile = {}, options = {}) {
   const pendingChoiceCount = (center.pendingChoices || []).length;
   const stackExpanded = hud.stack === "expanded" || stackCount > 0 || triggerCount > 0 || pendingChoiceCount > 0;
   const combatExpanded = hud.combatControls === "expanded";
+  const selectedCanAttack = Boolean(
+    model.gameplayFlow?.selected?.primaryActions?.some((action) => action.id === "declare-attacker" && !action.disabled)
+  );
   return `
     <div class="combat-zone landscape-command-center hud-stack-${escapeAttribute(hud.stack || "collapsed")} hud-triggers-${escapeAttribute(hud.triggers || "collapsed")} hud-priority-${escapeAttribute(hud.priority || "collapsed")} hud-combat-${escapeAttribute(hud.combatControls || "hidden")}" aria-label="Command center">
       <div class="landscape-command-core">
@@ -5839,7 +5842,7 @@ function renderLandscapeCommandCenter(model = {}, profile = {}, options = {}) {
         <div class="landscape-combat-strip">
           ${center.combat?.damagePreview ? `<p>${escapeHtml(center.combat.damagePreview.total)} damage estimated</p>` : ""}
           <div class="row">
-            <button data-declare-attackers ${options.combatResolving ? "disabled" : ""}>Declare Attackers</button>
+            ${selectedCanAttack ? `<button data-declare-attackers ${options.combatResolving ? "disabled" : ""}>Attack</button>` : ""}
             <button data-resolve-combat ${options.combatResolving ? "disabled" : ""}>${options.combatResolving ? "Resolving..." : "Resolve Combat"}</button>
           </div>
         </div>
@@ -6445,7 +6448,7 @@ function renderPermanent(permanent, options = {}) {
         ${showStatsOverlay && detailMode !== "compact" ? renderPermanentDetails(permanent, detailMode) : ""}
         ${permanent.quantity > 1 ? `<button class="stack-toggle" type="button" data-toggle-stack="${permanent.id}">${stackExpanded ? "Collapse Stack" : "Expand Stack"}</button>` : ""}
         ${stackExpanded ? renderStackMemberDetails(stackMembers, detailMode, permanent) : ""}
-        ${options.readonly ? "" : renderPermanentSurfaceActions(permanent)}
+        ${options.readonly ? "" : selected ? renderPermanentSurfaceActions(permanent) : ""}
       </div>
     </article>
   `;
@@ -6471,41 +6474,136 @@ function renderPermanentSurfaceActions(permanent = {}) {
   `;
 }
 
-function renderSelectedPermanentMenu(session = {}) {
-  const selected = [...(session.battlefield?.player || []), ...(session.battlefield?.opponent || [])]
-    .find((permanent) => (session.selectedIds || []).includes(permanent.id));
-  if (!selected) {
+function renderGameplayContextDock(flow = {}, session = {}) {
+  const selected = flow.selected || {};
+  const triggerGroups = flow.triggerGroups || [];
+  const priority = flow.priority || {};
+  const workflow = flow.workflow || {};
+  const shouldRender = selected.active || triggerGroups.length || priority.shouldInterrupt || workflow.active;
+  if (!shouldRender) {
     return "";
   }
-  const isLocalPermanent = selected.controller === "player" || selected.controller === "local-player" || !selected.controller;
-  const isSimpleLand = selected.isLand && !selected.supportsStation && !selected.supportsMaxSpeed;
+  const title = selected.active ? selected.title : workflow.active ? workflow.source : "Gameplay";
   return `
-    <aside class="selected-permanent-menu glass scroll-safe" role="dialog" aria-label="${escapeAttribute(`${selected.name} actions`)}">
-      <div class="overlay-header compact">
-        <div><p class="eyebrow">Selected permanent</p><strong>${escapeHtml(selected.name)}</strong><small>${escapeHtml(selected.typeLine)}</small></div>
-        <button data-selected-action="clear" aria-label="Close selected permanent actions">Close</button>
-      </div>
-      ${!isLocalPermanent ? `
-        <p>Public opponent permanent. You can inspect details, counters, tapped state, attachments, and targetability, but hidden zones remain private.</p>
-        <div class="button-grid selected-permanent-menu__actions">
-          <button data-open-tool-panel="inspect">Details</button>
+    <aside class="gameplay-context-dock glass scroll-safe" role="dialog" aria-label="${escapeAttribute(`${title} contextual gameplay actions`)}" data-gameplay-flow-version="${escapeAttribute(flow.version || "")}">
+      <div class="gameplay-context-dock__header">
+        <div>
+          <p class="eyebrow">${selected.publicOnly ? "Public inspection" : selected.active ? "Selected permanent" : "Context"}</p>
+          <strong>${escapeHtml(title || "Gameplay")}</strong>
+          ${selected.typeLine ? `<small>${escapeHtml(selected.typeLine)}</small>` : ""}
         </div>
-      ` : isSimpleLand ? `<p>Use +1 or Tap directly on the land tile.</p>${selected.tapped ? `<button data-tap="${escapeAttribute(selected.id)}">Untap</button>` : ""}` : `
-      <div class="button-grid selected-permanent-menu__actions">
-        ${selected.isLand ? "" : `<button data-selected-menu-counter="Charge">Add counter</button><button data-selected-menu-counter="+1/+1">Add +1/+1 counter</button>`}
-        ${selected.isLand ? "" : `<button data-tap="${escapeAttribute(selected.id)}">${selected.tapped ? "Untap" : "Tap"}</button>`}
-        ${selected.isCreature ? `<button data-declare-attackers>Attack</button>` : ""}
-        ${selected.isLand ? "" : `<button data-manual-trigger-permanent="${escapeAttribute(selected.id)}">Trigger Ability</button>`}
-        ${selected.isPlaneswalker ? `<button data-loyalty-adjust="${escapeAttribute(selected.id)}" data-delta="-1">Loyalty -1</button><button data-loyalty-adjust="${escapeAttribute(selected.id)}" data-delta="1">Loyalty +1</button>` : ""}
-        ${selected.isLand ? "" : `<button data-selected-action="sacrifice">Sacrifice</button><button data-selected-action="exile">Exile</button><button class="danger" data-selected-action="destroy">Destroy</button>`}
-        ${selected.supportsStation ? `<button data-permanent-mechanic="station" data-permanent-id="${escapeAttribute(selected.id)}">Station</button>` : ""}
-        ${selected.isMount || /\bSaddle\b/i.test(selected.oracleText || "") ? `<button data-permanent-mechanic="saddle" data-permanent-id="${escapeAttribute(selected.id)}">Mount / Saddle</button>` : ""}
-        ${selected.isVehicle || /\bCrew\b/i.test(selected.oracleText || "") ? `<button data-permanent-mechanic="crew" data-permanent-id="${escapeAttribute(selected.id)}">Crew</button>` : ""}
-        ${selected.supportsMaxSpeed ? `<button data-permanent-mechanic="max-speed" data-permanent-id="${escapeAttribute(selected.id)}">Max Speed +1</button>` : ""}
-        <button data-open-tool-panel="inspect">Details</button>
-      </div>`}
+        ${selected.active ? `<button class="ghost-chip" data-selected-action="clear" aria-label="Close contextual gameplay actions">Close</button>` : ""}
+      </div>
+      ${selected.statusChips?.length ? `
+        <div class="gameplay-flow-chips" aria-label="Selected permanent status">
+          ${selected.statusChips.slice(0, 7).map((chip) => `<span>${escapeHtml(chip)}</span>`).join("")}
+        </div>
+      ` : ""}
+      ${selected.commander ? renderCommanderInteractionSummary(selected.commander) : ""}
+      ${selected.active ? renderGameplayActionSet("Primary", selected.primaryActions) : ""}
+      ${selected.active ? renderGameplayActionSet("Tools", selected.utilityActions) : ""}
+      ${selected.active && selected.dangerActions?.length ? `
+        <details class="gameplay-flow-danger">
+          <summary>Zone changes</summary>
+          ${renderGameplayActionSet("Zone changes", selected.dangerActions, { compact: true })}
+        </details>
+      ` : ""}
+      ${workflow.active ? `
+        <section class="gameplay-flow-section gameplay-flow-section--workflow">
+          <p class="eyebrow">${escapeHtml(workflow.stepLabel || "Choice")}</p>
+          <strong>${escapeHtml(workflow.reason || "A game decision is waiting.")}</strong>
+          <div class="gameplay-flow-actions">${(workflow.actions || []).map(renderGameplayFlowAction).join("")}</div>
+        </section>
+      ` : ""}
+      ${triggerGroups.length ? `
+        <section class="gameplay-flow-section gameplay-flow-section--triggers">
+          <p class="eyebrow">Trigger workflow</p>
+          <div class="trigger-group-list">
+            ${triggerGroups.slice(0, 4).map((group) => `
+              <article class="trigger-group-chip ${group.optional ? "is-optional" : "is-required"}">
+                <strong>${escapeHtml(group.sourceName)}</strong>
+                <span>${escapeHtml(group.count)} ${escapeHtml(group.eventType)} ${group.optional ? "optional" : "required"}</span>
+              </article>
+            `).join("")}
+          </div>
+          <div class="gameplay-flow-actions">
+            <button data-open-utility="triggers">Open triggers</button>
+            <button data-trigger-resolve-all>Resolve all safe</button>
+          </div>
+        </section>
+      ` : ""}
+      ${priority.shouldInterrupt ? `
+        <section class="gameplay-flow-section gameplay-flow-section--priority">
+          <p class="eyebrow">Priority</p>
+          <strong>${escapeHtml(priority.holderName || priority.holderId || "Priority decision")}</strong>
+          <div class="gameplay-flow-actions">${(priority.actions || []).map(renderGameplayFlowAction).join("")}</div>
+        </section>
+      ` : ""}
+      <small class="gameplay-context-dock__summary">${escapeHtml(flow.accessibility?.screenReaderSummary || resolveGameplayContextSummary(session))}</small>
     </aside>
   `;
+}
+
+function renderGameplayActionSet(label, actions = [], options = {}) {
+  const usableActions = (actions || []).filter((action) => action?.id);
+  if (!usableActions.length) {
+    return "";
+  }
+  return `
+    <section class="gameplay-flow-section ${options.compact ? "is-compact" : ""}">
+      <p class="eyebrow">${escapeHtml(label)}</p>
+      <div class="gameplay-flow-actions">
+        ${usableActions.map(renderGameplayFlowAction).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderGameplayFlowAction(action = {}) {
+  const data = action.data || {};
+  const attrs = [];
+  if (data.openToolPanel) attrs.push(`data-open-tool-panel="${escapeAttribute(data.openToolPanel)}"`);
+  if (data.openUtility) attrs.push(`data-open-utility="${escapeAttribute(data.openUtility)}"`);
+  if (data.selectedAction) attrs.push(`data-selected-action="${escapeAttribute(data.selectedAction)}"`);
+  if (data.tap) attrs.push(`data-tap="${escapeAttribute(data.tap)}"`);
+  if (data.addLandCopy) attrs.push(`data-add-land-copy="${escapeAttribute(data.addLandCopy)}"`);
+  if (data.selectedMenuCounter) attrs.push(`data-selected-menu-counter="${escapeAttribute(data.selectedMenuCounter)}"`);
+  if (data.declareAttackers) attrs.push("data-declare-attackers");
+  if (data.manualTriggerPermanent) attrs.push(`data-manual-trigger-permanent="${escapeAttribute(data.manualTriggerPermanent)}"`);
+  if (data.loyaltyAdjust) attrs.push(`data-loyalty-adjust="${escapeAttribute(data.loyaltyAdjust)}" data-delta="${escapeAttribute(data.delta || 0)}"`);
+  if (data.permanentMechanic) attrs.push(`data-permanent-mechanic="${escapeAttribute(data.permanentMechanic)}" data-permanent-id="${escapeAttribute(data.permanentId || "")}"`);
+  if (data.openCommanderQuick) attrs.push("data-open-commander-quick");
+  if (data.castCommander) attrs.push("data-cast-commander");
+  if (data.passPriority) attrs.push("data-pass-priority");
+  if (data.respondStack) attrs.push("data-respond-stack");
+  if (data.triggerResolveAll) attrs.push("data-trigger-resolve-all");
+  const className = [
+    "gameplay-flow-action",
+    action.kind ? `gameplay-flow-action--${action.kind}` : "",
+    action.danger ? "danger" : "",
+  ].filter(Boolean).join(" ");
+  const title = action.reason ? ` title="${escapeAttribute(action.reason)}"` : "";
+  return `<button class="${escapeAttribute(className)}" ${attrs.join(" ")} ${action.disabled ? "disabled" : ""}${title}>${escapeHtml(action.label || "Action")}</button>`;
+}
+
+function renderCommanderInteractionSummary(commander = {}) {
+  const tags = commander.tags?.length ? ` · ${commander.tags.map(escapeHtml).join(" / ")}` : "";
+  return `
+    <section class="gameplay-flow-commander">
+      <span>Zone ${escapeHtml(commander.zone || "battlefield")}</span>
+      <span>Tax ${escapeHtml(commander.tax || 0)}</span>
+      <span>Cast ${escapeHtml(commander.castCount || 0)}${tags}</span>
+    </section>
+  `;
+}
+
+function resolveGameplayContextSummary(session = {}) {
+  const triggerCount = (session.triggerQueue || []).filter((entry) => entry.status === "pending").length;
+  const stackCount = (session.stack || []).length;
+  if (triggerCount || stackCount) {
+    return `${stackCount} stack object${stackCount === 1 ? "" : "s"} and ${triggerCount} pending trigger${triggerCount === 1 ? "" : "s"}.`;
+  }
+  return "Battlefield context actions are ready.";
 }
 
 function renderPermanentStateBadges(permanent = {}, damageMarked = 0, lethalDamage = false) {
@@ -6963,11 +7061,19 @@ function renderUtilityDock(
 }
 
 function renderMobileBattlefieldDock(profile, activeUtilityPanel = "", utilityDockOpen = false, includeCombat = true, combatResolving = false, isMobilePortrait = true) {
+  const session = profile.activeSession || {};
   const pendingCount =
-    (profile.activeSession?.triggerQueue || []).filter((entry) => entry.status === "pending").length +
-    (profile.activeSession?.stack || []).length +
-    (profile.activeSession?.pendingEffects || []).filter((entry) => !["resolved", "skipped", "ignored"].includes(entry.status)).length;
+    (session.triggerQueue || []).filter((entry) => entry.status === "pending").length +
+    (session.stack || []).length +
+    (session.pendingEffects || []).filter((entry) => !["resolved", "skipped", "ignored"].includes(entry.status)).length;
   const hasQueuedTriggers = pendingCount > 0;
+  const selectedPermanents = getSelectedPermanents(session);
+  const selectedCreatureCount = selectedPermanents.filter((permanent) => permanent.isCreature).length;
+  const phaseLabel = String(PHASES[session.phaseIndex] || "").toLowerCase();
+  const combatToResolve = Boolean((session.combat?.attackerIds || []).length || session.combat?.damagePreview);
+  const canDeclareAttackers = Boolean(includeCombat && selectedCreatureCount && phaseLabel.includes("combat"));
+  const canActivateSelection = Boolean(selectedPermanents.length);
+  const canResolveContext = Boolean(hasQueuedTriggers || combatToResolve);
   return `
     <section class="battlefield-mobile-dock battlefield-command-console ${isMobilePortrait ? "is-mobile" : "is-desktop"} glass" data-no-swipe>
       <div class="battlefield-mobile-dock__status">
@@ -6983,10 +7089,10 @@ function renderMobileBattlefieldDock(profile, activeUtilityPanel = "", utilityDo
             <span class="dock-icon" aria-hidden="true">&#9881;</span>
             <span>Utility</span>
           </button>
-          <button class="battlefield-wheel-action action-attackers ${includeCombat ? "" : "is-unavailable"}" data-dashboard-action="attackers" data-combat-available="${includeCombat ? "true" : "false"}" data-declare-attackers aria-label="Declare attackers">
+          ${canDeclareAttackers ? `<button class="battlefield-wheel-action action-attackers" data-dashboard-action="attackers" data-combat-available="true" data-declare-attackers aria-label="Declare selected attackers">
             <span class="dock-icon" aria-hidden="true">&#9876;</span>
-            <span>Attackers</span>
-          </button>
+            <span>Attack</span>
+          </button>` : ""}
         </div>
         <button class="battlefield-wheel-center battlefield-wheel-center--raised" data-next-phase aria-label="Next Phase">
           <span class="dock-icon" aria-hidden="true">&#9193;</span>
@@ -6998,14 +7104,14 @@ function renderMobileBattlefieldDock(profile, activeUtilityPanel = "", utilityDo
             <span class="dock-icon" aria-hidden="true">&#128269;</span>
             <span>Search</span>
           </button>
-          <button class="battlefield-wheel-action action-activate" data-dashboard-action="activate" data-activate-board aria-label="Activate board">
+          ${canActivateSelection ? `<button class="battlefield-wheel-action action-activate" data-dashboard-action="activate" data-activate-board aria-label="Activate selected board context">
             <span class="dock-icon" aria-hidden="true">&#9889;</span>
             <span>Activate</span>
-          </button>
-          <button class="battlefield-wheel-action action-resolve ${hasQueuedTriggers ? "has-pending" : ""}" data-dashboard-action="resolve" data-combat-available="${includeCombat ? "true" : "false"}" data-resolve-combat ${combatResolving ? "disabled" : ""} aria-label="Resolve stack or combat">
+          </button>` : ""}
+          ${canResolveContext ? `<button class="battlefield-wheel-action action-resolve ${hasQueuedTriggers ? "has-pending" : ""}" data-dashboard-action="resolve" data-combat-available="${includeCombat ? "true" : "false"}" data-resolve-combat ${combatResolving ? "disabled" : ""} aria-label="Resolve stack or combat">
             <span class="dock-icon" aria-hidden="true">&#128737;</span>
             <span>${combatResolving ? "Resolving..." : "Resolve"}</span>
-          </button>
+          </button>` : ""}
         </div>
       </div>
     </section>

@@ -2,9 +2,10 @@ import { PHASES } from "../state/schema.js";
 import { buildAdvancedMultiplayerPerspective } from "../shared-session/perspective.js";
 import { clonePlain } from "../shared-contracts/index.js";
 
-export const LANDSCAPE_BATTLEFIELD_VERSION = "boardstate-landscape-battlefield-0.3.0";
+export const LANDSCAPE_BATTLEFIELD_VERSION = "boardstate-landscape-battlefield-0.4.0";
 export const BATTLEFIELD_INTELLIGENCE_VERSION = "boardstate-battlefield-intelligence-0.1.0";
 export const BATTLEFIELD_CAMERA_VERSION = "boardstate-camera-foundation-0.1.0";
+export const GAMEPLAY_FLOW_VERSION = "boardstate-gameplay-flow-0.1.0";
 
 export const LANDSCAPE_BATTLEFIELD_REGIONS = Object.freeze([
   "global-info",
@@ -147,6 +148,14 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
     density,
     viewport,
   });
+  const gameplayFlow = createGameplayFlowModel({
+    session,
+    perspective,
+    localBoard,
+    opponentBoard,
+    commandCenter,
+    selectedCard,
+  });
   const camera = createBattlefieldCameraModel({
     session,
     perspective,
@@ -171,6 +180,7 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
     opponentCarousel,
     camera,
     intelligence,
+    gameplayFlow,
     globalInfo: createGlobalInfoModel(session, perspective),
     opponentBattlefield: opponentBoard,
     commandCenter,
@@ -574,17 +584,487 @@ export function createBattlefieldIntelligenceModel({
   };
 }
 
+export function createGameplayFlowModel({
+  session = {},
+  perspective = {},
+  localBoard = {},
+  opponentBoard = {},
+  commandCenter = {},
+  selectedCard = {},
+} = {}) {
+  const selected = createPermanentInteractionModel(selectedCard.card, session, {
+    localBoard,
+    opponentBoard,
+    perspective,
+  });
+  const triggerGroups = createTriggerWorkflowGroups(commandCenter.triggerQueue || session.triggerQueue || []);
+  const priority = createPriorityFlowModel(commandCenter, perspective);
+  const workflow = createActiveWorkflowModel(session, commandCenter, perspective);
+  const search = createSearchWorkflowModel(session);
+  return {
+    version: GAMEPLAY_FLOW_VERSION,
+    mode: "contextual-commander-gameplay",
+    selected,
+    triggerGroups,
+    priority,
+    workflow,
+    search,
+    commander: selected.commander,
+    informationHierarchy: Object.freeze([
+      "battlefield",
+      "selected-card",
+      "stack",
+      "triggers",
+      "priority",
+      "game-information",
+      "utilities",
+    ]),
+    interruptionPolicy: {
+      confirmations: "ambiguity-or-destructive-only",
+      hiddenWhenIrrelevant: true,
+      battlefieldRemainsVisible: true,
+    },
+    accessibility: {
+      touchTargetMinimumPx: 44,
+      keyboardActionsExposed: true,
+      screenReaderSummary: buildGameplayFlowSummary({ selected, triggerGroups, priority, workflow }),
+    },
+  };
+}
+
+export function createPermanentInteractionModel(permanent = null, session = {}, options = {}) {
+  if (!permanent?.id) {
+    return {
+      active: false,
+      title: "No selection",
+      typeLine: "",
+      zone: "",
+      publicOnly: true,
+      actions: [],
+      primaryActions: [],
+      utilityActions: [],
+      dangerActions: [],
+      statusChips: [],
+      commander: null,
+    };
+  }
+  const localPlayerId = options.perspective?.localPlayerId || "local-player";
+  const localBoardId = options.localBoard?.playerId || localPlayerId;
+  const controller = permanent.controller || permanent.controllerPlayerId || localBoardId;
+  const owner = permanent.owner || permanent.ownerPlayerId || controller;
+  const isLocal =
+    ["player", "local-player", localPlayerId, localBoardId].includes(controller) ||
+    !controller ||
+    (controller === owner && owner === localBoardId);
+  const lane = getPermanentLaneKey(permanent);
+  const statusChips = [
+    lane === "commanders" || permanent.isCommander ? "Commander" : "",
+    permanent.tapped ? "Tapped" : "Ready",
+    permanent.attacking ? "Attacking" : "",
+    permanent.blocking ? "Blocking" : "",
+    permanent.summoningSick ? "Summoning sickness" : "",
+    permanent.powerToughness ? permanent.powerToughness : "",
+    ...(permanent.countersSummary || []).slice(0, 3).map((entry) => `${entry.counterType} ${entry.value}`),
+  ].filter(Boolean);
+  const actions = [];
+  actions.push({
+    id: "inspect",
+    label: "Inspect",
+    kind: "utility",
+    priority: 96,
+    data: { openToolPanel: "inspect" },
+  });
+  if (!isLocal) {
+    return finalizeInteractionModel(permanent, {
+      lane,
+      isLocal,
+      controller,
+      owner,
+      publicOnly: true,
+      statusChips,
+      actions,
+      commander: createSelectedCommanderWorkflow(permanent, session, { isLocal: false }),
+    });
+  }
+  if (permanent.isLand || lane === "lands") {
+    actions.push({
+      id: permanent.tapped ? "untap" : "tap-for-mana",
+      label: permanent.tapped ? "Untap" : "Tap for mana",
+      kind: "primary",
+      priority: 98,
+      data: { tap: permanent.id },
+    });
+    actions.push({
+      id: "add-matching-land",
+      label: "+1 copy",
+      kind: "utility",
+      priority: 62,
+      data: { addLandCopy: permanent.id },
+    });
+  }
+  if (permanent.isCreature || lane === "creatures" || lane === "commanders") {
+    const phaseLabel = String(PHASES[session.phaseIndex] || "").toLowerCase();
+    const canAttackNow = phaseLabel.includes("combat") && !permanent.tapped;
+    actions.push({
+      id: "declare-attacker",
+      label: "Attack",
+      kind: "primary",
+      priority: 90,
+      data: { declareAttackers: true },
+      disabled: !canAttackNow,
+      reason: permanent.tapped ? "Tapped creatures cannot attack." : phaseLabel.includes("combat") ? "" : "Attack during combat.",
+    });
+    actions.push({
+      id: permanent.tapped ? "untap" : "tap",
+      label: permanent.tapped ? "Untap" : "Tap",
+      kind: "primary",
+      priority: 86,
+      data: { tap: permanent.id },
+    });
+    actions.push({
+      id: "plus-one-counter",
+      label: "+1/+1",
+      kind: "primary",
+      priority: 76,
+      data: { selectedMenuCounter: "+1/+1" },
+    });
+  }
+  if (!(permanent.isLand || lane === "lands")) {
+    actions.push({
+      id: "manual-trigger",
+      label: "Trigger",
+      kind: "utility",
+      priority: 70,
+      data: { manualTriggerPermanent: permanent.id },
+    });
+    actions.push({
+      id: "charge-counter",
+      label: "Counter",
+      kind: "utility",
+      priority: 58,
+      data: { selectedMenuCounter: "Charge" },
+    });
+  }
+  if (permanent.isPlaneswalker || lane === "planeswalkers") {
+    actions.push(
+      {
+        id: "loyalty-down",
+        label: "Loyalty -1",
+        kind: "utility",
+        priority: 56,
+        data: { loyaltyAdjust: permanent.id, delta: -1 },
+      },
+      {
+        id: "loyalty-up",
+        label: "Loyalty +1",
+        kind: "utility",
+        priority: 55,
+        data: { loyaltyAdjust: permanent.id, delta: 1 },
+      }
+    );
+  }
+  if (permanent.supportsStation) {
+    actions.push({
+      id: "station",
+      label: "Station",
+      kind: "utility",
+      priority: 54,
+      data: { permanentMechanic: "station", permanentId: permanent.id },
+    });
+  }
+  if (permanent.isMount || /\bSaddle\b/i.test(permanent.oracleText || "")) {
+    actions.push({
+      id: "saddle",
+      label: "Saddle",
+      kind: "utility",
+      priority: 53,
+      data: { permanentMechanic: "saddle", permanentId: permanent.id },
+    });
+  }
+  if (permanent.isVehicle || /\bCrew\b/i.test(permanent.oracleText || "")) {
+    actions.push({
+      id: "crew",
+      label: "Crew",
+      kind: "utility",
+      priority: 52,
+      data: { permanentMechanic: "crew", permanentId: permanent.id },
+    });
+  }
+  if (permanent.supportsMaxSpeed) {
+    actions.push({
+      id: "max-speed",
+      label: "Max Speed +1",
+      kind: "utility",
+      priority: 51,
+      data: { permanentMechanic: "max-speed", permanentId: permanent.id },
+    });
+  }
+  const commander = createSelectedCommanderWorkflow(permanent, session, { isLocal });
+  if (commander) {
+    actions.push({
+      id: "commander-tools",
+      label: "Commander",
+      kind: "primary",
+      priority: 95,
+      data: { openToolPanel: "commander" },
+    });
+    actions.push({
+      id: "commander-damage",
+      label: "Damage",
+      kind: "utility",
+      priority: 66,
+      data: { openCommanderQuick: true },
+    });
+    if (commander.castAvailable) {
+      actions.push({
+        id: "cast-commander",
+        label: "Cast",
+        kind: "primary",
+        priority: 92,
+        data: { castCommander: true },
+      });
+    }
+  }
+  if (!(permanent.isLand || lane === "lands")) {
+    actions.push(
+      {
+        id: "sacrifice",
+        label: "Sacrifice",
+        kind: "danger",
+        priority: 28,
+        data: { selectedAction: "sacrifice" },
+      },
+      {
+        id: "exile",
+        label: "Exile",
+        kind: "danger",
+        priority: 24,
+        data: { selectedAction: "exile" },
+      },
+      {
+        id: "destroy",
+        label: "Destroy",
+        kind: "danger",
+        priority: 22,
+        danger: true,
+        data: { selectedAction: "destroy" },
+      }
+    );
+  }
+  actions.push({
+    id: "history",
+    label: "History",
+    kind: "utility",
+    priority: 44,
+    data: { openUtility: "history" },
+  });
+  actions.push({
+    id: "clear",
+    label: "Close",
+    kind: "utility",
+    priority: 4,
+    data: { selectedAction: "clear" },
+  });
+  return finalizeInteractionModel(permanent, {
+    lane,
+    isLocal,
+    controller,
+    owner,
+    publicOnly: false,
+    statusChips,
+    actions,
+    commander,
+  });
+}
+
+export function createTriggerWorkflowGroups(triggerQueue = []) {
+  const pending = (triggerQueue || []).filter((entry) => !["resolved", "skipped", "ignored"].includes(entry.status));
+  const groups = new Map();
+  pending.forEach((entry) => {
+    const optional = Boolean(entry.optional || entry.may);
+    const key = [
+      entry.sourceName || entry.sourceId || "Unknown source",
+      entry.eventType || entry.triggerType || entry.name || "trigger",
+      optional ? "optional" : "required",
+    ].join("|");
+    const group = groups.get(key) || {
+      groupId: `trigger-group:${key}`,
+      sourceName: entry.sourceName || entry.sourceId || "Unknown source",
+      eventType: entry.eventType || entry.triggerType || entry.name || "trigger",
+      optional,
+      required: !optional,
+      status: entry.status || "pending",
+      count: 0,
+      triggerIds: [],
+      summary: "",
+    };
+    group.count += 1;
+    group.triggerIds.push(entry.id || `${key}:${group.count}`);
+    groups.set(key, group);
+  });
+  return [...groups.values()].map((group) => ({
+    ...group,
+    summary: `${group.count} ${group.optional ? "optional" : "required"} ${group.eventType} trigger${group.count === 1 ? "" : "s"} from ${group.sourceName}`,
+    canResolveAll: group.required || group.count > 1,
+  }));
+}
+
+export function createPriorityFlowModel(commandCenter = {}, perspective = {}) {
+  const stackCount = (commandCenter.stackObjects || []).length;
+  const choiceCount = (commandCenter.pendingChoices || []).length;
+  const localCanAct = Boolean(commandCenter.localCanAct);
+  const hasMeaningfulChoice = localCanAct || stackCount > 0 || choiceCount > 0;
+  return {
+    state: localCanAct ? "local-action-required" : stackCount ? "stack-window" : choiceCount ? "choice-required" : "quiet",
+    shouldInterrupt: localCanAct || choiceCount > 0,
+    compactWhenIdle: true,
+    holderId: commandCenter.priorityHolderId || perspective.promptOwnership?.priority?.ownerPlayerId || "",
+    holderName: commandCenter.priorityHolderName || "",
+    activePlayerId: commandCenter.activePlayerId || perspective.promptOwnership?.activePlayerId || "",
+    stackCount,
+    choiceCount,
+    actions: hasMeaningfulChoice
+      ? [
+          ...(localCanAct ? [
+            { id: "pass-priority", label: "Pass", kind: "primary", data: { passPriority: true } },
+            { id: "respond-stack", label: "Respond", kind: "primary", data: { respondStack: true } },
+          ] : []),
+          ...(stackCount ? [{ id: "open-stack", label: "Stack", kind: "utility", data: { openUtility: "stack" } }] : []),
+        ]
+      : [],
+  };
+}
+
+export function createSearchWorkflowModel(session = {}) {
+  const selectedCount = (session.selectedIds || []).length;
+  return {
+    mode: "battlefield-overlay",
+    preservesBattlefield: true,
+    maintainsKeyboardFocus: true,
+    selectedCount,
+    scopes: Object.freeze([
+      "Oracle",
+      "Scryfall",
+      "Deck",
+      "Battlefield",
+      "History",
+      "Stack",
+      "Graveyards",
+      "Exile",
+      "Libraries",
+      "Players",
+      "Recent",
+      "Favorites",
+    ]),
+    primaryAction: { id: "open-search", label: "Search", data: { openUtility: "search" } },
+  };
+}
+
+function finalizeInteractionModel(permanent = {}, model = {}) {
+  const actions = (model.actions || [])
+    .filter((action) => action?.id && action.label)
+    .sort((left, right) => Number(right.priority || 0) - Number(left.priority || 0));
+  return {
+    active: true,
+    permanentId: permanent.id,
+    title: permanent.name || "Selected permanent",
+    typeLine: permanent.typeLine || "",
+    lane: model.lane || getPermanentLaneKey(permanent),
+    isLocal: Boolean(model.isLocal),
+    publicOnly: Boolean(model.publicOnly),
+    controller: model.controller || permanent.controller || "",
+    owner: model.owner || permanent.owner || "",
+    statusChips: model.statusChips || [],
+    commander: model.commander || null,
+    actions,
+    primaryActions: actions.filter((action) => action.kind === "primary").slice(0, 5),
+    utilityActions: actions.filter((action) => action.kind === "utility").slice(0, 6),
+    dangerActions: actions.filter((action) => action.kind === "danger").slice(0, 4),
+  };
+}
+
+function createSelectedCommanderWorkflow(permanent = {}, session = {}, options = {}) {
+  const isCommander = Boolean(permanent.isCommander || permanent.commanderId || permanent.metadata?.commanderId || getPermanentLaneKey(permanent) === "commanders");
+  if (!isCommander) {
+    return null;
+  }
+  const runtimeCommander = session.commander || {};
+  const sameRuntimeCommander =
+    runtimeCommander.name &&
+    (runtimeCommander.cardId === permanent.id || runtimeCommander.name === permanent.name || permanent.commanderId === runtimeCommander.cardId);
+  const zone = permanent.zone || (sameRuntimeCommander ? runtimeCommander.zone : "") || "battlefield";
+  const tax = Number(permanent.commanderTax ?? permanent.metadata?.commanderTax ?? (sameRuntimeCommander ? runtimeCommander.commanderTax : 0) ?? 0);
+  const castCount = Number(permanent.castCount ?? permanent.metadata?.castCount ?? (sameRuntimeCommander ? runtimeCommander.castCount : 0) ?? 0);
+  return {
+    commanderId: permanent.commanderId || permanent.metadata?.commanderId || runtimeCommander.cardId || permanent.id,
+    name: permanent.name || runtimeCommander.name || "Commander",
+    zone,
+    tax,
+    castCount,
+    castAvailable: Boolean(options.isLocal && sameRuntimeCommander && ["command", "command-zone", "none"].includes(String(zone || "").toLowerCase())),
+    damageByOpponent: clonePlain(permanent.damageByOpponent || runtimeCommander.damageByOpponent || {}),
+    tags: [
+      permanent.isPartner || /\bpartner\b/i.test(permanent.oracleText || "") ? "Partner" : "",
+      /\bchoose a background\b/i.test(permanent.oracleText || "") ? "Background" : "",
+      /\bdoctor's companion\b/i.test(permanent.oracleText || "") ? "Doctor" : "",
+      permanent.isCompanion || /\bcompanion\b/i.test(permanent.oracleText || "") ? "Companion" : "",
+    ].filter(Boolean),
+  };
+}
+
+function createActiveWorkflowModel(session = {}, commandCenter = {}, perspective = {}) {
+  const activeEffects = (session.pendingEffects || commandCenter.pendingChoices || [])
+    .filter((entry) => !["resolved", "skipped", "ignored"].includes(entry.status));
+  if (!activeEffects.length) {
+    return {
+      active: false,
+      stepLabel: "",
+      reason: "",
+      nextActionLabel: "",
+      actions: [],
+    };
+  }
+  const current = activeEffects[0] || {};
+  const source = current.sourceName || current.sourceId || current.stackObjectId || "Pending effect";
+  const choiceKind = current.effect?.choiceKind || current.choiceKind || current.kind || "choice";
+  return {
+    active: true,
+    stepLabel: `Choice 1 of ${activeEffects.length}`,
+    reason: current.reason || `${source} needs ${choiceKind}.`,
+    source,
+    choiceKind,
+    ownerPlayerId: current.playerId || current.ownerPlayerId || perspective.localPlayerId || "",
+    nextActionLabel: "Open choice",
+    actions: [
+      { id: "open-manual-choice", label: "Open choice", kind: "primary", data: { openUtility: "triggers" } },
+      { id: "inspect-stack", label: "Inspect stack", kind: "utility", data: { openUtility: "stack" } },
+    ],
+  };
+}
+
+function buildGameplayFlowSummary({ selected, triggerGroups, priority, workflow } = {}) {
+  const pieces = [];
+  if (selected?.active) pieces.push(`Selected ${selected.title}`);
+  if (priority?.shouldInterrupt) pieces.push(priority.state);
+  if (triggerGroups?.length) pieces.push(`${triggerGroups.length} trigger group${triggerGroups.length === 1 ? "" : "s"}`);
+  if (workflow?.active) pieces.push(workflow.stepLabel);
+  return pieces.join(". ") || "Battlefield ready";
+}
+
 export function createSelectedCardDetails(session = {}, options = {}) {
   const selectedIds = options.selectedIds instanceof Set ? options.selectedIds : new Set(session.selectedIds || []);
   const allPermanents = [
-    ...(options.localBoard?.allPermanents || []),
-    ...(options.opponentBoard?.allPermanents || []),
     ...(session.battlefield?.player || []),
     ...(session.battlefield?.opponent || []),
+    ...(options.localBoard?.allPermanents || []),
+    ...(options.opponentBoard?.allPermanents || []),
   ];
   const selectedPermanent = allPermanents.find((permanent) => selectedIds.has(permanent.id));
   if (selectedPermanent) {
+    const localIds = new Set((options.localBoard?.allPermanents || session.battlefield?.player || []).map((permanent) => permanent.id));
+    const opponentIds = new Set((options.opponentBoard?.allPermanents || session.battlefield?.opponent || []).map((permanent) => permanent.id));
     const presentation = createPermanentPresentation(selectedPermanent, { selected: true });
+    const publicOnly = opponentIds.has(presentation.id) || (!localIds.has(presentation.id) && presentation.controller === "opponent");
     return {
       mode: "selected-card",
       card: presentation,
@@ -600,7 +1080,7 @@ export function createSelectedCardDetails(session = {}, options = {}) {
       controller: presentation.relationshipsSummary.controller,
       powerToughness: presentation.powerToughness,
       statuses: presentation.statusLabels,
-      publicOnly: Boolean(presentation.publicOnly || presentation.controller === "opponent"),
+      publicOnly: Boolean(publicOnly),
     };
   }
   const stackTop = (session.stack || [])[0] || (options.stackContext?.objects || [])[0] || null;

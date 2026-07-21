@@ -3,12 +3,16 @@ import assert from "node:assert/strict";
 
 import { createDefaultProfile, createPermanent } from "../src/state/schema.js";
 import {
+  GAMEPLAY_FLOW_VERSION,
   LANDSCAPE_BATTLEFIELD_REGIONS,
   LANDSCAPE_BATTLEFIELD_VERSION,
   createBattlefieldCameraModel,
   createLandscapeBattlefieldModel,
   createOpponentCarouselModel,
+  createPermanentInteractionModel,
+  createPriorityFlowModel,
   createSelectedCardDetails,
+  createTriggerWorkflowGroups,
   createTokenStacks,
   getPermanentLaneKey,
   organizePermanentsByLane,
@@ -97,9 +101,59 @@ test("landscape model exposes permanent Commander battlefield regions without ch
   assert.equal(model.commandCenter.phaseLabel, "Combat");
   assert.equal(model.commandCenter.stackObjects.length, 1);
   assert.equal(model.commandCenter.triggerQueue.length, 1);
+  assert.equal(model.gameplayFlow.version, GAMEPLAY_FLOW_VERSION);
+  assert.equal(model.gameplayFlow.mode, "contextual-commander-gameplay");
   assert.equal(model.contextActions.some((entry) => entry.status !== "available"), false);
   assert.deepEqual(model.contextActions.map((entry) => entry.id), ["search", "stack", "triggers", "history", "display", "settings"]);
   assert.equal(model.accessibility.touchTargetMinimumPx, 44);
+});
+
+test("gameplay flow exposes only contextual actions for the selected permanent", () => {
+  const profile = createLandscapeProfile();
+  const model = createLandscapeBattlefieldModel(profile, { viewport: "desktop" });
+  const selected = model.gameplayFlow.selected;
+  assert.equal(selected.active, true);
+  assert.equal(selected.title, "Astra, Dawn Marshal");
+  assert.equal(selected.commander.tax, 2);
+  assert.ok(selected.primaryActions.some((action) => action.id === "commander-tools"));
+  assert.ok(selected.primaryActions.some((action) => action.id === "declare-attacker"));
+  assert.ok(selected.utilityActions.some((action) => action.id === "commander-damage"));
+  assert.ok(selected.dangerActions.some((action) => action.id === "destroy"));
+});
+
+test("land selections stay low-friction and do not expose creature-only actions", () => {
+  const profile = createLandscapeProfile();
+  profile.activeSession.selectedIds = ["local-land"];
+  const model = createLandscapeBattlefieldModel(profile, { viewport: "desktop" });
+  const actionIds = model.gameplayFlow.selected.actions.map((action) => action.id);
+  assert.ok(actionIds.includes("tap-for-mana"));
+  assert.ok(actionIds.includes("add-matching-land"));
+  assert.equal(actionIds.includes("declare-attacker"), false);
+  assert.equal(actionIds.includes("destroy"), false);
+});
+
+test("opponent permanent selection is public inspection only", () => {
+  const permanent = createPermanent({ id: "op-creature", name: "Dragon Whelp", typeLine: "Creature - Dragon", controller: "opponent", publicOnly: true });
+  const interaction = createPermanentInteractionModel(permanent, createLandscapeProfile().activeSession, {
+    localBoard: { playerId: "local-player" },
+    perspective: { localPlayerId: "local-player" },
+  });
+  assert.equal(interaction.publicOnly, true);
+  assert.deepEqual(interaction.actions.map((action) => action.id), ["inspect"]);
+});
+
+test("trigger and priority workflows group Commander complexity without creating dead actions", () => {
+  const groups = createTriggerWorkflowGroups([
+    { id: "a", sourceName: "Soul Warden", eventType: "enter", status: "pending", optional: true },
+    { id: "b", sourceName: "Soul Warden", eventType: "enter", status: "pending", optional: true },
+    { id: "c", sourceName: "Cathars' Crusade", eventType: "enter", status: "resolved" },
+  ]);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].count, 2);
+  assert.equal(groups[0].optional, true);
+  const priority = createPriorityFlowModel({ localCanAct: true, stackObjects: [{ id: "spell-1" }], pendingChoices: [] });
+  assert.equal(priority.shouldInterrupt, true);
+  assert.deepEqual(priority.actions.map((action) => action.id), ["pass-priority", "respond-stack", "open-stack"]);
 });
 
 test("battlefield lanes organize Commander permanents by gameplay role", () => {

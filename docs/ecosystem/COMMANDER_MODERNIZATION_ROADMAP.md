@@ -57,30 +57,37 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - `src/styles.css` keeps the Prompt 5.5 battlefield dominant while adding compact carousel presentation and contextual stack/combat collapse behavior.
 - The camera foundation records focus targets for selected permanents, stack, priority, combat, Commander status, crowded boards, and active player following without implementing the later animation overhaul.
 
+### Prompt 7: AAA Gameplay Flow And Commander Interaction
+
+- `src/ui/landscapeBattlefield.js` adds the contextual gameplay-flow presentation model over the existing session, perspective, command center, reducer actions, and rules-engine paths.
+- `src/ui/render.js` replaces the fixed selected-permanent action panel with a compact gameplay context dock. Permanent tile buttons now appear only when a local permanent is selected.
+- Selected lands, creatures, commanders, planeswalkers, mechanics, triggers, priority windows, and pending choices expose only currently wired actions. Opponent permanents remain public-inspection only.
+- Trigger groups, priority controls, Commander workflow shortcuts, and selected-card context keep gameplay on the battlefield without adding a second action engine.
+
 ## Remaining Roadmap
 
-### Prompt 7: Full Control And Live Tracking Convergence
+### Prompt 8: Full Control And Live Tracking Convergence
 
 - Implement Full Control and Live Tracking as two input models over the same authoritative rules engine, canonical game state, event stream, save system, sync foundation, and replay/explanation foundation.
 - Live Tracking accepts physical-table-reported actions with honest unknowns and confidence indicators.
 - Full Control accepts direct digital card and zone manipulation through rules-engine legal action paths.
 - Do not create separate engines or duplicate state authorities.
 
-### Prompt 8: Question System
+### Prompt 9: Question System
 
 - Add the permanent battlefield question control for What, Who, When, Where, Why, How, and What If.
 - Answer using the authoritative rules engine and Event Knowledge Engine rather than a disconnected explanation engine.
 - Allow selection of cards, permanents, players, life totals, counters, commanders, statuses, zones, stack objects, triggers, game events, and battlefield states.
 - Route What If through Dry Run/simulation forks without mutating the live authoritative session.
 
-### Prompt 9: Remind Me And Timeline Experience
+### Prompt 10: Remind Me And Timeline Experience
 
 - Unify game history, change notifications, action summaries, relationship visualization, turn timeline, and replay under one Remind Me system.
 - Add quick reminders, live battlefield replay, relationship explanations, and phase/turn timeline inspection.
 - Reuse existing event history, replay state, effect logs, tutorial explanations, and saves.
 - Ensure replay always returns safely to the current synchronized state.
 
-### Prompt 10: Confidence, Rules Recovery And Rule Amendments
+### Prompt 11: Confidence, Rules Recovery And Rule Amendments
 
 - Add Rules Recovery for official rules text, Gatherer rulings, release notes, Oracle text, Scryfall Oracle/rulings, trusted judge references, and table interpretations.
 - Preserve imported source text as non-executable plain text and map it only through constrained approved rule operations.
@@ -88,32 +95,32 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - Require unanimous approval from every player before any proposed interpretation, local rule patch, waiver of an interaction, or amendment alters synchronized game state.
 - Record every proposal, vote, rejection, revision, accepted amendment, and recovery action in immutable event history.
 
-### Prompt 11: AI Integration
+### Prompt 12: AI Integration
 
 - Route AI decisions through the same canonical session, rules engine, state engine, Event Knowledge Engine, action pipeline, and confidence model as human decisions.
 - Preserve existing Dry Run, simulation, NPC decks, deterministic learning, and tutorial behavior.
 - Do not allow AI to waive rules or bypass legality.
 
-### Prompt 12: Hub, Lite And Deck Nexus Interoperability
+### Prompt 13: Hub, Lite And Deck Nexus Interoperability
 
 - Harden BoardState boundaries for future Hub coordination of profiles, friends, invitations, tournaments, notifications, app links, backups, shared local vaults, active session discovery, spectators, and ecosystem navigation.
 - Keep BoardState authoritative for rules, sessions, priority, stack, triggers, replacement effects, continuous effects, layers, legality, combat, state-based actions, Full Control, Live Tracking authority, Dry Runs, simulations, tutorials, replay truth, and game-history causation.
 - Finalize import/export manifests, capability negotiation, launch/return contexts, roles, permissions, offline capability reporting, backup manifests, and compatibility reports.
 - Do not claim live Hub, BoardState Lite, or Deck Nexus integration until those applications implement and verify their counterpart workflows.
 
-### Prompt 13: Performance And Accessibility
+### Prompt 14: Performance And Accessibility
 
 - Audit large Commander board states, ten-player session metadata, opponent carousel projection, event history growth, replay memory, reduced-motion behavior, keyboard/screen-reader access, and mobile landscape constraints.
 - Preserve deterministic rules performance and avoid rendering all opponent battlefields simultaneously.
 - Keep accessibility settings safe and compatible with existing Helper Sprite and tutorial flows.
 
-### Prompt 14: Visual Polish And Animation
+### Prompt 15: Visual Polish And Animation
 
 - Add restrained cinematic feedback for commander casting, permanents entering/leaving, tapping, combat, targeting, attachments, counters, token creation, life changes, stack movement, zone movement, and carousel rotation.
 - Preserve BoardState artwork, wallpapers, color palette, gold accents, cosmic tribal aesthetic, and overall visual language.
 - Respect reduced motion and performance settings.
 
-### Prompt 15: Final Production Audit
+### Final Production Audit
 
 - Audit source tree, contracts, rules engine, state engine, Event Knowledge Engine, battlefield, camera, Full Control, Live Tracking, Question System, Remind Me, Rules Recovery, AI, Hub/Lite/Nexus boundaries, performance, accessibility, saves, sync, deployment, package artifacts, privacy, and false integration claims.
 - Fix regressions before release.

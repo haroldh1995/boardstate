@@ -227,3 +227,13 @@ The renderer uses `src/ui/render.js` to show one focused public opponent battlef
 The command center now uses game-state-aware HUD metadata so idle stack, trigger, priority, and combat surfaces collapse until relevant. Selected permanents, stack objects, priority decisions, combat, Commander status, crowded boards, and active-player following are ordered through the camera foundation for later animation work.
 
 No hidden zones, private opponent information, fake Hub/Lite/Nexus linkage, duplicate rules engine, duplicate State Engine, second save format, or visual identity replacement was introduced.
+
+## Prompt 7 Gameplay Flow And Commander Interaction
+
+Prompt 7 finishes the first gameplay-flow modernization pass over the existing battlefield. `src/ui/landscapeBattlefield.js` now derives a contextual gameplay-flow model for selected permanents, Commander shortcuts, grouped triggers, priority windows, pending choices, and battlefield search workflow without introducing a second action system or alternate gameplay authority.
+
+`src/ui/render.js` now uses a compact gameplay context dock instead of the previous fixed selected-permanent action menu. Permanent tile actions are hidden until the permanent is selected, so cards remain the primary surface and gameplay controls appear only when relevant.
+
+Local lands expose tap/mana and copy actions. Local creatures expose attack, tap, counters, trigger, inspect, and safe zone-change actions through existing reducer dispatch hooks. Commanders expose tax, cast count, Commander damage access, and Commander tools through existing Commander controls. Opponent permanents remain public-inspection only and do not expose hidden information or unauthorized actions.
+
+Trigger queues are grouped for Commander-scale readability, priority controls interrupt only when the local user has a meaningful priority window or pending choice, and manual choices continue to route to the existing trigger/manual-choice surfaces. No animation overhaul, Question UI, Remind Me UI, AI panel redesign, fake Hub/Lite/Nexus integration, rules-engine replacement, State Engine fork, save-format fork, or visual identity replacement was introduced.

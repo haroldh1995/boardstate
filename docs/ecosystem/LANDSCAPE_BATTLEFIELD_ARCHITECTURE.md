@@ -90,6 +90,19 @@ Prompt 6 extends the same non-authoritative battlefield model with intelligent p
 
 The intelligent battlefield remains presentation-only. It does not mutate game state, replace the rules engine, duplicate State Engine state, create a new save format, claim future camera animation work, or expose hidden opponent information.
 
+## Prompt 7 Gameplay Flow
+
+Prompt 7 keeps gameplay on the battlefield by promoting selected permanents, triggers, priority, and pending choices into one contextual Commander workflow:
+
+- `src/ui/landscapeBattlefield.js` exposes `GAMEPLAY_FLOW_VERSION`, `createGameplayFlowModel()`, `createPermanentInteractionModel()`, `createTriggerWorkflowGroups()`, `createPriorityFlowModel()`, and `createSearchWorkflowModel()`.
+- The gameplay flow remains UI-only and consumes the existing session, perspective projection, command center, reducer actions, and rules-engine paths.
+- `src/ui/render.js` replaces the fixed selected-permanent action panel with a compact contextual dock. Permanent surface buttons only appear on selected local permanents.
+- Selected lands expose mana/tap and copy actions without creature-only controls. Selected creatures expose attack, tap, counter, trigger, inspect, and zone-change actions through existing dispatch hooks. Opponent permanents expose public inspection only.
+- Commander permanents surface Commander status, tax, cast count, damage access, and Commander tools without creating a separate Commander workflow engine.
+- Trigger queues are grouped for readability, priority controls expand only when a meaningful window exists, and manual choices point back to the existing trigger/manual-choice tools.
+
+Prompt 7 does not add animation, spectator mode, the Question UI, the Remind Me UI, AI interface redesign, fake Hub/Lite/Nexus status, or a second action system.
+
 ## Deferred Work
 
-Prompt 6 does not implement the animation overhaul, particle effects, spectator mode, visual replay UI, Question UI, Remind Me UI, sound, haptics, or AI battlefield interface. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.
+The battlefield and gameplay-flow prompts do not implement the animation overhaul, particle effects, spectator mode, visual replay UI, Question UI, Remind Me UI, sound, haptics, or AI battlefield interface. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.
