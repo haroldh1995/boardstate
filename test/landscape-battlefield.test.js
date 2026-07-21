@@ -3,10 +3,14 @@ import assert from "node:assert/strict";
 
 import { createDefaultProfile, createPermanent } from "../src/state/schema.js";
 import {
+  BATTLEFIELD_MOTION_VERSION,
   GAMEPLAY_FLOW_VERSION,
   LANDSCAPE_BATTLEFIELD_REGIONS,
   LANDSCAPE_BATTLEFIELD_VERSION,
   createBattlefieldCameraModel,
+  createBattlefieldMotionModel,
+  createCameraTransitionPlan,
+  createCardMotionEvents,
   createLandscapeBattlefieldModel,
   createOpponentCarouselModel,
   createPermanentInteractionModel,
@@ -16,6 +20,7 @@ import {
   createTokenStacks,
   getPermanentLaneKey,
   organizePermanentsByLane,
+  resolveMotionPreferences,
 } from "../src/ui/landscapeBattlefield.js";
 import { createCommanderPlayers, createCommanderTestSession } from "./fixtures/commanderSessionFixtures.js";
 
@@ -298,4 +303,101 @@ test("camera focus priority is deterministic and selected permanents outrank sta
   });
   assert.equal(camera.activeFocus.kind, "stack-object");
   assert.equal(camera.deterministicPriority, true);
+});
+
+test("battlefield motion model adds premium presentation without becoming gameplay authority", () => {
+  const profile = createLandscapeProfile();
+  const model = createLandscapeBattlefieldModel(profile, { viewport: "desktop" });
+  assert.equal(model.motion.version, BATTLEFIELD_MOTION_VERSION);
+  assert.equal(model.motion.policy, "animation-as-communication");
+  assert.equal(model.motion.intensity, "full");
+  assert.equal(model.motion.cameraPlan.focusKind, "selected-permanent");
+  assert.equal(model.motion.cameraPlan.transition, "focus-lift");
+  assert.ok(model.motion.cardEvents.some((event) => event.kind === "commander-entering"));
+  assert.ok(model.motion.cardEvents.some((event) => event.kind === "stack-resolve"));
+  assert.ok(model.motion.cardEvents.some((event) => event.kind === "trigger-chain"));
+  assert.equal(model.motion.integration.mutatesGameState, false);
+  assert.equal(model.motion.integration.savePersistence, "excluded-transient-presentation");
+});
+
+test("motion preferences honor reduced motion while preserving essential gameplay feedback", () => {
+  assert.deepEqual(resolveMotionPreferences({ disableMotion: true }), {
+    intensity: "none",
+    durationScale: 0,
+    ambientEnabled: false,
+    nonEssentialEnabled: false,
+  });
+  const profile = createLandscapeProfile();
+  const model = createLandscapeBattlefieldModel(profile, {
+    viewport: "desktop",
+    motionPreferences: { reducedMotion: true },
+  });
+  assert.equal(model.motion.intensity, "reduced");
+  assert.equal(model.motion.reducedMotionHonored, true);
+  assert.equal(model.motion.essentialInformationPreservedWhenReduced, true);
+  assert.equal(model.motion.visualFeedback.informationPreserved, true);
+  assert.equal(model.motion.performance.nonEssentialAmbientDisabled, true);
+});
+
+test("camera transition plan handles stack, commander, combat, and crowded-board focus deterministically", () => {
+  const stackPlan = createCameraTransitionPlan({
+    camera: {
+      deterministicPriority: true,
+      activeFocus: { kind: "stack-object", priority: 90, targetId: "spell-1", label: "Spell" },
+    },
+    commandCenter: { stackObjects: [{ id: "spell-1" }, { id: "copy-1" }] },
+  });
+  assert.equal(stackPlan.transition, "stack-rise");
+  assert.equal(stackPlan.deterministic, true);
+
+  const noMotionPlan = createCameraTransitionPlan({
+    camera: { activeFocus: { kind: "commander-status", priority: 70, targetId: "cmdr", label: "Commander" } },
+    intensity: "none",
+  });
+  assert.equal(noMotionPlan.transition, "instant-focus");
+  assert.equal(noMotionPlan.durationMs, 0);
+
+  const tokenPlan = createCameraTransitionPlan({
+    camera: { activeFocus: { kind: "major-battlefield-change", priority: 62, targetId: "player-a" } },
+    intelligence: { conditions: { highTokenCount: true } },
+  });
+  assert.equal(tokenPlan.transition, "token-field-settle");
+});
+
+test("card motion events cover stack, trigger chains, choices, token grouping, and lane reflow", () => {
+  const profile = createLandscapeProfile();
+  profile.activeSession.battlefield.player.push(
+    ...Array.from({ length: 8 }, (_, index) =>
+      createPermanent({ id: `artifact-${index}`, name: `Mana Rock ${index + 1}`, typeLine: "Artifact" })
+    )
+  );
+  const baseModel = createLandscapeBattlefieldModel(profile, { viewport: "desktop" });
+  const events = createCardMotionEvents({
+    session: profile.activeSession,
+    commandCenter: baseModel.commandCenter,
+    selectedCard: baseModel.commandCenter.selectedCard,
+    localBoard: baseModel.localBattlefield,
+    opponentBoard: baseModel.opponentBattlefield,
+  });
+  const kinds = events.map((event) => event.kind);
+  assert.ok(kinds.includes("commander-entering"));
+  assert.ok(kinds.includes("stack-resolve"));
+  assert.ok(kinds.includes("trigger-chain"));
+  assert.ok(kinds.includes("priority-change"));
+  assert.ok(kinds.includes("token-expand"));
+  assert.ok(kinds.includes("permanent-reorder"));
+
+  const directModel = createBattlefieldMotionModel({
+    session: profile.activeSession,
+    commandCenter: baseModel.commandCenter,
+    selectedCard: baseModel.commandCenter.selectedCard,
+    localBoard: baseModel.localBattlefield,
+    opponentBoard: baseModel.opponentBattlefield,
+    camera: baseModel.camera,
+    intelligence: baseModel.intelligence,
+    gameplayFlow: baseModel.gameplayFlow,
+  });
+  assert.equal(directModel.hudMotion.state, "contextual-active");
+  assert.equal(directModel.hudMotion.motionBudget, "cinematic");
+  assert.equal(directModel.performance.transformAndOpacityOnly, true);
 });

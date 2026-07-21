@@ -237,3 +237,13 @@ Prompt 7 finishes the first gameplay-flow modernization pass over the existing b
 Local lands expose tap/mana and copy actions. Local creatures expose attack, tap, counters, trigger, inspect, and safe zone-change actions through existing reducer dispatch hooks. Commanders expose tax, cast count, Commander damage access, and Commander tools through existing Commander controls. Opponent permanents remain public-inspection only and do not expose hidden information or unauthorized actions.
 
 Trigger queues are grouped for Commander-scale readability, priority controls interrupt only when the local user has a meaningful priority window or pending choice, and manual choices continue to route to the existing trigger/manual-choice surfaces. No animation overhaul, Question UI, Remind Me UI, AI panel redesign, fake Hub/Lite/Nexus integration, rules-engine replacement, State Engine fork, save-format fork, or visual identity replacement was introduced.
+
+## Prompt 8 Motion, Camera And Premium Presentation
+
+Prompt 8 modernizes battlefield motion without changing gameplay authority. `src/ui/landscapeBattlefield.js` now derives a presentation-only motion model, camera transition plan, HUD motion plan, card motion events, and reduced-motion preferences from the existing session, perspective projection, command center, intelligence model, and gameplay-flow model.
+
+`src/ui/render.js` exposes motion metadata through `data-motion-*` attributes and motion classes on the battlefield page, arena camera stage, command center, stack, card inspector, opponent carousel, contextual gameplay dock, card presentation overlay, and permanent tiles. These attributes are UI-only and do not become persistence, sync, rules, or state authority.
+
+`src/styles.css` adds restrained BoardState-native motion for camera settling, selected-card lift, Commander radiance, combat emphasis, blocker bracing, legal-target glow, invalid-target feedback, token stack depth, stack focus, notifications, contextual docks, and compact button/touch feedback. Reduced-motion settings and the system `prefers-reduced-motion` preference disable nonessential animation while preserving gameplay information.
+
+Prompt 8 does not implement particle systems, sound, haptics, spectator mode, visual replay UI, Question UI, Remind Me UI, Hub features, BoardState Lite features, Deck Nexus features, rules-engine replacement, State Engine fork, or persistent animation state.

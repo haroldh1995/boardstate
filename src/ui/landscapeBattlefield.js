@@ -2,10 +2,11 @@ import { PHASES } from "../state/schema.js";
 import { buildAdvancedMultiplayerPerspective } from "../shared-session/perspective.js";
 import { clonePlain } from "../shared-contracts/index.js";
 
-export const LANDSCAPE_BATTLEFIELD_VERSION = "boardstate-landscape-battlefield-0.4.0";
+export const LANDSCAPE_BATTLEFIELD_VERSION = "boardstate-landscape-battlefield-0.5.0";
 export const BATTLEFIELD_INTELLIGENCE_VERSION = "boardstate-battlefield-intelligence-0.1.0";
-export const BATTLEFIELD_CAMERA_VERSION = "boardstate-camera-foundation-0.1.0";
+export const BATTLEFIELD_CAMERA_VERSION = "boardstate-camera-foundation-0.2.0";
 export const GAMEPLAY_FLOW_VERSION = "boardstate-gameplay-flow-0.1.0";
+export const BATTLEFIELD_MOTION_VERSION = "boardstate-battlefield-motion-0.1.0";
 
 export const LANDSCAPE_BATTLEFIELD_REGIONS = Object.freeze([
   "global-info",
@@ -65,6 +66,51 @@ export const CONTEXTUAL_HUD_STATES = Object.freeze([
   "collapsed",
   "hidden",
 ]);
+
+export const MOTION_EVENT_KINDS = Object.freeze([
+  "draw",
+  "cast",
+  "resolve",
+  "counter",
+  "destroy",
+  "exile",
+  "return",
+  "bounce",
+  "mill",
+  "discard",
+  "reveal",
+  "shuffle",
+  "create-token",
+  "copy",
+  "transform",
+  "flip",
+  "meld",
+  "mutate",
+  "equip",
+  "attach-aura",
+  "untap",
+  "tap",
+  "phasing",
+  "blink",
+  "commander-entering",
+  "commander-returning",
+  "commander-tax-change",
+  "life-change",
+  "commander-damage",
+  "priority-change",
+  "trigger-chain",
+  "board-wipe",
+  "player-elimination",
+  "winning-moment",
+  "permanent-reorder",
+  "token-group",
+  "token-expand",
+  "stack-grow",
+  "stack-resolve",
+  "replacement-effect",
+]);
+
+export const MOTION_INTENSITY_LEVELS = Object.freeze(["full", "reduced", "minimal", "none"]);
 
 const KEYWORD_STATUS_LABELS = Object.freeze([
   "Flying",
@@ -164,6 +210,22 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
     opponentCarousel,
     intelligence,
   });
+  const motion = createBattlefieldMotionModel({
+    session,
+    perspective,
+    localBoard,
+    opponentBoard,
+    commandCenter,
+    selectedCard,
+    camera,
+    intelligence,
+    gameplayFlow,
+    preferences: {
+      ...(profile.settings?.battlefield || {}),
+      ...(profile.settings?.accessibility || {}),
+      ...(options.motionPreferences || {}),
+    },
+  });
   return {
     version: LANDSCAPE_BATTLEFIELD_VERSION,
     orientation: "landscape-first",
@@ -181,6 +243,7 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
     camera,
     intelligence,
     gameplayFlow,
+    motion,
     globalInfo: createGlobalInfoModel(session, perspective),
     opponentBattlefield: opponentBoard,
     commandCenter,
@@ -519,10 +582,280 @@ export function createBattlefieldCameraModel({
     activeFocus: focusQueue[0],
     focusQueue,
     deterministicPriority: true,
-    transitionPolicy: "stable-no-animation",
+    transitionPolicy: "intelligent-subtle-motion",
+    cinematicReady: true,
+    movement: {
+      deterministic: true,
+      maxDurationMs: 620,
+      easing: "boardstate-cinematic",
+      reducedMotionFallback: "instant-focus-and-highlight",
+      nonEssentialMotionCanDisable: true,
+    },
     preservesSynchronization: true,
     hiddenInformationPolicy: "public-projection-only",
     reducedMotionSafe: true,
+  };
+}
+
+export function createBattlefieldMotionModel({
+  session = {},
+  perspective = {},
+  localBoard = {},
+  opponentBoard = {},
+  commandCenter = {},
+  selectedCard = {},
+  camera = {},
+  intelligence = {},
+  gameplayFlow = {},
+  preferences = {},
+} = {}) {
+  const motionPreferences = resolveMotionPreferences(preferences);
+  const cameraPlan = createCameraTransitionPlan({
+    camera,
+    commandCenter,
+    intelligence,
+    session,
+    intensity: motionPreferences.intensity,
+  });
+  const cardEvents = createCardMotionEvents({
+    session,
+    commandCenter,
+    selectedCard,
+    localBoard,
+    opponentBoard,
+  });
+  const hudMotion = createHudMotionPlan({
+    commandCenter,
+    intelligence,
+    gameplayFlow,
+    cardEvents,
+    intensity: motionPreferences.intensity,
+  });
+  return {
+    version: BATTLEFIELD_MOTION_VERSION,
+    policy: "animation-as-communication",
+    intensity: motionPreferences.intensity,
+    durationScale: motionPreferences.durationScale,
+    reducedMotionHonored: true,
+    essentialInformationPreservedWhenReduced: true,
+    tokens: createMotionTokens(motionPreferences.durationScale),
+    cameraPlan,
+    cardEvents,
+    hudMotion,
+    visualFeedback: createVisualFeedbackPlan(commandCenter, selectedCard, gameplayFlow),
+    performance: {
+      transformAndOpacityOnly: true,
+      avoidsLayoutThrash: true,
+      avoidsPersistentParticleSystems: true,
+      nonEssentialAmbientDisabled: motionPreferences.intensity !== "full",
+      safeForLongCommanderGames: true,
+    },
+    integration: {
+      consumesRulesEngineStateOnly: true,
+      mutatesGameState: false,
+      savePersistence: "excluded-transient-presentation",
+      synchronizationAuthority: "none",
+    },
+  };
+}
+
+export function resolveMotionPreferences(preferences = {}) {
+  const requested = String(preferences.animationLevel || preferences.motionLevel || preferences.motionIntensity || "").toLowerCase();
+  const disabled =
+    preferences.disableAnimations ||
+    preferences.disableMotion ||
+    preferences.noMotion ||
+    requested === "off" ||
+    requested === "none";
+  const reduced =
+    preferences.reducedMotion ||
+    preferences.reduceMotion ||
+    preferences.motionReduced ||
+    preferences.performanceMode === "battery" ||
+    requested === "reduced";
+  const minimal =
+    preferences.disableNonEssentialAnimations ||
+    preferences.minimalMotion ||
+    requested === "minimal";
+  const intensity = disabled ? "none" : minimal ? "minimal" : reduced ? "reduced" : "full";
+  const durationScale = intensity === "none" ? 0 : intensity === "minimal" ? 0.22 : intensity === "reduced" ? 0.45 : 1;
+  return {
+    intensity,
+    durationScale,
+    ambientEnabled: intensity === "full",
+    nonEssentialEnabled: intensity === "full",
+  };
+}
+
+function createMotionTokens(durationScale = 1) {
+  const scaled = (ms) => Math.round(ms * Number(durationScale || 0));
+  return {
+    easing: {
+      standard: "cubic-bezier(0.2, 0.78, 0.18, 1)",
+      emphasis: "cubic-bezier(0.16, 1, 0.3, 1)",
+      settle: "cubic-bezier(0.22, 0.72, 0.24, 1)",
+    },
+    durations: {
+      micro: scaled(120),
+      quick: scaled(180),
+      standard: scaled(260),
+      emphasis: scaled(420),
+      cinematic: scaled(620),
+    },
+  };
+}
+
+export function createCameraTransitionPlan({
+  camera = {},
+  commandCenter = {},
+  intelligence = {},
+  session = {},
+  intensity = "full",
+} = {}) {
+  const focus = camera.activeFocus || { kind: "table", priority: CAMERA_FOCUS_PRIORITIES.tableDefault, targetId: "table", label: "Battlefield" };
+  const stackCount = (commandCenter.stackObjects || session.stack || []).length;
+  const triggerCount = (commandCenter.triggerQueue || session.triggerQueue || []).filter((entry) => !["resolved", "skipped", "ignored"].includes(entry.status)).length;
+  const noMotion = intensity === "none";
+  const transitionByFocus = {
+    "selected-permanent": "focus-lift",
+    "stack-object": stackCount > 1 ? "stack-rise" : "stack-focus",
+    "priority-decision": "priority-pulse",
+    combat: "combat-focus",
+    "commander-status": "commander-spotlight",
+    "major-battlefield-change": intelligence?.conditions?.highTokenCount ? "token-field-settle" : "battlefield-settle",
+    "active-player": "active-player-drift",
+    table: "table-breathe",
+  };
+  return {
+    focusKind: focus.kind || "table",
+    targetId: focus.targetId || "table",
+    label: focus.label || "Battlefield",
+    reason: focus.kind || "table",
+    transition: noMotion ? "instant-focus" : transitionByFocus[focus.kind] || "subtle-focus",
+    durationMs: noMotion ? 0 : focus.kind === "commander-status" ? 620 : focus.kind === "selected-permanent" ? 420 : 260,
+    priority: Number(focus.priority || 0),
+    stackCount,
+    triggerCount,
+    deterministic: Boolean(camera.deterministicPriority !== false),
+    neverJarring: true,
+    reducedMotionFallback: "instant-focus-and-highlight",
+  };
+}
+
+export function createCardMotionEvents({
+  session = {},
+  commandCenter = {},
+  selectedCard = {},
+  localBoard = {},
+  opponentBoard = {},
+} = {}) {
+  const events = [];
+  const stackObjects = commandCenter.stackObjects || session.stack || [];
+  const triggers = commandCenter.triggerQueue || session.triggerQueue || [];
+  const pendingChoices = commandCenter.pendingChoices || session.pendingEffects || [];
+  if (selectedCard.mode === "selected-card" && selectedCard.card?.id) {
+    events.push({
+      kind: selectedCard.card.isCommander ? "commander-entering" : "focus",
+      eventKey: `selected:${selectedCard.card.id}`,
+      targetId: selectedCard.card.id,
+      importance: selectedCard.card.isCommander ? "Critical" : "Normal",
+      essential: true,
+    });
+  }
+  stackObjects.slice(0, 12).forEach((entry, index) => {
+    events.push({
+      kind: index === 0 ? "stack-resolve" : "stack-grow",
+      eventKey: `stack:${entry.id || entry.stackObjectId || index}`,
+      targetId: entry.id || entry.stackObjectId || "",
+      importance: index === 0 ? "Major" : "Normal",
+      essential: true,
+    });
+  });
+  const activeTriggers = triggers.filter((entry) => !["resolved", "skipped", "ignored"].includes(entry.status));
+  if (activeTriggers.length) {
+    events.push({
+      kind: "trigger-chain",
+      eventKey: `triggers:${activeTriggers.length}`,
+      targetId: activeTriggers[0]?.id || "",
+      count: activeTriggers.length,
+      importance: activeTriggers.length >= 5 ? "Major" : "Normal",
+      essential: true,
+    });
+  }
+  if (pendingChoices.length) {
+    events.push({
+      kind: "priority-change",
+      eventKey: `choice:${pendingChoices[0]?.id || pendingChoices.length}`,
+      targetId: pendingChoices[0]?.id || "",
+      count: pendingChoices.length,
+      importance: "Major",
+      essential: true,
+    });
+  }
+  const boards = [localBoard, opponentBoard];
+  boards.forEach((board) => {
+    (board.lanes || []).forEach((lane) => {
+      if (lane.key === "tokens" && lane.tokenStacks?.length) {
+        events.push({
+          kind: lane.tokenIntelligence?.mode === "standard" ? "token-group" : "token-expand",
+          eventKey: `tokens:${board.playerId || board.role}:${lane.tokenIntelligence?.totalTokenCount || lane.count || 0}`,
+          targetId: board.playerId || board.role || "",
+          count: lane.tokenIntelligence?.totalTokenCount || lane.count || 0,
+          importance: Number(lane.tokenIntelligence?.totalTokenCount || 0) >= 10 ? "Major" : "Normal",
+          essential: false,
+        });
+      }
+      if (Number(lane.count || 0) >= 8 && lane.key !== "tokens") {
+        events.push({
+          kind: "permanent-reorder",
+          eventKey: `lane:${board.playerId || board.role}:${lane.key}:${lane.count}`,
+          targetId: board.playerId || board.role || "",
+          lane: lane.key,
+          count: lane.count,
+          importance: "Minor",
+          essential: false,
+        });
+      }
+    });
+  });
+  return events.filter((entry) => MOTION_EVENT_KINDS.includes(entry.kind) || entry.kind === "focus");
+}
+
+export function createHudMotionPlan({
+  commandCenter = {},
+  intelligence = {},
+  gameplayFlow = {},
+  cardEvents = [],
+  intensity = "full",
+} = {}) {
+  const hud = intelligence.contextualHud || {};
+  const activeSurfaces = Object.entries(hud)
+    .filter(([, state]) => ["expanded", "compact"].includes(state))
+    .map(([surface]) => surface);
+  return {
+    state: activeSurfaces.length ? "contextual-active" : "quiet",
+    activeSurfaces,
+    selectedCard: gameplayFlow.selected?.active ? "slide-inspect" : "idle",
+    stack: hud.stack === "expanded" ? "rise-and-focus" : "collapsed",
+    triggers: hud.triggers === "expanded" ? "group-and-pulse" : "collapsed",
+    priority: hud.priority === "expanded" ? "decision-pulse" : hud.priority === "compact" ? "compact-glow" : "collapsed",
+    notifications: (commandCenter.floatingNotifications || []).length ? "toast-slide" : "hidden",
+    motionBudget: intensity === "full" ? "cinematic" : intensity === "none" ? "instant" : "restrained",
+    essentialEventCount: cardEvents.filter((entry) => entry.essential).length,
+  };
+}
+
+function createVisualFeedbackPlan(commandCenter = {}, selectedCard = {}, gameplayFlow = {}) {
+  return {
+    legalActions: "gold-blue-lift",
+    illegalActions: "crimson-static-warning",
+    selectedObjects: selectedCard.mode === "selected-card" ? "selected-card-lift-and-ring" : "available-on-selection",
+    targets: "valid-invalid-target-rings",
+    priority: commandCenter.localCanAct ? "priority-pulse" : "compact-priority-status",
+    combat: isCombatRelevant(commandCenter.combat, commandCenter.phaseLabel) ? "attack-block-lane-emphasis" : "quiet",
+    commander: gameplayFlow.commander ? "commander-radiance" : "standard",
+    protection: "keyword-badge-and-target-warning",
+    informationPreserved: true,
   };
 }
 

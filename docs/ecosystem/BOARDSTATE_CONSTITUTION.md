@@ -106,15 +106,4 @@ Every future prompt must review this Constitution, `docs/ecosystem/COMMANDER_MOD
 
 ## Remaining Roadmap
 
-The active modernization roadmap is maintained in `docs/ecosystem/COMMANDER_MODERNIZATION_ROADMAP.md`:
-
-- Prompt 6: Battlefield Camera And Opponent Carousel
-- Prompt 7: Full Control And Live Tracking Convergence
-- Prompt 8: Question System
-- Prompt 9: Remind Me And Timeline Experience
-- Prompt 10: Confidence, Rules Recovery And Rule Amendments
-- Prompt 11: AI Integration
-- Prompt 12: Hub, Lite And Deck Nexus Interoperability
-- Prompt 13: Performance And Accessibility
-- Prompt 14: Visual Polish And Animation
-- Prompt 15: Final Production Audit
+The active modernization roadmap is maintained in `docs/ecosystem/COMMANDER_MODERNIZATION_ROADMAP.md`. That roadmap is the authoritative prompt sequence when later implementation prompts supersede earlier numbering or split/merge planned phases.

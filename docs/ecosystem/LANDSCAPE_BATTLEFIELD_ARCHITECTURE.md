@@ -103,6 +103,19 @@ Prompt 7 keeps gameplay on the battlefield by promoting selected permanents, tri
 
 Prompt 7 does not add animation, spectator mode, the Question UI, the Remind Me UI, AI interface redesign, fake Hub/Lite/Nexus status, or a second action system.
 
+## Prompt 8 Motion, Camera, And Premium Presentation
+
+Prompt 8 adds presentation-only motion and intelligent camera behavior over the existing battlefield model:
+
+- `src/ui/landscapeBattlefield.js` exposes `BATTLEFIELD_MOTION_VERSION`, `createBattlefieldMotionModel()`, `createCameraTransitionPlan()`, `createCardMotionEvents()`, `createHudMotionPlan()`, and `resolveMotionPreferences()`.
+- The camera now produces deterministic transition plans for selected permanents, stack objects, priority decisions, combat, Commander status, crowded boards, active players, and table fallback.
+- Card motion metadata covers draw/cast/resolve/counter/destroy/exile/return/bounce/mill/discard/reveal/shuffle, token creation/grouping, copies, transforms, meld, mutate, equipment, auras, tap/untap, phasing, blink, Commander movement, Commander tax, life, Commander damage, priority, trigger chains, board wipes, elimination, winning moments, stack movement, and replacement effects.
+- `src/ui/render.js` exposes safe `data-motion-*` attributes for the active battlefield, command center, stack, contextual dock, opponent carousel, card presentations, and permanents.
+- `src/styles.css` adds restrained BoardState-native motion for card focus, Commander radiance, combat emphasis, legal and illegal targeting, stack emphasis, contextual dock arrival, carousel interaction, and camera settle.
+- Reduced-motion preferences and `prefers-reduced-motion` disable nonessential motion while preserving legal/illegal targeting, priority, selected-object, Commander, combat, and stack information.
+
+The motion system is not gameplay authority. It does not mutate game state, create a second camera authority, persist transient animation state, alter saves, bypass the rules engine, or expose hidden information.
+
 ## Deferred Work
 
-The battlefield and gameplay-flow prompts do not implement the animation overhaul, particle effects, spectator mode, visual replay UI, Question UI, Remind Me UI, sound, haptics, or AI battlefield interface. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.
+The battlefield, gameplay-flow, and motion prompts do not implement particle effects, spectator mode, visual replay UI, Question UI, Remind Me UI, sound, haptics, or AI battlefield interface. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.

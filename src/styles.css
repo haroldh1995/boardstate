@@ -8540,6 +8540,371 @@ body[data-page="battlefield"] .gameplay-flow-section--triggers {
   padding-top: 0.42rem;
 }
 
+/* Prompt 8: premium motion communicates gameplay changes without becoming game state. */
+body[data-page="battlefield"] .landscape-battlefield-page {
+  --battlefield-motion-micro: 120ms;
+  --battlefield-motion-quick: 180ms;
+  --battlefield-motion-standard: 260ms;
+  --battlefield-motion-emphasis: 420ms;
+  --battlefield-motion-cinematic: 620ms;
+  --battlefield-motion-ease: cubic-bezier(0.2, 0.78, 0.18, 1);
+  --battlefield-motion-emphasis-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body[data-page="battlefield"] .landscape-arena[data-motion-role="camera-stage"] {
+  transform-origin: center;
+  transition:
+    filter var(--battlefield-motion-standard) var(--battlefield-motion-ease),
+    box-shadow var(--battlefield-motion-standard) var(--battlefield-motion-ease),
+    background var(--battlefield-motion-standard) var(--battlefield-motion-ease);
+}
+
+body[data-page="battlefield"] .landscape-battlefield-page:not(.motion-none).camera-focus-selected-permanent .landscape-arena,
+body[data-page="battlefield"] .landscape-battlefield-page:not(.motion-none).camera-focus-stack-object .landscape-arena,
+body[data-page="battlefield"] .landscape-battlefield-page:not(.motion-none).camera-focus-commander-status .landscape-arena,
+body[data-page="battlefield"] .landscape-battlefield-page:not(.motion-none).camera-focus-combat .landscape-arena {
+  animation: boardstate-camera-settle var(--battlefield-motion-emphasis) var(--battlefield-motion-emphasis-ease) both;
+}
+
+body[data-page="battlefield"] .permanent {
+  will-change: transform, box-shadow, filter;
+  transform-origin: center;
+  transition:
+    transform var(--battlefield-motion-standard) var(--battlefield-motion-ease),
+    filter var(--battlefield-motion-standard) var(--battlefield-motion-ease),
+    opacity var(--battlefield-motion-quick) ease,
+    border-color var(--battlefield-motion-quick) ease,
+    box-shadow var(--battlefield-motion-standard) var(--battlefield-motion-ease);
+}
+
+body[data-page="battlefield"] .permanent .permanent-content > button,
+body[data-page="battlefield"] .gameplay-flow-action,
+body[data-page="battlefield"] .phase-next-chip,
+body[data-page="battlefield"] .opponent-carousel button {
+  transition:
+    transform var(--battlefield-motion-micro) var(--battlefield-motion-ease),
+    border-color var(--battlefield-motion-quick) ease,
+    box-shadow var(--battlefield-motion-quick) ease,
+    background var(--battlefield-motion-quick) ease,
+    color var(--battlefield-motion-quick) ease;
+}
+
+body[data-page="battlefield"] .permanent:hover,
+body[data-page="battlefield"] .permanent:focus-within {
+  transform: translateY(-3px) scale(1.012);
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.32),
+    0 0 18px rgba(143, 211, 255, 0.16);
+}
+
+body[data-page="battlefield"] .permanent.tapped:hover,
+body[data-page="battlefield"] .permanent.tapped:focus-within {
+  transform: rotate(-3deg) translateY(-2px) scale(0.995);
+}
+
+body[data-page="battlefield"] .permanent.selected,
+body[data-page="battlefield"] .permanent.motion-selected,
+body[data-page="battlefield"] .permanent.motion-commander-selected {
+  animation: boardstate-card-focus var(--battlefield-motion-emphasis) var(--battlefield-motion-emphasis-ease) both;
+}
+
+body[data-page="battlefield"] .permanent.tapped.selected,
+body[data-page="battlefield"] .permanent.tapped.motion-selected,
+body[data-page="battlefield"] .permanent.tapped.motion-commander-selected {
+  animation: boardstate-tapped-card-focus var(--battlefield-motion-emphasis) var(--battlefield-motion-emphasis-ease) both;
+}
+
+body[data-page="battlefield"] .permanent.motion-commander,
+body[data-page="battlefield"] .permanent.motion-commander-selected,
+body[data-page="battlefield"] .permanent.commander-spotlight {
+  animation: boardstate-commander-radiance var(--battlefield-motion-cinematic) ease-out both;
+}
+
+body[data-page="battlefield"] .permanent.motion-commander-selected:not(.tapped) {
+  animation:
+    boardstate-card-focus var(--battlefield-motion-emphasis) var(--battlefield-motion-emphasis-ease) both,
+    boardstate-commander-radiance var(--battlefield-motion-cinematic) ease-out both;
+}
+
+body[data-page="battlefield"] .permanent.tapped.motion-commander-selected {
+  animation:
+    boardstate-tapped-card-focus var(--battlefield-motion-emphasis) var(--battlefield-motion-emphasis-ease) both,
+    boardstate-commander-radiance var(--battlefield-motion-cinematic) ease-out both;
+}
+
+body[data-page="battlefield"] .permanent.motion-combat-attacking {
+  animation: boardstate-combat-lunge var(--battlefield-motion-emphasis) var(--battlefield-motion-emphasis-ease) both;
+}
+
+body[data-page="battlefield"] .permanent.motion-combat-blocking {
+  animation: boardstate-blocker-brace var(--battlefield-motion-emphasis) var(--battlefield-motion-emphasis-ease) both;
+}
+
+body[data-page="battlefield"] .permanent.motion-token-stack .stack-silhouette {
+  transition:
+    transform var(--battlefield-motion-standard) var(--battlefield-motion-ease),
+    opacity var(--battlefield-motion-standard) ease,
+    border-color var(--battlefield-motion-quick) ease;
+}
+
+body[data-page="battlefield"] .permanent.motion-token-stack:hover .stack-silhouette--one {
+  transform: translate(3px, -3px);
+}
+
+body[data-page="battlefield"] .permanent.motion-token-stack:hover .stack-silhouette--two {
+  transform: translate(6px, -6px);
+}
+
+body[data-page="battlefield"] .permanent.target-valid,
+body[data-page="battlefield"] .permanent.motion-target-valid {
+  animation: boardstate-legal-target-glow var(--battlefield-motion-cinematic) ease-in-out infinite alternate;
+}
+
+body[data-page="battlefield"] .permanent.target-invalid,
+body[data-page="battlefield"] .permanent.motion-target-invalid {
+  animation: boardstate-illegal-target-warning var(--battlefield-motion-emphasis) ease-out both;
+}
+
+body[data-page="battlefield"] .landscape-command-center,
+body[data-page="battlefield"] .landscape-selected-card,
+body[data-page="battlefield"] .landscape-stack-core,
+body[data-page="battlefield"] .gameplay-context-dock,
+body[data-page="battlefield"] .opponent-carousel {
+  transition:
+    transform var(--battlefield-motion-standard) var(--battlefield-motion-ease),
+    opacity var(--battlefield-motion-quick) ease,
+    border-color var(--battlefield-motion-quick) ease,
+    box-shadow var(--battlefield-motion-standard) var(--battlefield-motion-ease),
+    filter var(--battlefield-motion-standard) var(--battlefield-motion-ease);
+}
+
+body[data-page="battlefield"] .landscape-command-center.hud-motion-contextual-active {
+  box-shadow:
+    inset 0 0 0 1px rgba(236, 200, 122, 0.08),
+    0 0 26px rgba(143, 211, 255, 0.08);
+}
+
+body[data-page="battlefield"] .landscape-stack-core.is-active {
+  animation: boardstate-stack-rise var(--battlefield-motion-standard) var(--battlefield-motion-emphasis-ease) both;
+}
+
+body[data-page="battlefield"] .landscape-stack-core[data-stack-motion="rise-and-focus"] .landscape-stack-list p:first-child {
+  border-color: rgba(236, 200, 122, 0.34);
+  background: rgba(236, 200, 122, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(143, 211, 255, 0.08);
+}
+
+body[data-page="battlefield"] .landscape-stack-list p {
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 0.16rem 0.28rem;
+  transition:
+    background var(--battlefield-motion-quick) ease,
+    border-color var(--battlefield-motion-quick) ease,
+    transform var(--battlefield-motion-quick) var(--battlefield-motion-ease);
+}
+
+body[data-page="battlefield"] .landscape-floating-notices small,
+body[data-page="battlefield"] .gameplay-context-dock,
+body[data-page="battlefield"] .card-presentation {
+  animation: boardstate-toast-arrive var(--battlefield-motion-standard) var(--battlefield-motion-emphasis-ease) both;
+}
+
+body[data-page="battlefield"] .gameplay-flow-action:hover,
+body[data-page="battlefield"] .gameplay-flow-action:focus-visible,
+body[data-page="battlefield"] .phase-next-chip:hover,
+body[data-page="battlefield"] .phase-next-chip:focus-visible,
+body[data-page="battlefield"] .opponent-carousel button:hover,
+body[data-page="battlefield"] .opponent-carousel button:focus-visible {
+  transform: translateY(-1px);
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.24),
+    0 0 14px rgba(236, 200, 122, 0.16);
+}
+
+body[data-page="battlefield"] .gameplay-flow-action:active,
+body[data-page="battlefield"] .phase-next-chip:active,
+body[data-page="battlefield"] .opponent-carousel button:active {
+  transform: translateY(1px) scale(0.985);
+}
+
+body[data-page="battlefield"] .motion-reduced,
+body[data-page="battlefield"] .motion-minimal {
+  --battlefield-motion-micro: 70ms;
+  --battlefield-motion-quick: 90ms;
+  --battlefield-motion-standard: 120ms;
+  --battlefield-motion-emphasis: 160ms;
+  --battlefield-motion-cinematic: 180ms;
+}
+
+body[data-page="battlefield"] .motion-none {
+  --battlefield-motion-micro: 0ms;
+  --battlefield-motion-quick: 0ms;
+  --battlefield-motion-standard: 0ms;
+  --battlefield-motion-emphasis: 0ms;
+  --battlefield-motion-cinematic: 0ms;
+}
+
+@keyframes boardstate-camera-settle {
+  0% {
+    filter: saturate(0.96) brightness(0.98);
+  }
+  55% {
+    filter: saturate(1.08) brightness(1.035);
+  }
+  100% {
+    filter: saturate(1) brightness(1);
+  }
+}
+
+@keyframes boardstate-card-focus {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  58% {
+    transform: translateY(-5px) scale(1.018);
+  }
+  100% {
+    transform: translateY(-3px) scale(1.012);
+  }
+}
+
+@keyframes boardstate-tapped-card-focus {
+  0% {
+    transform: rotate(-3deg) scale(0.985);
+  }
+  58% {
+    transform: rotate(-3deg) translateY(-5px) scale(1.004);
+  }
+  100% {
+    transform: rotate(-3deg) translateY(-3px) scale(0.995);
+  }
+}
+
+@keyframes boardstate-commander-radiance {
+  0% {
+    box-shadow:
+      0 0 0 1px rgba(255, 220, 125, 0.12),
+      0 0 10px rgba(236, 200, 122, 0.1);
+  }
+  55% {
+    box-shadow:
+      0 0 0 2px rgba(255, 220, 125, 0.22),
+      0 0 26px rgba(236, 200, 122, 0.34),
+      inset 0 0 20px rgba(236, 200, 122, 0.1);
+  }
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(255, 220, 125, 0.14),
+      0 0 24px rgba(236, 200, 122, 0.28),
+      inset 0 0 20px rgba(236, 200, 122, 0.08);
+  }
+}
+
+@keyframes boardstate-combat-lunge {
+  0% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px) scale(1.018);
+  }
+  100% {
+    transform: translateY(-2px) scale(1.006);
+  }
+}
+
+@keyframes boardstate-blocker-brace {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(2px) scale(0.994);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes boardstate-legal-target-glow {
+  from {
+    box-shadow: 0 0 0 1px rgba(117, 255, 198, 0.18);
+  }
+  to {
+    box-shadow:
+      0 0 0 2px rgba(117, 255, 198, 0.32),
+      0 0 20px rgba(117, 255, 198, 0.22);
+  }
+}
+
+@keyframes boardstate-illegal-target-warning {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  28% {
+    transform: translateX(-3px);
+  }
+  58% {
+    transform: translateX(3px);
+  }
+}
+
+@keyframes boardstate-stack-rise {
+  0% {
+    transform: translateY(4px);
+    opacity: 0.88;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes boardstate-toast-arrive {
+  0% {
+    transform: translateY(8px) scale(0.98);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-page="battlefield"] .landscape-battlefield-page {
+    --battlefield-motion-micro: 0ms !important;
+    --battlefield-motion-quick: 0ms !important;
+    --battlefield-motion-standard: 0ms !important;
+    --battlefield-motion-emphasis: 0ms !important;
+    --battlefield-motion-cinematic: 0ms !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-page="battlefield"] .landscape-arena,
+  body[data-page="battlefield"] .permanent,
+  body[data-page="battlefield"] .permanent.target-valid,
+  body[data-page="battlefield"] .permanent.motion-target-valid,
+  body[data-page="battlefield"] .permanent.target-invalid,
+  body[data-page="battlefield"] .permanent.motion-target-invalid,
+  body[data-page="battlefield"] .permanent.selected,
+  body[data-page="battlefield"] .permanent.motion-selected,
+  body[data-page="battlefield"] .permanent.motion-commander,
+  body[data-page="battlefield"] .permanent.motion-commander-selected,
+  body[data-page="battlefield"] .landscape-stack-core.is-active,
+  body[data-page="battlefield"] .landscape-floating-notices small,
+  body[data-page="battlefield"] .gameplay-context-dock,
+  body[data-page="battlefield"] .card-presentation,
+  body[data-page="battlefield"] .motion-reduced *,
+  body[data-page="battlefield"] .motion-minimal *,
+  body[data-page="battlefield"] .motion-none * {
+    animation: none !important;
+    transition-duration: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 @media (orientation: landscape) and (max-height: 520px) {
   body[data-page="battlefield"] .landscape-table-ribbon {
     display: none;

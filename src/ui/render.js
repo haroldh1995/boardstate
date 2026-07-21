@@ -5635,8 +5635,10 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
     viewport: isMobilePortrait ? "portrait-support" : "desktop",
     compressionMode,
   });
+  const motion = landscapeModel.motion || {};
+  const cameraFocusKind = landscapeModel.camera?.activeFocus?.kind || "table";
   return `
-    <section class="battlefield-page battlefield-page--focused landscape-battlefield-page landscape-density-${escapeAttribute(landscapeModel.density)} advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${isMobilePortrait && mobileFocusView ? "mobile-focus-view" : ""}" data-layout-version="${escapeAttribute(landscapeModel.version)}">
+    <section class="battlefield-page battlefield-page--focused landscape-battlefield-page landscape-density-${escapeAttribute(landscapeModel.density)} advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} motion-${escapeAttribute(motion.intensity || "full")} camera-focus-${escapeAttribute(cameraFocusKind)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${isMobilePortrait && mobileFocusView ? "mobile-focus-view" : ""}" data-layout-version="${escapeAttribute(landscapeModel.version)}" data-motion-version="${escapeAttribute(motion.version || "")}" data-motion-intensity="${escapeAttribute(motion.intensity || "full")}" data-camera-focus="${escapeAttribute(cameraFocusKind)}" data-camera-transition="${escapeAttribute(motion.cameraPlan?.transition || "none")}">
       <div class="battlefield-state-strip landscape-state-strip">
         <div>
           <strong>Turn ${escapeHtml(session.turn)} · ${escapeHtml(PHASES[session.phaseIndex] || "Beginning")} · ${escapeHtml(resolvePhaseTrackerActorLabel(session).replace(/^Active turn:\s*/i, ""))}</strong>
@@ -5651,7 +5653,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
       ${perspective.compactOpponentLanes && !landscapeModel.opponentCarousel?.enabled ? renderCompactOpponentLanes(perspective) : ""}
       ${landscapeModel.opponentCarousel?.enabled ? renderOpponentCarouselControls(landscapeModel.opponentCarousel) : ""}
       ${renderLandscapeGlobalInfoRail(landscapeModel, profile)}
-      <section class="arena glass landscape-arena ${playerDensityClass} ${perspective.viewMode === "two-player-mirrored" ? "arena--two-player-mirrored" : ""} ${perspective.viewMode === "commander-pod-advanced" || perspective.viewMode === "mixed-interface-session" ? "arena--commander-pod" : ""} ${profile.settings?.battlefield?.focusMode && session.selectedIds?.length ? "focus-mode" : ""} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${showPerspectiveOpponentZone ? "" : "arena--opponent-hidden"} ${panels.boardCombat ? "" : "arena--combat-hidden"}" data-set-tool-context="empty">
+      <section class="arena glass landscape-arena ${playerDensityClass} ${perspective.viewMode === "two-player-mirrored" ? "arena--two-player-mirrored" : ""} ${perspective.viewMode === "commander-pod-advanced" || perspective.viewMode === "mixed-interface-session" ? "arena--commander-pod" : ""} ${profile.settings?.battlefield?.focusMode && session.selectedIds?.length ? "focus-mode" : ""} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${showPerspectiveOpponentZone ? "" : "arena--opponent-hidden"} ${panels.boardCombat ? "" : "arena--combat-hidden"}" data-set-tool-context="empty" data-motion-role="camera-stage">
         ${renderLandscapeOpponentRegion(landscapeModel.opponentBattlefield, {
           opponentBoards: perspectiveOpponentBoards,
           activeIndex: mirroredOpponentIndex,
@@ -5801,6 +5803,7 @@ function renderLandscapeLocalRegion(region = {}, options = {}) {
 function renderLandscapeCommandCenter(model = {}, profile = {}, options = {}) {
   const center = model.commandCenter || {};
   const hud = model.intelligence?.contextualHud || {};
+  const motion = model.motion || {};
   const stackCount = (center.stackObjects || []).length;
   const triggerCount = (center.triggerQueue || []).filter((entry) => entry.status === "pending").length;
   const pendingChoiceCount = (center.pendingChoices || []).length;
@@ -5810,9 +5813,9 @@ function renderLandscapeCommandCenter(model = {}, profile = {}, options = {}) {
     model.gameplayFlow?.selected?.primaryActions?.some((action) => action.id === "declare-attacker" && !action.disabled)
   );
   return `
-    <div class="combat-zone landscape-command-center hud-stack-${escapeAttribute(hud.stack || "collapsed")} hud-triggers-${escapeAttribute(hud.triggers || "collapsed")} hud-priority-${escapeAttribute(hud.priority || "collapsed")} hud-combat-${escapeAttribute(hud.combatControls || "hidden")}" aria-label="Command center">
+    <div class="combat-zone landscape-command-center hud-stack-${escapeAttribute(hud.stack || "collapsed")} hud-triggers-${escapeAttribute(hud.triggers || "collapsed")} hud-priority-${escapeAttribute(hud.priority || "collapsed")} hud-combat-${escapeAttribute(hud.combatControls || "hidden")} hud-motion-${escapeAttribute(motion.hudMotion?.state || "quiet")}" aria-label="Command center" data-motion-role="command-center" data-hud-motion="${escapeAttribute(motion.hudMotion?.state || "quiet")}">
       <div class="landscape-command-core">
-        <article class="landscape-phase-core">
+        <article class="landscape-phase-core" data-motion-role="phase">
           <p class="eyebrow">Command Center</p>
           <h2>Turn ${escapeHtml(center.turn || 1)} / ${escapeHtml(center.phaseLabel || "Beginning")}</h2>
           <span>Active ${escapeHtml(center.activePlayerName || center.activePlayerId || "Player")} / Priority ${escapeHtml(center.priorityHolderName || center.priorityHolderId || "Player")}</span>
@@ -5820,14 +5823,14 @@ function renderLandscapeCommandCenter(model = {}, profile = {}, options = {}) {
           <button class="phase-next-chip" data-next-phase>Next Phase</button>
         </article>
         ${renderLandscapeSelectedCardPanel(center.selectedCard)}
-        <article class="landscape-stack-core ${stackExpanded ? "is-active" : "is-idle"}">
+        <article class="landscape-stack-core ${stackExpanded ? "is-active" : "is-idle"}" data-motion-role="stack" data-stack-motion="${escapeAttribute(motion.hudMotion?.stack || "collapsed")}">
           <p class="eyebrow">Stack / Priority</p>
           <strong>${stackCount ? `${stackCount} object${stackCount === 1 ? "" : "s"}` : "Stack empty"}</strong>
           <span>${triggerCount} trigger${triggerCount === 1 ? "" : "s"} · ${pendingChoiceCount} choice${pendingChoiceCount === 1 ? "" : "s"}</span>
           ${stackExpanded ? `
             <div class="landscape-stack-list">
               ${(center.stackObjects || []).slice(0, 3).map((entry, index) => `
-                <p><b>${index + 1}</b> ${escapeHtml(entry.name || entry.card?.name || "Stack object")} <small>${escapeHtml(entry.controllerName || entry.controller || entry.controllerPlayerId || "")}</small></p>
+                <p data-motion-role="stack-object"><b>${index + 1}</b> ${escapeHtml(entry.name || entry.card?.name || "Stack object")} <small>${escapeHtml(entry.controllerName || entry.controller || entry.controllerPlayerId || "")}</small></p>
               `).join("") || (triggerCount || pendingChoiceCount ? "<p>Resolve pending prompts.</p>" : "")}
             </div>
           ` : ""}
@@ -5925,14 +5928,14 @@ function renderLandscapeSelectedCardPanel(details = {}) {
   const hasDetails = Boolean(details.title || details.oracleText || characteristics.typeLine || details.powerToughness || details.owner || details.controller);
   if (!hasDetails) {
     return `
-      <article class="landscape-selected-card is-empty">
+      <article class="landscape-selected-card is-empty" data-motion-role="selected-card">
         <p class="eyebrow">Card Preview</p>
         <strong>Select a card</strong>
       </article>
     `;
   }
   return `
-    <article class="landscape-selected-card">
+    <article class="landscape-selected-card" data-motion-role="selected-card">
       <p class="eyebrow">${escapeHtml(details.mode === "stack-top" ? "Stack Preview" : details.mode === "selected-card" ? "Selected Card" : "Card Preview")}</p>
       <strong>${escapeHtml(details.title || "Select a card")}</strong>
       <span>${escapeHtml(characteristics.typeLine || "")}</span>
@@ -5978,7 +5981,7 @@ function renderOpponentCarouselControls(carousel = {}) {
     : "Commander tracked";
   const handLabel = focused.cardsInHand === "unknown" ? "Hand ?" : `Hand ${focused.cardsInHand}`;
   return `
-    <section class="opponent-carousel glass" data-opponent-carousel data-opponent-swipe tabindex="0" role="region" aria-label="Opponent carousel">
+    <section class="opponent-carousel glass" data-opponent-carousel data-opponent-swipe data-motion-role="opponent-carousel" tabindex="0" role="region" aria-label="Opponent carousel">
       <button class="opponent-carousel__nav" data-opponent-carousel-step="-1" ${opponents.length > 1 ? "" : "disabled"} aria-label="Previous opponent">&lsaquo;</button>
       <div class="opponent-carousel__focus">
         <p class="eyebrow">Focused Opponent</p>
@@ -6058,7 +6061,7 @@ function renderCardPresentation(presentation) {
     ? `${controller} casts ${card.name || "a spell"}`
     : `${card.name || "Card"} enters the battlefield`;
   return `
-    <aside class="card-presentation" aria-live="polite" aria-label="${escapeAttribute(label)}">
+    <aside class="card-presentation" aria-live="polite" aria-label="${escapeAttribute(label)}" data-motion-role="card-presentation" data-motion-card-kind="${escapeAttribute(presentation.kind || "enter")}">
       <div class="card-presentation__energy" aria-hidden="true"></div>
       <div class="card-presentation__card ${imageUrl ? "has-card-art" : getBattlefieldCardFallbackClass(card)}" ${imageUrl ? `style="--card-image:url(&quot;${escapeAttribute(imageUrl)}&quot;)"` : ""}>
         <span>${escapeHtml(label)}</span>
@@ -6404,6 +6407,7 @@ function renderPermanent(permanent, options = {}) {
   const damageMarked = Math.max(0, Number(permanent.damageMarked || permanent.damage || 0));
   const lethalDamage = Boolean(permanent.isCreature && damageMarked >= Math.max(0, Number(permanent.currentToughness || 0)));
   const targetVisual = options.targetingVisuals?.candidates?.find((candidate) => candidate.id === permanent.id);
+  const motionKind = getPermanentMotionKind(permanent, { selected, targetVisual, lethalDamage });
   const stateClasses = [
     selected ? "selected" : "",
     permanent.targeted || permanent.isTargeted ? "targeted" : "",
@@ -6419,6 +6423,7 @@ function renderPermanent(permanent, options = {}) {
     permanent.quantity > 1 ? "stacked-permanent" : "",
     lethalDamage ? "lethal-damage" : "",
     permanent.manualStatus === "pending" ? "pending" : "",
+    motionKind ? `motion-${motionKind}` : "",
   ].filter(Boolean).join(" ");
   const targetAttr = options.readonly
     ? options.allowTargeting
@@ -6426,7 +6431,7 @@ function renderPermanent(permanent, options = {}) {
       : ""
     : `data-permanent="${permanent.id}"`;
   return `
-    <article class="permanent detail-${detailMode} ${stateClasses}" data-permanent-card data-permanent-id="${permanent.id}" data-readonly="${options.readonly ? "true" : "false"}" data-target-valid="${targetVisual?.valid ? "true" : targetVisual ? "false" : "unknown"}">
+    <article class="permanent detail-${detailMode} ${stateClasses}" data-permanent-card data-permanent-id="${permanent.id}" data-readonly="${options.readonly ? "true" : "false"}" data-target-valid="${targetVisual?.valid ? "true" : targetVisual ? "false" : "unknown"}" data-motion-card-kind="${escapeAttribute(motionKind || "stable")}">
       <div class="permanent-art-layer ${fallbackClass} ${imageUrl ? "has-card-art" : "uses-fallback"}" ${imageUrl ? `style="--card-image:url(&quot;${escapeAttribute(imageUrl)}&quot;)"` : ""} data-card-image="${imageUrl ? "available" : "fallback"}" aria-hidden="true"></div>
       <div class="permanent-readability-layer" aria-hidden="true"></div>
       ${permanent.quantity > 1 ? `<i class="stack-silhouette stack-silhouette--one" aria-hidden="true"></i><i class="stack-silhouette stack-silhouette--two" aria-hidden="true"></i>` : ""}
@@ -6485,7 +6490,7 @@ function renderGameplayContextDock(flow = {}, session = {}) {
   }
   const title = selected.active ? selected.title : workflow.active ? workflow.source : "Gameplay";
   return `
-    <aside class="gameplay-context-dock glass scroll-safe" role="dialog" aria-label="${escapeAttribute(`${title} contextual gameplay actions`)}" data-gameplay-flow-version="${escapeAttribute(flow.version || "")}">
+    <aside class="gameplay-context-dock glass scroll-safe" role="dialog" aria-label="${escapeAttribute(`${title} contextual gameplay actions`)}" data-gameplay-flow-version="${escapeAttribute(flow.version || "")}" data-motion-role="context-dock">
       <div class="gameplay-context-dock__header">
         <div>
           <p class="eyebrow">${selected.publicOnly ? "Public inspection" : selected.active ? "Selected permanent" : "Context"}</p>
@@ -6696,6 +6701,19 @@ function getBattlefieldCardFallbackClass(card = {}) {
     return "fallback-planeswalker";
   }
   return "fallback-permanent";
+}
+
+function getPermanentMotionKind(permanent = {}, context = {}) {
+  if (context.selected) return permanent.isCommander ? "commander-selected" : "selected";
+  if (context.targetVisual?.valid) return "target-valid";
+  if (context.targetVisual && !context.targetVisual.valid) return "target-invalid";
+  if (permanent.attacking) return "combat-attacking";
+  if (permanent.blocking) return "combat-blocking";
+  if (permanent.tapped) return "tap-state";
+  if (context.lethalDamage) return "danger";
+  if (permanent.isCommander) return "commander";
+  if (permanent.quantity > 1 || permanent.isToken) return "token-stack";
+  return "stable";
 }
 
 function renderPermanentDetails(permanent, detailMode = "standard") {
