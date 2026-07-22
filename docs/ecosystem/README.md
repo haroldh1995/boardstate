@@ -16,6 +16,7 @@ Prompt 1 output files:
 - `PERSISTENCE_REPLAY_ARCHITECTURE.md`
 - `LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md`
 - `RULES_ASSISTANT_ARCHITECTURE.md`
+- `PROACTIVE_ASSISTANT_ARCHITECTURE.md`
 
 These files document the preparation baseline, permanent Constitution, architecture inventory, rules-engine extraction risks, shared contracts, migration plan, handoff risks, future navigation, and future test matrix.
 
@@ -31,7 +32,9 @@ The Commander session architecture document records the Prompt 2 canonical sessi
 
 `PERSISTENCE_REPLAY_ARCHITECTURE.md` records the Prompt 4 canonical save, replay timeline, checkpoint, auto-save, recovery, import/export, validation, and migration foundation.
 
-`LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md` records the Prompt 5 through Prompt 9 landscape-first Commander battlefield interface, permanent gameplay regions, battlefield lanes, Commander HUD treatment, selected-card center panel, camera/carousel/motion metadata, and contextual Rules Assistant surface.
+`LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md` records the Prompt 5 through Prompt 10 landscape-first Commander battlefield interface, permanent gameplay regions, battlefield lanes, Commander HUD treatment, selected-card center panel, camera/carousel/motion metadata, contextual Rules Assistant, and Remind Me surfaces.
 
 `RULES_ASSISTANT_ARCHITECTURE.md` records the Prompt 9 Rules Assistant and Question System boundary. It answers from BoardState rules/state/event data, excludes hidden/private data, avoids generative AI and internet search, and prepares What If as a non-mutating Dry Run fork boundary.
+
+`PROACTIVE_ASSISTANT_ARCHITECTURE.md` records the Prompt 10 Remind Me, proactive notification, confidence, missed-trigger recovery, player-memory, and unanimous Rule Amendment boundary. It does not claim strategy coaching, voice assistance, Rules Recovery imports, spectator services, or Hub integration.
 

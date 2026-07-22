@@ -127,6 +127,17 @@ Prompt 9 adds the first production Question System surface without changing batt
 
 The assistant does not use generative AI, external search, private hidden zones, raw payload dumps, or fake ecosystem services. If authoritative evidence is missing, it reports the gap instead of inventing state.
 
+## Prompt 10 Proactive Assistant
+
+Prompt 10 adds the first production Remind Me and confidence surface without changing battlefield authority:
+
+- `src/authoritative-core/proactiveAssistant.js` derives proactive reminders, smart notifications, confidence reports, missed-trigger recovery summaries, legal opportunity notices, player-memory preferences, and Rule Amendment proposal status from existing Rules Engine, State Engine, Event Knowledge, and session data.
+- `src/ui/landscapeBattlefield.js` exposes a non-authoritative `proactiveAssistant` model and an available `remind-me` context action.
+- `src/ui/render.js` adds the compact Remind Me battlefield launcher and contextual panel for reminders, confidence, trigger recovery, non-strategic opportunities, and unanimous table ruling votes.
+- `src/styles.css` keeps proactive assistance compact, reduced-motion safe, and secondary to the battlefield.
+
+The proactive assistant does not recommend strategy, play for users, execute imported text, expose hidden zones, or claim Hub/Lite/Nexus services.
+
 ## Deferred Work
 
-The battlefield, gameplay-flow, motion, and Rules Assistant prompts do not implement particle effects, spectator mode, visual replay UI, Remind Me UI, sound, haptics, AI battlefield interface, external judge search, or full Rules Recovery imports. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.
+The battlefield, gameplay-flow, motion, Rules Assistant, and proactive assistant prompts do not implement particle effects, spectator mode, visual replay UI, sound, haptics, AI battlefield interface, external judge search, or full Rules Recovery imports. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.

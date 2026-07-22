@@ -1,6 +1,7 @@
 import { PHASES } from "../state/schema.js";
 import { buildAdvancedMultiplayerPerspective } from "../shared-session/perspective.js";
 import { clonePlain } from "../shared-contracts/index.js";
+import { createProactiveAssistantState } from "../authoritative-core/proactiveAssistant.js";
 import { createRulesAssistantState } from "../authoritative-core/rulesAssistant.js";
 
 export const LANDSCAPE_BATTLEFIELD_VERSION = "boardstate-landscape-battlefield-0.5.0";
@@ -46,6 +47,7 @@ export const LANDSCAPE_CONTEXT_ACTIONS = Object.freeze([
   { id: "stack", label: "Stack", status: "available", utilityPanel: "stack" },
   { id: "triggers", label: "Trigger Queue", status: "available", utilityPanel: "triggers" },
   { id: "question", label: "Ask Why", status: "available", utilityPanel: "rules-assistant" },
+  { id: "remind-me", label: "Remind Me", status: "available", utilityPanel: "remind-me" },
   { id: "history", label: "History", status: "available", utilityPanel: "history" },
   { id: "display", label: "Display", status: "available", utilityPanel: "display" },
   { id: "settings", label: "Settings", status: "available", opensOptions: true },
@@ -184,6 +186,14 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
     opponentBoard,
     explanationLevel: profile.settings?.rulesAssistant?.explanationLevel || "intermediate",
   });
+  const proactiveAssistant = createProactiveAssistantState(session, {
+    selectedPermanentId: selectedCard.card?.id || "",
+    localBoard,
+    opponentBoard,
+    perspective,
+    playerMemory: profile.settings?.playerMemory || {},
+    remindMe: profile.settings?.remindMe || {},
+  });
   const commandCenter = createCommandCenterModel(session, perspective, selectedCard);
   const density = resolveBattlefieldDensity({
     localPermanentCount: localBoard.totalPermanentCount,
@@ -253,11 +263,12 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
     gameplayFlow,
     motion,
     rulesAssistant,
+    proactiveAssistant,
     globalInfo: createGlobalInfoModel(session, perspective),
     opponentBattlefield: opponentBoard,
     commandCenter,
     localBattlefield: localBoard,
-    contextActions: createContextActionModel(session),
+    contextActions: createContextActionModel(session, proactiveAssistant),
     accessibility: {
       touchTargetMinimumPx: 44,
       keyboardNavigableRegions: LANDSCAPE_BATTLEFIELD_REGIONS,
@@ -1632,7 +1643,7 @@ function createGlobalInfoModel(session = {}, perspective = {}) {
   };
 }
 
-function createContextActionModel(session = {}) {
+function createContextActionModel(session = {}, proactiveAssistant = {}) {
   return LANDSCAPE_CONTEXT_ACTIONS.map((action) => ({
     ...action,
     available: action.status === "available",
@@ -1640,6 +1651,7 @@ function createContextActionModel(session = {}) {
       action.id === "stack" ? String((session.stack || []).length || "") :
       action.id === "triggers" ? String((session.triggerQueue || []).filter((entry) => entry.status === "pending").length || "") :
       action.id === "question" ? String((session.eventKnowledge?.eventCount || (session.eventKnowledge?.events || []).length || "") || "") :
+      action.id === "remind-me" ? String(Number(proactiveAssistant.notificationSummary?.total || 0) || "") :
       "",
   }));
 }

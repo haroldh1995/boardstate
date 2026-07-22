@@ -122,6 +122,15 @@ import {
 import { createEventKnowledgeState, recordActionKnowledge } from "../authoritative-core/eventKnowledgeEngine.js";
 import { commitStateTransition } from "../authoritative-core/stateEngine.js";
 import { createPersistenceState, recordPersistenceAfterAction } from "../persistence/canonicalPersistence.js";
+import {
+  createReminder,
+  createRemindMeState,
+  createRuleAmendmentProposal,
+  createRuleAmendmentSystemState,
+  evaluateRuleAmendmentProposal,
+  recordRuleAmendmentVote,
+  updateReminderStatus,
+} from "../authoritative-core/proactiveAssistant.js";
 
 export function reduceProfile(profile, event) {
   const actionType = event.actionType || event.type;
@@ -680,6 +689,21 @@ export function reduceProfile(profile, event) {
       break;
     case "HELPER_MARK_SHOWN":
       nextProfile = withSession(baseProfile, markHelperMessageShown(baseProfile.activeSession, event.messageKey || ""));
+      break;
+    case "REMIND_ME_ADD":
+      nextProfile = withSession(baseProfile, addRemindMeReminder(baseProfile.activeSession, event.reminder || event));
+      break;
+    case "REMIND_ME_UPDATE_STATUS":
+      nextProfile = withSession(baseProfile, updateRemindMeReminderStatus(baseProfile.activeSession, event.reminderId, event.status, event));
+      break;
+    case "REMIND_ME_DISMISS_NOTIFICATION":
+      nextProfile = withSession(baseProfile, dismissRemindMeNotification(baseProfile.activeSession, event.dedupeKey || event.notificationKey || event.id || ""));
+      break;
+    case "RULE_AMENDMENT_PROPOSE":
+      nextProfile = withSession(baseProfile, proposeRuleAmendment(baseProfile.activeSession, event.proposal || event));
+      break;
+    case "RULE_AMENDMENT_VOTE":
+      nextProfile = withSession(baseProfile, voteRuleAmendment(baseProfile.activeSession, event.ruleAmendmentId || event.id || "", event));
       break;
     case "TRIGGER_QUEUE_RESOLVE":
       nextProfile = withSession(baseProfile, resolveQueuedTrigger(baseProfile.activeSession, { triggerId: event.id, command: "resolve", requestedBy: event.playerId || "player" }));
@@ -4598,6 +4622,176 @@ function markHelperMessageShown(session, messageKey = "") {
   };
 }
 
+function addRemindMeReminder(session, input = {}) {
+  const reminder = createReminder(input.reminder || input, session);
+  if (!reminder) return session;
+  const state = createRemindMeState(session.remindMe || {});
+  const timelineEntry = {
+    id: createId("reminder"),
+    type: "created",
+    reminderId: reminder.reminderId,
+    text: reminder.text,
+    createdAt: Date.now(),
+  };
+  return {
+    ...session,
+    remindMe: {
+      ...state,
+      reminders: [reminder, ...state.reminders.filter((entry) => entry.reminderId !== reminder.reminderId)].slice(0, 80),
+      timeline: [timelineEntry, ...(state.timeline || [])].slice(0, 200),
+      lastEvaluatedAt: Date.now(),
+    },
+    effectLog: [
+      {
+        id: createId("effect"),
+        at: Date.now(),
+        sourceName: "Remind Me",
+        summary: `Reminder armed: ${reminder.text}`,
+        status: "queued",
+        rulesConfidence: RULES_CONFIDENCE.NEEDS_REVIEW,
+      },
+      ...(session.effectLog || []),
+    ].slice(0, 80),
+  };
+}
+
+function updateRemindMeReminderStatus(session, reminderId = "", status = "dismissed", options = {}) {
+  if (!reminderId) return session;
+  const state = createRemindMeState(session.remindMe || {});
+  const reminders = updateReminderStatus(state.reminders, reminderId, status, {
+    at: Date.now(),
+    snoozeMs: Number(options.snoozeMs || 10 * 60 * 1000),
+  });
+  const timelineEntry = {
+    id: createId("reminder"),
+    type: String(status || "updated"),
+    reminderId,
+    createdAt: Date.now(),
+  };
+  return {
+    ...session,
+    remindMe: {
+      ...state,
+      reminders,
+      timeline: [timelineEntry, ...(state.timeline || [])].slice(0, 200),
+      lastEvaluatedAt: Date.now(),
+    },
+  };
+}
+
+function dismissRemindMeNotification(session, dedupeKey = "") {
+  if (!dedupeKey) return session;
+  const state = createRemindMeState(session.remindMe || {});
+  return {
+    ...session,
+    remindMe: {
+      ...state,
+      dismissedNotificationKeys: [...new Set([dedupeKey, ...(state.dismissedNotificationKeys || [])])].slice(0, 240),
+      timeline: [
+        {
+          id: createId("reminder"),
+          type: "notification-dismissed",
+          notificationKey: dedupeKey,
+          createdAt: Date.now(),
+        },
+        ...(state.timeline || []),
+      ].slice(0, 200),
+    },
+  };
+}
+
+function proposeRuleAmendment(session, input = {}) {
+  const state = createRuleAmendmentSystemState(session.ruleAmendments || {}, session);
+  const proposal = createRuleAmendmentProposal(input.proposal || input, session);
+  if (!proposal) return session;
+  const historyEntry = {
+    id: createId("rule-amendment"),
+    type: "proposed",
+    ruleAmendmentId: proposal.ruleAmendmentId,
+    status: proposal.status,
+    proposedByPlayerId: proposal.proposedByPlayerId,
+    createdAt: Date.now(),
+  };
+  return {
+    ...session,
+    ruleAmendments: {
+      ...state,
+      proposals: [proposal, ...state.proposals.filter((entry) => entry.ruleAmendmentId !== proposal.ruleAmendmentId)].slice(0, 60),
+      active: state.active,
+      history: [historyEntry, ...(state.history || [])].slice(0, 240),
+    },
+    effectLog: [
+      {
+        id: createId("effect"),
+        at: Date.now(),
+        sourceName: "Rule Amendment",
+        summary: proposal.status === "needs-revision"
+          ? "Table ruling proposal needs revision and was not applied."
+          : "Table ruling proposal recorded. Unanimous approval is required before use.",
+        status: proposal.status,
+        rulesConfidence: RULES_CONFIDENCE.MANUAL_CHOICE,
+      },
+      ...(session.effectLog || []),
+    ].slice(0, 80),
+  };
+}
+
+function voteRuleAmendment(session, ruleAmendmentId = "", input = {}) {
+  if (!ruleAmendmentId) return session;
+  const state = createRuleAmendmentSystemState(session.ruleAmendments || {}, session);
+  const previous = state.proposals.find((entry) => entry.ruleAmendmentId === ruleAmendmentId);
+  if (!previous) return session;
+  const localPlayerId = session.localPerspective?.playerId ||
+    session.advancedMultiplayer?.localPerspectivePlayerId ||
+    session.participants?.find?.((entry) => entry.relationship === "local")?.controlledPlayerIds?.[0] ||
+    "local-player";
+  const voted = recordRuleAmendmentVote(previous, {
+    playerId: input.playerId || localPlayerId,
+    participantId: input.participantId || "",
+    vote: input.vote || "approve",
+    reason: input.reason || "",
+  });
+  const evaluated = evaluateRuleAmendmentProposal(voted, session);
+  const proposals = [evaluated, ...state.proposals.filter((entry) => entry.ruleAmendmentId !== ruleAmendmentId)].slice(0, 60);
+  const active = evaluated.status === "accepted"
+    ? [evaluated, ...state.active.filter((entry) => entry.ruleAmendmentId !== ruleAmendmentId)].slice(0, 60)
+    : state.active.filter((entry) => entry.ruleAmendmentId !== ruleAmendmentId);
+  return {
+    ...session,
+    ruleAmendments: {
+      ...state,
+      proposals,
+      active,
+      history: [
+        {
+          id: createId("rule-amendment"),
+          type: input.vote === "reject" ? "rejected" : evaluated.status === "accepted" ? "accepted" : "vote-recorded",
+          ruleAmendmentId,
+          playerId: input.playerId || localPlayerId,
+          status: evaluated.status,
+          createdAt: Date.now(),
+        },
+        ...(state.history || []),
+      ].slice(0, 240),
+    },
+    effectLog: [
+      {
+        id: createId("effect"),
+        at: Date.now(),
+        sourceName: "Rule Amendment",
+        summary: evaluated.status === "accepted"
+          ? "Table ruling reached unanimous approval. It remains non-canonical and must still route through existing gameplay controls."
+          : evaluated.status === "rejected"
+            ? "Table ruling proposal was rejected and not applied."
+            : "Rule amendment vote recorded. Unanimous approval is still required.",
+        status: evaluated.status,
+        rulesConfidence: RULES_CONFIDENCE.MANUAL_CHOICE,
+      },
+      ...(session.effectLog || []),
+    ].slice(0, 80),
+  };
+}
+
 function reactivateDelayedTriggers(session) {
   const queue = (session.triggerQueue || []).map((entry) => {
     if (
@@ -4962,11 +5156,12 @@ function withHistory(profile, event) {
 
 function pushUndo(profile, event) {
   const reason = event.actionType || event.type || "UNKNOWN";
+  const undoStack = profile.activeSession.undoStack || [];
   return {
     ...profile,
     activeSession: {
       ...profile.activeSession,
-      undoStack: [{ reason, snapshot: createUndoSnapshot(profile.activeSession) }, ...profile.activeSession.undoStack].slice(0, 50),
+      undoStack: [{ reason, snapshot: createUndoSnapshot(profile.activeSession) }, ...undoStack].slice(0, 50),
       redoStack: [],
     },
   };

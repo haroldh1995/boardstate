@@ -367,6 +367,8 @@ export function buildLocalSave(profile, options = {}) {
       stateEngine: clone(activeSession.stateEngine || {}),
       eventKnowledge: clone(activeSession.eventKnowledge || {}),
       persistence: clone(activeSession.persistence || {}),
+      remindMe: clone(activeSession.remindMe || {}),
+      ruleAmendments: clone(activeSession.ruleAmendments || {}),
       importedDataSnapshot: clone(importedDataSnapshot),
       undoStack: clone(activeSession.undoStack || []),
       redoStack: clone(activeSession.redoStack || []),
@@ -418,6 +420,18 @@ export function buildLocalSave(profile, options = {}) {
         latestCheckpointId: activeSession.persistence?.latestCheckpointId || "",
         autoSavePolicy: activeSession.persistence?.autoSave?.policy || "every-action",
         recoveryStatus: activeSession.persistence?.recovery?.status || "clean",
+      },
+      remindMe: {
+        version: activeSession.remindMe?.version || "",
+        reminderCount: (activeSession.remindMe?.reminders || []).length,
+        activeReminderCount: (activeSession.remindMe?.reminders || []).filter((entry) => entry.status === "active").length,
+      },
+      ruleAmendments: {
+        version: activeSession.ruleAmendments?.version || "",
+        approvalPolicy: activeSession.ruleAmendments?.approvalPolicy || "unanimous",
+        pendingCount: (activeSession.ruleAmendments?.proposals || []).filter((entry) => entry.status === "pending-unanimous-approval").length,
+        acceptedCount: (activeSession.ruleAmendments?.active || []).length,
+        majorityApprovalAllowed: false,
       },
       canonicalSave: {
         saveId: canonicalSave.saveId,

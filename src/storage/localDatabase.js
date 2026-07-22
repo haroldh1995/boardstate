@@ -315,6 +315,32 @@ function normalizeProfile(profile) {
       gestures: { ...defaults.settings.gestures, ...(profile.settings?.gestures || {}) },
       adhdMode: { ...defaults.settings.adhdMode, ...(profile.settings?.adhdMode || {}) },
       helperSprite: { ...defaults.settings.helperSprite, ...(profile.settings?.helperSprite || {}) },
+      rulesAssistant: { ...defaults.settings.rulesAssistant, ...(profile.settings?.rulesAssistant || {}) },
+      remindMe: { ...defaults.settings.remindMe, ...(profile.settings?.remindMe || {}) },
+      playerMemory: {
+        ...defaults.settings.playerMemory,
+        ...(profile.settings?.playerMemory || {}),
+        frequentQuestions: {
+          ...defaults.settings.playerMemory.frequentQuestions,
+          ...(profile.settings?.playerMemory?.frequentQuestions || {}),
+        },
+        frequentlyForgottenTriggers: {
+          ...defaults.settings.playerMemory.frequentlyForgottenTriggers,
+          ...(profile.settings?.playerMemory?.frequentlyForgottenTriggers || {}),
+        },
+        accessibilityPreferences: {
+          ...defaults.settings.playerMemory.accessibilityPreferences,
+          ...(profile.settings?.playerMemory?.accessibilityPreferences || {}),
+        },
+        interactionPreferences: {
+          ...defaults.settings.playerMemory.interactionPreferences,
+          ...(profile.settings?.playerMemory?.interactionPreferences || {}),
+        },
+        gameplayPreferences: {
+          ...defaults.settings.playerMemory.gameplayPreferences,
+          ...(profile.settings?.playerMemory?.gameplayPreferences || {}),
+        },
+      },
       notifications: {
         ...defaults.settings.notifications,
         ...(profile.settings?.notifications || {}),
@@ -363,6 +389,32 @@ function normalizeProfile(profile) {
       helper: {
         ...defaults.activeSession.helper,
         ...(profile.activeSession?.helper || {}),
+      },
+      remindMe: {
+        ...defaults.activeSession.remindMe,
+        ...(profile.activeSession?.remindMe || {}),
+        reminders: Array.isArray(profile.activeSession?.remindMe?.reminders)
+          ? profile.activeSession.remindMe.reminders
+          : defaults.activeSession.remindMe.reminders,
+        timeline: Array.isArray(profile.activeSession?.remindMe?.timeline)
+          ? profile.activeSession.remindMe.timeline
+          : defaults.activeSession.remindMe.timeline,
+        dismissedNotificationKeys: Array.isArray(profile.activeSession?.remindMe?.dismissedNotificationKeys)
+          ? profile.activeSession.remindMe.dismissedNotificationKeys
+          : defaults.activeSession.remindMe.dismissedNotificationKeys,
+      },
+      ruleAmendments: {
+        ...defaults.activeSession.ruleAmendments,
+        ...(profile.activeSession?.ruleAmendments || {}),
+        proposals: Array.isArray(profile.activeSession?.ruleAmendments?.proposals)
+          ? profile.activeSession.ruleAmendments.proposals
+          : defaults.activeSession.ruleAmendments.proposals,
+        active: Array.isArray(profile.activeSession?.ruleAmendments?.active)
+          ? profile.activeSession.ruleAmendments.active
+          : defaults.activeSession.ruleAmendments.active,
+        history: Array.isArray(profile.activeSession?.ruleAmendments?.history)
+          ? profile.activeSession.ruleAmendments.history
+          : defaults.activeSession.ruleAmendments.history,
       },
       simulation: {
         ...defaults.activeSession.simulation,

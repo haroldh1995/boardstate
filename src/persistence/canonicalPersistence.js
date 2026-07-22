@@ -262,10 +262,17 @@ export function createCanonicalSave(input = {}, options = {}) {
     }),
     confidenceMetadata: {
       rulesConfidenceLog: clone(session.rulesConfidenceLog || []),
+      confidenceReport: clone(session.confidenceReport || session.proactiveAssistant?.confidenceReport || {}),
       informationConfidence: eventKnowledge.events?.[0]?.informationConfidence || "engine-verified",
       executionConfidence: eventKnowledge.events?.[0]?.executionConfidence || "engine-validated",
     },
-    ruleAmendmentHistory: clone(session.ruleAmendmentHistory || session.ruleAmendments || []),
+    ruleAmendmentHistory: clone(
+      session.ruleAmendments?.history ||
+      session.ruleAmendmentHistory ||
+      []
+    ),
+    ruleAmendments: clone(session.ruleAmendments || {}),
+    reminders: clone(session.remindMe || {}),
     synchronizationMetadata: {
       syncProtocolVersion: session.syncProtocolVersion || SHARED_SYNC_PROTOCOL_VERSION,
       revision: Number(session.revision || 0),

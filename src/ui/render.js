@@ -56,6 +56,15 @@ import {
   searchRulesAssistant,
 } from "../authoritative-core/rulesAssistant.js";
 import {
+  PROACTIVE_ASSISTANT_VERSION,
+  REMIND_ME_ENGINE_VERSION,
+  RULE_AMENDMENT_SYSTEM_VERSION,
+  buildConfidenceReport,
+  createProactiveAssistantState,
+  createReminder,
+  createRuleAmendmentProposal,
+} from "../authoritative-core/proactiveAssistant.js";
+import {
   FUTURE_OWNER_APPS,
   LEGACY_MIGRATION_VERSION,
   MIGRATION_READINESS,
@@ -266,6 +275,10 @@ export function mountApp(root, store) {
   let rulesAssistantSearchQuery = "";
   let rulesAssistantSearchResults = [];
   let rulesAssistantInputTimer = null;
+  let remindMeDraft = "";
+  let remindMeNotice = "";
+  let ruleAmendmentDraft = "";
+  let ruleAmendmentNotice = "";
   let combatResolving = false;
   let phaseAdvancePending = false;
   let simulationSetupOpen = false;
@@ -352,6 +365,10 @@ export function mountApp(root, store) {
       rulesAssistantAnswer,
       rulesAssistantSearchQuery,
       rulesAssistantSearchResults,
+      remindMeDraft,
+      remindMeNotice,
+      ruleAmendmentDraft,
+      ruleAmendmentNotice,
       quickPanelOpen,
       optionsOpen,
       statsOpen,
@@ -465,6 +482,10 @@ export function mountApp(root, store) {
       rulesAssistantAnswer,
       rulesAssistantSearchQuery,
       rulesAssistantSearchResults,
+      remindMeDraft,
+      remindMeNotice,
+      ruleAmendmentDraft,
+      ruleAmendmentNotice,
       quickPanelOpen,
       modifierPanelOpen,
       trackerModifier,
@@ -3018,15 +3039,18 @@ export function mountApp(root, store) {
     }
     globalDismissHandlersInstalled = true;
     document.addEventListener("pointerdown", handleRulesAssistantGlobalPointerDown, true);
+    document.addEventListener("pointerdown", handleProactiveAssistantGlobalPointerDown, true);
     document.addEventListener("pointerdown", handleGlobalDismissPointerDown, true);
     document.addEventListener("pointermove", handleGlobalDismissPointerMove, true);
     document.addEventListener("pointerup", handleGlobalDismissPointerUp, true);
     document.addEventListener("pointercancel", handleGlobalDismissPointerCancel, true);
     document.addEventListener("input", handleRulesAssistantGlobalInput, true);
+    document.addEventListener("input", handleProactiveAssistantGlobalInput, true);
     document.addEventListener("click", handleGlobalDismissClick, true);
     document.addEventListener("click", handleRulesAssistantGlobalClick, true);
     document.addEventListener("submit", handleRulesAssistantGlobalSubmit, true);
     document.addEventListener("keydown", handleRulesAssistantGlobalKeydown, true);
+    document.addEventListener("keydown", handleProactiveAssistantGlobalKeydown, true);
     document.addEventListener("keydown", handleGlobalDismissKeydown, true);
   }
 
@@ -3173,6 +3197,131 @@ export function mountApp(root, store) {
       utilityDockOpen = false;
       render(current);
     }
+  }
+
+  function handleProactiveAssistantGlobalPointerDown(event) {
+    const addReminder = event.target?.closest?.("[data-remind-me-add]");
+    const reminderStatus = event.target?.closest?.("[data-reminder-status]");
+    const dismissNotification = event.target?.closest?.("[data-assistant-notification-dismiss]");
+    const proposeAmendment = event.target?.closest?.("[data-rule-amendment-propose]");
+    const amendmentVote = event.target?.closest?.("[data-rule-amendment-vote]");
+    if (!addReminder && !reminderStatus && !dismissNotification && !proposeAmendment && !amendmentVote) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+    const current = store.getState();
+    if (addReminder) {
+      addRemindMeReminder(current);
+      return;
+    }
+    if (reminderStatus) {
+      const reminderId = reminderStatus.dataset.reminderStatus || "";
+      const status = reminderStatus.dataset.status || "dismissed";
+      store.dispatch({ type: "REMIND_ME_UPDATE_STATUS", reminderId, status });
+      remindMeNotice = status === "snoozed" ? "Reminder snoozed." : `Reminder ${formatLabel(status).toLowerCase()}.`;
+      activeUtilityPanel = "remind-me";
+      utilityDockOpen = false;
+      return;
+    }
+    if (dismissNotification) {
+      store.dispatch({
+        type: "REMIND_ME_DISMISS_NOTIFICATION",
+        dedupeKey: dismissNotification.dataset.assistantNotificationDismiss || "",
+      });
+      remindMeNotice = "Assistant note dismissed.";
+      activeUtilityPanel = "remind-me";
+      utilityDockOpen = false;
+      return;
+    }
+    if (proposeAmendment) {
+      proposeRuleAmendment(current);
+      return;
+    }
+    if (amendmentVote) {
+      store.dispatch({
+        type: "RULE_AMENDMENT_VOTE",
+        ruleAmendmentId: amendmentVote.dataset.ruleAmendmentVote || "",
+        vote: amendmentVote.dataset.vote || "approve",
+        playerId: resolveLocalGameplayPlayerId(current),
+      });
+      ruleAmendmentNotice = amendmentVote.dataset.vote === "reject"
+        ? "Table ruling proposal rejected and not applied."
+        : "Vote recorded. Unanimous approval is required before use.";
+      activeUtilityPanel = "remind-me";
+      utilityDockOpen = false;
+    }
+  }
+
+  function handleProactiveAssistantGlobalInput(event) {
+    if (event.target?.matches?.("[data-remind-me-input]")) {
+      remindMeDraft = String(event.target.value || "");
+      return;
+    }
+    if (event.target?.matches?.("[data-rule-amendment-input]")) {
+      ruleAmendmentDraft = String(event.target.value || "");
+    }
+  }
+
+  function handleProactiveAssistantGlobalKeydown(event) {
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && event.target?.matches?.("[data-remind-me-input]")) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      addRemindMeReminder(store.getState());
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && event.target?.matches?.("[data-rule-amendment-input]")) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      proposeRuleAmendment(store.getState());
+    }
+  }
+
+  function addRemindMeReminder(profile) {
+    const draft = String(remindMeDraft || "").trim();
+    if (!draft) {
+      remindMeNotice = "Describe what BoardState should watch for.";
+      render(profile);
+      return false;
+    }
+    const reminder = createReminder({
+      text: draft,
+      createdByPlayerId: resolveLocalGameplayPlayerId(profile),
+    }, profile.activeSession);
+    store.dispatch({ type: "REMIND_ME_ADD", reminder });
+    remindMeDraft = "";
+    remindMeNotice = "Reminder armed.";
+    activeUtilityPanel = "remind-me";
+    utilityDockOpen = false;
+    return true;
+  }
+
+  function proposeRuleAmendment(profile) {
+    const draft = String(ruleAmendmentDraft || "").trim();
+    if (!draft) {
+      ruleAmendmentNotice = "Enter the table ruling or judge decision text.";
+      render(profile);
+      return false;
+    }
+    const proposal = createRuleAmendmentProposal({
+      proposedText: draft,
+      sourceText: draft,
+      proposedByPlayerId: resolveLocalGameplayPlayerId(profile),
+    }, profile.activeSession);
+    if (!proposal.validation?.valid) {
+      ruleAmendmentNotice = proposal.validation.errors[0] || "Rule amendment proposal needs revision.";
+      render(profile);
+      return false;
+    }
+    store.dispatch({ type: "RULE_AMENDMENT_PROPOSE", proposal });
+    ruleAmendmentDraft = "";
+    ruleAmendmentNotice = "Proposal recorded. Every player must approve before use.";
+    activeUtilityPanel = "remind-me";
+    utilityDockOpen = false;
+    return true;
   }
 
   function handleGlobalDismissPointerDown(event) {
@@ -5134,6 +5283,10 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
         answer: uiState.rulesAssistantAnswer,
         searchQuery: uiState.rulesAssistantSearchQuery,
         searchResults: uiState.rulesAssistantSearchResults,
+        remindMeDraft: uiState.remindMeDraft,
+        remindMeNotice: uiState.remindMeNotice,
+        ruleAmendmentDraft: uiState.ruleAmendmentDraft,
+        ruleAmendmentNotice: uiState.ruleAmendmentNotice,
       }) : ""}
       ${uiState.quickPanelOpen ? renderQuickAdjustmentPanel(profile, uiState.quickPanelOpen) : ""}
       ${uiState.modifierPanelOpen ? renderTrackerModifierPanel(uiState.pendingTrackerModifier) : ""}
@@ -5898,6 +6051,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
         })}
       </section>
       ${renderGameplayContextDock(landscapeModel.gameplayFlow, session)}
+      ${renderProactiveAssistantStrip(landscapeModel.proactiveAssistant, activeUtilityPanel)}
       ${renderRulesAssistantLauncher(landscapeModel.rulesAssistant, activeUtilityPanel)}
     </section>
     ${renderMobileBattlefieldDock(profile, activeUtilityPanel, uiState.utilityDockOpen, Boolean(panels.boardCombat), Boolean(combatResolving), isMobilePortrait)}
@@ -7302,6 +7456,7 @@ function renderUtilityDock(
           <button data-open-utility="triggers">Queue</button>
           <button data-open-utility="history">History</button>
           <button data-open-utility="rules-assistant">Ask Why</button>
+          <button data-open-utility="remind-me">Remind Me</button>
           <button data-open-utility="rules">Rules</button>
         </div>
       ` : ""}
@@ -7377,7 +7532,7 @@ function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResu
   const diceValue = profile.settings?.utility?.lastDice || "d20: 1";
   const calcValue = profile.settings?.utility?.calculator || "";
   const rulesText = (getSelectedPermanents(session)[0]?.rulesText || getSelectedPermanents(session)[0]?.oracleText || "Select a permanent to inspect rules.");
-  const utilityTitle = panel === "search" ? "Search/Add Card" : panel === "stack" ? "Stack & Priority" : panel === "rules-assistant" ? "Rules Assistant" : formatLabel(panel);
+  const utilityTitle = panel === "search" ? "Search/Add Card" : panel === "stack" ? "Stack & Priority" : panel === "rules-assistant" ? "Rules Assistant" : panel === "remind-me" ? "Remind Me" : formatLabel(panel);
   const mobileSheetClass = isMobilePortrait ? "mobile-bottom-sheet" : "";
   return `
     <section class="utility-overlay glass ${mobileSheetClass}" data-no-swipe>
@@ -7426,6 +7581,7 @@ function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResu
         <button class="wide" data-open-tool-panel="inspect">Inspect Selected Permanent</button>
       ` : ""}
       ${panel === "rules-assistant" ? renderRulesAssistantPanel(profile, rulesAssistantUi) : ""}
+      ${panel === "remind-me" ? renderRemindMePanel(profile, rulesAssistantUi) : ""}
       ${panel === "search" ? renderSearch(searchResults, searchMessage, searchLoading, searchQuery, "battlefield", castActionPopup) : ""}
       ${panel === "simulation" ? `
         <div class="simulation-log scroll-safe">
@@ -7500,6 +7656,212 @@ function renderRulesAssistantPanel(profile = {}, rulesAssistantUi = {}) {
   `;
 }
 
+function renderRemindMePanel(profile = {}, assistantUi = {}) {
+  const session = profile.activeSession || {};
+  const assistant = createProactiveAssistantState(session, {
+    playerMemory: profile.settings?.playerMemory || {},
+    remindMe: {
+      ...(profile.settings?.remindMe || {}),
+      ...(session.remindMe || {}),
+    },
+  });
+  const reminders = session.remindMe?.reminders || [];
+  const notifications = assistant.notifications || [];
+  const confidenceReport = assistant.confidenceReport || buildConfidenceReport(session);
+  const ruleAmendments = assistant.ruleAmendments || {};
+  const proposals = ruleAmendments.proposals || [];
+  const missed = assistant.missedTriggerRecovery || {};
+  const opportunities = assistant.opportunities || [];
+  const memory = assistant.playerMemory || {};
+  return `
+    <section class="remind-me-panel" data-remind-me-version="${escapeAttribute(REMIND_ME_ENGINE_VERSION)}" data-proactive-assistant-version="${escapeAttribute(assistant.version || PROACTIVE_ASSISTANT_VERSION)}" data-rule-amendment-version="${escapeAttribute(RULE_AMENDMENT_SYSTEM_VERSION)}">
+      <div class="remind-me-identity">
+        <p class="eyebrow">Proactive Commander assistant</p>
+        <strong>Reminders, confidence, and table rulings</strong>
+        <small>BoardState watches the current rules/state/event data, explains uncertainty, and never makes decisions for players.</small>
+      </div>
+      <section class="remind-me-compose">
+        <label for="remind-me-input">Create reminder</label>
+        <textarea id="remind-me-input" data-remind-me-input rows="3" placeholder="Remind me before combat, if my commander is targeted, or when this upkeep trigger is waiting.">${escapeHtml(assistantUi.remindMeDraft || "")}</textarea>
+        <div class="row mini">
+          <button data-remind-me-add>Add Reminder</button>
+          <button data-setting-button="remindMe.enabled" data-value="${profile.settings?.remindMe?.enabled === false ? "true" : "false"}">${profile.settings?.remindMe?.enabled === false ? "Enable" : "Quiet"} Assistant</button>
+        </div>
+        ${assistantUi.remindMeNotice ? `<p class="remind-me-notice">${escapeHtml(assistantUi.remindMeNotice)}</p>` : ""}
+      </section>
+      ${notifications.length ? `
+        <section class="assistant-notification-stack" aria-label="Smart notifications">
+          ${notifications.slice(0, 5).map(renderAssistantNotification).join("")}
+        </section>
+      ` : `
+        <section class="assistant-notification-stack is-quiet" aria-label="Smart notifications">
+          <article><strong>Assistant quiet.</strong><p>No urgent Commander reminders are due in the tracked state.</p></article>
+        </section>
+      `}
+      ${renderConfidenceReport(confidenceReport)}
+      ${reminders.length ? `
+        <section class="remind-me-list" aria-label="Active reminders">
+          <div class="remind-me-section-title">
+            <p class="eyebrow">Reminders</p>
+            <strong>${escapeHtml(String(reminders.length))} watching</strong>
+          </div>
+          ${reminders.slice(0, 12).map((reminder) => renderReminderCard(reminder, assistant.reminderReport?.evaluations || [])).join("")}
+        </section>
+      ` : ""}
+      ${(missed.pendingCount || missed.likelyMissedCount) ? `
+        <section class="missed-trigger-recovery">
+          <div class="remind-me-section-title">
+            <p class="eyebrow">Trigger recovery</p>
+            <strong>${escapeHtml(String(missed.pendingCount || 0))} trigger${Number(missed.pendingCount || 0) === 1 ? "" : "s"} tracked</strong>
+          </div>
+          ${(missed.items || []).slice(0, 5).map((entry) => `
+            <article>
+              <strong>${escapeHtml(entry.sourceName || "Trigger")}</strong>
+              <p>${escapeHtml(formatLabel(entry.recoveryStatus || "pending"))} / ${escapeHtml(entry.optional ? "Optional" : "Mandatory")}</p>
+              <small>${escapeHtml((entry.recoveryOptions || [])[0] || "Review with the table.")}</small>
+            </article>
+          `).join("")}
+        </section>
+      ` : ""}
+      ${opportunities.length ? `
+        <section class="assistant-opportunities">
+          <div class="remind-me-section-title">
+            <p class="eyebrow">Legal opportunities</p>
+            <strong>Non-strategic</strong>
+          </div>
+          ${opportunities.slice(0, 6).map((entry) => `
+            <article>
+              <strong>${escapeHtml(entry.title || "Opportunity")}</strong>
+              <p>${escapeHtml(entry.detail || "")}</p>
+            </article>
+          `).join("")}
+        </section>
+      ` : ""}
+      <section class="rule-amendment-panel">
+        <div class="remind-me-section-title">
+          <p class="eyebrow">Rule amendments</p>
+          <strong>Unanimous only</strong>
+        </div>
+        <div class="rule-amendment-authority">
+          <span>Official Rules</span>
+          <span>Table Amendment</span>
+          <span>Temporary Override</span>
+          <span>Judge Decision</span>
+        </div>
+        <textarea data-rule-amendment-input rows="3" placeholder="Record the table ruling text. It stays non-canonical and cannot affect play unless every player approves.">${escapeHtml(assistantUi.ruleAmendmentDraft || "")}</textarea>
+        <button class="wide" data-rule-amendment-propose>Propose Table Ruling</button>
+        ${assistantUi.ruleAmendmentNotice ? `<p class="remind-me-notice">${escapeHtml(assistantUi.ruleAmendmentNotice)}</p>` : ""}
+        ${proposals.length ? `
+          <div class="rule-amendment-list">
+            ${proposals.slice(0, 8).map((proposal) => renderRuleAmendmentProposalCard(proposal, session)).join("")}
+          </div>
+        ` : ""}
+      </section>
+      <section class="assistant-memory-panel">
+        <div class="remind-me-section-title">
+          <p class="eyebrow">Player memory</p>
+          <strong>${escapeHtml(memory.reminderStyle || "gentle")}</strong>
+        </div>
+        <div class="rules-assistant-levels" aria-label="Assistant memory">
+          ${["beginner", "intermediate", "advanced"].map((level) => `
+            <button data-setting-button="playerMemory.preferredExplanationLevel" data-value="${escapeAttribute(level)}" class="${memory.preferredExplanationLevel === level ? "active" : ""}">${escapeHtml(formatLabel(level))}</button>
+          `).join("")}
+          <button data-setting-button="playerMemory.quietMode" data-value="${memory.quietMode ? "false" : "true"}">${memory.quietMode ? "Normal" : "Quiet"} Reminders</button>
+        </div>
+        <small>Memory changes preferences only. It does not alter authoritative gameplay.</small>
+      </section>
+    </section>
+  `;
+}
+
+function renderAssistantNotification(notification = {}) {
+  return `
+    <article class="assistant-notification assistant-notification--${escapeAttribute(notification.priority || "normal")}">
+      <div>
+        <small>${escapeHtml(formatLabel(notification.priority || "normal"))} / ${escapeHtml(formatLabel(notification.category || "assistant"))}</small>
+        <strong>${escapeHtml(notification.title || "Assistant note")}</strong>
+        <p>${escapeHtml(notification.body || "")}</p>
+        <span>${escapeHtml(formatLabel(notification.confidence?.information || "inferred"))} / ${escapeHtml(formatLabel(notification.confidence?.execution || "tracking-only"))}</span>
+      </div>
+      <button data-assistant-notification-dismiss="${escapeAttribute(notification.dedupeKey || notification.notificationId || "")}">Dismiss</button>
+    </article>
+  `;
+}
+
+function renderConfidenceReport(report = {}) {
+  const dimensions = report.dimensions || {};
+  const visibleKeys = ["information", "execution", "rules", "state", "synchronization", "replay"];
+  return `
+    <section class="confidence-engine-panel" data-confidence-engine-version="${escapeAttribute(report.version || CONFIDENCE_ENGINE_VERSION)}">
+      <div class="remind-me-section-title">
+        <p class="eyebrow">Confidence</p>
+        <strong>${escapeHtml(report.overall?.needsAttention ? "Needs review" : "High confidence")}</strong>
+      </div>
+      <p>${escapeHtml(report.overall?.summary || "BoardState reports confidence for the tracked game state.")}</p>
+      <div class="confidence-dimension-grid">
+        ${visibleKeys.map((key) => {
+          const dimension = dimensions[key] || {};
+          return `
+            <article>
+              <small>${escapeHtml(formatLabel(key))}</small>
+              <strong>${escapeHtml(formatLabel(dimension.level || "unknown"))}</strong>
+              ${(dimension.uncertain || []).length ? `<p>${escapeHtml(dimension.uncertain[0])}</p>` : ""}
+            </article>
+          `;
+        }).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderReminderCard(reminder = {}, evaluations = []) {
+  const evaluation = evaluations.find((entry) => entry.reminderId === reminder.reminderId) || {};
+  return `
+    <article class="reminder-card ${evaluation.shouldNotify ? "is-due" : ""}">
+      <div>
+        <small>${escapeHtml(formatLabel(reminder.subjectType || "future-state"))} / ${escapeHtml(formatLabel(reminder.status || "active"))}</small>
+        <strong>${escapeHtml(reminder.text || "Reminder")}</strong>
+        <p>${escapeHtml(evaluation.message || formatLabel(reminder.condition?.type || "battlefield-state"))}</p>
+      </div>
+      <div class="row mini">
+        <button data-reminder-status="${escapeAttribute(reminder.reminderId || "")}" data-status="completed">Complete</button>
+        <button data-reminder-status="${escapeAttribute(reminder.reminderId || "")}" data-status="snoozed">Snooze</button>
+        <button data-reminder-status="${escapeAttribute(reminder.reminderId || "")}" data-status="dismissed">Dismiss</button>
+      </div>
+    </article>
+  `;
+}
+
+function resolveLocalGameplayPlayerId(profileOrSession = {}) {
+  const session = profileOrSession.activeSession || profileOrSession;
+  return session.localPerspective?.playerId ||
+    session.advancedMultiplayer?.localPerspectivePlayerId ||
+    session.participants?.find?.((entry) => entry.relationship === "local")?.controlledPlayerIds?.[0] ||
+    profileOrSession.player?.id ||
+    "local-player";
+}
+
+function renderRuleAmendmentProposalCard(proposal = {}, session = {}) {
+  const localPlayerId = resolveLocalGameplayPlayerId(session);
+  const localVote = (proposal.votes || []).find((entry) => entry.playerId === localPlayerId);
+  const missing = proposal.approvalReport?.missingApprovals || [];
+  const closed = ["accepted", "rejected", "needs-revision", "withdrawn"].includes(proposal.status);
+  return `
+    <article class="rule-amendment-card rule-amendment-card--${escapeAttribute(proposal.status || "pending-unanimous-approval")}">
+      <div>
+        <small>${escapeHtml(formatLabel(proposal.type || "table-amendment"))} / ${escapeHtml(formatLabel(proposal.status || "pending-unanimous-approval"))}</small>
+        <strong>${escapeHtml(proposal.proposedText || "Table ruling")}</strong>
+        <p>${escapeHtml(missing.length ? `${missing.length} approval${missing.length === 1 ? "" : "s"} still needed.` : "All required player votes are recorded.")}</p>
+        <span>Official rules remain canonical. Majority approval is not allowed.</span>
+      </div>
+      <div class="row mini">
+        <button data-rule-amendment-vote="${escapeAttribute(proposal.ruleAmendmentId || "")}" data-vote="approve" ${closed || localVote?.vote === "approve" ? "disabled" : ""}>Approve</button>
+        <button data-rule-amendment-vote="${escapeAttribute(proposal.ruleAmendmentId || "")}" data-vote="reject" ${closed || localVote?.vote === "reject" ? "disabled" : ""}>Reject</button>
+      </div>
+    </article>
+  `;
+}
+
 function renderRulesAssistantAnswer(answer = {}) {
   const confidence = answer.confidence || {};
   const eventChain = answer.eventChain || [];
@@ -7551,6 +7913,26 @@ function renderRulesAssistantAnswer(answer = {}) {
         </div>
       ` : ""}
     </article>
+  `;
+}
+
+function renderProactiveAssistantStrip(model = {}, activeUtilityPanel = "") {
+  const notifications = model.notifications || [];
+  const top = notifications[0] || null;
+  const activeReminderCount = Number(model.reminderReport?.activeCount || 0);
+  const confidence = model.confidenceReport?.overall || {};
+  const needsAttention = Boolean(top || confidence.needsAttention);
+  const label = top
+    ? top.title
+    : activeReminderCount
+      ? `${activeReminderCount} reminder${activeReminderCount === 1 ? "" : "s"} watching`
+      : "Remind Me ready";
+  return `
+    <button class="proactive-assistant-launcher ${activeUtilityPanel === "remind-me" ? "active" : ""} ${needsAttention ? "has-attention" : ""}" data-open-utility="remind-me" aria-label="${escapeAttribute(label)}" data-proactive-assistant-version="${escapeAttribute(model.version || PROACTIVE_ASSISTANT_VERSION)}">
+      <span aria-hidden="true">${top?.priority === "critical" ? "!" : "R"}</span>
+      <strong>Remind Me</strong>
+      <small>${escapeHtml(label)}</small>
+    </button>
   `;
 }
 

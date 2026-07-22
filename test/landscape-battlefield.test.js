@@ -109,10 +109,13 @@ test("landscape model exposes permanent Commander battlefield regions without ch
   assert.equal(model.gameplayFlow.version, GAMEPLAY_FLOW_VERSION);
   assert.equal(model.gameplayFlow.mode, "contextual-commander-gameplay");
   assert.equal(model.contextActions.some((entry) => entry.status !== "available"), false);
-  assert.deepEqual(model.contextActions.map((entry) => entry.id), ["search", "stack", "triggers", "question", "history", "display", "settings"]);
+  assert.deepEqual(model.contextActions.map((entry) => entry.id), ["search", "stack", "triggers", "question", "remind-me", "history", "display", "settings"]);
   assert.equal(model.rulesAssistant.available, true);
   assert.equal(model.rulesAssistant.generativeAiEnabled, false);
   assert.equal(model.rulesAssistant.mutatesGameState, false);
+  assert.equal(model.proactiveAssistant.available, true);
+  assert.equal(model.proactiveAssistant.strategicAdviceEnabled, false);
+  assert.equal(model.proactiveAssistant.boundaries.unanimousRuleAmendmentsOnly, true);
   assert.equal(model.accessibility.touchTargetMinimumPx, 44);
 });
 
