@@ -1,6 +1,7 @@
 import { PHASES } from "../state/schema.js";
 import { buildAdvancedMultiplayerPerspective } from "../shared-session/perspective.js";
 import { clonePlain } from "../shared-contracts/index.js";
+import { createAiGameplayState } from "../authoritative-core/aiGameplayEngine.js";
 import { createProactiveAssistantState } from "../authoritative-core/proactiveAssistant.js";
 import { createRulesAssistantState } from "../authoritative-core/rulesAssistant.js";
 
@@ -48,6 +49,7 @@ export const LANDSCAPE_CONTEXT_ACTIONS = Object.freeze([
   { id: "triggers", label: "Trigger Queue", status: "available", utilityPanel: "triggers" },
   { id: "question", label: "Ask Why", status: "available", utilityPanel: "rules-assistant" },
   { id: "remind-me", label: "Remind Me", status: "available", utilityPanel: "remind-me" },
+  { id: "ai-analysis", label: "AI Analysis", status: "available", utilityPanel: "ai-analysis" },
   { id: "history", label: "History", status: "available", utilityPanel: "history" },
   { id: "display", label: "Display", status: "available", utilityPanel: "display" },
   { id: "settings", label: "Settings", status: "available", opensOptions: true },
@@ -194,6 +196,13 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
     playerMemory: profile.settings?.playerMemory || {},
     remindMe: profile.settings?.remindMe || {},
   });
+  const aiGameplay = createAiGameplayState(session, {
+    memory: session.aiGameplay?.memory || profile.settings?.aiGameplay || {},
+    informationMode:
+      profile.settings?.aiGameplay?.preferredInformationMode ||
+      session.aiGameplay?.informationMode ||
+      "public-information",
+  });
   const commandCenter = createCommandCenterModel(session, perspective, selectedCard);
   const density = resolveBattlefieldDensity({
     localPermanentCount: localBoard.totalPermanentCount,
@@ -264,11 +273,12 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
     motion,
     rulesAssistant,
     proactiveAssistant,
+    aiGameplay,
     globalInfo: createGlobalInfoModel(session, perspective),
     opponentBattlefield: opponentBoard,
     commandCenter,
     localBattlefield: localBoard,
-    contextActions: createContextActionModel(session, proactiveAssistant),
+    contextActions: createContextActionModel(session, proactiveAssistant, aiGameplay),
     accessibility: {
       touchTargetMinimumPx: 44,
       keyboardNavigableRegions: LANDSCAPE_BATTLEFIELD_REGIONS,
@@ -1643,7 +1653,7 @@ function createGlobalInfoModel(session = {}, perspective = {}) {
   };
 }
 
-function createContextActionModel(session = {}, proactiveAssistant = {}) {
+function createContextActionModel(session = {}, proactiveAssistant = {}, aiGameplay = {}) {
   return LANDSCAPE_CONTEXT_ACTIONS.map((action) => ({
     ...action,
     available: action.status === "available",
@@ -1652,6 +1662,7 @@ function createContextActionModel(session = {}, proactiveAssistant = {}) {
       action.id === "triggers" ? String((session.triggerQueue || []).filter((entry) => entry.status === "pending").length || "") :
       action.id === "question" ? String((session.eventKnowledge?.eventCount || (session.eventKnowledge?.events || []).length || "") || "") :
       action.id === "remind-me" ? String(Number(proactiveAssistant.notificationSummary?.total || 0) || "") :
+      action.id === "ai-analysis" ? String((aiGameplay.activeProfiles || []).length || "") :
       "",
   }));
 }

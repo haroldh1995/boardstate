@@ -65,6 +65,14 @@ import {
   createRuleAmendmentProposal,
 } from "../authoritative-core/proactiveAssistant.js";
 import {
+  AI_ANALYSIS_VERSION,
+  AI_GAMEPLAY_ENGINE_VERSION,
+  AI_INFORMATION_MODES,
+  AI_PROFILE_CATALOG,
+  AI_SIMULATION_SPEED_MODES,
+  createAiGameplayState,
+} from "../authoritative-core/aiGameplayEngine.js";
+import {
   FUTURE_OWNER_APPS,
   LEGACY_MIGRATION_VERSION,
   MIGRATION_READINESS,
@@ -2956,6 +2964,14 @@ export function mountApp(root, store) {
         activeUtilityPanel = "";
         render(store.getState());
       });
+    });
+    container.querySelector("[data-ai-refresh-analysis]")?.addEventListener("click", () => {
+      store.dispatch({
+        type: "AI_GAMEPLAY_REFRESH_ANALYSIS",
+        informationMode: profile.settings?.aiGameplay?.preferredInformationMode || profile.activeSession?.aiGameplay?.informationMode || "public-information",
+      });
+      activeUtilityPanel = "ai-analysis";
+      utilityDockOpen = false;
     });
     const askRulesAssistantFromText = (rawQuestion) => {
       const question = String(rawQuestion || "").trim();
@@ -6053,6 +6069,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
       ${renderGameplayContextDock(landscapeModel.gameplayFlow, session)}
       ${renderProactiveAssistantStrip(landscapeModel.proactiveAssistant, activeUtilityPanel)}
       ${renderRulesAssistantLauncher(landscapeModel.rulesAssistant, activeUtilityPanel)}
+      ${renderAiGameplayLauncher(landscapeModel.aiGameplay, activeUtilityPanel)}
     </section>
     ${renderMobileBattlefieldDock(profile, activeUtilityPanel, uiState.utilityDockOpen, Boolean(panels.boardCombat), Boolean(combatResolving), isMobilePortrait)}
     ${panels.advancedRulesHelpers || (session.pendingEffects || []).some((entry) => !["resolved", "skipped", "ignored"].includes(entry.status)) ? renderPending(session, Boolean(uiState.manualChoicePanelCollapsed), perspective) : ""}
@@ -6933,6 +6950,23 @@ function renderRulesAssistantLauncher(model = {}, activeUtilityPanel = "") {
   `;
 }
 
+function renderAiGameplayLauncher(model = {}, activeUtilityPanel = "") {
+  const activeProfileCount = Number((model.activeProfiles || []).length);
+  const topThreat = model.threatAnalysis?.mostThreateningPlayer?.displayName || model.threatAnalysis?.mostThreateningPlayer?.playerId || "";
+  const label = model.dryRun?.active
+    ? `${activeProfileCount || model.dryRun?.opponentCount || 0} AI profile${activeProfileCount === 1 ? "" : "s"} analyzing`
+    : topThreat
+      ? `Top public threat: ${topThreat}`
+      : "AI analysis ready";
+  return `
+    <button class="ai-gameplay-launcher ${activeUtilityPanel === "ai-analysis" ? "active" : ""}" data-open-utility="ai-analysis" aria-label="${escapeAttribute(label)}" data-ai-gameplay-version="${escapeAttribute(model.version || AI_GAMEPLAY_ENGINE_VERSION)}">
+      <span aria-hidden="true">AI</span>
+      <strong>AI Analysis</strong>
+      <small>${escapeHtml(label)}</small>
+    </button>
+  `;
+}
+
 function renderGameplayActionSet(label, actions = [], options = {}) {
   const usableActions = (actions || []).filter((action) => action?.id);
   if (!usableActions.length) {
@@ -7457,6 +7491,7 @@ function renderUtilityDock(
           <button data-open-utility="history">History</button>
           <button data-open-utility="rules-assistant">Ask Why</button>
           <button data-open-utility="remind-me">Remind Me</button>
+          <button data-open-utility="ai-analysis">AI Analysis</button>
           <button data-open-utility="rules">Rules</button>
         </div>
       ` : ""}
@@ -7532,7 +7567,7 @@ function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResu
   const diceValue = profile.settings?.utility?.lastDice || "d20: 1";
   const calcValue = profile.settings?.utility?.calculator || "";
   const rulesText = (getSelectedPermanents(session)[0]?.rulesText || getSelectedPermanents(session)[0]?.oracleText || "Select a permanent to inspect rules.");
-  const utilityTitle = panel === "search" ? "Search/Add Card" : panel === "stack" ? "Stack & Priority" : panel === "rules-assistant" ? "Rules Assistant" : panel === "remind-me" ? "Remind Me" : formatLabel(panel);
+  const utilityTitle = panel === "search" ? "Search/Add Card" : panel === "stack" ? "Stack & Priority" : panel === "rules-assistant" ? "Rules Assistant" : panel === "remind-me" ? "Remind Me" : panel === "ai-analysis" ? "AI Analysis" : formatLabel(panel);
   const mobileSheetClass = isMobilePortrait ? "mobile-bottom-sheet" : "";
   return `
     <section class="utility-overlay glass ${mobileSheetClass}" data-no-swipe>
@@ -7582,6 +7617,7 @@ function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResu
       ` : ""}
       ${panel === "rules-assistant" ? renderRulesAssistantPanel(profile, rulesAssistantUi) : ""}
       ${panel === "remind-me" ? renderRemindMePanel(profile, rulesAssistantUi) : ""}
+      ${panel === "ai-analysis" ? renderAiGameplayPanel(profile) : ""}
       ${panel === "search" ? renderSearch(searchResults, searchMessage, searchLoading, searchQuery, "battlefield", castActionPopup) : ""}
       ${panel === "simulation" ? `
         <div class="simulation-log scroll-safe">
@@ -7770,6 +7806,141 @@ function renderRemindMePanel(profile = {}, assistantUi = {}) {
         </div>
         <small>Memory changes preferences only. It does not alter authoritative gameplay.</small>
       </section>
+    </section>
+  `;
+}
+
+function renderAiGameplayPanel(profile = {}) {
+  const session = profile.activeSession || {};
+  const stored = session.aiGameplay || {};
+  const computed = createAiGameplayState(session, {
+    memory: stored.memory || profile.settings?.aiGameplay || {},
+    informationMode:
+      profile.settings?.aiGameplay?.preferredInformationMode ||
+      stored.informationMode ||
+      "public-information",
+  });
+  const ai = {
+    ...computed,
+    ...stored,
+    activeProfiles: stored.activeProfiles?.length ? stored.activeProfiles : computed.activeProfiles,
+    latestDecision: stored.latestDecision || computed.latestDecision,
+    threatAnalysis: stored.threatAnalysis || computed.threatAnalysis,
+    boardAnalysis: stored.boardAnalysis || computed.boardAnalysis,
+    replayAnalysis: stored.replayAnalysis || computed.replayAnalysis,
+    playPatterns: stored.playPatterns || computed.playPatterns,
+    decisionComparison: stored.decisionComparison || computed.decisionComparison,
+    confidence: stored.confidence || computed.confidence,
+    memory: stored.memory || computed.memory,
+  };
+  const memory = ai.memory || {};
+  const activeProfileLabels = (ai.activeProfiles || []).map((entry) =>
+    `${entry.displayName || entry.playerId} (${formatLabel(entry.difficulty || entry.profileId || "ai")})`
+  );
+  const latestDecision = ai.latestDecision;
+  const threatRows = (ai.threatAnalysis?.rankings || []).slice(0, 5);
+  const boardRows = (ai.boardAnalysis?.players || []).slice(0, 5);
+  const replayRows = (ai.replayAnalysis?.turningPoints || []).slice(0, 5);
+  const patterns = (ai.playPatterns?.detected || []).slice(0, 6);
+  return `
+    <section class="ai-gameplay-panel" data-ai-gameplay-version="${escapeAttribute(ai.version || AI_GAMEPLAY_ENGINE_VERSION)}" data-ai-analysis-version="${escapeAttribute(AI_ANALYSIS_VERSION)}">
+      <div class="ai-gameplay-identity">
+        <p class="eyebrow">Explainable local AI</p>
+        <strong>${escapeHtml(ai.mode === "dry-run-simulation" ? "Dry Run analysis is active." : "Battlefield analysis is ready.")}</strong>
+        <small>AI reads BoardState rules, state, and Event Knowledge. It does not mutate gameplay, waive rules, use cloud AI, or invent hidden information.</small>
+      </div>
+      <div class="ai-gameplay-controls">
+        <button data-ai-refresh-analysis>Refresh Analysis</button>
+        ${AI_INFORMATION_MODES.map((mode) => `
+          <button class="${ai.informationMode === mode ? "active" : ""}" data-setting-button="aiGameplay.preferredInformationMode" data-value="${escapeAttribute(mode)}">${escapeHtml(formatLabel(mode))}</button>
+        `).join("")}
+      </div>
+      <div class="ai-gameplay-controls ai-gameplay-controls--secondary">
+        ${["alpha", "beta", "omega"].map((difficulty) => `
+          <button class="${memory.difficulty === difficulty ? "active" : ""}" data-setting-button="aiGameplay.preferredDifficulty" data-value="${escapeAttribute(difficulty)}">${escapeHtml(formatLabel(difficulty))}</button>
+        `).join("")}
+        ${AI_SIMULATION_SPEED_MODES.map((speed) => `
+          <button class="${memory.preferredSimulationSettings?.speedMode === speed ? "active" : ""}" data-setting-button="aiGameplay.preferredSimulationSpeed" data-value="${escapeAttribute(speed)}">${escapeHtml(formatLabel(speed))}</button>
+        `).join("")}
+      </div>
+      <div class="ai-gameplay-grid">
+        <article>
+          <div class="remind-me-section-title">
+            <h3>Dry Run</h3>
+            <span>${escapeHtml(ai.dryRun?.status || "idle")}</span>
+          </div>
+          <p>${escapeHtml(ai.dryRun?.active ? `${ai.dryRun.format || "Commander"} with ${ai.dryRun.opponentCount || 0} AI opponent(s).` : "Start Dry Run to let Alpha, Beta, and Omega analyze legal simulation branches.")}</p>
+          <ul>
+            ${(activeProfileLabels.length ? activeProfileLabels : ["No AI opponent currently active."]).map((label) => `<li>${escapeHtml(label)}</li>`).join("")}
+          </ul>
+        </article>
+        <article>
+          <div class="remind-me-section-title">
+            <h3>Latest Decision</h3>
+            <span>${escapeHtml(latestDecision?.confidence?.execution || "tracking-only")}</span>
+          </div>
+          ${latestDecision ? `
+            <strong>${escapeHtml(latestDecision.selectedAction?.label || "AI decision")}</strong>
+            <p>${escapeHtml(latestDecision.explanation?.why || "Decision reasoning is available after AI simulation activity.")}</p>
+            <small>${escapeHtml((latestDecision.explanation?.informationUsed || []).slice(0, 4).join(" / "))}</small>
+          ` : "<p>No AI decision has been recorded yet. Dry Run simulation activity will populate this section.</p>"}
+        </article>
+        <article>
+          <div class="remind-me-section-title">
+            <h3>Threat Analysis</h3>
+            <span>${escapeHtml(ai.threatAnalysis?.informationMode || "public-information")}</span>
+          </div>
+          ${threatRows.map((entry, index) => `
+            <div class="ai-analysis-row">
+              <b>${index + 1}. ${escapeHtml(entry.displayName || entry.playerId)}</b>
+              <span>${escapeHtml(String(entry.score ?? 0))}</span>
+              <small>${escapeHtml((entry.reasons || []).slice(0, 2).join(" "))}</small>
+            </div>
+          `).join("") || "<p>No public threat signals are available yet.</p>"}
+        </article>
+        <article>
+          <div class="remind-me-section-title">
+            <h3>Board Analysis</h3>
+            <span>${escapeHtml(`${ai.boardAnalysis?.table?.totalPermanents || 0} permanents`)}</span>
+          </div>
+          ${boardRows.map((entry) => `
+            <div class="ai-analysis-row">
+              <b>${escapeHtml(entry.displayName || entry.playerId)}</b>
+              <span>Board ${escapeHtml(String(entry.boardAdvantage ?? 0))}</span>
+              <small>Mana ${escapeHtml(String(entry.publicResources?.lands || 0))} / Creatures ${escapeHtml(String(entry.publicResources?.creatures || 0))} / Removal ${escapeHtml(String(entry.removalDensity || 0))}</small>
+            </div>
+          `).join("") || "<p>No battlefield data is available for analysis.</p>"}
+        </article>
+        <article>
+          <div class="remind-me-section-title">
+            <h3>Replay Analysis</h3>
+            <span>${escapeHtml(`${ai.replayAnalysis?.eventCount || 0} events`)}</span>
+          </div>
+          ${replayRows.map((entry) => `
+            <div class="ai-analysis-row">
+              <b>${escapeHtml(entry.label || "Event")}</b>
+              <span>Turn ${escapeHtml(String(entry.turn || 1))}</span>
+              <small>${escapeHtml(entry.why || "")}</small>
+            </div>
+          `).join("") || "<p>Replay turning points appear after Event Knowledge or simulation logs accumulate.</p>"}
+        </article>
+        <article>
+          <div class="remind-me-section-title">
+            <h3>Patterns</h3>
+            <span>${escapeHtml(ai.playPatterns?.sessionLearningOnly ? "session only" : "local")}</span>
+          </div>
+          ${patterns.map((entry) => `
+            <div class="ai-analysis-row">
+              <b>${escapeHtml(entry.label)}</b>
+              <span>${escapeHtml(String(entry.strength))}</span>
+              <small>${escapeHtml(entry.explanation)}</small>
+            </div>
+          `).join("") || "<p>No recurring play patterns detected yet.</p>"}
+        </article>
+      </div>
+      <div class="ai-profile-catalog" aria-label="AI profile catalog">
+        ${AI_PROFILE_CATALOG.map((profileEntry) => `<span>${escapeHtml(profileEntry.label)}</span>`).join("")}
+      </div>
     </section>
   `;
 }

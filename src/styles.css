@@ -8660,6 +8660,67 @@ body[data-page="battlefield"] .proactive-assistant-launcher:focus-visible {
   transform: translateY(-2px);
 }
 
+/* Prompt 11: AI analysis is explainable, local-only, and secondary to gameplay. */
+body[data-page="battlefield"] .ai-gameplay-launcher {
+  position: fixed;
+  right: max(21.6rem, calc(env(safe-area-inset-right) + 21.6rem));
+  bottom: max(0.85rem, env(safe-area-inset-bottom));
+  z-index: 127;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.24rem 0.52rem;
+  min-width: 10rem;
+  min-height: 3rem;
+  padding: 0.42rem 0.72rem;
+  border: 1px solid rgba(178, 154, 255, 0.3);
+  border-radius: 999px;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 18% 18%, rgba(178, 154, 255, 0.14), transparent 44%),
+    linear-gradient(135deg, rgba(10, 12, 30, 0.92), rgba(35, 28, 58, 0.82));
+  box-shadow:
+    0 14px 36px rgba(0, 0, 0, 0.34),
+    inset 0 0 0 1px rgba(236, 200, 122, 0.08);
+  cursor: pointer;
+}
+
+body[data-page="battlefield"] .ai-gameplay-launcher > span {
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  color: #090713;
+  font-size: 0.74rem;
+  font-weight: 900;
+  background: linear-gradient(180deg, #cfc4ff, #9a84ff);
+  box-shadow: 0 0 16px rgba(178, 154, 255, 0.28);
+}
+
+body[data-page="battlefield"] .ai-gameplay-launcher strong,
+body[data-page="battlefield"] .ai-gameplay-launcher small {
+  display: block;
+  line-height: 1;
+}
+
+body[data-page="battlefield"] .ai-gameplay-launcher small {
+  max-width: 11rem;
+  color: var(--muted);
+  font-size: 0.62rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-page="battlefield"] .ai-gameplay-launcher.active,
+body[data-page="battlefield"] .ai-gameplay-launcher:hover,
+body[data-page="battlefield"] .ai-gameplay-launcher:focus-visible {
+  border-color: rgba(178, 154, 255, 0.68);
+  transform: translateY(-2px);
+}
+
 .rules-assistant-panel {
   display: grid;
   gap: 0.78rem;
@@ -8954,6 +9015,98 @@ body[data-page="battlefield"] .proactive-assistant-launcher:focus-visible {
   background: rgba(236, 200, 122, 0.14);
 }
 
+.ai-gameplay-panel {
+  display: grid;
+  gap: 0.72rem;
+}
+
+.ai-gameplay-identity {
+  display: grid;
+  gap: 0.24rem;
+  padding: 0.68rem 0.74rem;
+  border: 1px solid rgba(236, 200, 122, 0.18);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(236, 200, 122, 0.14), transparent 36%),
+    rgba(5, 8, 19, 0.5);
+}
+
+.ai-gameplay-identity strong,
+.ai-gameplay-grid article strong,
+.ai-analysis-row b {
+  color: var(--gold-bright);
+}
+
+.ai-gameplay-identity small,
+.ai-gameplay-grid article p,
+.ai-gameplay-grid article small,
+.ai-analysis-row small {
+  color: var(--muted);
+}
+
+.ai-gameplay-controls,
+.ai-profile-catalog {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+}
+
+.ai-gameplay-controls button,
+.ai-profile-catalog span {
+  min-height: 32px;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid rgba(236, 200, 122, 0.2);
+  border-radius: 999px;
+  color: var(--text);
+  background: rgba(4, 8, 18, 0.42);
+}
+
+.ai-gameplay-controls button.active {
+  border-color: rgba(255, 229, 138, 0.62);
+  background: rgba(236, 200, 122, 0.14);
+}
+
+.ai-gameplay-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.52rem;
+}
+
+.ai-gameplay-grid article,
+.ai-analysis-row {
+  display: grid;
+  gap: 0.36rem;
+  padding: 0.62rem 0.7rem;
+  border: 1px solid rgba(143, 211, 255, 0.15);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(143, 211, 255, 0.1), transparent 34%),
+    rgba(5, 8, 19, 0.48);
+}
+
+.ai-gameplay-grid ul {
+  margin: 0;
+  padding-left: 1rem;
+  color: var(--muted);
+}
+
+.ai-analysis-row {
+  padding: 0.46rem 0.54rem;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ai-analysis-row span {
+  color: #fffdf5;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+@media (max-width: 760px) {
+  .ai-gameplay-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Prompt 8: premium motion communicates gameplay changes without becoming game state. */
 body[data-page="battlefield"] .landscape-battlefield-page {
   --battlefield-motion-micro: 120ms;
@@ -8995,6 +9148,7 @@ body[data-page="battlefield"] .permanent .permanent-content > button,
 body[data-page="battlefield"] .gameplay-flow-action,
 body[data-page="battlefield"] .phase-next-chip,
 body[data-page="battlefield"] .rules-assistant-launcher,
+body[data-page="battlefield"] .ai-gameplay-launcher,
 body[data-page="battlefield"] .opponent-carousel button {
   transition:
     transform var(--battlefield-motion-micro) var(--battlefield-motion-ease),
@@ -9086,6 +9240,7 @@ body[data-page="battlefield"] .landscape-stack-core,
 body[data-page="battlefield"] .gameplay-context-dock,
 body[data-page="battlefield"] .rules-assistant-launcher,
 body[data-page="battlefield"] .proactive-assistant-launcher,
+body[data-page="battlefield"] .ai-gameplay-launcher,
 body[data-page="battlefield"] .opponent-carousel {
   transition:
     transform var(--battlefield-motion-standard) var(--battlefield-motion-ease),
@@ -9125,6 +9280,7 @@ body[data-page="battlefield"] .landscape-floating-notices small,
 body[data-page="battlefield"] .gameplay-context-dock,
 body[data-page="battlefield"] .rules-assistant-launcher,
 body[data-page="battlefield"] .proactive-assistant-launcher,
+body[data-page="battlefield"] .ai-gameplay-launcher,
 body[data-page="battlefield"] .card-presentation {
   animation: boardstate-toast-arrive var(--battlefield-motion-standard) var(--battlefield-motion-emphasis-ease) both;
 }
@@ -9137,6 +9293,8 @@ body[data-page="battlefield"] .rules-assistant-launcher:hover,
 body[data-page="battlefield"] .rules-assistant-launcher:focus-visible,
 body[data-page="battlefield"] .proactive-assistant-launcher:hover,
 body[data-page="battlefield"] .proactive-assistant-launcher:focus-visible,
+body[data-page="battlefield"] .ai-gameplay-launcher:hover,
+body[data-page="battlefield"] .ai-gameplay-launcher:focus-visible,
 body[data-page="battlefield"] .opponent-carousel button:hover,
 body[data-page="battlefield"] .opponent-carousel button:focus-visible {
   transform: translateY(-1px);
@@ -9149,6 +9307,7 @@ body[data-page="battlefield"] .gameplay-flow-action:active,
 body[data-page="battlefield"] .phase-next-chip:active,
 body[data-page="battlefield"] .rules-assistant-launcher:active,
 body[data-page="battlefield"] .proactive-assistant-launcher:active,
+body[data-page="battlefield"] .ai-gameplay-launcher:active,
 body[data-page="battlefield"] .opponent-carousel button:active {
   transform: translateY(1px) scale(0.985);
 }
@@ -9322,6 +9481,7 @@ body[data-page="battlefield"] .motion-none {
   body[data-page="battlefield"] .gameplay-context-dock,
   body[data-page="battlefield"] .rules-assistant-launcher,
   body[data-page="battlefield"] .proactive-assistant-launcher,
+  body[data-page="battlefield"] .ai-gameplay-launcher,
   body[data-page="battlefield"] .card-presentation,
   body[data-page="battlefield"] .motion-reduced *,
   body[data-page="battlefield"] .motion-minimal *,
@@ -9374,7 +9534,8 @@ body[data-page="battlefield"] .motion-none {
   }
 
   body[data-page="battlefield"] .rules-assistant-launcher,
-  body[data-page="battlefield"] .proactive-assistant-launcher {
+  body[data-page="battlefield"] .proactive-assistant-launcher,
+  body[data-page="battlefield"] .ai-gameplay-launcher {
     min-width: 3rem;
     padding: 0.36rem;
   }
@@ -9382,12 +9543,18 @@ body[data-page="battlefield"] .motion-none {
   body[data-page="battlefield"] .rules-assistant-launcher strong,
   body[data-page="battlefield"] .rules-assistant-launcher small,
   body[data-page="battlefield"] .proactive-assistant-launcher strong,
-  body[data-page="battlefield"] .proactive-assistant-launcher small {
+  body[data-page="battlefield"] .proactive-assistant-launcher small,
+  body[data-page="battlefield"] .ai-gameplay-launcher strong,
+  body[data-page="battlefield"] .ai-gameplay-launcher small {
     display: none;
   }
 
   body[data-page="battlefield"] .proactive-assistant-launcher {
     right: max(4.5rem, calc(env(safe-area-inset-right) + 4.5rem));
+  }
+
+  body[data-page="battlefield"] .ai-gameplay-launcher {
+    right: max(8rem, calc(env(safe-area-inset-right) + 8rem));
   }
 }
 
@@ -9414,10 +9581,19 @@ body[data-page="battlefield"] .motion-none {
     padding: 0.38rem;
   }
 
+  body[data-page="battlefield"] .ai-gameplay-launcher {
+    right: max(7.9rem, calc(env(safe-area-inset-right) + 7.9rem));
+    bottom: max(5.2rem, env(safe-area-inset-bottom));
+    min-width: 3.2rem;
+    padding: 0.38rem;
+  }
+
   body[data-page="battlefield"] .rules-assistant-launcher strong,
   body[data-page="battlefield"] .rules-assistant-launcher small,
   body[data-page="battlefield"] .proactive-assistant-launcher strong,
-  body[data-page="battlefield"] .proactive-assistant-launcher small {
+  body[data-page="battlefield"] .proactive-assistant-launcher small,
+  body[data-page="battlefield"] .ai-gameplay-launcher strong,
+  body[data-page="battlefield"] .ai-gameplay-launcher small {
     display: none;
   }
 }

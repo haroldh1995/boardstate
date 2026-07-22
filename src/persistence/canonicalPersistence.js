@@ -273,6 +273,19 @@ export function createCanonicalSave(input = {}, options = {}) {
     ),
     ruleAmendments: clone(session.ruleAmendments || {}),
     reminders: clone(session.remindMe || {}),
+    aiGameplay: clone(session.aiGameplay || {}),
+    aiAnalysisMetadata: {
+      version: session.aiGameplay?.version || "",
+      informationMode: session.aiGameplay?.informationMode || "public-information",
+      activeProfileIds: clone(session.aiGameplay?.activeProfileIds || []),
+      latestDecisionId: session.aiGameplay?.latestDecision?.decisionId || "",
+      threatAnalysisVersion: session.aiGameplay?.threatAnalysis?.version || "",
+      boardAnalysisVersion: session.aiGameplay?.boardAnalysis?.version || "",
+      replayAnalysisVersion: session.aiGameplay?.replayAnalysis?.version || "",
+      mutatesGameState: false,
+      externalAiServicesEnabled: false,
+      generativeAiEnabled: false,
+    },
     synchronizationMetadata: {
       syncProtocolVersion: session.syncProtocolVersion || SHARED_SYNC_PROTOCOL_VERSION,
       revision: Number(session.revision || 0),
@@ -808,6 +821,7 @@ function sanitizeCheckpointSnapshot(snapshotInput = {}) {
   delete snapshot.selectedIds;
   delete snapshot.eventQueue;
   delete snapshot.runtime;
+  delete snapshot.aiGameplay;
   if (snapshot.advancedMultiplayer) {
     snapshot.advancedMultiplayer = {
       ...snapshot.advancedMultiplayer,

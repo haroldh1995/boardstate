@@ -31,6 +31,9 @@ test("simulation setup starts local turn with selected NPC opponents", () => {
   assert.equal(profile.activeSession.simulation.status, "running");
   assert.deepEqual(profile.activeSession.simulation.selectedOpponents, ["alpha", "omega"]);
   assert.equal(profile.activeSession.simulation.currentPlayerId, "local-player");
+  assert.equal(profile.activeSession.aiGameplay.available, true);
+  assert.equal(profile.activeSession.aiGameplay.canWaiveRules, false);
+  assert.deepEqual(profile.activeSession.aiGameplay.activeProfileIds.sort(), ["alpha", "omega"]);
   assert.ok(profile.settings.multiplayer.connectedPlayers.some((entry) => entry.id === "alpha"));
   assert.ok(profile.settings.multiplayer.connectedPlayers.some((entry) => entry.id === "omega"));
   assert.equal(profile.activeSession.gameTracking.active, true);
@@ -75,6 +78,8 @@ test("simulation pass turn hands control to npc and tick generates npc action lo
       (entry) => entry.actorId === "alpha" && /draws|passes/i.test(entry.text || "")
     )
   );
+  assert.ok(profile.activeSession.aiGameplay.latestDecision);
+  assert.equal(profile.activeSession.aiGameplay.latestDecision.mutatesGameState, false);
   assert.ok(profile.activeSession.simulation.opponents.alpha.zones.library.length >= 0);
   assert.ok(Array.isArray(profile.activeSession.simulation.opponents.alpha.zones.hand));
 });

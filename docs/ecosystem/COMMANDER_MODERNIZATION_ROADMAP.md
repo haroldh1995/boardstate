@@ -85,34 +85,35 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - Rule Amendment proposals preserve plain text, reject executable/script-like content, require unanimous player approval, never allow majority approval, and do not directly mutate authoritative gameplay state.
 - Reminders and table ruling records are saved with the session and canonical persistence metadata without deleting legacy data or creating a second notification authority.
 
+### Prompt 11: AI Gameplay Engine, Dry Runs, Simulations, And Analysis
+
+- `src/authoritative-core/aiGameplayEngine.js` adds the explainable local AI Gameplay Engine over BoardState's existing Rules Engine, State Engine, Event Knowledge Engine, Dry Run, and simulation systems.
+- Dry Run keeps using the existing Alpha, Beta, and Omega simulation decks and reducer/rules-engine action paths. AI analysis never mutates game state directly or waives rules.
+- The battlefield now exposes a contextual AI Analysis panel for active profiles, latest decision reasoning, threat analysis, board analysis, replay turning points, play patterns, and local AI preferences.
+- AI gameplay metadata persists through profile defaults, local saves, and canonical save metadata without introducing cloud AI, external LLMs, deck-building AI, tournament matchmaking, or Hub synchronization.
+
 ## Remaining Roadmap
 
-### Prompt 11: Full Control And Live Tracking Convergence
+### Prompt 12: Full Control And Live Tracking Convergence
 
 - Implement Full Control and Live Tracking as two input models over the same authoritative rules engine, canonical game state, event stream, save system, sync foundation, and replay/explanation foundation.
 - Live Tracking accepts physical-table-reported actions with honest unknowns and confidence indicators.
 - Full Control accepts direct digital card and zone manipulation through rules-engine legal action paths.
 - Do not create separate engines or duplicate state authorities.
 
-### Prompt 12: Timeline And Relationship Experience
+### Prompt 13: Timeline And Relationship Experience
 
 - Extend the Remind Me foundation with game history, change summaries, relationship visualization, turn timeline, and replay inspection.
 - Add live battlefield replay, relationship explanations, and phase/turn timeline inspection.
 - Reuse existing event history, replay state, effect logs, tutorial explanations, and saves.
 - Ensure replay always returns safely to the current synchronized state.
 
-### Prompt 13: Rules Recovery And Rule Amendments Expansion
+### Prompt 14: Rules Recovery And Rule Amendments Expansion
 
 - Add Rules Recovery for official rules text, Gatherer rulings, release notes, Oracle text, Scryfall Oracle/rulings, trusted judge references, and table interpretations.
 - Preserve imported source text as non-executable plain text and map it only through constrained approved rule operations.
 - Extend the Prompt 10 confidence and unanimous-amendment foundations into the full Rules Recovery interface.
 - Record every recovery proposal, vote, rejection, revision, accepted amendment, and recovery action in immutable event history.
-
-### Prompt 14: AI Integration
-
-- Route AI decisions through the same canonical session, rules engine, state engine, Event Knowledge Engine, action pipeline, and confidence model as human decisions.
-- Preserve existing Dry Run, simulation, NPC decks, deterministic learning, and tutorial behavior.
-- Do not allow AI to waive rules or bypass legality.
 
 ### Prompt 15: Hub, Lite And Deck Nexus Interoperability
 

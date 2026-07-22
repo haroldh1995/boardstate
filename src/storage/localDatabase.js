@@ -317,6 +317,7 @@ function normalizeProfile(profile) {
       helperSprite: { ...defaults.settings.helperSprite, ...(profile.settings?.helperSprite || {}) },
       rulesAssistant: { ...defaults.settings.rulesAssistant, ...(profile.settings?.rulesAssistant || {}) },
       remindMe: { ...defaults.settings.remindMe, ...(profile.settings?.remindMe || {}) },
+      aiGameplay: { ...defaults.settings.aiGameplay, ...(profile.settings?.aiGameplay || {}) },
       playerMemory: {
         ...defaults.settings.playerMemory,
         ...(profile.settings?.playerMemory || {}),
@@ -415,6 +416,40 @@ function normalizeProfile(profile) {
         history: Array.isArray(profile.activeSession?.ruleAmendments?.history)
           ? profile.activeSession.ruleAmendments.history
           : defaults.activeSession.ruleAmendments.history,
+      },
+      aiGameplay: {
+        ...defaults.activeSession.aiGameplay,
+        ...(profile.activeSession?.aiGameplay || {}),
+        activeProfileIds: Array.isArray(profile.activeSession?.aiGameplay?.activeProfileIds)
+          ? profile.activeSession.aiGameplay.activeProfileIds
+          : defaults.activeSession.aiGameplay.activeProfileIds,
+        analysisLog: Array.isArray(profile.activeSession?.aiGameplay?.analysisLog)
+          ? profile.activeSession.aiGameplay.analysisLog
+          : defaults.activeSession.aiGameplay.analysisLog,
+        memory: {
+          ...defaults.activeSession.aiGameplay.memory,
+          ...(profile.activeSession?.aiGameplay?.memory || {}),
+          preferredSimulationSettings: {
+            ...defaults.activeSession.aiGameplay.memory.preferredSimulationSettings,
+            ...(profile.activeSession?.aiGameplay?.memory?.preferredSimulationSettings || {}),
+          },
+          analysisPreferences: {
+            ...defaults.activeSession.aiGameplay.memory.analysisPreferences,
+            ...(profile.activeSession?.aiGameplay?.memory?.analysisPreferences || {}),
+          },
+          trainingPreferences: {
+            ...defaults.activeSession.aiGameplay.memory.trainingPreferences,
+            ...(profile.activeSession?.aiGameplay?.memory?.trainingPreferences || {}),
+          },
+          accessibilityPreferences: {
+            ...defaults.activeSession.aiGameplay.memory.accessibilityPreferences,
+            ...(profile.activeSession?.aiGameplay?.memory?.accessibilityPreferences || {}),
+          },
+          patternWeights: {
+            ...defaults.activeSession.aiGameplay.memory.patternWeights,
+            ...(profile.activeSession?.aiGameplay?.memory?.patternWeights || {}),
+          },
+        },
       },
       simulation: {
         ...defaults.activeSession.simulation,

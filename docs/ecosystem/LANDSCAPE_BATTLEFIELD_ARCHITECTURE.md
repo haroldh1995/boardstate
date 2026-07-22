@@ -71,7 +71,7 @@ Selecting a card updates a central selected-card panel with Oracle text, current
 Prompt 5.5 completes the first commercial-quality battlefield pass without changing gameplay authority:
 
 - `src/ui/render.js` keeps the active battlefield visible by using a compact table ribbon, focused opponent region, center command center, bottom local board, contextual card preview, and compact battlefield action dock.
-- At Prompt 5.5, `src/ui/landscapeBattlefield.js` reported only then-available context actions; the Question System is now implemented by Prompt 9, while Remind Me, replay, AI, and external-app action surfaces remain hidden until implemented.
+- At Prompt 5.5, `src/ui/landscapeBattlefield.js` reported only then-available context actions; the Question System, Remind Me, and AI Analysis surfaces are now implemented by Prompts 9 through 11, while replay and external-app action surfaces remain hidden until implemented.
 - `src/styles.css` makes the battlefield dominate desktop, tablet, foldable, and landscape-phone play by suppressing duplicate state strips, mobile swipe scaffolding, oversized command controls, and permanent empty rails on the gameplay page.
 - Non-gameplay friend-discovery status toasts are filtered from the battlefield so Commander play is not obscured by ecosystem status noise.
 
@@ -101,7 +101,7 @@ Prompt 7 keeps gameplay on the battlefield by promoting selected permanents, tri
 - Commander permanents surface Commander status, tax, cast count, damage access, and Commander tools without creating a separate Commander workflow engine.
 - Trigger queues are grouped for readability, priority controls expand only when a meaningful window exists, and manual choices point back to the existing trigger/manual-choice tools.
 
-Prompt 7 does not add animation, spectator mode, the Question UI, the Remind Me UI, AI interface redesign, fake Hub/Lite/Nexus status, or a second action system.
+Prompt 7 does not add animation, spectator mode, the Question UI, the Remind Me UI, fake Hub/Lite/Nexus status, or a second action system.
 
 ## Prompt 8 Motion, Camera, And Premium Presentation
 
@@ -138,6 +138,17 @@ Prompt 10 adds the first production Remind Me and confidence surface without cha
 
 The proactive assistant does not recommend strategy, play for users, execute imported text, expose hidden zones, or claim Hub/Lite/Nexus services.
 
+## Prompt 11 AI Gameplay Analysis
+
+Prompt 11 adds the first production AI Gameplay Analysis surface without changing battlefield authority:
+
+- `src/authoritative-core/aiGameplayEngine.js` derives local AI profiles, Dry Run analysis, explainable decision records, threat analysis, board analysis, replay turning points, play-pattern recognition, and AI memory from existing Rules Engine, State Engine, Event Knowledge, and simulation data.
+- `src/ui/landscapeBattlefield.js` exposes a non-authoritative `aiGameplay` model and an available `ai-analysis` context action.
+- `src/ui/render.js` adds the contextual AI Analysis panel for Dry Run status, active profiles, latest decision reasoning, public threat signals, board summaries, replay summaries, patterns, and local preferences.
+- `src/styles.css` keeps AI analysis compact, BoardState-native, reduced-motion safe, and secondary to battlefield visibility.
+
+The AI layer does not mutate game state, waive rules, bypass the rules engine, expose unauthorized hidden zones, use cloud AI, call external LLMs, recommend decks, claim tournament matchmaking, or claim Hub services.
+
 ## Deferred Work
 
-The battlefield, gameplay-flow, motion, Rules Assistant, and proactive assistant prompts do not implement particle effects, spectator mode, visual replay UI, sound, haptics, AI battlefield interface, external judge search, or full Rules Recovery imports. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.
+The battlefield, gameplay-flow, motion, Rules Assistant, proactive assistant, and AI analysis prompts do not implement particle effects, spectator mode, visual replay UI, sound, haptics, cloud AI, strategic coaching, external judge search, or full Rules Recovery imports. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.

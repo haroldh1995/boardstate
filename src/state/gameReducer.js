@@ -131,6 +131,10 @@ import {
   recordRuleAmendmentVote,
   updateReminderStatus,
 } from "../authoritative-core/proactiveAssistant.js";
+import {
+  createAiGameplayState,
+  createAiMemoryState,
+} from "../authoritative-core/aiGameplayEngine.js";
 
 export function reduceProfile(profile, event) {
   const actionType = event.actionType || event.type;
@@ -140,6 +144,7 @@ export function reduceProfile(profile, event) {
     !["IMPORT_PROFILE", "SAVE_TICK", "SIMULATION_TICK"].includes(actionType) &&
     !actionKey.startsWith("ONBOARDING_") &&
     !actionKey.startsWith("TUTORIAL_") &&
+    !actionKey.startsWith("AI_") &&
     !actionKey.startsWith("LOCAL_SAVE_");
   const baseProfile = undoable ? pushUndo(profile, event) : profile;
   let nextProfile = baseProfile;
@@ -520,6 +525,12 @@ export function reduceProfile(profile, event) {
     case "CLEAR_SIMULATION_LEARNING":
       nextProfile = clearSimulationLearning(baseProfile);
       break;
+    case "AI_GAMEPLAY_REFRESH_ANALYSIS":
+      nextProfile = withSession(baseProfile, refreshAiGameplaySession(baseProfile.activeSession, baseProfile, event));
+      break;
+    case "AI_MEMORY_UPDATE":
+      nextProfile = updateAiGameplayMemory(baseProfile, event);
+      break;
     case "RESET_ALL_LOCAL_DATA":
       nextProfile = resetAllLocalData(baseProfile);
       break;
@@ -787,6 +798,7 @@ export function reduceProfile(profile, event) {
   nextProfile = updateSimulationMemory(nextProfile, event, actionType);
   nextProfile = maybeAdvanceLocalSimulationTurn(nextProfile, baseProfile.activeSession, actionType);
   nextProfile = syncSimulationPresence(nextProfile);
+  nextProfile = refreshAiGameplayForAction(nextProfile, baseProfile.activeSession, actionType, event);
   nextProfile = maybeAddTournamentNotification(nextProfile, baseProfile, actionType, event);
   return withHistory(nextProfile, finalizeAction(event, nextProfile));
 }
@@ -3374,6 +3386,168 @@ function syncSimulationPresence(profile) {
         ...(profile.settings?.multiplayer || {}),
         mode: "simulated",
         connectedPlayers: buildSimulationConnectedPlayers(profile, simulation.opponents || {}),
+      },
+    },
+  };
+}
+
+const AI_GAMEPLAY_ANALYSIS_ACTIONS = new Set([
+  "AI_MEMORY_UPDATE",
+  "START_SIMULATION",
+  "SIMULATION_TICK",
+  "SIMULATION_PASS_TURN",
+  "SIMULATION_PAUSE",
+  "SIMULATION_RESUME",
+  "SIMULATION_STOP",
+  "SIMULATION_SET_SPEED",
+  "ADVANCE_PHASE",
+  "ADD_PERMANENT",
+  "ADD_CUSTOM_TOKEN",
+  "CAST_SPELL",
+  "RESOLVE_TOP_SPELL",
+  "PASS_PRIORITY",
+  "DECLARE_ATTACKERS",
+  "RESOLVE_COMBAT",
+  "TRIGGER_QUEUE_RESOLVE",
+  "TRIGGER_QUEUE_SKIP",
+  "COMMANDER_DAMAGE_DELTA",
+  "SET_COMMANDER",
+  "CAST_COMMANDER",
+]);
+
+function refreshAiGameplayForAction(profile, previousSession = {}, actionType = "", event = {}) {
+  if (!profile?.activeSession || !AI_GAMEPLAY_ANALYSIS_ACTIONS.has(actionType)) {
+    return profile;
+  }
+  if (
+    actionType === "SIMULATION_TICK" &&
+    profile.activeSession === previousSession
+  ) {
+    return profile;
+  }
+  return withSession(profile, refreshAiGameplaySession(profile.activeSession, profile, event));
+}
+
+function refreshAiGameplaySession(session = {}, profile = {}, event = {}) {
+  const existing = session.aiGameplay || {};
+  const memory = createAiMemoryState({
+    ...(profile.settings?.aiGameplay || {}),
+    ...(existing.memory || {}),
+    preferredSimulationSettings: {
+      ...(existing.memory?.preferredSimulationSettings || {}),
+      informationMode:
+        event.informationMode ||
+        profile.settings?.aiGameplay?.preferredInformationMode ||
+        existing.informationMode ||
+        existing.memory?.preferredSimulationSettings?.informationMode ||
+        "public-information",
+      speedMode:
+        profile.settings?.aiGameplay?.preferredSimulationSpeed ||
+        existing.memory?.preferredSimulationSettings?.speedMode ||
+        "step-by-step",
+      opponentProfileIds:
+        event.activeProfileIds ||
+        existing.memory?.preferredSimulationSettings?.opponentProfileIds ||
+        existing.activeProfileIds ||
+        [],
+    },
+    preferredExplanationLevel:
+      profile.settings?.aiGameplay?.explanationLevel ||
+      existing.memory?.preferredExplanationLevel ||
+      "intermediate",
+    difficulty:
+      profile.settings?.aiGameplay?.preferredDifficulty ||
+      existing.memory?.difficulty ||
+      "beta",
+    updatedAt: Date.now(),
+  });
+  const analysis = createAiGameplayState(session, {
+    memory,
+    informationMode:
+      event.informationMode ||
+      profile.settings?.aiGameplay?.preferredInformationMode ||
+      existing.informationMode ||
+      "public-information",
+    at: Date.now(),
+  });
+  const activeProfileIds = analysis.activeProfiles.map((entry) => entry.playerId).filter(Boolean);
+  const logEntry = {
+    id: createId("ai-analysis"),
+    at: analysis.generatedAt,
+    actionType: event.actionType || event.type || "AI_GAMEPLAY_REFRESH_ANALYSIS",
+    mode: analysis.mode,
+    informationMode: analysis.informationMode,
+    topThreatPlayerId: analysis.threatAnalysis?.mostThreateningPlayer?.playerId || "",
+    latestDecisionId: analysis.latestDecision?.decisionId || "",
+    eventCount: Number(analysis.replayAnalysis?.eventCount || 0),
+    mutatesGameState: false,
+    submittedThroughRulesEngine: false,
+  };
+  return {
+    ...session,
+    aiGameplay: {
+      ...analysis,
+      activeProfileIds,
+      analysisLog: [logEntry, ...(existing.analysisLog || [])].slice(0, 80),
+    },
+  };
+}
+
+function updateAiGameplayMemory(profile, event = {}) {
+  const session = profile.activeSession || {};
+  const existing = session.aiGameplay || {};
+  const memory = createAiMemoryState({
+    ...(existing.memory || {}),
+    ...(event.memory || {}),
+    preferredSimulationSettings: {
+      ...(existing.memory?.preferredSimulationSettings || {}),
+      ...(event.memory?.preferredSimulationSettings || {}),
+      informationMode:
+        event.informationMode ||
+        event.memory?.preferredSimulationSettings?.informationMode ||
+        existing.memory?.preferredSimulationSettings?.informationMode ||
+        "public-information",
+      speedMode:
+        event.speedMode ||
+        event.memory?.preferredSimulationSettings?.speedMode ||
+        existing.memory?.preferredSimulationSettings?.speedMode ||
+        "step-by-step",
+      opponentProfileIds:
+        event.opponentProfileIds ||
+        event.memory?.preferredSimulationSettings?.opponentProfileIds ||
+        existing.memory?.preferredSimulationSettings?.opponentProfileIds ||
+        [],
+    },
+    preferredExplanationLevel:
+      event.explanationLevel ||
+      event.memory?.preferredExplanationLevel ||
+      existing.memory?.preferredExplanationLevel ||
+      "intermediate",
+    difficulty:
+      event.difficulty ||
+      event.memory?.difficulty ||
+      existing.memory?.difficulty ||
+      "beta",
+    updatedAt: Date.now(),
+  });
+  return {
+    ...profile,
+    settings: {
+      ...(profile.settings || {}),
+      aiGameplay: {
+        ...(profile.settings?.aiGameplay || {}),
+        preferredInformationMode: memory.preferredSimulationSettings.informationMode,
+        preferredSimulationSpeed: memory.preferredSimulationSettings.speedMode,
+        preferredDifficulty: memory.difficulty,
+        explanationLevel: memory.preferredExplanationLevel,
+        trainingDataOptIn: Boolean(event.trainingDataOptIn && profile.settings?.aiGameplay?.trainingDataOptIn),
+      },
+    },
+    activeSession: {
+      ...session,
+      aiGameplay: {
+        ...existing,
+        memory,
       },
     },
   };
