@@ -8540,6 +8540,200 @@ body[data-page="battlefield"] .gameplay-flow-section--triggers {
   padding-top: 0.42rem;
 }
 
+/* Prompt 9: explainable rules assistance stays contextual and battlefield-first. */
+body[data-page="battlefield"] .rules-assistant-launcher {
+  position: fixed;
+  right: max(0.85rem, env(safe-area-inset-right));
+  bottom: max(0.85rem, env(safe-area-inset-bottom));
+  z-index: 95;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.24rem 0.52rem;
+  min-width: 8.8rem;
+  min-height: 3rem;
+  padding: 0.42rem 0.72rem;
+  border: 1px solid rgba(236, 200, 122, 0.42);
+  border-radius: 999px;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 18% 18%, rgba(255, 229, 138, 0.22), transparent 44%),
+    linear-gradient(135deg, rgba(11, 16, 32, 0.92), rgba(40, 24, 51, 0.84));
+  box-shadow:
+    0 14px 36px rgba(0, 0, 0, 0.38),
+    inset 0 0 0 1px rgba(143, 211, 255, 0.1);
+  cursor: pointer;
+}
+
+body[data-page="battlefield"] .rules-assistant-launcher > span {
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  color: #07040d;
+  font-weight: 900;
+  background: linear-gradient(180deg, var(--gold-bright), var(--gold));
+  box-shadow: 0 0 16px rgba(236, 200, 122, 0.36);
+}
+
+body[data-page="battlefield"] .rules-assistant-launcher strong,
+body[data-page="battlefield"] .rules-assistant-launcher small {
+  display: block;
+  line-height: 1;
+}
+
+body[data-page="battlefield"] .rules-assistant-launcher small {
+  color: var(--muted);
+  font-size: 0.64rem;
+}
+
+body[data-page="battlefield"] .rules-assistant-launcher.active,
+body[data-page="battlefield"] .rules-assistant-launcher:hover,
+body[data-page="battlefield"] .rules-assistant-launcher:focus-visible {
+  border-color: rgba(255, 229, 138, 0.74);
+  transform: translateY(-2px);
+}
+
+.rules-assistant-panel {
+  display: grid;
+  gap: 0.78rem;
+}
+
+.rules-assistant-identity {
+  display: grid;
+  gap: 0.24rem;
+}
+
+.rules-assistant-identity strong {
+  color: var(--gold-bright);
+  font-size: 1.05rem;
+}
+
+.rules-assistant-form,
+.rules-assistant-search {
+  display: grid;
+  gap: 0.36rem;
+}
+
+.rules-assistant-form label,
+.rules-assistant-search label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rules-assistant-levels,
+.rules-assistant-chips,
+.rules-assistant-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+}
+
+.rules-assistant-levels span,
+.rules-assistant-chips span,
+.rules-assistant-evidence span {
+  min-height: 32px;
+  padding: 0.28rem 0.58rem;
+  border: 1px solid rgba(236, 200, 122, 0.22);
+  border-radius: 999px;
+  color: var(--text);
+  background: rgba(4, 8, 18, 0.44);
+}
+
+.rules-assistant-levels span.active {
+  border-color: rgba(255, 229, 138, 0.58);
+  background: rgba(236, 200, 122, 0.14);
+}
+
+.rules-assistant-answer {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.72rem;
+  border: 1px solid rgba(143, 211, 255, 0.16);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(143, 211, 255, 0.12), transparent 34%),
+    rgba(5, 8, 19, 0.52);
+}
+
+.rules-assistant-answer--empty {
+  border-style: dashed;
+}
+
+.rules-assistant-answer__topline,
+.rules-assistant-what-if {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.rules-assistant-answer h3 {
+  margin: 0;
+  color: var(--gold-bright);
+  font-size: 1.05rem;
+}
+
+.rules-assistant-answer p,
+.rules-assistant-answer small {
+  margin: 0;
+}
+
+.rules-assistant-chain {
+  display: grid;
+  gap: 0.34rem;
+  padding-left: 0.22rem;
+}
+
+.rules-assistant-chain div {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.1rem 0.48rem;
+  align-items: start;
+  padding: 0.38rem 0.48rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.rules-assistant-chain b {
+  grid-row: span 2;
+  color: var(--gold);
+}
+
+.rules-assistant-chain small {
+  color: var(--muted);
+}
+
+.rules-assistant-references {
+  padding: 0.48rem 0.58rem;
+  border: 1px solid rgba(236, 200, 122, 0.14);
+  border-radius: 14px;
+  background: rgba(2, 4, 12, 0.28);
+}
+
+.rules-assistant-search-results {
+  display: grid;
+  gap: 0.42rem;
+  max-height: 34svh;
+  overflow: auto;
+}
+
+.rules-assistant-search-results article {
+  padding: 0.52rem 0.62rem;
+  border: 1px solid rgba(236, 200, 122, 0.16);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.rules-assistant-search-results article > * {
+  margin: 0;
+}
+
 /* Prompt 8: premium motion communicates gameplay changes without becoming game state. */
 body[data-page="battlefield"] .landscape-battlefield-page {
   --battlefield-motion-micro: 120ms;
@@ -8580,6 +8774,7 @@ body[data-page="battlefield"] .permanent {
 body[data-page="battlefield"] .permanent .permanent-content > button,
 body[data-page="battlefield"] .gameplay-flow-action,
 body[data-page="battlefield"] .phase-next-chip,
+body[data-page="battlefield"] .rules-assistant-launcher,
 body[data-page="battlefield"] .opponent-carousel button {
   transition:
     transform var(--battlefield-motion-micro) var(--battlefield-motion-ease),
@@ -8669,6 +8864,7 @@ body[data-page="battlefield"] .landscape-command-center,
 body[data-page="battlefield"] .landscape-selected-card,
 body[data-page="battlefield"] .landscape-stack-core,
 body[data-page="battlefield"] .gameplay-context-dock,
+body[data-page="battlefield"] .rules-assistant-launcher,
 body[data-page="battlefield"] .opponent-carousel {
   transition:
     transform var(--battlefield-motion-standard) var(--battlefield-motion-ease),
@@ -8706,6 +8902,7 @@ body[data-page="battlefield"] .landscape-stack-list p {
 
 body[data-page="battlefield"] .landscape-floating-notices small,
 body[data-page="battlefield"] .gameplay-context-dock,
+body[data-page="battlefield"] .rules-assistant-launcher,
 body[data-page="battlefield"] .card-presentation {
   animation: boardstate-toast-arrive var(--battlefield-motion-standard) var(--battlefield-motion-emphasis-ease) both;
 }
@@ -8714,6 +8911,8 @@ body[data-page="battlefield"] .gameplay-flow-action:hover,
 body[data-page="battlefield"] .gameplay-flow-action:focus-visible,
 body[data-page="battlefield"] .phase-next-chip:hover,
 body[data-page="battlefield"] .phase-next-chip:focus-visible,
+body[data-page="battlefield"] .rules-assistant-launcher:hover,
+body[data-page="battlefield"] .rules-assistant-launcher:focus-visible,
 body[data-page="battlefield"] .opponent-carousel button:hover,
 body[data-page="battlefield"] .opponent-carousel button:focus-visible {
   transform: translateY(-1px);
@@ -8724,6 +8923,7 @@ body[data-page="battlefield"] .opponent-carousel button:focus-visible {
 
 body[data-page="battlefield"] .gameplay-flow-action:active,
 body[data-page="battlefield"] .phase-next-chip:active,
+body[data-page="battlefield"] .rules-assistant-launcher:active,
 body[data-page="battlefield"] .opponent-carousel button:active {
   transform: translateY(1px) scale(0.985);
 }
@@ -8895,6 +9095,7 @@ body[data-page="battlefield"] .motion-none {
   body[data-page="battlefield"] .landscape-stack-core.is-active,
   body[data-page="battlefield"] .landscape-floating-notices small,
   body[data-page="battlefield"] .gameplay-context-dock,
+  body[data-page="battlefield"] .rules-assistant-launcher,
   body[data-page="battlefield"] .card-presentation,
   body[data-page="battlefield"] .motion-reduced *,
   body[data-page="battlefield"] .motion-minimal *,
@@ -8945,6 +9146,16 @@ body[data-page="battlefield"] .motion-none {
     bottom: max(8px, env(safe-area-inset-bottom));
     padding: 0.48rem;
   }
+
+  body[data-page="battlefield"] .rules-assistant-launcher {
+    min-width: 3rem;
+    padding: 0.36rem;
+  }
+
+  body[data-page="battlefield"] .rules-assistant-launcher strong,
+  body[data-page="battlefield"] .rules-assistant-launcher small {
+    display: none;
+  }
 }
 
 @media (max-width: 820px) {
@@ -8954,5 +9165,17 @@ body[data-page="battlefield"] .motion-none {
     bottom: max(8px, env(safe-area-inset-bottom));
     width: auto;
     max-height: 36svh;
+  }
+
+  body[data-page="battlefield"] .rules-assistant-launcher {
+    right: max(0.6rem, env(safe-area-inset-right));
+    bottom: max(5.2rem, env(safe-area-inset-bottom));
+    min-width: 3.2rem;
+    padding: 0.38rem;
+  }
+
+  body[data-page="battlefield"] .rules-assistant-launcher strong,
+  body[data-page="battlefield"] .rules-assistant-launcher small {
+    display: none;
   }
 }

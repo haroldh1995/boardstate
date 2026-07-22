@@ -1,6 +1,7 @@
 import { PHASES } from "../state/schema.js";
 import { buildAdvancedMultiplayerPerspective } from "../shared-session/perspective.js";
 import { clonePlain } from "../shared-contracts/index.js";
+import { createRulesAssistantState } from "../authoritative-core/rulesAssistant.js";
 
 export const LANDSCAPE_BATTLEFIELD_VERSION = "boardstate-landscape-battlefield-0.5.0";
 export const BATTLEFIELD_INTELLIGENCE_VERSION = "boardstate-battlefield-intelligence-0.1.0";
@@ -44,6 +45,7 @@ export const LANDSCAPE_CONTEXT_ACTIONS = Object.freeze([
   { id: "search", label: "Search / Add", status: "available", utilityPanel: "search" },
   { id: "stack", label: "Stack", status: "available", utilityPanel: "stack" },
   { id: "triggers", label: "Trigger Queue", status: "available", utilityPanel: "triggers" },
+  { id: "question", label: "Ask Why", status: "available", utilityPanel: "rules-assistant" },
   { id: "history", label: "History", status: "available", utilityPanel: "history" },
   { id: "display", label: "Display", status: "available", utilityPanel: "display" },
   { id: "settings", label: "Settings", status: "available", opensOptions: true },
@@ -176,6 +178,12 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
     opponentBoard,
     stackContext: perspective.stackContext,
   });
+  const rulesAssistant = createRulesAssistantState(session, {
+    selectedPermanentId: selectedCard.card?.id || "",
+    localBoard,
+    opponentBoard,
+    explanationLevel: profile.settings?.rulesAssistant?.explanationLevel || "intermediate",
+  });
   const commandCenter = createCommandCenterModel(session, perspective, selectedCard);
   const density = resolveBattlefieldDensity({
     localPermanentCount: localBoard.totalPermanentCount,
@@ -244,6 +252,7 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
     intelligence,
     gameplayFlow,
     motion,
+    rulesAssistant,
     globalInfo: createGlobalInfoModel(session, perspective),
     opponentBattlefield: opponentBoard,
     commandCenter,
@@ -1630,6 +1639,7 @@ function createContextActionModel(session = {}) {
     badge:
       action.id === "stack" ? String((session.stack || []).length || "") :
       action.id === "triggers" ? String((session.triggerQueue || []).filter((entry) => entry.status === "pending").length || "") :
+      action.id === "question" ? String((session.eventKnowledge?.eventCount || (session.eventKnowledge?.events || []).length || "") || "") :
       "",
   }));
 }

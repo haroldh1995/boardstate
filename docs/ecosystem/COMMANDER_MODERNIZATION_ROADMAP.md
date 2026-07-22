@@ -47,7 +47,7 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 
 - `src/ui/render.js` removes production battlefield scaffolding by hiding unfinished future actions, suppressing duplicate state/status strips, compacting the command center, and keeping card inspection, stack, triggers, phase, combat, and battlefield actions contextual.
 - `src/styles.css` makes the battlefield the dominant surface across desktop, tablet, foldable, and landscape-phone viewports while retaining BoardState's existing background, cosmic glass panels, and gold accents.
-- `src/ui/landscapeBattlefield.js` now exposes only production-available context actions; future Question, Remind Me, visual replay, AI, carousel, and camera interfaces remain intentionally deferred.
+- At that point, `src/ui/landscapeBattlefield.js` exposed only production-available context actions; Prompt 9 now implements the Question System, while Remind Me, visual replay, AI, and other unavailable surfaces remain hidden until implemented.
 - Focused UI validation verifies no visible Future, Coming Soon, Unavailable, Placeholder, Scaffold, Prototype, Developer, or Mock text appears in the active battlefield.
 
 ### Prompt 6: Battlefield Camera And Opponent Carousel
@@ -71,21 +71,21 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - `src/styles.css` adds BoardState-native motion for camera focus, selected cards, Commander emphasis, combat, targeting, stack activity, contextual HUD surfaces, notifications, and carousel controls.
 - Reduced-motion and performance preferences remove nonessential animation while preserving gameplay information and visual feedback.
 
+### Prompt 9: Intelligent Rules Assistant And Question System
+
+- `src/authoritative-core/rulesAssistant.js` adds the explainable Rules Assistant and Question System over the existing Rules Engine, State Engine, Event Knowledge Engine, and current session.
+- The battlefield now exposes a compact Ask Why control and contextual Rules Assistant panel for What, Who, When, Where, Why, How, and What If questions.
+- Answers include confidence, evidence, rule references, Oracle text already present in session data, event chains, layer/counter explanations, stack explanations, trigger explanations, and safe follow-up prompts.
+- What If is prepared as a non-mutating Dry Run fork boundary. No generative AI, external internet search, executable imported text, fake Hub service, or hidden-information leak is introduced.
+
 ## Remaining Roadmap
 
-### Prompt 9: Full Control And Live Tracking Convergence
+### Prompt 10: Full Control And Live Tracking Convergence
 
 - Implement Full Control and Live Tracking as two input models over the same authoritative rules engine, canonical game state, event stream, save system, sync foundation, and replay/explanation foundation.
 - Live Tracking accepts physical-table-reported actions with honest unknowns and confidence indicators.
 - Full Control accepts direct digital card and zone manipulation through rules-engine legal action paths.
 - Do not create separate engines or duplicate state authorities.
-
-### Prompt 10: Question System
-
-- Add the permanent battlefield question control for What, Who, When, Where, Why, How, and What If.
-- Answer using the authoritative rules engine and Event Knowledge Engine rather than a disconnected explanation engine.
-- Allow selection of cards, permanents, players, life totals, counters, commanders, statuses, zones, stack objects, triggers, game events, and battlefield states.
-- Route What If through Dry Run/simulation forks without mutating the live authoritative session.
 
 ### Prompt 11: Remind Me And Timeline Experience
 

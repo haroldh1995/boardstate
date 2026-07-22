@@ -202,7 +202,7 @@ The active roadmap now uses the Prompt 3 through Prompt 15 sequence for Event Kn
 
 ## Prompt 5 Landscape Battlefield Modernization
 
-`src/ui/landscapeBattlefield.js` now provides the reusable landscape-first Commander battlefield presentation model used by the gameplay renderer. It derives local/opponent public boards through the existing perspective layer, groups permanents into Commander-readable lanes, summarizes Commander HUD data, creates selected-card details, reports token stack summaries, and marks future Question, Remind Me, visual replay, and AI panels as unavailable instead of live.
+`src/ui/landscapeBattlefield.js` provides the reusable landscape-first Commander battlefield presentation model used by the gameplay renderer. It derives local/opponent public boards through the existing perspective layer, groups permanents into Commander-readable lanes, summarizes Commander HUD data, creates selected-card details, reports token stack summaries, and, at Prompt 5, marked then-future Question, Remind Me, visual replay, and AI panels as unavailable instead of live. Prompt 9 now implements the Question System surface.
 
 `src/ui/render.js` now renders gameplay as stable regions: global information rail, focused opponent battlefield, center command center, local battlefield, and context action rail. The command center keeps stack, priority, phase, trigger, selected-card, Commander tax, and combat information in the active battlefield instead of requiring page navigation for standard gameplay information.
 
@@ -247,3 +247,13 @@ Prompt 8 modernizes battlefield motion without changing gameplay authority. `src
 `src/styles.css` adds restrained BoardState-native motion for camera settling, selected-card lift, Commander radiance, combat emphasis, blocker bracing, legal-target glow, invalid-target feedback, token stack depth, stack focus, notifications, contextual docks, and compact button/touch feedback. Reduced-motion settings and the system `prefers-reduced-motion` preference disable nonessential animation while preserving gameplay information.
 
 Prompt 8 does not implement particle systems, sound, haptics, spectator mode, visual replay UI, Question UI, Remind Me UI, Hub features, BoardState Lite features, Deck Nexus features, rules-engine replacement, State Engine fork, or persistent animation state.
+
+## Prompt 9 Intelligent Rules Assistant And Question System
+
+Prompt 9 adds the first production Rules Assistant surface over the existing authoritative architecture. `src/authoritative-core/rulesAssistant.js` derives answers from the Rules Engine, State Engine state, Event Knowledge history, current stack, pending triggers, selected permanent data, layer breakdowns, counters, Commander metadata, and locally available Oracle text. It does not create generative AI chat, internet search, a second explanation engine, or executable rule imports.
+
+`src/ui/landscapeBattlefield.js` now exposes a `rulesAssistant` model and available `question` context action. `src/ui/render.js` renders a compact Ask Why battlefield launcher and an overlay panel for What, Who, When, Where, Why, How, and What If questions while preserving the active battlefield. `src/styles.css` keeps the assistant contextual, reduced-motion safe, and secondary to cards and gameplay.
+
+The assistant returns confidence, evidence, rule references, Oracle references where present, event-chain provenance, layer/counter explanations, stack explanations, trigger explanations, and safe follow-up prompts. Unknown or incomplete state is explicitly reported as unknown; hidden zones, raw private payloads, private opponent information, credentials, and fake Hub/Lite/Nexus services are excluded.
+
+What If is prepared as a non-mutating Dry Run fork boundary. The live authoritative session, synchronization state, and immutable event history are preserved.

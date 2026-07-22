@@ -71,7 +71,7 @@ Selecting a card updates a central selected-card panel with Oracle text, current
 Prompt 5.5 completes the first commercial-quality battlefield pass without changing gameplay authority:
 
 - `src/ui/render.js` keeps the active battlefield visible by using a compact table ribbon, focused opponent region, center command center, bottom local board, contextual card preview, and compact battlefield action dock.
-- `src/ui/landscapeBattlefield.js` reports only available context actions in the production battlefield model; future Question, Remind Me, replay, AI, and external-app actions remain hidden until implemented.
+- At Prompt 5.5, `src/ui/landscapeBattlefield.js` reported only then-available context actions; the Question System is now implemented by Prompt 9, while Remind Me, replay, AI, and external-app action surfaces remain hidden until implemented.
 - `src/styles.css` makes the battlefield dominate desktop, tablet, foldable, and landscape-phone play by suppressing duplicate state strips, mobile swipe scaffolding, oversized command controls, and permanent empty rails on the gameplay page.
 - Non-gameplay friend-discovery status toasts are filtered from the battlefield so Commander play is not obscured by ecosystem status noise.
 
@@ -116,6 +116,17 @@ Prompt 8 adds presentation-only motion and intelligent camera behavior over the 
 
 The motion system is not gameplay authority. It does not mutate game state, create a second camera authority, persist transient animation state, alter saves, bypass the rules engine, or expose hidden information.
 
+## Prompt 9 Rules Assistant
+
+Prompt 9 adds the first production Question System surface without changing battlefield authority:
+
+- `src/authoritative-core/rulesAssistant.js` derives What, Who, When, Where, Why, How, and What If answers from the Rules Engine, State Engine, Event Knowledge Engine, current stack, trigger queue, selected permanent, and local Oracle text.
+- `src/ui/landscapeBattlefield.js` exposes a non-authoritative `rulesAssistant` model and an available `question` context action.
+- `src/ui/render.js` adds the compact Ask Why battlefield launcher and a contextual Rules Assistant panel that stays over the active battlefield.
+- `src/styles.css` keeps the assistant small, reduced-motion safe, and secondary to cards and gameplay.
+
+The assistant does not use generative AI, external search, private hidden zones, raw payload dumps, or fake ecosystem services. If authoritative evidence is missing, it reports the gap instead of inventing state.
+
 ## Deferred Work
 
-The battlefield, gameplay-flow, and motion prompts do not implement particle effects, spectator mode, visual replay UI, Question UI, Remind Me UI, sound, haptics, or AI battlefield interface. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.
+The battlefield, gameplay-flow, motion, and Rules Assistant prompts do not implement particle effects, spectator mode, visual replay UI, Remind Me UI, sound, haptics, AI battlefield interface, external judge search, or full Rules Recovery imports. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.

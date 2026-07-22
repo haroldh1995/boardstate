@@ -50,6 +50,12 @@ import {
   safeJson,
 } from "../support/debugExport.js";
 import {
+  RULES_ASSISTANT_VERSION,
+  askRulesQuestion,
+  createRulesAssistantState,
+  searchRulesAssistant,
+} from "../authoritative-core/rulesAssistant.js";
+import {
   FUTURE_OWNER_APPS,
   LEGACY_MIGRATION_VERSION,
   MIGRATION_READINESS,
@@ -255,6 +261,11 @@ export function mountApp(root, store) {
   let activeToolPanel = "";
   let utilityDockOpen = false;
   let activeUtilityPanel = "";
+  let rulesAssistantQuestion = "";
+  let rulesAssistantAnswer = null;
+  let rulesAssistantSearchQuery = "";
+  let rulesAssistantSearchResults = [];
+  let rulesAssistantInputTimer = null;
   let combatResolving = false;
   let phaseAdvancePending = false;
   let simulationSetupOpen = false;
@@ -337,6 +348,10 @@ export function mountApp(root, store) {
       floatingManaOpen,
       utilityDockOpen,
       activeUtilityPanel,
+      rulesAssistantQuestion,
+      rulesAssistantAnswer,
+      rulesAssistantSearchQuery,
+      rulesAssistantSearchResults,
       quickPanelOpen,
       optionsOpen,
       statsOpen,
@@ -446,6 +461,10 @@ export function mountApp(root, store) {
       toolContext,
       utilityDockOpen,
       activeUtilityPanel,
+      rulesAssistantQuestion,
+      rulesAssistantAnswer,
+      rulesAssistantSearchQuery,
+      rulesAssistantSearchResults,
       quickPanelOpen,
       modifierPanelOpen,
       trackerModifier,
@@ -2917,6 +2936,40 @@ export function mountApp(root, store) {
         render(store.getState());
       });
     });
+    const askRulesAssistantFromText = (rawQuestion) => {
+      const question = String(rawQuestion || "").trim();
+      if (!question) {
+        return;
+      }
+      rulesAssistantQuestion = question;
+      rulesAssistantAnswer = askRulesQuestion(profile.activeSession, question, {
+        explanationLevel: profile.settings?.rulesAssistant?.explanationLevel || "intermediate",
+      });
+      activeUtilityPanel = "rules-assistant";
+      utilityDockOpen = false;
+      render(store.getState());
+    };
+    container.querySelector("[data-rules-question-form]")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const question = event.currentTarget.querySelector("[data-rules-question-input]")?.value || "";
+      askRulesAssistantFromText(question);
+    });
+    container.querySelectorAll("[data-question-chip]").forEach((button) => {
+      button.addEventListener("click", () => askRulesAssistantFromText(button.dataset.questionChip));
+    });
+    container.querySelector("[data-rules-search-form]")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const query = String(event.currentTarget.querySelector("[data-rules-search-input]")?.value || "").trim();
+      rulesAssistantSearchQuery = query;
+      rulesAssistantSearchResults = query
+        ? searchRulesAssistant(profile.activeSession, query, {
+            explanationLevel: profile.settings?.rulesAssistant?.explanationLevel || "intermediate",
+          }).results
+        : [];
+      activeUtilityPanel = "rules-assistant";
+      utilityDockOpen = false;
+      render(store.getState());
+    });
     container.querySelectorAll("[data-close-cast-popup]").forEach((button) => {
       button.addEventListener("click", () => {
         dismissSearchInputFocus();
@@ -2964,12 +3017,162 @@ export function mountApp(root, store) {
       return;
     }
     globalDismissHandlersInstalled = true;
+    document.addEventListener("pointerdown", handleRulesAssistantGlobalPointerDown, true);
     document.addEventListener("pointerdown", handleGlobalDismissPointerDown, true);
     document.addEventListener("pointermove", handleGlobalDismissPointerMove, true);
     document.addEventListener("pointerup", handleGlobalDismissPointerUp, true);
     document.addEventListener("pointercancel", handleGlobalDismissPointerCancel, true);
+    document.addEventListener("input", handleRulesAssistantGlobalInput, true);
     document.addEventListener("click", handleGlobalDismissClick, true);
+    document.addEventListener("click", handleRulesAssistantGlobalClick, true);
+    document.addEventListener("submit", handleRulesAssistantGlobalSubmit, true);
+    document.addEventListener("keydown", handleRulesAssistantGlobalKeydown, true);
     document.addEventListener("keydown", handleGlobalDismissKeydown, true);
+  }
+
+  function answerRulesAssistantQuestion(rawQuestion) {
+    const question = String(rawQuestion || "").trim();
+    if (!question) {
+      return false;
+    }
+    const current = store.getState();
+    rulesAssistantQuestion = question;
+    rulesAssistantAnswer = askRulesQuestion(current.activeSession, question, {
+      explanationLevel: current.settings?.rulesAssistant?.explanationLevel || "intermediate",
+    });
+    activeUtilityPanel = "rules-assistant";
+    utilityDockOpen = false;
+    render(current);
+    return true;
+  }
+
+  function handleRulesAssistantGlobalClick(event) {
+    const chip = event.target?.closest?.("[data-question-chip]");
+    if (!chip) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+    answerRulesAssistantQuestion(chip.dataset.questionChip || chip.textContent || "");
+  }
+
+  function handleRulesAssistantGlobalPointerDown(event) {
+    const chip = event.target?.closest?.("[data-question-chip]");
+    const questionSubmit = event.target?.closest?.("[data-rules-question-submit]");
+    const searchSubmit = event.target?.closest?.("[data-rules-search-submit]");
+    if (!chip && !questionSubmit && !searchSubmit) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+    if (chip) {
+      answerRulesAssistantQuestion(chip.dataset.questionChip || chip.textContent || "");
+      return;
+    }
+    const form = event.target.closest("[data-rules-question-form], [data-rules-search-form]");
+    if (searchSubmit) {
+      const current = store.getState();
+      const query = String(form?.querySelector("[data-rules-search-input]")?.value || "").trim();
+      rulesAssistantSearchQuery = query;
+      rulesAssistantSearchResults = query
+        ? searchRulesAssistant(current.activeSession, query, {
+            explanationLevel: current.settings?.rulesAssistant?.explanationLevel || "intermediate",
+          }).results
+        : [];
+      activeUtilityPanel = "rules-assistant";
+      utilityDockOpen = false;
+      render(current);
+      return;
+    }
+    answerRulesAssistantQuestion(form?.querySelector("[data-rules-question-input]")?.value || "");
+  }
+
+  function handleRulesAssistantGlobalSubmit(event) {
+    const form = event.target?.closest?.("[data-rules-question-form], [data-rules-search-form]");
+    if (!form) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+    const current = store.getState();
+    if (form.matches("[data-rules-search-form]")) {
+      const query = String(form.querySelector("[data-rules-search-input]")?.value || "").trim();
+      rulesAssistantSearchQuery = query;
+      rulesAssistantSearchResults = query
+        ? searchRulesAssistant(current.activeSession, query, {
+            explanationLevel: current.settings?.rulesAssistant?.explanationLevel || "intermediate",
+          }).results
+        : [];
+      activeUtilityPanel = "rules-assistant";
+      utilityDockOpen = false;
+      render(current);
+      return;
+    }
+    answerRulesAssistantQuestion(form.querySelector("[data-rules-question-input]")?.value || "");
+  }
+
+  function handleRulesAssistantGlobalInput(event) {
+    if (!event.target?.matches?.("[data-rules-question-input], [data-rules-search-input]")) {
+      return;
+    }
+    clearTimeout(rulesAssistantInputTimer);
+    const isSearch = event.target.matches("[data-rules-search-input]");
+    const value = String(event.target.value || "").trim();
+    if (isSearch) {
+      rulesAssistantSearchQuery = value;
+    } else {
+      rulesAssistantQuestion = value;
+    }
+    rulesAssistantInputTimer = setTimeout(() => {
+      const current = store.getState();
+      if (activeUtilityPanel !== "rules-assistant") {
+        return;
+      }
+      if (isSearch) {
+        rulesAssistantSearchResults = value
+          ? searchRulesAssistant(current.activeSession, value, {
+              explanationLevel: current.settings?.rulesAssistant?.explanationLevel || "intermediate",
+            }).results
+          : [];
+        render(current);
+        return;
+      }
+      if (value.length >= 3) {
+        answerRulesAssistantQuestion(value);
+      }
+    }, 320);
+  }
+
+  function handleRulesAssistantGlobalKeydown(event) {
+    if (event.key !== "Enter") {
+      return;
+    }
+    if (event.target?.matches?.("[data-rules-question-input]")) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      answerRulesAssistantQuestion(event.target.value || "");
+      return;
+    }
+    if (event.target?.matches?.("[data-rules-search-input]")) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      const current = store.getState();
+      const query = String(event.target.value || "").trim();
+      rulesAssistantSearchQuery = query;
+      rulesAssistantSearchResults = query
+        ? searchRulesAssistant(current.activeSession, query, {
+            explanationLevel: current.settings?.rulesAssistant?.explanationLevel || "intermediate",
+          }).results
+        : [];
+      activeUtilityPanel = "rules-assistant";
+      utilityDockOpen = false;
+      render(current);
+    }
   }
 
   function handleGlobalDismissPointerDown(event) {
@@ -4926,7 +5129,12 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       ${page === "decks" ? renderDecks(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery) : ""}
       ${page === "leaderboards" ? renderLeaderboards(profile) : ""}
       ${page === "battlefield" ? renderBattlefieldToolBadge(profile, uiState.toolMenuOpen, uiState.floatingManaOpen, uiState.activeToolPanel, uiState.hudBadgePositions || HUD_BADGE_DEFAULTS, uiState.toolContext, Boolean(uiState.isMobilePortrait), Boolean(uiState.hudBadgesLocked), Boolean(uiState.simulationLogOpen)) : ""}
-      ${page === "battlefield" ? renderUtilityDock(profile, uiState.utilityDockOpen, uiState.activeUtilityPanel, uiState.hudBadgePositions || HUD_BADGE_DEFAULTS, Boolean(uiState.isMobilePortrait), Boolean(uiState.hudBadgesLocked), searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.castActionPopup) : ""}
+      ${page === "battlefield" ? renderUtilityDock(profile, uiState.utilityDockOpen, uiState.activeUtilityPanel, uiState.hudBadgePositions || HUD_BADGE_DEFAULTS, Boolean(uiState.isMobilePortrait), Boolean(uiState.hudBadgesLocked), searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.castActionPopup, {
+        question: uiState.rulesAssistantQuestion,
+        answer: uiState.rulesAssistantAnswer,
+        searchQuery: uiState.rulesAssistantSearchQuery,
+        searchResults: uiState.rulesAssistantSearchResults,
+      }) : ""}
       ${uiState.quickPanelOpen ? renderQuickAdjustmentPanel(profile, uiState.quickPanelOpen) : ""}
       ${uiState.modifierPanelOpen ? renderTrackerModifierPanel(uiState.pendingTrackerModifier) : ""}
       ${uiState.optionsOpen ? renderGameOptionsCommandCenter(profile, page, uiState.activeOptionsCategory || "", uiState.pendingAppLinkHandoff || null) : ""}
@@ -5690,6 +5898,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
         })}
       </section>
       ${renderGameplayContextDock(landscapeModel.gameplayFlow, session)}
+      ${renderRulesAssistantLauncher(landscapeModel.rulesAssistant, activeUtilityPanel)}
     </section>
     ${renderMobileBattlefieldDock(profile, activeUtilityPanel, uiState.utilityDockOpen, Boolean(panels.boardCombat), Boolean(combatResolving), isMobilePortrait)}
     ${panels.advancedRulesHelpers || (session.pendingEffects || []).some((entry) => !["resolved", "skipped", "ignored"].includes(entry.status)) ? renderPending(session, Boolean(uiState.manualChoicePanelCollapsed), perspective) : ""}
@@ -6549,6 +6758,27 @@ function renderGameplayContextDock(flow = {}, session = {}) {
   `;
 }
 
+function renderRulesAssistantLauncher(model = {}, activeUtilityPanel = "") {
+  const stackCount = Number(model.context?.stackCount || 0);
+  const triggerCount = Number(model.context?.triggerCount || 0);
+  const eventCount = Number(model.context?.eventCount || 0);
+  const label = model.context?.selectedPermanentName
+    ? `Ask about ${model.context.selectedPermanentName}`
+    : "Ask the rules assistant";
+  const badges = [
+    stackCount ? `${stackCount} stack` : "",
+    triggerCount ? `${triggerCount} trigger${triggerCount === 1 ? "" : "s"}` : "",
+    eventCount ? `${eventCount} event${eventCount === 1 ? "" : "s"}` : "",
+  ].filter(Boolean);
+  return `
+    <button class="rules-assistant-launcher ${activeUtilityPanel === "rules-assistant" ? "active" : ""}" data-open-utility="rules-assistant" aria-label="${escapeAttribute(label)}" data-rules-assistant-version="${escapeAttribute(model.version || RULES_ASSISTANT_VERSION)}" data-motion-role="rules-assistant">
+      <span aria-hidden="true">?</span>
+      <strong>Ask Why</strong>
+      ${badges.length ? `<small>${escapeHtml(badges.slice(0, 2).join(" / "))}</small>` : ""}
+    </button>
+  `;
+}
+
 function renderGameplayActionSet(label, actions = [], options = {}) {
   const usableActions = (actions || []).filter((action) => action?.id);
   if (!usableActions.length) {
@@ -7049,7 +7279,8 @@ function renderUtilityDock(
   searchMessage = "",
   searchLoading = false,
   searchQuery = "",
-  castActionPopup = null
+  castActionPopup = null,
+  rulesAssistantUi = {}
 ) {
   if (!open && !activeUtilityPanel) {
     return "";
@@ -7070,10 +7301,11 @@ function renderUtilityDock(
           <button data-open-utility="phase">Phase</button>
           <button data-open-utility="triggers">Queue</button>
           <button data-open-utility="history">History</button>
+          <button data-open-utility="rules-assistant">Ask Why</button>
           <button data-open-utility="rules">Rules</button>
         </div>
       ` : ""}
-      ${renderUtilityPanel(profile, activeUtilityPanel, isMobilePortrait, searchResults, searchMessage, searchLoading, searchQuery, castActionPopup)}
+      ${renderUtilityPanel(profile, activeUtilityPanel, isMobilePortrait, searchResults, searchMessage, searchLoading, searchQuery, castActionPopup, rulesAssistantUi)}
     </section>
   `;
 }
@@ -7136,7 +7368,7 @@ function renderMobileBattlefieldDock(profile, activeUtilityPanel = "", utilityDo
   `;
 }
 
-function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResults = [], searchMessage = "", searchLoading = false, searchQuery = "", castActionPopup = null) {
+function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResults = [], searchMessage = "", searchLoading = false, searchQuery = "", castActionPopup = null, rulesAssistantUi = {}) {
   if (!panel || panel === "history" || panel === "triggers") {
     return "";
   }
@@ -7145,7 +7377,7 @@ function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResu
   const diceValue = profile.settings?.utility?.lastDice || "d20: 1";
   const calcValue = profile.settings?.utility?.calculator || "";
   const rulesText = (getSelectedPermanents(session)[0]?.rulesText || getSelectedPermanents(session)[0]?.oracleText || "Select a permanent to inspect rules.");
-  const utilityTitle = panel === "search" ? "Search/Add Card" : panel === "stack" ? "Stack & Priority" : formatLabel(panel);
+  const utilityTitle = panel === "search" ? "Search/Add Card" : panel === "stack" ? "Stack & Priority" : panel === "rules-assistant" ? "Rules Assistant" : formatLabel(panel);
   const mobileSheetClass = isMobilePortrait ? "mobile-bottom-sheet" : "";
   return `
     <section class="utility-overlay glass ${mobileSheetClass}" data-no-swipe>
@@ -7193,6 +7425,7 @@ function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResu
         <p>${escapeHtml(rulesText)}</p>
         <button class="wide" data-open-tool-panel="inspect">Inspect Selected Permanent</button>
       ` : ""}
+      ${panel === "rules-assistant" ? renderRulesAssistantPanel(profile, rulesAssistantUi) : ""}
       ${panel === "search" ? renderSearch(searchResults, searchMessage, searchLoading, searchQuery, "battlefield", castActionPopup) : ""}
       ${panel === "simulation" ? `
         <div class="simulation-log scroll-safe">
@@ -7203,6 +7436,121 @@ function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResu
         </div>
       ` : ""}
     </section>
+  `;
+}
+
+function renderRulesAssistantPanel(profile = {}, rulesAssistantUi = {}) {
+  const session = profile.activeSession || {};
+  const explanationLevel = profile.settings?.rulesAssistant?.explanationLevel || "intermediate";
+  const assistant = createRulesAssistantState(session, { explanationLevel });
+  const answer = rulesAssistantUi.answer;
+  const questionValue = rulesAssistantUi.question || "";
+  const searchQueryValue = rulesAssistantUi.searchQuery || "";
+  const searchResults = rulesAssistantUi.searchResults || [];
+  return `
+    <section class="rules-assistant-panel" data-rules-assistant-version="${escapeAttribute(assistant.version || RULES_ASSISTANT_VERSION)}">
+      <div class="rules-assistant-identity">
+        <p class="eyebrow">Authoritative explanations</p>
+        <strong>Ask What, Who, When, Where, Why, How, or What If</strong>
+        <small>Answers use BoardState rules, current state, and Event Knowledge. Unknowns stay unknown.</small>
+      </div>
+      <section class="rules-assistant-form" data-rules-question-form>
+        <label for="rules-question-input">Question</label>
+        <div class="search-input-row">
+          <input id="rules-question-input" name="question" data-rules-question-input type="search" value="${escapeAttribute(questionValue)}" placeholder="Why can't this attack? What is on the stack?" autocomplete="off" enterkeyhint="search" />
+        </div>
+      </section>
+      <div class="rules-assistant-levels" aria-label="Explanation level">
+        ${["beginner", "intermediate", "advanced"].map((level) => `
+          <span class="${explanationLevel === level ? "active" : ""}">${escapeHtml(formatLabel(level))}</span>
+        `).join("")}
+      </div>
+      <div class="rules-assistant-chips" aria-label="Common questions">
+        ${(assistant.commonQuestions || []).slice(0, 7).map((prompt) => `<span>${escapeHtml(prompt)}</span>`).join("")}
+      </div>
+      ${answer ? renderRulesAssistantAnswer(answer) : `
+        <div class="rules-assistant-answer rules-assistant-answer--empty">
+          <strong>${escapeHtml(assistant.context?.selectedPermanentName ? `Ready to explain ${assistant.context.selectedPermanentName}.` : "Ready to explain the current game.")}</strong>
+          <p>Select a question above or ask in your own words.</p>
+          <div class="rules-assistant-evidence">
+            <span>${escapeHtml(String(assistant.context?.stackCount || 0))} stack</span>
+            <span>${escapeHtml(String(assistant.context?.triggerCount || 0))} triggers</span>
+            <span>${escapeHtml(String(assistant.context?.eventCount || 0))} events</span>
+          </div>
+        </div>
+      `}
+      <section class="rules-assistant-search" data-rules-search-form>
+        <label for="rules-search-input">Search authoritative context</label>
+        <div class="search-input-row">
+          <input id="rules-search-input" name="query" data-rules-search-input type="search" value="${escapeAttribute(searchQueryValue)}" placeholder="Search cards, events, triggers, rules..." autocomplete="off" />
+        </div>
+      </section>
+      ${searchResults.length ? `
+        <div class="rules-assistant-search-results">
+          ${searchResults.slice(0, 8).map((result) => `
+            <article>
+              <small>${escapeHtml(formatLabel(result.kind || "result"))}</small>
+              <strong>${escapeHtml(result.title || result.label || "Result")}</strong>
+              <p>${escapeHtml(result.summary || "")}</p>
+            </article>
+          `).join("")}
+        </div>
+      ` : ""}
+    </section>
+  `;
+}
+
+function renderRulesAssistantAnswer(answer = {}) {
+  const confidence = answer.confidence || {};
+  const eventChain = answer.eventChain || [];
+  const evidence = answer.evidence || [];
+  const rules = answer.ruleReferences || [];
+  const oracle = answer.oracleReferences || [];
+  return `
+    <article class="rules-assistant-answer">
+      <div class="rules-assistant-answer__topline">
+        <p class="eyebrow">${escapeHtml(formatLabel(answer.questionType || "question"))}</p>
+        <span>${escapeHtml(formatLabel(confidence.information || "unknown"))} / ${escapeHtml(formatLabel(confidence.execution || "tracking-only"))}</span>
+      </div>
+      <h3>${escapeHtml(answer.answer?.headline || "BoardState explanation")}</h3>
+      <p>${escapeHtml(answer.answer?.shortAnswer || "")}</p>
+      ${answer.answer?.detail ? `<small>${escapeHtml(answer.answer.detail)}</small>` : ""}
+      ${eventChain.length ? `
+        <div class="rules-assistant-chain" aria-label="Event explanation chain">
+          ${eventChain.slice(0, 8).map((entry, index) => `
+            <div>
+              <b>${escapeHtml(String(index + 1))}</b>
+              <span>${escapeHtml(entry.label || "Event")}</span>
+              <small>${escapeHtml(entry.summary || entry.eventId || "")}</small>
+            </div>
+          `).join("")}
+        </div>
+      ` : ""}
+      ${evidence.length ? `
+        <div class="rules-assistant-evidence" aria-label="Evidence used">
+          ${evidence.slice(0, 6).map((entry) => `<span title="${escapeAttribute(entry.summary || "")}">${escapeHtml(entry.label || entry.kind || "Evidence")}</span>`).join("")}
+        </div>
+      ` : ""}
+      ${rules.length || oracle.length ? `
+        <details class="rules-assistant-references">
+          <summary>Rules and Oracle references</summary>
+          ${rules.map((rule) => `<p>${escapeHtml(rule)}</p>`).join("")}
+          ${oracle.map((entry) => `<p><strong>${escapeHtml(entry.objectId || "Oracle")}</strong>: ${escapeHtml(entry.text || "")}</p>`).join("")}
+        </details>
+      ` : ""}
+      ${answer.whatIf ? `
+        <div class="rules-assistant-what-if">
+          <strong>What If foundation</strong>
+          <span>${escapeHtml(formatLabel(answer.whatIf.status || ""))}</span>
+          <small>Live authoritative session preserved.</small>
+        </div>
+      ` : ""}
+      ${answer.followUps?.length ? `
+        <div class="rules-assistant-chips" aria-label="Follow-up questions">
+          ${answer.followUps.slice(0, 5).map((prompt) => `<span>${escapeHtml(prompt)}</span>`).join("")}
+        </div>
+      ` : ""}
+    </article>
   `;
 }
 
