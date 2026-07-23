@@ -3,13 +3,10 @@ import { createLoadingScreenController } from "./ui/loadingScreen.js";
 import { mountApp } from "./ui/render.js";
 import loadingDragonUrl from "../assets/boardstate-loading-dragon.jpg";
 import landscapeWallpaperUrl from "../assets/boardstate-bg-landscape.png";
-import portraitWallpaperUrl from "../assets/boardstate-bg-portrait.png";
 
 const root = document.querySelector("#app");
-const initialWallpaperUrl = getLikelyInitialWallpaperUrl();
-const deferredWallpaperUrl = initialWallpaperUrl === portraitWallpaperUrl ? landscapeWallpaperUrl : portraitWallpaperUrl;
 const loading = createLoadingScreenController({
-  assets: [loadingDragonUrl, initialWallpaperUrl],
+  assets: [loadingDragonUrl, landscapeWallpaperUrl],
 });
 
 bootstrap();
@@ -35,20 +32,14 @@ async function bootstrap() {
     await loading.runStep(88, "Preparing rules engine...", () => Promise.resolve());
     await loading.runStep(96, "Preparing the battlefield...", () => loading.waitForAppStable(root), { critical: true });
     await loading.complete("Entering BoardState...");
-    preloadAfterStartup(deferredWallpaperUrl);
+    preloadAfterStartup();
   } catch (error) {
     console.error("BoardState startup failed", error);
     loading.fail(error);
   }
 }
 
-function getLikelyInitialWallpaperUrl() {
-  return window.matchMedia?.("(max-width: 1279px)").matches
-    ? portraitWallpaperUrl
-    : landscapeWallpaperUrl;
-}
-
-function preloadAfterStartup(assetUrl) {
+function preloadAfterStartup(assetUrl = "") {
   const schedule = window.requestIdleCallback || ((callback) => window.setTimeout(callback, 1000));
   schedule(() => {
     if (!assetUrl) {

@@ -15,6 +15,20 @@ Prompt 5 extends those systems instead of replacing them:
 - `src/state/schema.js` still defines runtime permanents, zones, stack, phase, combat, and Commander metadata.
 - `src/styles.css` still owns the BoardState visual identity and background assets.
 
+## Prompt 12.1 Native Game Foundation
+
+Prompt 12.1 makes landscape permanent instead of preference-based:
+
+- `docs/ecosystem/NATIVE_GAME_VISUAL_ARCHITECTURE.md` records the permanent visual laws for Commander-first, landscape-only, battlefield-first, native digital game presentation.
+- `src/main.js` now preloads the landscape wallpaper for every BoardState gameplay startup path.
+- `src/state/schema.js` defaults `settings.appearance.compositionMode` to `landscape`.
+- `src/storage/localDatabase.js` normalizes legacy profile settings back to `landscape` and retires runtime mobile HUD/profile navigation settings for BoardState.
+- `src/state/gameReducer.js` rejects `SET_SETTING` attempts to move BoardState gameplay back to `auto`, `mobile`, or portrait-style composition.
+- `src/ui/render.js` reports the active runtime as `data-gameplay-composition="landscape"` and `data-visual-foundation="boardstate-native-game-visual-foundation-0.1.0"`, removes the orientation-change runtime switch, hides mobile page-swipe controls, and removes edge-swipe zones.
+- `src/ecosystem/ecosystemIntegration.js` reports `compositionMode: "landscape"` in privacy-safe shared preferences and refuses external preference patches that attempt to restore mobile composition.
+
+The CSS still contains some legacy mobile selector names for compatibility with current overlays, reduced-motion behavior, and historical small-screen styling. Those selectors are not canonical gameplay architecture and should be removed only with targeted visual regression coverage.
+
 ## Landscape Battlefield Model
 
 `src/ui/landscapeBattlefield.js` defines the Prompt 5 non-authoritative presentation model:

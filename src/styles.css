@@ -56,7 +56,7 @@ body::after {
 
 body::before {
   background:
-    url("../assets/boardstate-bg-portrait.png"),
+    url("../assets/boardstate-bg-landscape.png"),
     linear-gradient(135deg, #06030b, #170d21 52%, #090612);
   background-size: cover;
   background-position: center;
@@ -65,7 +65,7 @@ body::before {
 
 body[data-composition="mobile"]::before {
   background:
-    url("../assets/boardstate-bg-portrait.png"),
+    url("../assets/boardstate-bg-landscape.png"),
     linear-gradient(135deg, #06030b, #170d21 52%, #090612);
   background-size: cover;
   background-position: center;
@@ -2236,36 +2236,8 @@ h2 {
   text-overflow: ellipsis;
 }
 
-.mobile-swipe-controls,
 .mobile-step {
   display: none;
-}
-
-body[data-composition="mobile"] .mobile-swipe-controls {
-  display: grid;
-  grid-template-columns: 44px 1fr 44px auto;
-  align-items: center;
-  gap: 0.55rem;
-  margin: 10px 0;
-  padding: 0.5rem 0.65rem;
-  touch-action: manipulation;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-body[data-composition="mobile"] .mobile-swipe-controls button {
-  min-width: 44px;
-  min-height: 44px;
-  padding: 0;
-  font-size: 1.35rem;
-}
-
-body[data-composition="mobile"] .mobile-swipe-controls span,
-body[data-composition="mobile"] .mobile-swipe-controls small {
-  color: var(--gold);
-  font-size: 0.82rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .battlefield-page {
@@ -4254,43 +4226,6 @@ body[data-page="leaderboards"] .utility-page .wide[data-open-stats] {
   box-shadow: 0 0 20px rgba(255, 126, 205, 0.16);
 }
 
-.edge-swipe-zone {
-  position: fixed;
-  z-index: 110;
-  background: transparent;
-}
-
-.edge-left,
-.edge-right {
-  top: 0;
-  bottom: 0;
-  width: 26px;
-}
-
-.edge-left {
-  left: 0;
-}
-
-.edge-right {
-  right: 0;
-}
-
-.edge-top,
-.edge-bottom {
-  left: 0;
-  right: 0;
-  height: 26px;
-  pointer-events: none;
-}
-
-.edge-top {
-  top: 0;
-}
-
-.edge-bottom {
-  bottom: 0;
-}
-
 textarea {
   width: 100%;
   border: 1px solid var(--line);
@@ -4303,10 +4238,6 @@ textarea {
 }
 
 @media (max-width: 1279px) {
-  .edge-swipe-zone {
-    display: none;
-  }
-
   body {
     overscroll-behavior-x: contain;
   }
@@ -4346,51 +4277,6 @@ textarea {
       max(10px, env(safe-area-inset-left));
   }
 
-  .mobile-swipe-controls {
-    display: grid;
-    grid-template-columns: 44px 1fr 44px auto;
-    align-items: center;
-    gap: 0.55rem;
-    margin: 10px 0;
-    padding: 0.5rem 0.65rem;
-    touch-action: manipulation;
-    user-select: none;
-    -webkit-user-select: none;
-  }
-
-  .mobile-swipe-controls button {
-    min-width: 44px;
-    min-height: 44px;
-    padding: 0;
-    font-size: 1.35rem;
-  }
-
-  .mobile-swipe-controls span,
-  .mobile-swipe-controls small {
-    color: var(--gold);
-    font-size: 0.82rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-
-  .mobile-page-dots {
-    display: flex;
-    gap: 0.25rem;
-    margin-top: 0.25rem;
-  }
-
-  .mobile-page-dots i {
-    width: 6px;
-    height: 6px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.26);
-  }
-
-  .mobile-page-dots i.active {
-    width: 16px;
-    background: var(--gold);
-  }
-
   .mobile-step {
     display: block;
   }
@@ -4406,7 +4292,6 @@ textarea {
   .file-pill,
   .counter-stepper,
   .life-hero strong,
-  .mobile-swipe-controls,
   .permanent {
     -webkit-tap-highlight-color: rgba(143, 211, 255, 0.16);
     -webkit-touch-callout: none;
@@ -5013,11 +4898,6 @@ textarea {
 
   .tab-bar::-webkit-scrollbar {
     display: none;
-  }
-
-  .mobile-swipe-controls {
-    margin: 0;
-    padding: 0.3rem 0.4rem;
   }
 
   .life-tracker-page {
@@ -8403,10 +8283,6 @@ body[data-page="battlefield"] .phase-next-chip {
 }
 
 .app-shell--battlefield .battlefield-header-turn-status {
-  display: none;
-}
-
-.app-shell--battlefield .mobile-swipe-controls {
   display: none;
 }
 

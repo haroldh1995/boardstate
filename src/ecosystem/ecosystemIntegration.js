@@ -264,10 +264,10 @@ export function createSharedPreferenceSnapshot(profile = {}, input = {}) {
       confirmAmbiguousEffects: settings.confirmAmbiguousEffects !== false,
       manualStackConfirmation: Boolean(settings.manualStackConfirmation),
       strictPhaseEnforcement: Boolean(settings.strictPhaseEnforcement),
-      edgeSwipeShortcuts: settings.navigation?.edgeSwipeShortcuts !== false,
+      edgeSwipeShortcuts: false,
     },
     animation: {
-      compositionMode: settings.appearance?.compositionMode || "auto",
+      compositionMode: "landscape",
       reducedMotionPreference: Boolean(settings.appearance?.reducedMotion || settings.motion?.reducedMotion),
       cameraPreference: settings.battlefield?.focusMode === false ? "manual" : "follow-active-player",
     },
@@ -662,11 +662,13 @@ export function applySharedPreferencePatch(profile = {}, patch = {}) {
       },
       navigation: {
         ...(settings.navigation || {}),
-        edgeSwipeShortcuts: safePatch.interaction.edgeSwipeShortcuts ?? settings.navigation?.edgeSwipeShortcuts,
+        edgeSwipeShortcuts: false,
+        compactMobileHud: false,
+        mobileFocusView: false,
       },
       appearance: {
         ...(settings.appearance || {}),
-        compositionMode: safePatch.animation.compositionMode || settings.appearance?.compositionMode || "auto",
+        compositionMode: "landscape",
         reducedMotion: safePatch.animation.reducedMotionPreference ?? settings.appearance?.reducedMotion,
       },
       remindMe: {

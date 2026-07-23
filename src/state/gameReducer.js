@@ -1060,23 +1060,38 @@ function updateSetting(profile, path, value) {
   if (!keys.length) {
     return profile;
   }
+  const normalizedValue = normalizeLandscapeOnlySetting(path, value);
   const settings = { ...(profile.settings || {}) };
   let cursor = settings;
   keys.slice(0, -1).forEach((key) => {
     cursor[key] = { ...(cursor[key] || {}) };
     cursor = cursor[key];
   });
-  cursor[keys[keys.length - 1]] = value;
+  cursor[keys[keys.length - 1]] = normalizedValue;
   if (path === "adhdMode.enabled") {
-    settings.adhdAutomation = Boolean(value);
+    settings.adhdAutomation = Boolean(normalizedValue);
   }
   if (path === "adhdAutomation") {
     settings.adhdMode = {
       ...(settings.adhdMode || {}),
-      enabled: Boolean(value),
+      enabled: Boolean(normalizedValue),
     };
   }
   return { ...profile, settings };
+}
+
+function normalizeLandscapeOnlySetting(path, value) {
+  if (path === "appearance.compositionMode") {
+    return "landscape";
+  }
+  if (
+    path === "navigation.edgeSwipeShortcuts" ||
+    path === "navigation.compactMobileHud" ||
+    path === "navigation.mobileFocusView"
+  ) {
+    return false;
+  }
+  return value;
 }
 
 function addNotification(profile, notification = {}) {

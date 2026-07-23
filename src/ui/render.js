@@ -89,16 +89,15 @@ import {
   extractProfileFromLegacyBackup,
 } from "../migration/legacyMigration.js";
 
-const MOBILE_LAYOUT_QUERY = "(max-width: 1279px)";
-const SWIPE_DISTANCE_THRESHOLD = 72;
-const SWIPE_AXIS_DOMINANCE = 1.35;
+const NATIVE_GAME_VISUAL_FOUNDATION_VERSION = "boardstate-native-game-visual-foundation-0.1.0";
+const CANONICAL_GAMEPLAY_COMPOSITION = "landscape";
+const RUNTIME_LAYOUT_COMPOSITION = "widescreen";
 const LONG_PRESS_DELAY_MS = 420;
 const REPEAT_INTERVAL_MS = 110;
 const PERMANENT_DOUBLE_TAP_MS = 260;
 const PERMANENT_VERTICAL_SWIPE_THRESHOLD = 42;
 const PERMANENT_DRAG_REORDER_THRESHOLD = 46;
 const ATTACK_DRAG_TOP_RATIO = 0.34;
-const EDGE_ZONE_SIZE = 26;
 const HUD_DRAG_THRESHOLD = 7;
 const OUTSIDE_DISMISS_DRAG_THRESHOLD = 10;
 const TEMPORARY_SCROLL_SELECTORS = [
@@ -276,7 +275,6 @@ export function mountApp(root, store) {
   const notificationFeedbackDeliveredIds = new Set();
   let statsOpen = false;
   let statsMode = "individual";
-  let swipeStart = null;
   let toolMenuOpen = false;
   let floatingManaOpen = false;
   let activeToolPanel = "";
@@ -351,7 +349,6 @@ export function mountApp(root, store) {
   normalizeCurrentHash();
   window.addEventListener("hashchange", handleHashChange);
   window.addEventListener("resize", handleViewportChange, { passive: true });
-  window.addEventListener("orientationchange", handleViewportChange);
   store.subscribe(render);
   render(store.getState());
 
@@ -438,14 +435,6 @@ export function mountApp(root, store) {
     const navigationSettings = profile.settings?.navigation || {};
     hudBadgePositions = mergeHudBadgePositions(navigationSettings.hudBadgePositions);
     const resolvedCompositionMode = resolveCompositionMode(profile);
-    if (resolvedCompositionMode === "mobile") {
-      hudBadgePositions = Object.fromEntries(
-        Object.entries(hudBadgePositions).map(([key, position]) => [
-          key,
-          clampHudBadgePosition(key, Number(position?.x || 0), Number(position?.y || 0)),
-        ])
-      );
-    }
     hudBadgesLocked = Boolean(navigationSettings.hudBadgesLocked);
     helperMessage = resolveHelperSpriteMessage(profile, activePage);
     if (castActionPopup) {
@@ -472,7 +461,9 @@ export function mountApp(root, store) {
     }
     const activeNotification = getActiveFullWindowNotification(profile);
     document.body.dataset.composition = resolvedCompositionMode;
-    document.body.dataset.compositionPreference = profile.settings?.appearance?.compositionMode || "auto";
+    document.body.dataset.compositionPreference = CANONICAL_GAMEPLAY_COMPOSITION;
+    document.body.dataset.gameplayComposition = CANONICAL_GAMEPLAY_COMPOSITION;
+    document.body.dataset.visualFoundation = NATIVE_GAME_VISUAL_FOUNDATION_VERSION;
     document.body.dataset.page = activePage;
     document.body.dataset.uiLayer = uiLayerState.current;
     document.body.dataset.simulationActive = profile.activeSession?.simulation?.enabled ? "true" : "false";
@@ -520,7 +511,7 @@ export function mountApp(root, store) {
       simulationSelectedDeckSnapshotId,
       simulationSetupError,
       simulationStatsOpen,
-      isMobilePortrait: resolvedCompositionMode === "mobile",
+      isMobilePortrait: false,
       hudBadgePositions,
       hudBadgesLocked,
       syncedTurnOrderSetupOpen,
@@ -636,14 +627,6 @@ export function mountApp(root, store) {
     container.querySelectorAll("[data-page]").forEach((button) => {
       button.addEventListener("click", () => {
         setActivePage(button.dataset.page);
-      });
-    });
-    container.querySelectorAll("[data-mobile-nav]").forEach((button) => {
-      button.addEventListener("click", () => {
-        if (!isPortraitTouchMode()) {
-          return;
-        }
-        movePage(button.dataset.mobileNav === "next" ? 1 : -1);
       });
     });
     container.querySelectorAll("[data-home-action]").forEach((button) => {
@@ -1066,28 +1049,6 @@ export function mountApp(root, store) {
       })
     );
     bindDraggableHudBadges(container);
-    container.querySelector("[data-app-shell]")?.addEventListener("pointerdown", (event) => {
-      if (!isMobileViewMode() || isSwipeBlockedTarget(event.target)) {
-        return;
-      }
-      swipeStart = { x: event.clientX, y: event.clientY };
-    });
-    container.querySelector("[data-app-shell]")?.addEventListener("pointerup", (event) => {
-      if (!isMobileViewMode() || !swipeStart || isSwipeBlockedTarget(event.target)) {
-        swipeStart = null;
-        return;
-      }
-      const deltaX = event.clientX - swipeStart.x;
-      const deltaY = event.clientY - swipeStart.y;
-      swipeStart = null;
-      if (Math.abs(deltaX) < SWIPE_DISTANCE_THRESHOLD || Math.abs(deltaX) < Math.abs(deltaY) * SWIPE_AXIS_DOMINANCE) {
-        return;
-      }
-      movePage(deltaX < 0 ? 1 : -1);
-    });
-    container.querySelector("[data-app-shell]")?.addEventListener("pointercancel", () => {
-      swipeStart = null;
-    });
     container.querySelectorAll("[data-game-options]").forEach((button) =>
       button.addEventListener("click", () => {
         closeAllTemporaryUi({ renderAfter: false });
@@ -3080,7 +3041,6 @@ export function mountApp(root, store) {
     bindPermanentGestures(container, profile);
 
     container.querySelector(".floating-mana")?.addEventListener("pointerdown", () => scheduleManaAutoClose(store.getState()));
-    bindEdgeSwipeZones(container, profile);
   }
 
   function installGlobalDismissHandlers() {
@@ -3626,7 +3586,7 @@ export function mountApp(root, store) {
         return;
       }
       node.addEventListener("pointerdown", (event) => {
-        if (!isPortraitTouchMode()) {
+        if (!isTouchGestureMode()) {
           return;
         }
         node.setPointerCapture?.(event.pointerId);
@@ -4111,21 +4071,8 @@ export function mountApp(root, store) {
   function handleViewportChange() {
     window.clearTimeout(viewportRerenderTimer);
     viewportRerenderTimer = window.setTimeout(() => {
-      const profile = store.getState();
-      if ((profile.settings?.appearance?.compositionMode || "auto") !== "auto") {
-        return;
-      }
-      render(profile);
+      render(store.getState());
     }, 120);
-  }
-
-  function movePage(direction) {
-    const pageOrder = getVisiblePages(store.getState());
-    const currentIndex = Math.max(0, pageOrder.indexOf(activePage));
-    const nextIndex = Math.max(0, Math.min(pageOrder.length - 1, currentIndex + direction));
-    if (nextIndex !== currentIndex) {
-      setActivePage(pageOrder[nextIndex]);
-    }
   }
 
   async function advancePhaseFromUi() {
@@ -4267,7 +4214,7 @@ export function mountApp(root, store) {
     };
 
     button.addEventListener("pointerdown", (event) => {
-      if (!isPortraitTouchMode() || event.pointerType === "mouse") {
+      if (!isTouchGestureMode() || event.pointerType === "mouse") {
         return;
       }
       repeated = false;
@@ -4283,7 +4230,7 @@ export function mountApp(root, store) {
   function bindLifeGesture(target) {
     // Life total gestures stay on the display only: tap top/right to gain, bottom/left to lose, hold for the quick panel.
     target.addEventListener("pointerdown", (event) => {
-      if (!isPortraitTouchMode()) {
+      if (!isTouchGestureMode()) {
         return;
       }
       lifeGesture = {
@@ -4299,7 +4246,7 @@ export function mountApp(root, store) {
       };
     });
     target.addEventListener("pointerup", (event) => {
-      if (!lifeGesture || !isPortraitTouchMode()) {
+      if (!lifeGesture || !isTouchGestureMode()) {
         lifeGesture = null;
         return;
       }
@@ -4322,7 +4269,7 @@ export function mountApp(root, store) {
   function bindCommanderDamageGesture(target) {
     // Commander damage mirrors the life gesture pattern but defaults a tap to +1 damage.
     target.addEventListener("pointerdown", (event) => {
-      if (!isPortraitTouchMode()) {
+      if (!isTouchGestureMode()) {
         return;
       }
       commanderGesture = {
@@ -4338,7 +4285,7 @@ export function mountApp(root, store) {
       };
     });
     target.addEventListener("pointerup", (event) => {
-      if (!commanderGesture || !isPortraitTouchMode()) {
+      if (!commanderGesture || !isTouchGestureMode()) {
         commanderGesture = null;
         return;
       }
@@ -4479,47 +4426,6 @@ export function mountApp(root, store) {
         }
         clearTimeout(gesture.timer);
         permanentGestureState.delete(permanentId);
-      });
-    });
-  }
-
-  function bindEdgeSwipeZones(container, profile) {
-    if (!profile.settings?.navigation?.edgeSwipeShortcuts) {
-      return;
-    }
-    container.querySelectorAll("[data-edge-zone]").forEach((zone) => {
-      zone.addEventListener("pointerdown", (event) => {
-        if (getTopTemporaryLayer()) {
-          return;
-        }
-        const edge = zone.dataset.edgeZone;
-        if (isMobileViewMode() && (edge === "left" || edge === "right")) {
-          event.stopPropagation();
-          movePage(edge === "left" ? -1 : 1);
-          return;
-        }
-        if (edge === "left") {
-          movePage(-1);
-          return;
-        }
-        if (edge === "right") {
-          utilityDockOpen = true;
-          activeUtilityPanel = activeUtilityPanel || "triggers";
-          render(store.getState());
-          return;
-        }
-        if (edge === "bottom") {
-          floatingManaOpen = true;
-          activeToolPanel = "";
-          toolMenuOpen = false;
-          render(store.getState());
-          return;
-        }
-        if (edge === "top") {
-          utilityDockOpen = true;
-          activeUtilityPanel = "history";
-          render(store.getState());
-        }
       });
     });
   }
@@ -4990,22 +4896,18 @@ export function mountApp(root, store) {
   }
 
   function vibrateFeedback(strong = false) {
-    if (!isPortraitTouchMode() || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches || !navigator.vibrate) {
+    if (!isTouchFeedbackMode() || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches || !navigator.vibrate) {
       return;
     }
     navigator.vibrate(strong ? 24 : 8);
   }
 
-  function isSwipeBlockedTarget(target) {
-    return Boolean(target.closest("button, input, label, textarea, select, .overlay-backdrop, .scroll-safe, .counter-stepper, .search-results, .floating-tool-panel, .floating-mana, [data-no-swipe]"));
+  function isTouchGestureMode() {
+    return isTouchFeedbackMode();
   }
 
-  function isPortraitTouchMode() {
-    return isMobileViewMode();
-  }
-
-  function isMobileViewMode() {
-    return resolveCompositionMode(store.getState()) === "mobile";
+  function isTouchFeedbackMode() {
+    return Boolean(navigator.maxTouchPoints || "ontouchstart" in window);
   }
 
   function installLifeZoomGuards() {
@@ -5016,21 +4918,21 @@ export function mountApp(root, store) {
     document.addEventListener(
       "touchmove",
       (event) => {
-        if (activePage === "life" && isPortraitTouchMode() && event.touches.length > 1 && event.target.closest(".life-tracker-page")) {
+        if (activePage === "life" && isTouchFeedbackMode() && event.touches.length > 1 && event.target.closest(".life-tracker-page")) {
           event.preventDefault();
         }
       },
       { passive: false }
     );
     document.addEventListener("gesturestart", (event) => {
-      if (activePage === "life" && isPortraitTouchMode() && event.target.closest(".life-tracker-page")) {
+      if (activePage === "life" && isTouchFeedbackMode() && event.target.closest(".life-tracker-page")) {
         event.preventDefault();
       }
     });
     document.addEventListener(
       "touchend",
       (event) => {
-        if (activePage !== "life" || !isPortraitTouchMode() || !event.target.closest(".life-tracker-page")) {
+        if (activePage !== "life" || !isTouchFeedbackMode() || !event.target.closest(".life-tracker-page")) {
           return;
         }
         const now = Date.now();
@@ -5317,7 +5219,6 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
           ${tabs.map((tab) => `<button class="${page === tab ? "active" : ""}" data-page="${tab}" aria-current="${page === tab ? "page" : "false"}">${formatPageLabel(tab)}</button>`).join("")}
         </nav>
         ${page === "battlefield" ? renderBattlefieldHeaderTurnStatus(profile) : ""}
-        ${renderMobileSwipeControls(tabs, page)}
       </header>
       ${page === "home" ? renderBoardStateHome(profile) : ""}
       ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier, uiState) : ""}
@@ -5361,16 +5262,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
 }
 
 function resolveCompositionMode(profile = {}) {
-  const preference = profile.settings?.appearance?.compositionMode || "auto";
-  if (preference === "mobile" || preference === "widescreen") {
-    return preference;
-  }
-  return isAutoMobileDeviceView() ? "mobile" : "widescreen";
-}
-
-function isAutoMobileDeviceView() {
-  const isPortrait = window.matchMedia?.("(orientation: portrait)")?.matches ?? (window.innerHeight || 0) >= (window.innerWidth || 0);
-  return isPortrait && (window.matchMedia?.(MOBILE_LAYOUT_QUERY)?.matches ?? (window.innerWidth || 0) < 1280);
+  return RUNTIME_LAYOUT_COMPOSITION;
 }
 
 function renderRulesStatusPill(profile = {}) {
@@ -5887,23 +5779,6 @@ function formatSyncedTurnOrderNames(players = [], turnOrder = []) {
   return turnOrder.map((id) => resolveSyncedPlayerName(players, id)).join(" -> ");
 }
 
-function renderMobileSwipeControls(tabs, page) {
-  const currentIndex = tabs.indexOf(page);
-  return `
-    <section class="mobile-swipe-controls glass" aria-label="Mobile screen navigation">
-      <button data-mobile-nav="prev" aria-label="Previous screen">&lsaquo;</button>
-      <div>
-        <span>${formatPageLabel(page)}</span>
-        <div class="mobile-page-dots" aria-hidden="true">
-          ${tabs.map((tab) => `<i class="${tab === page ? "active" : ""}"></i>`).join("")}
-        </div>
-      </div>
-      <button data-mobile-nav="next" aria-label="Next screen">&rsaquo;</button>
-      <small>${currentIndex + 1}/${tabs.length}</small>
-    </section>
-  `;
-}
-
 function renderTrackerModifierBadge(modifier) {
   return `
     <button class="modifier-badge" data-modifier-badge title="Long press to choose tracker modifier">
@@ -6015,8 +5890,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
   const session = profile.activeSession;
   const panels = getPagePanels(profile);
   const adhdMode = getAdhdMode(profile);
-  const isMobilePortrait = Boolean(uiState.isMobilePortrait);
-  const mobileFocusView = Boolean(profile.settings?.navigation?.mobileFocusView ?? true);
+  const isMobilePortrait = false;
   const detailMode = profile.settings?.battlefield?.detailMode || "standard";
   const compressionMode = profile.settings?.battlefield?.compressionMode || "adaptive";
   const selectedIds = new Set(session.selectedIds || []);
@@ -6029,7 +5903,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
   const showStatsOverlay = Boolean(profile.settings?.battlefield?.statsOverlay);
   const focusedOpponentId = activeOpponent?.id || profile.settings?.battlefield?.focusedOpponentId || session.advancedMultiplayer?.focusedOpponentId || "";
   const perspective = buildAdvancedMultiplayerPerspective(profile, {
-    viewport: isMobilePortrait ? "phone" : "widescreen",
+    viewport: "widescreen",
     focusedOpponentId,
   });
   const perspectiveOpponentBoards = perspective.opponentBoards?.length ? perspective.opponentBoards : opponentBoards;
@@ -6043,13 +5917,13 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
   const landscapeModel = createLandscapeBattlefieldModel(profile, {
     perspective,
     focusedOpponentId: mirroredOpponent?.id || mirroredOpponent?.playerId || focusedOpponentId,
-    viewport: isMobilePortrait ? "portrait-support" : "desktop",
+    viewport: "desktop",
     compressionMode,
   });
   const motion = landscapeModel.motion || {};
   const cameraFocusKind = landscapeModel.camera?.activeFocus?.kind || "table";
   return `
-    <section class="battlefield-page battlefield-page--focused landscape-battlefield-page landscape-density-${escapeAttribute(landscapeModel.density)} advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} motion-${escapeAttribute(motion.intensity || "full")} camera-focus-${escapeAttribute(cameraFocusKind)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${isMobilePortrait && mobileFocusView ? "mobile-focus-view" : ""}" data-layout-version="${escapeAttribute(landscapeModel.version)}" data-motion-version="${escapeAttribute(motion.version || "")}" data-motion-intensity="${escapeAttribute(motion.intensity || "full")}" data-camera-focus="${escapeAttribute(cameraFocusKind)}" data-camera-transition="${escapeAttribute(motion.cameraPlan?.transition || "none")}">
+    <section class="battlefield-page battlefield-page--focused landscape-battlefield-page landscape-density-${escapeAttribute(landscapeModel.density)} advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} motion-${escapeAttribute(motion.intensity || "full")} camera-focus-${escapeAttribute(cameraFocusKind)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}" data-layout-version="${escapeAttribute(landscapeModel.version)}" data-motion-version="${escapeAttribute(motion.version || "")}" data-motion-intensity="${escapeAttribute(motion.intensity || "full")}" data-camera-focus="${escapeAttribute(cameraFocusKind)}" data-camera-transition="${escapeAttribute(motion.cameraPlan?.transition || "none")}">
       <div class="battlefield-state-strip landscape-state-strip">
         <div>
           <strong>Turn ${escapeHtml(session.turn)} · ${escapeHtml(PHASES[session.phaseIndex] || "Beginning")} · ${escapeHtml(resolvePhaseTrackerActorLabel(session).replace(/^Active turn:\s*/i, ""))}</strong>
@@ -8142,15 +8016,7 @@ function renderProactiveAssistantStrip(model = {}, activeUtilityPanel = "") {
 }
 
 function renderEdgeSwipeZones(profile) {
-  if (!profile.settings?.navigation?.edgeSwipeShortcuts) {
-    return "";
-  }
-  return `
-    <div class="edge-swipe-zone edge-left" data-edge-zone="left" aria-hidden="true"></div>
-    <div class="edge-swipe-zone edge-right" data-edge-zone="right" aria-hidden="true"></div>
-    <div class="edge-swipe-zone edge-bottom" data-edge-zone="bottom" aria-hidden="true"></div>
-    <div class="edge-swipe-zone edge-top" data-edge-zone="top" aria-hidden="true"></div>
-  `;
+  return "";
 }
 
 function getDensityClass(permanents = [], compressionMode = "adaptive") {
@@ -9528,8 +9394,8 @@ function getOptionsCategories(profile, page = "life") {
       id: "display",
       glyph: "HUD",
       title: "Display & Performance",
-      description: "Portrait/widescreen layout, stats overlay, card density, animation level, and performance mode.",
-      status: (profile.settings?.appearance?.compositionMode || "auto").toUpperCase(),
+      description: "Canonical landscape layout, stats overlay, card density, animation level, and performance mode.",
+      status: "LANDSCAPE",
     },
     {
       id: "legacy",
@@ -10570,29 +10436,14 @@ function renderFriendNotificationToggles(preferences) {
 
 function renderHudOptionsSubpage(profile) {
   const panels = getPagePanels(profile);
-  const compositionMode = profile.settings?.appearance?.compositionMode || "auto";
-  const resolvedCompositionMode = resolveCompositionMode(profile);
-  const compositionLabel =
-    compositionMode === "auto"
-      ? `Auto detect (${resolvedCompositionMode === "mobile" ? "Mobile view" : "Widescreen view"})`
-      : resolvedCompositionMode === "mobile"
-        ? "Mobile view"
-        : "Widescreen view";
+  const compositionLabel = "Landscape is canonical for BoardState gameplay. Portrait gameplay is reserved for BoardState Lite.";
   return `
     <div class="options-subpage">
       <article class="option-card">
         <h3>HUD & Layout</h3>
         <p>Device view: ${escapeHtml(compositionLabel)}</p>
-        <div class="button-grid">
-          <button class="${compositionMode === "auto" ? "active" : ""}" data-setting-button="appearance.compositionMode" data-value="auto">Auto Detect</button>
-          <button class="${compositionMode === "mobile" ? "active" : ""}" data-setting-button="appearance.compositionMode" data-value="mobile">Mobile View</button>
-          <button class="${compositionMode === "widescreen" ? "active" : ""}" data-setting-button="appearance.compositionMode" data-value="widescreen">Widescreen View</button>
-        </div>
         ${renderToggle("Life total panel", "pagePanels.lifeTrackerLife", panels.lifeTrackerLife)}
         ${renderToggle("Show Profile in Main UI", "navigation.showProfileInMainUi", Boolean(profile.settings?.navigation?.showProfileInMainUi))}
-        ${renderToggle("Enable Edge Swipe Shortcuts", "navigation.edgeSwipeShortcuts", Boolean(profile.settings?.navigation?.edgeSwipeShortcuts))}
-        ${renderToggle("Compact Mobile HUD", "navigation.compactMobileHud", Boolean(profile.settings?.navigation?.compactMobileHud ?? true))}
-        ${renderToggle("Mobile Focus View", "navigation.mobileFocusView", Boolean(profile.settings?.navigation?.mobileFocusView ?? true))}
         ${renderToggle("Lock HUD Badges", "navigation.hudBadgesLocked", Boolean(profile.settings?.navigation?.hudBadgesLocked))}
         <button class="wide" data-reset-hud-layout>Reset HUD Layout</button>
         <p>Floating mana lives in the Battlefield tools menu as a floating widget with pin/unpin support.</p>
@@ -10769,21 +10620,14 @@ function getUnreadNotificationCount(profile = {}) {
 }
 
 function getAppVersion() {
-  return "1.19.0";
+  return "1.33.0";
 }
 
 function renderGameOptions(profile, page = "life") {
   const settings = getSettings(profile);
   const panels = getPagePanels(profile);
   const multiplayer = getMultiplayerSettings(profile);
-  const compositionMode = profile.settings?.appearance?.compositionMode || "auto";
-  const resolvedCompositionMode = resolveCompositionMode(profile);
-  const compositionLabel =
-    compositionMode === "auto"
-      ? `Auto detect (${resolvedCompositionMode === "mobile" ? "Mobile view" : "Widescreen view"})`
-      : resolvedCompositionMode === "mobile"
-        ? "Mobile view"
-        : "Widescreen view";
+  const compositionLabel = "Landscape is canonical for BoardState gameplay. Portrait gameplay is reserved for BoardState Lite.";
   const localAuth = profile.localAuth || {};
   const simulation = profile.activeSession?.simulation || {};
   const gameTracking = profile.activeSession?.gameTracking || {};
@@ -10867,16 +10711,8 @@ function renderGameOptions(profile, page = "life") {
           <article class="option-card">
             <h3>HUD Layout</h3>
             <p>Device view: ${escapeHtml(compositionLabel)}</p>
-            <div class="button-grid">
-              <button class="${compositionMode === "auto" ? "active" : ""}" data-setting-button="appearance.compositionMode" data-value="auto">Auto Detect</button>
-              <button class="${compositionMode === "mobile" ? "active" : ""}" data-setting-button="appearance.compositionMode" data-value="mobile">Mobile View</button>
-              <button class="${compositionMode === "widescreen" ? "active" : ""}" data-setting-button="appearance.compositionMode" data-value="widescreen">Widescreen View</button>
-            </div>
             ${renderToggle("Life total panel", "pagePanels.lifeTrackerLife", panels.lifeTrackerLife)}
             ${renderToggle("Show Profile in Main UI", "navigation.showProfileInMainUi", Boolean(profile.settings?.navigation?.showProfileInMainUi))}
-            ${renderToggle("Enable Edge Swipe Shortcuts", "navigation.edgeSwipeShortcuts", Boolean(profile.settings?.navigation?.edgeSwipeShortcuts))}
-            ${renderToggle("Compact Mobile HUD", "navigation.compactMobileHud", Boolean(profile.settings?.navigation?.compactMobileHud ?? true))}
-            ${renderToggle("Mobile Focus View", "navigation.mobileFocusView", Boolean(profile.settings?.navigation?.mobileFocusView ?? true))}
             ${renderToggle("Lock HUD Badges", "navigation.hudBadgesLocked", Boolean(profile.settings?.navigation?.hudBadgesLocked))}
             <button class="wide" data-reset-hud-layout>Reset HUD Layout</button>
             <p>Floating mana now lives in the Battlefield tools menu as a floating widget with pin/unpin support.</p>

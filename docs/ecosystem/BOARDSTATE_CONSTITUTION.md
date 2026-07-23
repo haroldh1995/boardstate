@@ -36,7 +36,7 @@ BoardState Lite is the fastest, most frictionless way for an individual player t
 
 ### BoardState
 
-BoardState is the complete Commander battlefield and authoritative gameplay application. It is landscape-first and owns the Rules Engine, State Engine, Event Knowledge Engine, advanced battlefield, complete battlefield visibility, replay, AI, tutorials, Question System, Remind Me, Dry Runs, spectators, advanced rules, and tournament-grade gameplay. BoardState records and understands the complete game. Lite tracks an individual player's battlefield.
+BoardState is the complete Commander battlefield and authoritative gameplay application. It is landscape-only for gameplay and owns the Rules Engine, State Engine, Event Knowledge Engine, advanced battlefield, complete battlefield visibility, replay, AI, tutorials, Question System, Remind Me, Dry Runs, spectators, advanced rules, and tournament-grade gameplay. BoardState records and understands the complete game. Lite tracks an individual player's battlefield and owns portrait physical-table companion workflows.
 
 ## Canonical Commander Session
 
@@ -92,11 +92,15 @@ No production system may bypass this architecture for rules-sensitive gameplay. 
 
 Always inspect existing code before implementing. Reuse existing systems. Refactor before replacing. Extend before rebuilding. Preserve working functionality. Remove duplicate implementations when a single authoritative implementation exists. Remove obsolete code only when an access path, migration path, or recovery path remains. Reduce technical debt with each modernization step. Minimize regressions. Maintain deterministic behavior for rules, simulation, replay, tests, and saves. Favor explicit architecture over accidental architecture.
 
-## UI Philosophy
+## Native Game UI Philosophy
 
 Preserve BoardState's visual identity. Do not redesign for the sake of redesign. Preserve existing artwork, wallpapers, color palette, gold accents, cosmic tribal aesthetic, and overall visual language.
 
-The intentional modernization is to transition gameplay from portrait-first layouts to a landscape-first Commander battlefield inspired by the information density and usability of MTG Arena while remaining visually and artistically unique to BoardState. Landscape becomes the primary gameplay experience. Responsive support may remain where valuable, but legacy portrait-first gameplay architecture must not constrain future development.
+The battlefield is the application. Gameplay must feel like a premium native digital Commander table, not a website, dashboard, admin panel, or responsive productivity app. UI stays quiet until it communicates gameplay, enables gameplay, improves clarity, or exposes relevant context.
+
+BoardState gameplay is permanently landscape-only. Portrait gameplay, portrait navigation, portrait layout switching, and portrait-specific optimization belong to BoardState Lite. BoardState remains responsive by revealing more battlefield, table, atmosphere, or contextual information across display sizes without changing into a separate portrait composition.
+
+The Prompt 12.1 visual foundation is documented in `docs/ecosystem/NATIVE_GAME_VISUAL_ARCHITECTURE.md` and implemented through `src/main.js`, `src/state/schema.js`, `src/storage/localDatabase.js`, `src/state/gameReducer.js`, `src/ui/render.js`, and `src/ecosystem/ecosystemIntegration.js`.
 
 ## Modernization Strategy
 
@@ -104,7 +108,7 @@ Modernize the repository. Do not rewrite it. Preserve valuable systems. Replace 
 
 ## Repository Continuity
 
-Every future prompt must review this Constitution, `docs/ecosystem/COMMANDER_MODERNIZATION_AUDIT.md`, `docs/ecosystem/COMMANDER_SESSION_ARCHITECTURE.md`, `docs/ecosystem/COMMANDER_MODERNIZATION_ROADMAP.md`, and relevant implementation files before making changes. Future prompts must inspect previous implementations, verify architectural consistency, detect drift, continue modernization without duplicating systems, and keep external integrations honest until counterpart applications exist.
+Every future prompt must review this Constitution, `docs/ecosystem/COMMANDER_MODERNIZATION_AUDIT.md`, `docs/ecosystem/COMMANDER_SESSION_ARCHITECTURE.md`, `docs/ecosystem/NATIVE_GAME_VISUAL_ARCHITECTURE.md`, `docs/ecosystem/COMMANDER_MODERNIZATION_ROADMAP.md`, and relevant implementation files before making changes. Future prompts must inspect previous implementations, verify architectural consistency, detect drift, continue modernization without duplicating systems, preserve the landscape-only native game direction, and keep external integrations honest until counterpart applications exist.
 
 ## Remaining Roadmap
 

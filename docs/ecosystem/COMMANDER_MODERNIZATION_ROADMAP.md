@@ -100,6 +100,13 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - The Linked Apps UI now shows Hub as `Hub Not Connected`, keeps BoardState as gameplay authority, supports local privacy-safe bundle export, and keeps live Lite/Nexus links disabled until counterpart apps implement verified live flows.
 - `docs/ecosystem/ECOSYSTEM_INTEGRATION_ARCHITECTURE.md` records the Prompt 12 boundary.
 
+### Prompt 12.1: Landscape Foundation, Native Game Constitution, And Digital Tabletop Architecture
+
+- `docs/ecosystem/NATIVE_GAME_VISUAL_ARCHITECTURE.md` establishes the permanent visual laws: Commander-first, landscape-only, battlefield-first, native digital game presentation, responsive without redesign, spectator test, five-second test, and local game store test.
+- `src/main.js`, `src/state/schema.js`, `src/storage/localDatabase.js`, `src/state/gameReducer.js`, `src/ui/render.js`, and `src/ecosystem/ecosystemIntegration.js` now keep BoardState gameplay composition canonical landscape and prevent runtime or shared-preference patches from restoring portrait/mobile gameplay composition.
+- Mobile page-swipe controls, edge-swipe zones, orientation-change layout switching, and composition mode UI toggles are retired from BoardState runtime.
+- Portrait physical-table companion gameplay is assigned to BoardState Lite. BoardState preserves its existing cosmic background, gold accents, glass HUD, and Commander battlefield identity.
+
 ## Remaining Roadmap
 
 ### Prompt 13: Full Control And Live Tracking Convergence

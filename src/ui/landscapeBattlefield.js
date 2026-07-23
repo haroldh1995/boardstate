@@ -1773,11 +1773,10 @@ function getBoardId(board = {}) {
 
 function resolveViewport(value = "") {
   const normalized = String(value || "").toLowerCase();
-  if (["desktop", "tablet-landscape", "phone-landscape", "foldable-landscape", "portrait-support"].includes(normalized)) {
+  if (["desktop", "tablet-landscape", "phone-landscape", "foldable-landscape"].includes(normalized)) {
     return normalized;
   }
   if (normalized.includes("phone")) return "phone-landscape";
-  if (normalized.includes("portrait")) return "portrait-support";
   return "desktop";
 }
 

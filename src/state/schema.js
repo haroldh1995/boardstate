@@ -148,13 +148,13 @@ export function createDefaultProfile() {
         focusMode: true,
       },
       appearance: {
-        compositionMode: "auto",
+        compositionMode: "landscape",
       },
       navigation: {
         showProfileInMainUi: false,
-        edgeSwipeShortcuts: true,
-        compactMobileHud: true,
-        mobileFocusView: true,
+        edgeSwipeShortcuts: false,
+        compactMobileHud: false,
+        mobileFocusView: false,
         hudBadgesLocked: false,
         hudBadgePositions: {
           tools: { x: 18, y: 520 },
