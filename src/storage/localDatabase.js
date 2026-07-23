@@ -2,6 +2,7 @@ import { MANA_COLORS, createDefaultProfile } from "../state/schema.js";
 import { normalizeFriendState } from "../social/friendSystem.js";
 import { createOnboardingState } from "../onboarding/tutorialSystem.js";
 import { createLocalSaveCollection } from "./saveState.js";
+import { createEcosystemIntegrationState } from "../ecosystem/ecosystemIntegration.js";
 
 const DB_NAME = "boardstate";
 const STORE_NAME = "profiles";
@@ -195,7 +196,7 @@ async function writeRecord(key, value) {
 async function createPasswordMeta(password) {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const hash = await hashPassword(password, salt);
-  return {
+  const normalized = {
     version: 1,
     algorithm: "SHA-256",
     salt: toBase64(salt),
@@ -318,6 +319,7 @@ function normalizeProfile(profile) {
       rulesAssistant: { ...defaults.settings.rulesAssistant, ...(profile.settings?.rulesAssistant || {}) },
       remindMe: { ...defaults.settings.remindMe, ...(profile.settings?.remindMe || {}) },
       aiGameplay: { ...defaults.settings.aiGameplay, ...(profile.settings?.aiGameplay || {}) },
+      ecosystem: { ...defaults.settings.ecosystem, ...(profile.settings?.ecosystem || {}) },
       playerMemory: {
         ...defaults.settings.playerMemory,
         ...(profile.settings?.playerMemory || {}),
@@ -530,6 +532,10 @@ function normalizeProfile(profile) {
       ...(profile.friends || {}),
       friendDisplayName: profile.friends?.friendDisplayName || profile.player?.name || defaults.friends.friendDisplayName,
     }),
+  };
+  return {
+    ...normalized,
+    ecosystemIntegration: createEcosystemIntegrationState(normalized, profile.ecosystemIntegration || {}),
   };
 }
 

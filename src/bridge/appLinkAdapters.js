@@ -14,6 +14,13 @@ import {
   importLinkedSessionSnapshot,
   parseLinkedSessionSnapshot,
 } from "../shared-session/handoff.js";
+import {
+  ECOSYSTEM_INTEGRATION_VERSION,
+  createHubLaunchContext,
+  createHubReturnContext,
+  createPrivacySafeEcosystemBundle,
+  validateEcosystemSyncEnvelope,
+} from "../ecosystem/ecosystemIntegration.js";
 
 export const APP_LINK_ADAPTER_VERSION = "boardstate-bridge-adapters-0.1.0";
 export const LITE_HANDOFF_BUNDLE_TYPE = "boardstate-lite-session-handoff";
@@ -124,10 +131,20 @@ export function createCapabilityHandshake(appId = "unknown", profile = {}, overr
       ...base,
       appId,
       appName: "BoardState Hub",
-      supportedPayloadTypes: ["future-hub-handoff"],
-      status: "Not Linked",
+      appVersion: ECOSYSTEM_INTEGRATION_VERSION,
+      supportedPayloadTypes: ["hub-launch-context", "hub-return-context", "ecosystem-capability-manifest", "privacy-safe-ecosystem-bundle"],
+      supportedImportTypes: ["hub-launch-context"],
+      supportedExportTypes: ["hub-return-context", "privacy-safe-ecosystem-bundle", "public-session-summary"],
+      status: "Hub Not Connected",
+      supportsDeepLink: true,
+      supportsHubCoordination: true,
       supportsRulesEngine: false,
-      limitations: ["Hub coordination is planned for a later prompt."],
+      supportsSharedSessions: true,
+      limitations: [
+        "No live Hub endpoint is configured.",
+        "Hub coordinates profiles, friends, notifications, discovery, and cloud sync.",
+        "Hub is never gameplay authority.",
+      ],
       ...overrides,
     };
   }
@@ -173,16 +190,72 @@ function createHubBridgeAdapter(profile = {}) {
     getAppId: () => "boardstate-hub",
     getDisplayName: () => "BoardState Hub",
     getCapabilities: () => createCapabilityHandshake("boardstate-hub", profile),
-    getConnectionStatus: () => ({ status: "Not Linked", linked: false, detail: "Hub is not built yet." }),
-    validateIncomingPayload: () => createBridgeCompatibilityReport({ status: "unsupported-version", sourceApp: "boardstate-hub", errors: ["Hub imports are not implemented yet."] }),
-    importPayload: (targetProfile) => targetProfile,
-    exportPayload: () => ({ valid: false, errors: ["Hub export is not implemented yet."] }),
-    createHandoffBundle: () => ({ valid: false, errors: ["Hub handoff is not implemented yet."] }),
-    parseHandoffBundle: () => createBridgeCompatibilityReport({ status: "unsupported-version", sourceApp: "boardstate-hub", errors: ["Hub handoff is not implemented yet."] }),
-    getCompatibilityReport: () => createBridgeCompatibilityReport({ status: "unsupported-version", sourceApp: "boardstate-hub", errors: ["Hub is planned for a later prompt."] }),
+    getConnectionStatus: () => ({
+      status: "Hub Not Connected",
+      linked: false,
+      detail: "Hub coordination contracts are ready; no live Hub endpoint is configured.",
+    }),
+    validateIncomingPayload: (payload) => validateHubPayload(payload),
+    importPayload: (targetProfile, payload) => ({
+      ...targetProfile,
+      ecosystemIntegration: targetProfile.ecosystemIntegration || profile.ecosystemIntegration || {},
+      importedData: {
+        ...(targetProfile.importedData || {}),
+        lastError: validateHubPayload(payload).valid ? "" : validateHubPayload(payload).errors[0] || "Hub payload rejected.",
+      },
+    }),
+    exportPayload: (targetProfile, options = {}) => createPrivacySafeEcosystemBundle(targetProfile, options),
+    createHandoffBundle: (targetProfile, options = {}) => createPrivacySafeEcosystemBundle(targetProfile, options),
+    parseHandoffBundle: (payload) => validateHubPayload(payload),
+    getCompatibilityReport: (payload = {}) => validateHubPayload(payload),
+    createLaunchContext: (targetProfile = profile, options = {}) => createHubLaunchContext(targetProfile, options),
+    createReturnContext: (targetProfile = profile, options = {}) => createHubReturnContext(targetProfile, options),
     disconnect: (targetProfile) => disconnectImportedApp(targetProfile, "boardstate-hub"),
     clearImportedData: (targetProfile) => targetProfile,
   };
+}
+
+function validateHubPayload(payload = {}) {
+  try {
+    const parsed = typeof payload === "string" ? JSON.parse(payload) : clonePlain(payload || {});
+    const bundleType = parsed.bundleType || parsed.payloadType || parsed.type || "";
+    if (/sync/i.test(bundleType) || parsed.envelopeId || parsed.canonicalMessage) {
+      const validation = validateEcosystemSyncEnvelope(parsed);
+      return createBridgeCompatibilityReport({
+        status: validation.valid ? "valid" : "invalid",
+        sourceApp: "boardstate-hub",
+        payloadType: bundleType || "ecosystem-sync-envelope",
+        errors: validation.errors,
+        warnings: ["Validated as a Hub coordination envelope. Hub still cannot mutate gameplay."],
+        privateInformationExcluded: true,
+        recommendedAction: validation.valid ? "Queue for Hub when a live endpoint is configured." : "Reject Hub payload.",
+      });
+    }
+    if (!["hub-launch-context", "hub-return-context", "ecosystem-capability-manifest", "privacy-safe-ecosystem-bundle", ""].includes(bundleType)) {
+      return createBridgeCompatibilityReport({
+        status: "unsupported-version",
+        sourceApp: "boardstate-hub",
+        payloadType: bundleType,
+        errors: [`unsupported Hub payload type ${bundleType}`],
+      });
+    }
+    const privacyValidation = validateNoUnsafeBridgeData(parsed);
+    return createBridgeCompatibilityReport({
+      status: privacyValidation.valid ? "valid" : "unsafe-private-data",
+      sourceApp: "boardstate-hub",
+      payloadType: bundleType || "hub-launch-context",
+      errors: privacyValidation.errors,
+      warnings: ["Hub live connection is not installed; payload is validation-only."],
+      privateInformationExcluded: true,
+      recommendedAction: privacyValidation.valid ? "Review launch or return context locally." : "Reject unsafe Hub payload.",
+    });
+  } catch {
+    return createBridgeCompatibilityReport({
+      status: "corrupted",
+      sourceApp: "boardstate-hub",
+      errors: ["Hub payload is malformed JSON."],
+    });
+  }
 }
 
 export function validateBoardStateLiteSnapshot(input = {}) {
@@ -593,11 +666,17 @@ export function clearImportedLiteSessions(profile = {}) {
 
 export function disconnectImportedApp(profile = {}, appId = "") {
   const key = appId === "deck-nexus" ? "deckNexus" : appId === "boardstate-lite" ? "boardstateLite" : "boardstateHub";
+  const status =
+    appId === "deck-nexus"
+      ? "Snapshot Import Supported"
+      : appId === "boardstate-lite"
+        ? "Handoff Import/Export Supported"
+        : "Hub Not Connected";
   return {
     ...profile,
     settings: withLinkedAppStatus(profile.settings, key, {
       linked: false,
-      status: "Not Linked",
+      status,
       lastSyncAt: 0,
       availableCapabilities: [],
     }),

@@ -46,6 +46,8 @@ The current Prompt 2 foundation is documented in `docs/ecosystem/COMMANDER_SESSI
 
 The Prompt 4 persistence foundation is documented in `docs/ecosystem/PERSISTENCE_REPLAY_ARCHITECTURE.md` and implemented through `src/persistence/canonicalPersistence.js`, `src/storage/saveState.js`, `src/state/gameReducer.js`, and `src/multiplayer/syncManager.js`.
 
+The Prompt 12 ecosystem foundation is documented in `docs/ecosystem/ECOSYSTEM_INTEGRATION_ARCHITECTURE.md` and implemented through `src/ecosystem/ecosystemIntegration.js`, `src/bridge/appLinkAdapters.js`, `src/state/gameReducer.js`, `src/storage/saveState.js`, and `src/persistence/canonicalPersistence.js`. It prepares Hub coordination, BoardState Lite handoff, and Deck Nexus snapshot boundaries without claiming live counterpart connections or moving gameplay authority out of BoardState.
+
 ## Architecture Charter
 
 ### Rules Engine

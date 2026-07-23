@@ -135,6 +135,14 @@ import {
   createAiGameplayState,
   createAiMemoryState,
 } from "../authoritative-core/aiGameplayEngine.js";
+import {
+  acknowledgeEcosystemSync,
+  applySharedPreferencePatch,
+  createEcosystemIntegrationState,
+  createPrivacySafeEcosystemBundle,
+  queueEcosystemSync,
+  updateEcosystemPresence,
+} from "../ecosystem/ecosystemIntegration.js";
 
 export function reduceProfile(profile, event) {
   const actionType = event.actionType || event.type;
@@ -531,6 +539,50 @@ export function reduceProfile(profile, event) {
     case "AI_MEMORY_UPDATE":
       nextProfile = updateAiGameplayMemory(baseProfile, event);
       break;
+    case "ECOSYSTEM_REFRESH_STATUS":
+      nextProfile = {
+        ...baseProfile,
+        ecosystemIntegration: createEcosystemIntegrationState(baseProfile, {
+          ...(baseProfile.ecosystemIntegration || {}),
+          updatedAt: Date.now(),
+        }),
+      };
+      break;
+    case "ECOSYSTEM_QUEUE_SYNC":
+      nextProfile = queueEcosystemSync(baseProfile, event);
+      break;
+    case "ECOSYSTEM_ACK_SYNC":
+      nextProfile = acknowledgeEcosystemSync(baseProfile, event);
+      break;
+    case "ECOSYSTEM_UPDATE_PRESENCE":
+      nextProfile = updateEcosystemPresence(baseProfile, event);
+      break;
+    case "ECOSYSTEM_APPLY_SHARED_PREFERENCES":
+      nextProfile = applySharedPreferencePatch(baseProfile, event.preferences || event.patch || event.payload || {});
+      break;
+    case "ECOSYSTEM_EXPORT_BUNDLE":
+      {
+        const exported = createPrivacySafeEcosystemBundle(baseProfile);
+        nextProfile = {
+          ...baseProfile,
+          ecosystemIntegration: createEcosystemIntegrationState(baseProfile, {
+            ...(baseProfile.ecosystemIntegration || {}),
+            cloudSync: {
+              ...(baseProfile.ecosystemIntegration?.cloudSync || {}),
+              lastError: exported.valid ? "" : exported.errors?.[0] || "Ecosystem bundle export failed.",
+            },
+            lastBundleExport: exported.valid
+              ? {
+                  exportedAt: Date.now(),
+                  targetApp: "boardstate-hub",
+                  liveHubConnection: false,
+                  checksum: exported.bundle?.bundleId || "",
+                }
+              : null,
+          }),
+        };
+      }
+      break;
     case "RESET_ALL_LOCAL_DATA":
       nextProfile = resetAllLocalData(baseProfile);
       break;
@@ -799,6 +851,7 @@ export function reduceProfile(profile, event) {
   nextProfile = maybeAdvanceLocalSimulationTurn(nextProfile, baseProfile.activeSession, actionType);
   nextProfile = syncSimulationPresence(nextProfile);
   nextProfile = refreshAiGameplayForAction(nextProfile, baseProfile.activeSession, actionType, event);
+  nextProfile = refreshEcosystemIntegrationForAction(nextProfile, actionType);
   nextProfile = maybeAddTournamentNotification(nextProfile, baseProfile, actionType, event);
   return withHistory(nextProfile, finalizeAction(event, nextProfile));
 }
@@ -3415,6 +3468,38 @@ const AI_GAMEPLAY_ANALYSIS_ACTIONS = new Set([
   "CAST_COMMANDER",
 ]);
 
+const ECOSYSTEM_REFRESH_ACTIONS = new Set([
+  "ECOSYSTEM_REFRESH_STATUS",
+  "ECOSYSTEM_QUEUE_SYNC",
+  "ECOSYSTEM_ACK_SYNC",
+  "ECOSYSTEM_UPDATE_PRESENCE",
+  "ECOSYSTEM_APPLY_SHARED_PREFERENCES",
+  "ECOSYSTEM_EXPORT_BUNDLE",
+  "SET_PLAYER_NAME",
+  "SET_SETTING",
+  "NOTIFICATION_ADD",
+  "NOTIFICATION_ACK",
+  "NOTIFICATIONS_MARK_READ",
+  "IMPORT_LINKED_SESSION",
+  "IMPORT_LITE_SESSION_SNAPSHOT",
+  "EXPORT_LITE_SESSION_BUNDLE",
+  "IMPORT_DECK_NEXUS_SNAPSHOT",
+  "REMOVE_IMPORTED_DECK_SNAPSHOT",
+  "LOCAL_SAVE_CREATE",
+  "LOCAL_SAVE_IMPORT",
+  "LOCAL_SAVE_DELETE",
+  "FRIEND_ADD_BY_CODE",
+  "FRIEND_ACCEPT_REQUEST",
+  "FRIEND_RECEIVE_REQUEST",
+  "FRIEND_INVITE_GAME",
+  "FRIEND_INVITE_TOURNAMENT",
+  "FRIEND_JOIN_GAME",
+  "START_ADVANCED_GAMEPLAY",
+  "START_SIMULATION",
+  "SIMULATION_STOP",
+  "ARCHIVE_GAME",
+]);
+
 function refreshAiGameplayForAction(profile, previousSession = {}, actionType = "", event = {}) {
   if (!profile?.activeSession || !AI_GAMEPLAY_ANALYSIS_ACTIONS.has(actionType)) {
     return profile;
@@ -3426,6 +3511,16 @@ function refreshAiGameplayForAction(profile, previousSession = {}, actionType = 
     return profile;
   }
   return withSession(profile, refreshAiGameplaySession(profile.activeSession, profile, event));
+}
+
+function refreshEcosystemIntegrationForAction(profile, actionType = "") {
+  if (!profile || !ECOSYSTEM_REFRESH_ACTIONS.has(actionType)) {
+    return profile;
+  }
+  return {
+    ...profile,
+    ecosystemIntegration: createEcosystemIntegrationState(profile, profile.ecosystemIntegration || {}),
+  };
 }
 
 function refreshAiGameplaySession(session = {}, profile = {}, event = {}) {

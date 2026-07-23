@@ -1411,6 +1411,42 @@ body[data-composition="widescreen"] .battlefield-wheel-action .dock-icon {
   background: rgba(7, 12, 28, 0.44);
 }
 
+.ecosystem-integration-card {
+  border-color: rgba(241, 192, 107, 0.34);
+  background:
+    radial-gradient(circle at 8% 12%, rgba(143, 211, 255, 0.14), transparent 34%),
+    radial-gradient(circle at 92% 18%, rgba(241, 192, 107, 0.14), transparent 32%),
+    var(--panel-glass-polished);
+}
+
+.ecosystem-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.55rem;
+  margin: 0.75rem 0;
+}
+
+.ecosystem-status-grid section {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(236, 200, 122, 0.2);
+  border-radius: 16px;
+  background: rgba(5, 9, 19, 0.56);
+}
+
+.ecosystem-status-grid strong,
+.ecosystem-app-grid strong {
+  color: var(--gold-bright);
+}
+
+.ecosystem-status-grid span,
+.ecosystem-app-grid span {
+  color: rgba(247, 239, 255, 0.78);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
 .setup-field-grid {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }

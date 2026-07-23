@@ -10,6 +10,7 @@ import {
 import { ensureInterfaceModeState } from "../shared-session/handoff.js";
 import { createAdvancedMultiplayerState } from "../shared-session/perspective.js";
 import { createImportedDataSnapshotForSession } from "../bridge/appLinkAdapters.js";
+import { createEcosystemIntegrationState } from "../ecosystem/ecosystemIntegration.js";
 import {
   CANONICAL_SAVE_VERSION,
   CHECKPOINT_VERSION,
@@ -285,6 +286,7 @@ export function buildLocalSave(profile, options = {}) {
   const activeSession = ensureInterfaceModeState(clone(profile.activeSession || {}));
   const advancedMultiplayer = createAdvancedMultiplayerState(activeSession.advancedMultiplayer || {});
   const importedDataSnapshot = createImportedDataSnapshotForSession(profile, activeSession);
+  const ecosystemIntegration = createEcosystemIntegrationState({ ...profile, activeSession });
   const sharedVersions = {
     schemaVersion: SHARED_CONTRACT_SCHEMA_VERSION,
     rulesEngineVersion: DEFAULT_RULES_ENGINE_VERSION,
@@ -370,6 +372,7 @@ export function buildLocalSave(profile, options = {}) {
       remindMe: clone(activeSession.remindMe || {}),
       ruleAmendments: clone(activeSession.ruleAmendments || {}),
       aiGameplay: clone(activeSession.aiGameplay || {}),
+      ecosystemIntegration: clone(ecosystemIntegration),
       importedDataSnapshot: clone(importedDataSnapshot),
       undoStack: clone(activeSession.undoStack || []),
       redoStack: clone(activeSession.redoStack || []),
@@ -446,6 +449,20 @@ export function buildLocalSave(profile, options = {}) {
         generativeAiEnabled: false,
         mutatesGameState: false,
       },
+      ecosystemIntegration: {
+        version: ecosystemIntegration.version || "",
+        status: ecosystemIntegration.status || "integration-ready",
+        hubStatus: ecosystemIntegration.appStatuses?.["boardstate-hub"]?.status || "Hub Not Connected",
+        hubLiveConnection: false,
+        boardStateGameplayAuthority: true,
+        queuedSyncCount: ecosystemIntegration.cloudSync?.queuedCount || 0,
+        profileProjectionReady: Boolean(ecosystemIntegration.sharedProfile),
+        preferencesProjectionReady: Boolean(ecosystemIntegration.sharedPreferences),
+        notificationProjectionReady: Boolean(ecosystemIntegration.sharedNotifications),
+        sessionDiscoveryCount: (ecosystemIntegration.sessionDiscovery?.recentSessions || []).length,
+        hiddenGameplayDataSharedWithHub: false,
+        privateCredentialsExported: false,
+      },
       canonicalSave: {
         saveId: canonicalSave.saveId,
         canonicalSaveVersion: canonicalSave.canonicalSaveVersion,
@@ -496,6 +513,7 @@ function normalizeLocalSave(save = {}) {
     eventKnowledge: clone(save.metadata?.eventKnowledge || save.eventKnowledge || save.gameState?.eventKnowledge || save.gameState?.activeSession?.eventKnowledge || {}),
     persistence: clone(save.metadata?.persistence || save.persistence || save.gameState?.persistence || save.gameState?.activeSession?.persistence || {}),
     aiGameplay: clone(save.metadata?.aiGameplay || save.aiGameplay || save.gameState?.aiGameplay || save.gameState?.activeSession?.aiGameplay || {}),
+    ecosystemIntegration: clone(save.metadata?.ecosystemIntegration || save.ecosystemIntegration || save.gameState?.ecosystemIntegration || {}),
     linkedSession: clone(save.metadata?.linkedSession || save.linkedSession || save.gameState?.activeSession?.linkedSession || {}),
     revision: Number(save.metadata?.revision || save.revision || save.gameState?.activeSession?.revision || 0),
     compatibilityWarnings: clone(save.metadata?.compatibilityWarnings || []),

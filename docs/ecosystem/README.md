@@ -18,6 +18,7 @@ Prompt 1 output files:
 - `RULES_ASSISTANT_ARCHITECTURE.md`
 - `PROACTIVE_ASSISTANT_ARCHITECTURE.md`
 - `AI_GAMEPLAY_ARCHITECTURE.md`
+- `ECOSYSTEM_INTEGRATION_ARCHITECTURE.md`
 
 These files document the preparation baseline, permanent Constitution, architecture inventory, rules-engine extraction risks, shared contracts, migration plan, handoff risks, future navigation, and future test matrix.
 
@@ -40,4 +41,6 @@ The Commander session architecture document records the Prompt 2 canonical sessi
 `PROACTIVE_ASSISTANT_ARCHITECTURE.md` records the Prompt 10 Remind Me, proactive notification, confidence, missed-trigger recovery, player-memory, and unanimous Rule Amendment boundary. It does not claim strategy coaching, voice assistance, Rules Recovery imports, spectator services, or Hub integration.
 
 `AI_GAMEPLAY_ARCHITECTURE.md` records the Prompt 11 AI Gameplay Engine, Dry Run simulation analysis, explainable decision records, threat and board analysis, replay analysis, play-pattern recognition, AI memory, and local-only AI boundary. It does not claim cloud AI, external LLMs, strategic coaching, deck-building AI, tournament matchmaking, or Hub synchronization.
+
+`ECOSYSTEM_INTEGRATION_ARCHITECTURE.md` records the Prompt 12 BoardState-side ecosystem integration boundary for Hub coordination, shared profile/preferences/notifications, presence, session discovery, offline sync queueing, BoardState Lite handoff readiness, and Deck Nexus immutable snapshot readiness. It does not claim a live Hub endpoint, live Lite transition, live Deck Nexus link, marketplace, chat, advertising, or Hub gameplay authority.
 

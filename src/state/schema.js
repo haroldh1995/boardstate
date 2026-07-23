@@ -10,6 +10,7 @@ import { createLegacyMigrationState } from "../migration/legacyMigration.js";
 import { createEventKnowledgeState, EVENT_KNOWLEDGE_ENGINE_VERSION } from "../authoritative-core/eventKnowledgeEngine.js";
 import { createStateEngineMetadata, STATE_ENGINE_VERSION } from "../authoritative-core/stateEngine.js";
 import { createPersistenceState } from "../persistence/canonicalPersistence.js";
+import { createEcosystemIntegrationState } from "../ecosystem/ecosystemIntegration.js";
 
 export const PHASES = ["Beginning", "Main 1", "Combat", "Main 2", "Ending"];
 export const MANA_COLORS = ["W", "U", "B", "R", "G", "C", "Generic"];
@@ -90,6 +91,13 @@ export function createDefaultProfile() {
         showReplayAnalysis: true,
         showDecisionReasoning: true,
         trainingDataOptIn: false,
+      },
+      ecosystem: {
+        sharePresence: false,
+        shareSessionPresence: false,
+        automaticSyncWhenOnline: false,
+        cloudSyncEnabled: false,
+        hubEndpointConfigured: false,
       },
       haptics: false,
       compactTiles: true,
@@ -236,9 +244,9 @@ export function createDefaultProfile() {
         },
         boardstateHub: {
           linked: false,
-          status: "Not Linked",
+          status: "Hub Not Connected",
           lastSyncAt: 0,
-          availableCapabilities: [],
+          availableCapabilities: ["profile-projection", "preference-projection", "notification-projection", "session-discovery-projection", "offline-sync-queue"],
         },
       },
     },
@@ -299,6 +307,7 @@ export function createDefaultProfile() {
       sharedSessions: [],
       failedImports: [],
     },
+    ecosystemIntegration: createEcosystemIntegrationState({}),
     legacyMigration: createLegacyMigrationState(),
     simulationMemory: {
       patterns: {

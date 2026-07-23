@@ -92,37 +92,45 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - The battlefield now exposes a contextual AI Analysis panel for active profiles, latest decision reasoning, threat analysis, board analysis, replay turning points, play patterns, and local AI preferences.
 - AI gameplay metadata persists through profile defaults, local saves, and canonical save metadata without introducing cloud AI, external LLMs, deck-building AI, tournament matchmaking, or Hub synchronization.
 
+### Prompt 12: BoardState Ecosystem Integration, Hub Connectivity, And Cross-App Experience
+
+- `src/ecosystem/ecosystemIntegration.js` adds the BoardState-side ecosystem projection layer for Hub coordination, shared profile/preferences/notifications, presence, session discovery, offline sync queueing, launch contexts, return contexts, and privacy-safe ecosystem bundles.
+- `src/bridge/appLinkAdapters.js` exposes honest Hub capability and payload handling while preserving existing BoardState Lite handoff and Deck Nexus immutable snapshot bridges.
+- `src/state/schema.js`, `src/state/gameReducer.js`, `src/storage/saveState.js`, and `src/persistence/canonicalPersistence.js` preserve ecosystem metadata and offline queue state without exposing hidden zones, credentials, or gameplay authority to Hub.
+- The Linked Apps UI now shows Hub as `Hub Not Connected`, keeps BoardState as gameplay authority, supports local privacy-safe bundle export, and keeps live Lite/Nexus links disabled until counterpart apps implement verified live flows.
+- `docs/ecosystem/ECOSYSTEM_INTEGRATION_ARCHITECTURE.md` records the Prompt 12 boundary.
+
 ## Remaining Roadmap
 
-### Prompt 12: Full Control And Live Tracking Convergence
+### Prompt 13: Full Control And Live Tracking Convergence
 
 - Implement Full Control and Live Tracking as two input models over the same authoritative rules engine, canonical game state, event stream, save system, sync foundation, and replay/explanation foundation.
 - Live Tracking accepts physical-table-reported actions with honest unknowns and confidence indicators.
 - Full Control accepts direct digital card and zone manipulation through rules-engine legal action paths.
 - Do not create separate engines or duplicate state authorities.
 
-### Prompt 13: Timeline And Relationship Experience
+### Prompt 14: Timeline And Relationship Experience
 
 - Extend the Remind Me foundation with game history, change summaries, relationship visualization, turn timeline, and replay inspection.
 - Add live battlefield replay, relationship explanations, and phase/turn timeline inspection.
 - Reuse existing event history, replay state, effect logs, tutorial explanations, and saves.
 - Ensure replay always returns safely to the current synchronized state.
 
-### Prompt 14: Rules Recovery And Rule Amendments Expansion
+### Prompt 15: Rules Recovery And Rule Amendments Expansion
 
 - Add Rules Recovery for official rules text, Gatherer rulings, release notes, Oracle text, Scryfall Oracle/rulings, trusted judge references, and table interpretations.
 - Preserve imported source text as non-executable plain text and map it only through constrained approved rule operations.
 - Extend the Prompt 10 confidence and unanimous-amendment foundations into the full Rules Recovery interface.
 - Record every recovery proposal, vote, rejection, revision, accepted amendment, and recovery action in immutable event history.
 
-### Prompt 15: Hub, Lite And Deck Nexus Interoperability
+### Prompt 16: Live Hub, Lite And Deck Nexus Counterpart Verification
 
-- Harden BoardState boundaries for future Hub coordination of profiles, friends, invitations, tournaments, notifications, app links, backups, shared local vaults, active session discovery, spectators, and ecosystem navigation.
+- Connect the Prompt 12 BoardState-side ecosystem contracts only after Hub, BoardState Lite, and Deck Nexus counterpart apps provide verified production endpoints or handoff workflows.
 - Keep BoardState authoritative for rules, sessions, priority, stack, triggers, replacement effects, continuous effects, layers, legality, combat, state-based actions, Full Control, Live Tracking authority, Dry Runs, simulations, tutorials, replay truth, and game-history causation.
-- Finalize import/export manifests, capability negotiation, launch/return contexts, roles, permissions, offline capability reporting, backup manifests, and compatibility reports.
+- Finalize authenticated cloud sync, profile sync, notification delivery, app launch/return routing, shared backup discovery, spectator discovery, and cross-device continuation.
 - Do not claim live Hub, BoardState Lite, or Deck Nexus integration until those applications implement and verify their counterpart workflows.
 
-### Prompt 16: Performance And Accessibility
+### Prompt 17: Performance And Accessibility
 
 - Audit large Commander board states, ten-player session metadata, opponent carousel projection, event history growth, replay memory, reduced-motion behavior, keyboard/screen-reader access, and mobile landscape constraints.
 - Preserve deterministic rules performance and avoid rendering all opponent battlefields simultaneously.

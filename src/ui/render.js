@@ -42,6 +42,10 @@ import {
   validateDeckNexusSnapshotPayload,
 } from "../bridge/appLinkAdapters.js";
 import {
+  createEcosystemIntegrationState,
+  createPrivacySafeEcosystemBundle,
+} from "../ecosystem/ecosystemIntegration.js";
+import {
   buildBugReport,
   buildDebugState,
   buildGameLog,
@@ -1406,6 +1410,36 @@ export function mountApp(root, store) {
           "boardstate-lite-session-handoff.json",
           exported.text,
           button.dataset.exportLiteSession === "download" ? "Lite handoff bundle prepared." : "Lite handoff data copied."
+        );
+      })
+    );
+    container.querySelectorAll("[data-ecosystem-refresh]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "ECOSYSTEM_REFRESH_STATUS" });
+        showNotice("Ecosystem status refreshed. Hub remains not connected until a real Hub endpoint is installed.", "info");
+      })
+    );
+    container.querySelectorAll("[data-ecosystem-queue-sync]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const domain = button.dataset.ecosystemQueueSync || "gameplay-summary";
+        store.dispatch({ type: "ECOSYSTEM_QUEUE_SYNC", domain });
+        showNotice(`${domain.replace(/-/g, " ")} queued for future Hub synchronization.`, "info");
+      })
+    );
+    container.querySelectorAll("[data-ecosystem-export-bundle]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const exported = createPrivacySafeEcosystemBundle(store.getState());
+        if (!exported.valid) {
+          showNotice(exported.errors?.[0] || "Ecosystem bundle failed privacy validation.", "warning");
+          return;
+        }
+        store.dispatch({ type: "ECOSYSTEM_EXPORT_BUNDLE" });
+        await copyOrDownloadText(
+          "boardstate-ecosystem-bundle.json",
+          exported.text,
+          button.dataset.ecosystemExportBundle === "download"
+            ? "Privacy-safe ecosystem bundle prepared."
+            : "Privacy-safe ecosystem bundle copied."
         );
       })
     );
@@ -9713,9 +9747,12 @@ function renderLinkedAppsOptionsSubpage(profile, pendingHandoff = null) {
   const adapters = getAppLinkAdapters(profile);
   const liteCapabilities = adapters["boardstate-lite"].getCapabilities();
   const nexusCapabilities = adapters["deck-nexus"].getCapabilities();
+  const hubCapabilities = adapters["boardstate-hub"].getCapabilities();
+  const ecosystem = createEcosystemIntegrationState(profile);
   return `
     <div class="options-subpage">
       ${pendingHandoff ? renderPendingAppLinkHandoff(pendingHandoff) : ""}
+      ${renderEcosystemIntegrationOverview(ecosystem, linkedApps, hubCapabilities)}
       <article class="option-card">
         <h3>Continue Linked Game</h3>
         ${linked ? `<p>${escapeHtml(linked.sourceApp || "External")} session ${escapeHtml(linked.sessionId || "local")} - Turn ${escapeHtml(linked.turn || 1)} - ${escapeHtml(linked.phase || "Beginning")} - ${escapeHtml(linked.compatibility || "valid")}</p>` : `<p>No linked game exists yet. BoardState Lite handoff will be enabled in its own update. You can import a canonical shared-session bundle now, or export the current Advanced session for future Simple Mode consumers.</p>`}
@@ -9747,7 +9784,7 @@ function renderLinkedAppsOptionsSubpage(profile, pendingHandoff = null) {
           <label class="file-pill">Upload Lite Snapshot<input type="file" accept="application/json" data-lite-session-file /></label>
           <button data-export-lite-session="copy">Copy Lite Handoff JSON</button>
           <button data-export-lite-session="download">Download Lite Handoff Bundle</button>
-          <button disabled>Return to Simple Mode Coming After Lite Update</button>
+          <button disabled>Return to Lite Waiting for Lite Update</button>
         </div>
       </article>
       <article class="option-card linked-app-card">
@@ -9760,11 +9797,77 @@ function renderLinkedAppsOptionsSubpage(profile, pendingHandoff = null) {
           <button data-import-deck-snapshot>Import Deck Snapshot</button>
           <label class="file-pill">Upload Deck Snapshot<input type="file" accept="application/json" data-deck-snapshot-file /></label>
           <button data-open-simulation-setup>Use Snapshot in Dry Run</button>
-          <button disabled>Live Link Coming After Nexus Update</button>
+          <button disabled>Deck Nexus Live Link Not Installed</button>
         </div>
       </article>
       ${renderImportedDataManagement(importedData)}
     </div>
+  `;
+}
+
+function renderEcosystemIntegrationOverview(ecosystem = {}, linkedApps = [], hubCapabilities = {}) {
+  const appStatuses = ecosystem.appStatuses || {};
+  const statusRows = [
+    appStatuses.boardstate,
+    appStatuses["boardstate-hub"],
+    appStatuses["boardstate-lite"],
+    appStatuses["deck-nexus"],
+  ].filter(Boolean);
+  const queuedCount = ecosystem.cloudSync?.queuedCount || 0;
+  const pendingDomains = ecosystem.cloudSync?.pendingDomains?.length
+    ? ecosystem.cloudSync.pendingDomains.join(", ")
+    : "None";
+  const discoveryCount = ecosystem.sessionDiscovery?.recentSessions?.length || 0;
+  const hubStatus = linkedApps.find((entry) => entry.appId === "boardstate-hub")?.status || "Hub Not Connected";
+  const hubLimitations = hubCapabilities.limitations?.length
+    ? hubCapabilities.limitations.join(" ")
+    : "Hub contracts are available locally. No live Hub endpoint is configured.";
+  return `
+    <article class="option-card ecosystem-integration-card">
+      <div class="overlay-header compact">
+        <div>
+          <h3>BoardState Ecosystem</h3>
+          <small>One canonical Commander session. BoardState remains gameplay authority.</small>
+        </div>
+        <span class="option-status-badge">${escapeHtml(hubStatus)}</span>
+      </div>
+      <div class="ecosystem-status-grid">
+        <section>
+          <strong>Authority</strong>
+          <span>${ecosystem.security?.boardStateRemainsGameplayAuthority ? "BoardState governs gameplay" : "Authority unavailable"}</span>
+        </section>
+        <section>
+          <strong>Hub</strong>
+          <span>${escapeHtml(appStatuses["boardstate-hub"]?.status || "Hub Not Connected")}</span>
+        </section>
+        <section>
+          <strong>Cloud Queue</strong>
+          <span>${queuedCount} queued / ${escapeHtml(pendingDomains)}</span>
+        </section>
+        <section>
+          <strong>Discovery</strong>
+          <span>${discoveryCount} privacy-safe session summaries</span>
+        </section>
+      </div>
+      <div class="linked-app-mini-grid ecosystem-app-grid">
+        ${statusRows.map((app) => `
+          <section>
+            <strong>${escapeHtml(app.appName || app.name || app.appId)}</strong>
+            <span>${escapeHtml(app.status || "Unavailable")}</span>
+          </section>
+        `).join("")}
+      </div>
+      <p>${escapeHtml(hubLimitations)}</p>
+      <p>Shared profile, preferences, notifications, presence, session discovery, Lite handoff, and Deck Nexus snapshot boundaries are versioned and privacy-safe. Hidden gameplay data and credentials are not exported to Hub summaries.</p>
+      <div class="button-grid">
+        <button data-ecosystem-refresh>Refresh Ecosystem Status</button>
+        <button data-ecosystem-queue-sync="profile">Queue Profile Sync</button>
+        <button data-ecosystem-queue-sync="preferences">Queue Preferences Sync</button>
+        <button data-ecosystem-queue-sync="notifications">Queue Notifications Sync</button>
+        <button data-ecosystem-export-bundle="copy">Copy Privacy-Safe Hub Bundle</button>
+        <button data-ecosystem-export-bundle="download">Download Ecosystem Bundle</button>
+      </div>
+    </article>
   `;
 }
 
@@ -11708,6 +11811,8 @@ function getLinkedSessionCandidate(profile = {}) {
 
 export function getLinkedAppStatusCards(profile = {}) {
   const adapters = getAppLinkAdapters(profile);
+  const ecosystem = createEcosystemIntegrationState(profile);
+  const appStatuses = ecosystem.appStatuses || {};
   const liteStatus = adapters["boardstate-lite"].getConnectionStatus();
   const nexusStatus = adapters["deck-nexus"].getConnectionStatus();
   const hubStatus = adapters["boardstate-hub"].getConnectionStatus();
@@ -11739,9 +11844,12 @@ export function getLinkedAppStatusCards(profile = {}) {
     {
       appId: "boardstate-hub",
       title: "BoardState Hub",
-      status: hubStatus.status,
-      detail: hubStatus.detail,
-      capabilities: hubCapabilities.limitations,
+      status: appStatuses["boardstate-hub"]?.status || hubStatus.status,
+      detail: appStatuses["boardstate-hub"]?.detail || hubStatus.detail,
+      capabilities: [
+        ...(hubCapabilities.limitations || []),
+        ...(ecosystem.capabilityManifest?.supportedFeatures?.hubCoordination ? ["hub-coordination-contracts"] : []),
+      ],
     },
   ];
 }

@@ -13,6 +13,7 @@ import {
   reconstructStateAfterEvent,
 } from "../authoritative-core/eventKnowledgeEngine.js";
 import { createStateEngineSnapshot, STATE_ENGINE_VERSION } from "../authoritative-core/stateEngine.js";
+import { createEcosystemIntegrationState } from "../ecosystem/ecosystemIntegration.js";
 
 export const CANONICAL_PERSISTENCE_VERSION = "boardstate-persistence-0.1.0";
 export const CANONICAL_SAVE_VERSION = "boardstate-canonical-save-0.1.0";
@@ -223,6 +224,7 @@ export function createCanonicalSave(input = {}, options = {}) {
     : createCheckpoint(session, { reason: "beginning-of-game", timing: "initial", eventId: eventKnowledge.lastEventId || "" });
   const checkpoints = initialCheckpoint ? [initialCheckpoint] : persistence.checkpoints;
   const saveId = normalizeContractId(options.saveId || input.saveId || createContractId("saveId"), "saveId");
+  const ecosystemIntegration = createEcosystemIntegrationState(profile.activeSession ? profile : { activeSession: session });
   const canonical = {
     saveId,
     canonicalSaveVersion: CANONICAL_SAVE_VERSION,
@@ -285,6 +287,21 @@ export function createCanonicalSave(input = {}, options = {}) {
       mutatesGameState: false,
       externalAiServicesEnabled: false,
       generativeAiEnabled: false,
+    },
+    ecosystemIntegration: clone(ecosystemIntegration),
+    ecosystemSyncMetadata: {
+      version: ecosystemIntegration.version || "",
+      hubStatus: ecosystemIntegration.appStatuses?.["boardstate-hub"]?.status || "Hub Not Connected",
+      hubLiveConnection: false,
+      boardStateGameplayAuthority: true,
+      queuedSyncCount: ecosystemIntegration.cloudSync?.queuedCount || 0,
+      pendingSyncDomains: clone(ecosystemIntegration.cloudSync?.pendingDomains || []),
+      profileProjectionReady: Boolean(ecosystemIntegration.sharedProfile),
+      preferenceProjectionReady: Boolean(ecosystemIntegration.sharedPreferences),
+      notificationProjectionReady: Boolean(ecosystemIntegration.sharedNotifications),
+      sessionDiscoveryCount: (ecosystemIntegration.sessionDiscovery?.recentSessions || []).length,
+      hiddenGameplayDataSharedWithHub: false,
+      privateCredentialsExported: false,
     },
     synchronizationMetadata: {
       syncProtocolVersion: session.syncProtocolVersion || SHARED_SYNC_PROTOCOL_VERSION,
@@ -822,6 +839,7 @@ function sanitizeCheckpointSnapshot(snapshotInput = {}) {
   delete snapshot.eventQueue;
   delete snapshot.runtime;
   delete snapshot.aiGameplay;
+  delete snapshot.ecosystemIntegration;
   if (snapshot.advancedMultiplayer) {
     snapshot.advancedMultiplayer = {
       ...snapshot.advancedMultiplayer,

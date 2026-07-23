@@ -75,6 +75,7 @@ test("app-link adapters report honest BoardState-side capabilities", () => {
   const adapters = getAppLinkAdapters(profile);
   const lite = adapters["boardstate-lite"].getCapabilities();
   const nexus = adapters["deck-nexus"].getCapabilities();
+  const hub = adapters["boardstate-hub"].getCapabilities();
 
   assert.equal(lite.supportsSharedSessions, true);
   assert.equal(lite.supportsLiveSync, false);
@@ -83,10 +84,44 @@ test("app-link adapters report honest BoardState-side capabilities", () => {
   assert.equal(nexus.supportsDeckSnapshots, true);
   assert.equal(nexus.supportsLiveSync, false);
   assert.equal(nexus.status, "Snapshot Import Supported");
+  assert.equal(hub.supportsHubCoordination, true);
+  assert.equal(hub.supportsLiveSync, false);
+  assert.equal(hub.supportsRulesEngine, false);
+  assert.equal(hub.status, "Hub Not Connected");
 
   const cards = getLinkedAppStatusCards(profile);
   assert.equal(cards.find((entry) => entry.appId === "boardstate-lite").status.includes("Linked"), false);
   assert.equal(cards.find((entry) => entry.appId === "deck-nexus").status.includes("Linked"), false);
+  assert.equal(cards.find((entry) => entry.appId === "boardstate-hub").status, "Hub Not Connected");
+});
+
+test("Hub adapter exports only privacy-safe ecosystem bundles and contexts", () => {
+  const profile = {
+    ...createDefaultProfile(),
+    localAuth: { privateToken: "unsafe-should-not-export" },
+    activeSession: {
+      ...createDefaultProfile().activeSession,
+      zones: {
+        hand: [{ name: "Hidden Card" }],
+        library: [{ name: "Hidden Library Card" }],
+      },
+    },
+  };
+  const hub = getAppLinkAdapters(profile)["boardstate-hub"];
+  const exported = hub.exportPayload(profile);
+  assert.equal(exported.valid, true);
+  assert.equal(exported.bundle.sections.hub.data.appStatus.status, "Hub Not Connected");
+  assert.equal(exported.bundle.sections.metadata.data.hiddenGameplayDataIncluded, false);
+  assert.equal(JSON.stringify(exported.bundle).includes("unsafe-should-not-export"), false);
+  assert.equal(JSON.stringify(exported.bundle).includes("Hidden Card"), false);
+
+  const launch = hub.createLaunchContext(profile);
+  assert.equal(launch.validation.valid, true);
+  assert.equal(launch.context.sourceApplication, "boardstate-hub");
+
+  const returned = hub.createReturnContext(profile);
+  assert.equal(returned.destinationApplication, "boardstate-hub");
+  assert.equal(returned.safeSummary.hiddenGameplayDataIncluded, false);
 });
 
 test("BoardState Lite snapshots validate, import, and export as future handoff bundles", () => {
