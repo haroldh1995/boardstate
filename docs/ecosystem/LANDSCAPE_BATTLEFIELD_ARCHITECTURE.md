@@ -163,6 +163,19 @@ Prompt 11 adds the first production AI Gameplay Analysis surface without changin
 
 The AI layer does not mutate game state, waive rules, bypass the rules engine, expose unauthorized hidden zones, use cloud AI, call external LLMs, recommend decks, claim tournament matchmaking, or claim Hub services.
 
+## Prompt 12.3 Command HUD
+
+Prompt 12.3 replaces the former battlefield bottom toolbar and floating assistant launchers with one integrated Command HUD:
+
+- `src/ui/render.js` exposes `COMMAND_HUD_VERSION` as `boardstate-command-hud-0.1.0`.
+- `renderCommandHud()` renders the bottom command surface as BoardState Command Cards for Tools, Utility, Search, Combat, Next Phase, Resolve, selected-card Context, Commander, Ask Why, Remind, and Undo.
+- `renderUtilityDock()` no longer renders the old utility menu. Utilities now open through the Command HUD into contextual overlays while keeping the battlefield visible.
+- `renderUtilityPanel()` includes a `utilities` command overlay for Dice, Tokens, Mana, Display, Calculator, Notes, Phase, History, and AI Analysis.
+- Rules Assistant, Remind Me, and AI Analysis remain available through existing panels and existing authoritative engines, but their old floating launcher buttons are no longer part of the battlefield runtime.
+- `src/styles.css` presents the HUD as a restrained bottom-edge fan of card-inspired BoardState controls with cosmic glass, gold accents, keyboard focus states, reduced-motion safety, compact landscape behavior, and no Arena artwork or protected interface assets.
+
+The Command HUD is presentation and action entry only. It does not create a second action system, second rules authority, second state owner, alternate save format, fake digital hand, or Hub/Lite/Nexus dependency.
+
 ## Deferred Work
 
 The battlefield, gameplay-flow, motion, Rules Assistant, proactive assistant, and AI analysis prompts do not implement particle effects, spectator mode, visual replay UI, sound, haptics, cloud AI, strategic coaching, external judge search, or full Rules Recovery imports. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.

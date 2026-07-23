@@ -84,3 +84,39 @@ test("runtime no longer contains portrait wallpaper selection or mobile navigati
   assert.match(render, /boardstate-native-game-visual-foundation-0\.1\.0/);
   assert.equal(render.includes("dataset.gameplayComposition = CANONICAL_GAMEPLAY_COMPOSITION"), true);
 });
+
+test("battlefield runtime uses the Command HUD instead of the former bottom toolbar", () => {
+  const render = readRepositoryFile("src/ui/render.js");
+  const styles = readRepositoryFile("src/styles.css");
+  const visualDoc = readRepositoryFile("docs/ecosystem/NATIVE_GAME_VISUAL_ARCHITECTURE.md");
+  const battlefieldDoc = readRepositoryFile("docs/ecosystem/LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md");
+
+  assert.match(render, /COMMAND_HUD_VERSION = "boardstate-command-hud-0\.1\.0"/);
+  assert.match(render, /function renderCommandHud/);
+  assert.match(render, /data-command-hud-version/);
+  assert.match(render, /document\.body\.dataset\.commandHudVersion = COMMAND_HUD_VERSION/);
+  assert.match(render, /data-next-phase/);
+  assert.match(render, /data-open-utility="rules-assistant"/);
+  assert.match(render, /data-open-utility="remind-me"/);
+  assert.match(render, /data-open-tool-panel="commander"/);
+  assert.equal(render.includes("renderMobileBattlefieldDock"), false);
+  assert.equal(render.includes("battlefield-mobile-dock"), false);
+  assert.equal(render.includes("battlefield-wheel"), false);
+  assert.equal(render.includes("battlefield-command-console"), false);
+  assert.equal(render.includes("data-dashboard-action"), false);
+  assert.equal(render.includes("rules-assistant-launcher"), false);
+  assert.equal(render.includes("proactive-assistant-launcher"), false);
+  assert.equal(render.includes("ai-gameplay-launcher"), false);
+  assert.equal(styles.includes("battlefield-mobile-dock"), false);
+  assert.equal(styles.includes("battlefield-wheel"), false);
+  assert.equal(styles.includes("battlefield-command-console"), false);
+  assert.equal(styles.includes("utility-dock-menu"), false);
+
+  assert.match(styles, /\.command-hud\b/);
+  assert.match(styles, /\.command-hud-card\b/);
+  assert.match(styles, /\.command-hud-card--commander\b/);
+  assert.match(styles, /clip-path: polygon/);
+  assert.match(styles, /prefers-reduced-motion: reduce/);
+  assert.match(visualDoc, /Command HUD Standard/);
+  assert.match(battlefieldDoc, /Prompt 12\.3 Command HUD/);
+});

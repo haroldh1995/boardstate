@@ -242,8 +242,8 @@ function redactSecrets(key, value) {
 function getAppVersion() {
   return {
     name: "BoardState",
-    version: "1.33.0",
-    build: "native-game-landscape-foundation",
+    version: "1.34.0",
+    build: "command-hud-release",
   };
 }
 

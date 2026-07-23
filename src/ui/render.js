@@ -90,6 +90,7 @@ import {
 } from "../migration/legacyMigration.js";
 
 const NATIVE_GAME_VISUAL_FOUNDATION_VERSION = "boardstate-native-game-visual-foundation-0.1.0";
+const COMMAND_HUD_VERSION = "boardstate-command-hud-0.1.0";
 const CANONICAL_GAMEPLAY_COMPOSITION = "landscape";
 const RUNTIME_LAYOUT_COMPOSITION = "widescreen";
 const LONG_PRESS_DELAY_MS = 420;
@@ -106,7 +107,6 @@ const TEMPORARY_SCROLL_SELECTORS = [
   ".floating-tool-panel",
   ".floating-mana",
   ".radial-menu",
-  ".utility-dock-menu",
   ".simulation-setup",
   ".simulation-stats-overlay",
   ".synced-turn-order-modal",
@@ -138,7 +138,6 @@ const BACKGROUND_SCROLL_LOCK_SELECTORS = [
   ".floating-tool-panel",
   ".floating-mana:not(.pinned)",
   ".radial-menu",
-  ".utility-dock-menu",
   ".simulation-setup",
   ".simulation-stats-overlay",
   ".synced-turn-order-modal",
@@ -464,6 +463,7 @@ export function mountApp(root, store) {
     document.body.dataset.compositionPreference = CANONICAL_GAMEPLAY_COMPOSITION;
     document.body.dataset.gameplayComposition = CANONICAL_GAMEPLAY_COMPOSITION;
     document.body.dataset.visualFoundation = NATIVE_GAME_VISUAL_FOUNDATION_VERSION;
+    document.body.dataset.commandHudVersion = COMMAND_HUD_VERSION;
     document.body.dataset.page = activePage;
     document.body.dataset.uiLayer = uiLayerState.current;
     document.body.dataset.simulationActive = profile.activeSession?.simulation?.enabled ? "true" : "false";
@@ -2159,8 +2159,12 @@ export function mountApp(root, store) {
     container.querySelector("[data-commander-damage-reset]")?.addEventListener("click", () =>
       dispatchWithFeedback({ type: "SET_COMMANDER_DAMAGE", opponentId: "opponent", value: 0 }, true)
     );
-    container.querySelector("[data-undo]")?.addEventListener("click", () => store.dispatch({ type: "UNDO" }));
-    container.querySelector("[data-redo]")?.addEventListener("click", () => store.dispatch({ type: "REDO" }));
+    container.querySelectorAll("[data-undo]").forEach((button) =>
+      button.addEventListener("click", () => store.dispatch({ type: "UNDO" }))
+    );
+    container.querySelectorAll("[data-redo]").forEach((button) =>
+      button.addEventListener("click", () => store.dispatch({ type: "REDO" }))
+    );
     container.querySelectorAll("[data-next-phase]").forEach((button) => {
       if (phaseAdvancePending) {
         button.disabled = true;
@@ -2170,20 +2174,6 @@ export function mountApp(root, store) {
       button.addEventListener("click", () => {
         advancePhaseFromUi();
       });
-    });
-    container.querySelector(".battlefield-mobile-dock")?.addEventListener("click", (event) => {
-      if (event.target.closest("button")) {
-        return;
-      }
-      const centerButton = container.querySelector(".battlefield-wheel-center[data-next-phase]");
-      const bounds = centerButton?.getBoundingClientRect();
-      if (!bounds) {
-        return;
-      }
-      if (event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom) {
-        event.preventDefault();
-        advancePhaseFromUi();
-      }
     });
     container.querySelector("[data-archive-game]")?.addEventListener("click", () => store.dispatch({ type: "ARCHIVE_GAME", result: "completed" }));
     container.querySelector("[data-cast-commander]")?.addEventListener("click", () => store.dispatch({ type: "CAST_COMMANDER" }));
@@ -2280,7 +2270,7 @@ export function mountApp(root, store) {
     container.querySelectorAll("[data-declare-attackers]").forEach((button) => {
       button.addEventListener("click", () => {
         const selectedIds = profile.activeSession.selectedIds || [];
-        if (button.dataset.dashboardAction === "attackers" && !selectedIds.length) {
+        if (button.dataset.commandAction === "attackers" && !selectedIds.length) {
           showNotice("Select one or more attacking creatures, then tap Attackers.", "info");
           return;
         }
@@ -2341,7 +2331,7 @@ export function mountApp(root, store) {
         const queued = session.triggerQueue || [];
         const pending = session.pendingEffects || [];
         const hasCombatToResolve = Boolean((session.combat?.attackerIds || []).length || session.combat?.damagePreview);
-        if (button.dataset.dashboardAction === "resolve") {
+        if (button.dataset.commandAction === "resolve") {
           if (spellStack.length) {
             store.dispatch({ type: "RESOLVE_TOP_SPELL", stackId: spellStack[0].id });
             showNotice("Resolving the top spell on the stack.", "info");
@@ -2937,12 +2927,6 @@ export function mountApp(root, store) {
       })
     );
 
-    container.querySelector("[data-toggle-utility-dock]")?.addEventListener("click", () => {
-      const nextOpen = !utilityDockOpen;
-      closeAllTemporaryUi({ renderAfter: false });
-      utilityDockOpen = nextOpen;
-      render(store.getState());
-    });
     container.querySelectorAll("[data-open-utility]").forEach((button) => {
       button.addEventListener("click", () => {
         closeAllTemporaryUi({ renderAfter: false });
@@ -3453,7 +3437,6 @@ export function mountApp(root, store) {
       ),
       renderedLayer(castActionPopup, "cast-popup", [".cast-action-popup"]),
       renderedLayer(activeUtilityPanel, "utility-panel", [".utility-overlay"]),
-      renderedLayer(utilityDockOpen, "utility-menu", [".utility-dock-menu"]),
       renderedLayer(toolMenuOpen, "radial-menu", [".radial-menu"]),
     ];
     const topLayer = layers.find(Boolean);
@@ -3520,9 +3503,6 @@ export function mountApp(root, store) {
       case "utility-panel":
         dismissSearchInputFocus();
         activeUtilityPanel = "";
-        return true;
-      case "utility-menu":
-        utilityDockOpen = false;
         return true;
       case "radial-menu":
         toolMenuOpen = false;
@@ -5222,7 +5202,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       </header>
       ${page === "home" ? renderBoardStateHome(profile) : ""}
       ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier, uiState) : ""}
-      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", isMobilePortrait: Boolean(uiState.isMobilePortrait), manualChoicePanelCollapsed: Boolean(uiState.manualChoicePanelCollapsed), utilityDockOpen: Boolean(uiState.utilityDockOpen), castActionPopup: uiState.castActionPopup }) : ""}
+      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", isMobilePortrait: Boolean(uiState.isMobilePortrait), manualChoicePanelCollapsed: Boolean(uiState.manualChoicePanelCollapsed), utilityDockOpen: Boolean(uiState.utilityDockOpen), castActionPopup: uiState.castActionPopup, toolMenuOpen: Boolean(uiState.toolMenuOpen), activeToolPanel: uiState.activeToolPanel || "" }) : ""}
       ${page === "tournament" ? renderTournamentPage(profile) : ""}
       ${page === "profile" ? renderProfile(profile) : ""}
       ${page === "archive" ? renderArchive(profile) : ""}
@@ -5975,11 +5955,15 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
         })}
       </section>
       ${renderGameplayContextDock(landscapeModel.gameplayFlow, session)}
-      ${renderProactiveAssistantStrip(landscapeModel.proactiveAssistant, activeUtilityPanel)}
-      ${renderRulesAssistantLauncher(landscapeModel.rulesAssistant, activeUtilityPanel)}
-      ${renderAiGameplayLauncher(landscapeModel.aiGameplay, activeUtilityPanel)}
     </section>
-    ${renderMobileBattlefieldDock(profile, activeUtilityPanel, uiState.utilityDockOpen, Boolean(panels.boardCombat), Boolean(combatResolving), isMobilePortrait)}
+    ${renderCommandHud(profile, {
+      activeUtilityPanel,
+      utilityDockOpen: Boolean(uiState.utilityDockOpen),
+      toolMenuOpen: Boolean(uiState.toolMenuOpen),
+      activeToolPanel: uiState.activeToolPanel || "",
+      includeCombat: Boolean(panels.boardCombat),
+      combatResolving: Boolean(combatResolving),
+    })}
     ${panels.advancedRulesHelpers || (session.pendingEffects || []).some((entry) => !["resolved", "skipped", "ignored"].includes(entry.status)) ? renderPending(session, Boolean(uiState.manualChoicePanelCollapsed), perspective) : ""}
     ${session.tutorial?.active ? renderTutorialSamplePanel(session) : ""}
     ${activeUtilityPanel === "history" ? renderActionTimeline(profile) : ""}
@@ -6837,44 +6821,6 @@ function renderGameplayContextDock(flow = {}, session = {}) {
   `;
 }
 
-function renderRulesAssistantLauncher(model = {}, activeUtilityPanel = "") {
-  const stackCount = Number(model.context?.stackCount || 0);
-  const triggerCount = Number(model.context?.triggerCount || 0);
-  const eventCount = Number(model.context?.eventCount || 0);
-  const label = model.context?.selectedPermanentName
-    ? `Ask about ${model.context.selectedPermanentName}`
-    : "Ask the rules assistant";
-  const badges = [
-    stackCount ? `${stackCount} stack` : "",
-    triggerCount ? `${triggerCount} trigger${triggerCount === 1 ? "" : "s"}` : "",
-    eventCount ? `${eventCount} event${eventCount === 1 ? "" : "s"}` : "",
-  ].filter(Boolean);
-  return `
-    <button class="rules-assistant-launcher ${activeUtilityPanel === "rules-assistant" ? "active" : ""}" data-open-utility="rules-assistant" aria-label="${escapeAttribute(label)}" data-rules-assistant-version="${escapeAttribute(model.version || RULES_ASSISTANT_VERSION)}" data-motion-role="rules-assistant">
-      <span aria-hidden="true">?</span>
-      <strong>Ask Why</strong>
-      ${badges.length ? `<small>${escapeHtml(badges.slice(0, 2).join(" / "))}</small>` : ""}
-    </button>
-  `;
-}
-
-function renderAiGameplayLauncher(model = {}, activeUtilityPanel = "") {
-  const activeProfileCount = Number((model.activeProfiles || []).length);
-  const topThreat = model.threatAnalysis?.mostThreateningPlayer?.displayName || model.threatAnalysis?.mostThreateningPlayer?.playerId || "";
-  const label = model.dryRun?.active
-    ? `${activeProfileCount || model.dryRun?.opponentCount || 0} AI profile${activeProfileCount === 1 ? "" : "s"} analyzing`
-    : topThreat
-      ? `Top public threat: ${topThreat}`
-      : "AI analysis ready";
-  return `
-    <button class="ai-gameplay-launcher ${activeUtilityPanel === "ai-analysis" ? "active" : ""}" data-open-utility="ai-analysis" aria-label="${escapeAttribute(label)}" data-ai-gameplay-version="${escapeAttribute(model.version || AI_GAMEPLAY_ENGINE_VERSION)}">
-      <span aria-hidden="true">AI</span>
-      <strong>AI Analysis</strong>
-      <small>${escapeHtml(label)}</small>
-    </button>
-  `;
-}
-
 function renderGameplayActionSet(label, actions = [], options = {}) {
   const usableActions = (actions || []).filter((action) => action?.id);
   if (!usableActions.length) {
@@ -7378,91 +7324,244 @@ function renderUtilityDock(
   castActionPopup = null,
   rulesAssistantUi = {}
 ) {
-  if (!open && !activeUtilityPanel) {
+  if (!activeUtilityPanel) {
     return "";
   }
-  const manaTotal = Object.values(profile.activeSession.manaPool || {}).reduce((sum, value) => sum + Number(value || 0), 0);
   return `
-    <section class="utility-dock ${open ? "open" : ""}">
-      ${open ? `
-        <div class="utility-dock-menu glass">
-          <button data-open-utility="dice">Dice</button>
-          <button data-open-utility="tokens">Token Gen</button>
-          <button data-open-utility="mana">Mana ${manaTotal ? `(${manaTotal})` : ""}</button>
-          <button data-open-utility="display">Display</button>
-          <button data-open-utility="search">Search/Add</button>
-          <button data-open-utility="stack">Stack/Priority</button>
-          <button data-open-utility="calculator">Calculator</button>
-          <button data-open-utility="notes">Notes</button>
-          <button data-open-utility="phase">Phase</button>
-          <button data-open-utility="triggers">Queue</button>
-          <button data-open-utility="history">History</button>
-          <button data-open-utility="rules-assistant">Ask Why</button>
-          <button data-open-utility="remind-me">Remind Me</button>
-          <button data-open-utility="ai-analysis">AI Analysis</button>
-          <button data-open-utility="rules">Rules</button>
-        </div>
-      ` : ""}
+    <section class="utility-dock command-hud-overlay-host ${open ? "open" : ""}">
       ${renderUtilityPanel(profile, activeUtilityPanel, isMobilePortrait, searchResults, searchMessage, searchLoading, searchQuery, castActionPopup, rulesAssistantUi)}
     </section>
   `;
 }
 
-function renderMobileBattlefieldDock(profile, activeUtilityPanel = "", utilityDockOpen = false, includeCombat = true, combatResolving = false, isMobilePortrait = true) {
+function resolveCommandHudCommanderSummary(session = {}) {
+  const commanderSession = session.commanderSession || {};
+  const commanderSources = Array.isArray(commanderSession.commanderSources)
+    ? commanderSession.commanderSources
+    : [];
+  const fallbackCommander = session.commander?.name
+    ? [{
+        commanderId: session.commander.cardId || session.commander.id || "primary-commander",
+        name: session.commander.name,
+        zone: session.commander.zone,
+        commanderTax: session.commander.commanderTax,
+        castCount: session.commander.castCount,
+        damageByOpponent: session.commander.damageByOpponent || {},
+      }]
+    : [];
+  const sources = commanderSources.length ? commanderSources : fallbackCommander;
+  const commanders = sources.map((source) => {
+    const commanderId = source.commanderId || source.id || source.cardId || source.name || "commander";
+    const damageByOpponent =
+      source.damageByOpponent ||
+      commanderSession.commanderDamageByRecipient?.[commanderId] ||
+      session.commander?.damageByOpponent ||
+      {};
+    const damageTotal = Object.values(damageByOpponent).reduce((sum, value) => sum + Number(value || 0), 0);
+    return {
+      commanderId,
+      name: source.name || source.cardName || session.commander?.name || "Commander",
+      zone: commanderSession.commanderZoneByCommanderId?.[commanderId] || source.zone || session.commander?.zone || "command zone",
+      tax: Number(commanderSession.commanderTaxByCommanderId?.[commanderId] ?? source.commanderTax ?? session.commander?.commanderTax ?? 0),
+      castCount: Number(commanderSession.commanderCastCountByCommanderId?.[commanderId] ?? source.castCount ?? session.commander?.castCount ?? 0),
+      damageTotal,
+      tags: [
+        source.partner ? "Partner" : "",
+        source.background ? "Background" : "",
+        source.doctorCompanion ? "Doctor" : "",
+        source.companion ? "Companion" : "",
+      ].filter(Boolean),
+    };
+  });
+  const primary = commanders[0] || {
+    name: "Commander",
+    zone: "command zone",
+    tax: 0,
+    castCount: 0,
+    damageTotal: 0,
+    tags: [],
+  };
+  return {
+    primary,
+    count: Math.max(1, commanders.length || 1),
+    extraCount: Math.max(0, commanders.length - 1),
+    tags: [...new Set(commanders.flatMap((entry) => entry.tags || []))],
+  };
+}
+
+function renderCommandHud(profile, options = {}) {
+  const {
+    activeUtilityPanel = "",
+    utilityDockOpen = false,
+    toolMenuOpen = false,
+    activeToolPanel = "",
+    includeCombat = true,
+    combatResolving = false,
+  } = options;
   const session = profile.activeSession || {};
-  const pendingCount =
-    (session.triggerQueue || []).filter((entry) => entry.status === "pending").length +
-    (session.stack || []).length +
-    (session.pendingEffects || []).filter((entry) => !["resolved", "skipped", "ignored"].includes(entry.status)).length;
-  const hasQueuedTriggers = pendingCount > 0;
+  const stackCount = (session.stack || []).length;
+  const triggerCount = (session.triggerQueue || []).filter((entry) => entry.status === "pending").length;
+  const pendingEffectsCount = (session.pendingEffects || []).filter((entry) => !["resolved", "skipped", "ignored"].includes(entry.status)).length;
+  const pendingCount = triggerCount + stackCount + pendingEffectsCount;
+  const hasQueuedTriggers = triggerCount + stackCount > 0;
   const selectedPermanents = getSelectedPermanents(session);
   const selectedCreatureCount = selectedPermanents.filter((permanent) => permanent.isCreature).length;
   const phaseLabel = String(PHASES[session.phaseIndex] || "").toLowerCase();
   const combatToResolve = Boolean((session.combat?.attackerIds || []).length || session.combat?.damagePreview);
   const canDeclareAttackers = Boolean(includeCombat && selectedCreatureCount && phaseLabel.includes("combat"));
-  const canActivateSelection = Boolean(selectedPermanents.length);
   const canResolveContext = Boolean(hasQueuedTriggers || combatToResolve);
+  const phaseName = PHASES[session.phaseIndex] || "Beginning";
+  const commanderSummary = resolveCommandHudCommanderSummary(session);
+  const commander = commanderSummary.primary;
+  const activeCommanderTags = commanderSummary.tags.length ? commanderSummary.tags.join(" / ") : "Command zone";
+  const utilityPanels = new Set(["utilities", "dice", "tokens", "mana", "display", "calculator", "notes", "phase", "history", "ai-analysis"]);
+  const selectedSummary = selectedPermanents.length
+    ? `${selectedPermanents.length} selected`
+    : `${(session.battlefield?.player || []).length} permanents`;
+  const attentionLabel = pendingCount
+    ? `${pendingCount} pending`
+    : session.priority?.waiting
+      ? "Priority window"
+      : "Commands ready";
+  const cards = [
+    {
+      id: "tools",
+      eyebrow: "Board",
+      label: "Tools",
+      detail: activeToolPanel ? formatLabel(activeToolPanel) : "Tokens / mana",
+      signal: toolMenuOpen || activeToolPanel ? "Active" : "Open",
+      state: toolMenuOpen || activeToolPanel ? "active" : "quiet",
+      attrs: ["data-open-tool-menu"],
+    },
+    {
+      id: "utilities",
+      eyebrow: "Table",
+      label: "Utility",
+      detail: "Dice / notes",
+      signal: utilityPanels.has(activeUtilityPanel) || utilityDockOpen ? "Active" : "Ready",
+      state: utilityPanels.has(activeUtilityPanel) || utilityDockOpen ? "active" : "quiet",
+      attrs: ['data-open-utility="utilities"'],
+    },
+    {
+      id: "search",
+      eyebrow: "Library",
+      label: "Search",
+      detail: "Oracle / add",
+      signal: activeUtilityPanel === "search" ? "Active" : "Find",
+      state: activeUtilityPanel === "search" ? "active" : "quiet",
+      attrs: ['data-open-utility="search"'],
+    },
+    {
+      id: "combat",
+      eyebrow: "Combat",
+      label: "Attack",
+      detail: canDeclareAttackers ? `${selectedCreatureCount} attacker${selectedCreatureCount === 1 ? "" : "s"}` : phaseLabel.includes("combat") ? "Select creatures" : "Not combat",
+      signal: canDeclareAttackers ? "Ready" : "Closed",
+      state: canDeclareAttackers ? "pending" : "disabled",
+      attrs: canDeclareAttackers ? ['data-command-action="attackers"', 'data-combat-available="true"', "data-declare-attackers"] : [],
+      disabled: !canDeclareAttackers,
+    },
+    {
+      id: "phase",
+      eyebrow: `Turn ${session.turn || 1}`,
+      label: "Next Phase",
+      detail: phaseName,
+      signal: session.priority?.waiting ? "Priority" : "Advance",
+      state: "primary",
+      attrs: ["data-next-phase"],
+    },
+    {
+      id: "resolve",
+      eyebrow: "Stack",
+      label: combatResolving ? "Resolving" : "Resolve",
+      detail: stackCount ? `${stackCount} stack` : triggerCount ? `${triggerCount} triggers` : combatToResolve ? "Combat damage" : "No pending",
+      signal: canResolveContext ? "Ready" : "Idle",
+      state: canResolveContext ? "pending" : "disabled",
+      attrs: canResolveContext ? ['data-command-action="resolve"', `data-combat-available="${includeCombat ? "true" : "false"}"`, "data-resolve-combat"] : [],
+      disabled: !canResolveContext || combatResolving,
+    },
+    {
+      id: "context",
+      eyebrow: "Selection",
+      label: selectedPermanents.length ? "Inspect" : "Context",
+      detail: selectedSummary,
+      signal: selectedPermanents.length ? "Selected" : "Quiet",
+      state: selectedPermanents.length ? "active" : "disabled",
+      attrs: selectedPermanents.length ? ['data-open-tool-panel="inspect"'] : [],
+      disabled: !selectedPermanents.length,
+    },
+    {
+      id: "commander",
+      eyebrow: commanderSummary.extraCount ? `${commanderSummary.count} Commanders` : "Commander",
+      label: commander.name,
+      detail: `Tax ${commander.tax} / ${formatLabel(commander.zone)}`,
+      signal: commander.damageTotal ? `${commander.damageTotal} dmg` : activeCommanderTags,
+      state: activeToolPanel === "commander" ? "active" : "commander",
+      attrs: ['data-open-tool-panel="commander"'],
+    },
+    {
+      id: "rules",
+      eyebrow: "Judge",
+      label: "Ask Why",
+      detail: "Rules assistant",
+      signal: activeUtilityPanel === "rules-assistant" ? "Active" : "Explain",
+      state: activeUtilityPanel === "rules-assistant" ? "active" : "quiet",
+      attrs: ['data-open-utility="rules-assistant"'],
+    },
+    {
+      id: "remind",
+      eyebrow: "Memory",
+      label: "Remind",
+      detail: "Triggers / alerts",
+      signal: activeUtilityPanel === "remind-me" ? "Active" : "Set",
+      state: activeUtilityPanel === "remind-me" ? "active" : "quiet",
+      attrs: ['data-open-utility="remind-me"'],
+    },
+    {
+      id: "undo",
+      eyebrow: "Safety",
+      label: "Undo",
+      detail: "Last action",
+      signal: "Safe",
+      state: "quiet",
+      attrs: ["data-undo"],
+    },
+  ];
   return `
-    <section class="battlefield-mobile-dock battlefield-command-console ${isMobilePortrait ? "is-mobile" : "is-desktop"} glass" data-no-swipe>
-      <div class="battlefield-mobile-dock__status">
-        ${hasQueuedTriggers ? `<button data-open-utility="triggers" class="pending-queue-alert ${activeUtilityPanel === "triggers" ? "active" : ""}"><span aria-hidden="true">&#9889;</span>${pendingCount} Pending</button>` : ""}
+    <section class="command-hud glass" data-command-hud data-command-hud-version="${escapeAttribute(COMMAND_HUD_VERSION)}" aria-label="BoardState Command HUD" data-no-swipe>
+      <div class="command-hud__rail" aria-hidden="true"></div>
+      <div class="command-hud__status">
+        <span>${escapeHtml(attentionLabel)}</span>
+        ${pendingCount ? `<button data-open-utility="${stackCount || pendingEffectsCount ? "stack" : "triggers"}" class="command-hud__queue ${activeUtilityPanel === "stack" || activeUtilityPanel === "triggers" ? "is-active" : ""}">${escapeHtml(stackCount ? `${stackCount} stack` : `${triggerCount} triggers`)}</button>` : ""}
       </div>
-      <div class="battlefield-mobile-wheel battlefield-command-grid">
-        <div class="battlefield-command-column battlefield-command-column--left" aria-label="Left battlefield dashboard commands">
-          <button class="battlefield-wheel-action action-tools" data-dashboard-action="tools" data-open-tool-menu aria-label="Open tools">
-            <span class="dock-icon" aria-hidden="true">&#9874;</span>
-            <span>Tools</span>
-          </button>
-          <button class="battlefield-wheel-action action-utility ${utilityDockOpen ? "active" : ""}" data-dashboard-action="utility" data-toggle-utility-dock aria-label="Open utility menu">
-            <span class="dock-icon" aria-hidden="true">&#9881;</span>
-            <span>Utility</span>
-          </button>
-          ${canDeclareAttackers ? `<button class="battlefield-wheel-action action-attackers" data-dashboard-action="attackers" data-combat-available="true" data-declare-attackers aria-label="Declare selected attackers">
-            <span class="dock-icon" aria-hidden="true">&#9876;</span>
-            <span>Attack</span>
-          </button>` : ""}
-        </div>
-        <button class="battlefield-wheel-center battlefield-wheel-center--raised" data-next-phase aria-label="Next Phase">
-          <span class="dock-icon" aria-hidden="true">&#9193;</span>
-          <span>Next</span>
-          <span>Phase</span>
-        </button>
-        <div class="battlefield-command-column battlefield-command-column--right" aria-label="Right battlefield dashboard commands">
-          <button class="battlefield-wheel-action action-search" data-dashboard-action="search" data-open-utility="search" aria-label="Search Scryfall">
-            <span class="dock-icon" aria-hidden="true">&#128269;</span>
-            <span>Search</span>
-          </button>
-          ${canActivateSelection ? `<button class="battlefield-wheel-action action-activate" data-dashboard-action="activate" data-activate-board aria-label="Activate selected board context">
-            <span class="dock-icon" aria-hidden="true">&#9889;</span>
-            <span>Activate</span>
-          </button>` : ""}
-          ${canResolveContext ? `<button class="battlefield-wheel-action action-resolve ${hasQueuedTriggers ? "has-pending" : ""}" data-dashboard-action="resolve" data-combat-available="${includeCombat ? "true" : "false"}" data-resolve-combat ${combatResolving ? "disabled" : ""} aria-label="Resolve stack or combat">
-            <span class="dock-icon" aria-hidden="true">&#128737;</span>
-            <span>${combatResolving ? "Resolving..." : "Resolve"}</span>
-          </button>` : ""}
-        </div>
+      <div class="command-hud__fan" role="toolbar" aria-label="Commander battlefield commands">
+        ${cards.map((card, index) => renderCommandHudCard(card, index, cards.length)).join("")}
       </div>
     </section>
+  `;
+}
+
+function renderCommandHudCard(card, index, count) {
+  const midpoint = (count - 1) / 2;
+  const offset = index - midpoint;
+  const fanTilt = offset * 3.15;
+  const fanRise = Math.max(0, 8 - Math.abs(offset) * 1.4);
+  const attrs = (card.attrs || []).join(" ");
+  const disabled = card.disabled ? "disabled aria-disabled=\"true\"" : "";
+  return `
+    <button
+      class="command-hud-card command-hud-card--${escapeAttribute(card.id)} command-hud-card-state-${escapeAttribute(card.state || "quiet")}"
+      style="--fan-tilt: ${fanTilt.toFixed(2)}deg; --fan-rise: ${fanRise.toFixed(2)}px;"
+      ${attrs}
+      ${disabled}
+      aria-label="${escapeAttribute(`${card.label}: ${card.detail || card.signal || "command"}`)}"
+    >
+      <span class="command-hud-card__edge" aria-hidden="true"></span>
+      <span class="command-hud-card__eyebrow">${escapeHtml(card.eyebrow || "Command")}</span>
+      <span class="command-hud-card__label">${escapeHtml(card.label || "Command")}</span>
+      <span class="command-hud-card__detail">${escapeHtml(card.detail || "")}</span>
+      <span class="command-hud-card__signal">${escapeHtml(card.signal || "Ready")}</span>
+    </button>
   `;
 }
 
@@ -7475,7 +7574,7 @@ function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResu
   const diceValue = profile.settings?.utility?.lastDice || "d20: 1";
   const calcValue = profile.settings?.utility?.calculator || "";
   const rulesText = (getSelectedPermanents(session)[0]?.rulesText || getSelectedPermanents(session)[0]?.oracleText || "Select a permanent to inspect rules.");
-  const utilityTitle = panel === "search" ? "Search/Add Card" : panel === "stack" ? "Stack & Priority" : panel === "rules-assistant" ? "Rules Assistant" : panel === "remind-me" ? "Remind Me" : panel === "ai-analysis" ? "AI Analysis" : formatLabel(panel);
+  const utilityTitle = panel === "utilities" ? "Command Utilities" : panel === "search" ? "Search/Add Card" : panel === "stack" ? "Stack & Priority" : panel === "rules-assistant" ? "Rules Assistant" : panel === "remind-me" ? "Remind Me" : panel === "ai-analysis" ? "AI Analysis" : formatLabel(panel);
   const mobileSheetClass = isMobilePortrait ? "mobile-bottom-sheet" : "";
   return `
     <section class="utility-overlay glass ${mobileSheetClass}" data-no-swipe>
@@ -7483,6 +7582,19 @@ function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResu
         <h2>${escapeHtml(utilityTitle)}</h2>
         <button data-close-utility-panel>Close</button>
       </div>
+      ${panel === "utilities" ? `
+        <div class="command-hud-utility-grid">
+          <button data-open-utility="dice"><strong>Dice</strong><span>Roll table decisions</span></button>
+          <button data-open-utility="tokens"><strong>Tokens</strong><span>Create or adjust tokens</span></button>
+          <button data-open-utility="mana"><strong>Mana</strong><span>Floating mana controls</span></button>
+          <button data-open-utility="display"><strong>Display</strong><span>Density and readability</span></button>
+          <button data-open-utility="calculator"><strong>Calculator</strong><span>Quick table math</span></button>
+          <button data-open-utility="notes"><strong>Notes</strong><span>Session memory</span></button>
+          <button data-open-utility="phase"><strong>Phase</strong><span>Turn enforcement</span></button>
+          <button data-open-utility="history"><strong>History</strong><span>Timeline and replay basis</span></button>
+          <button data-open-utility="ai-analysis"><strong>AI Analysis</strong><span>Local public analysis</span></button>
+        </div>
+      ` : ""}
       ${panel === "dice" ? `
         <div class="button-grid">
           <button data-roll-dice="6">Roll d6</button>
@@ -7992,26 +8104,6 @@ function renderRulesAssistantAnswer(answer = {}) {
         </div>
       ` : ""}
     </article>
-  `;
-}
-
-function renderProactiveAssistantStrip(model = {}, activeUtilityPanel = "") {
-  const notifications = model.notifications || [];
-  const top = notifications[0] || null;
-  const activeReminderCount = Number(model.reminderReport?.activeCount || 0);
-  const confidence = model.confidenceReport?.overall || {};
-  const needsAttention = Boolean(top || confidence.needsAttention);
-  const label = top
-    ? top.title
-    : activeReminderCount
-      ? `${activeReminderCount} reminder${activeReminderCount === 1 ? "" : "s"} watching`
-      : "Remind Me ready";
-  return `
-    <button class="proactive-assistant-launcher ${activeUtilityPanel === "remind-me" ? "active" : ""} ${needsAttention ? "has-attention" : ""}" data-open-utility="remind-me" aria-label="${escapeAttribute(label)}" data-proactive-assistant-version="${escapeAttribute(model.version || PROACTIVE_ASSISTANT_VERSION)}">
-      <span aria-hidden="true">${top?.priority === "critical" ? "!" : "R"}</span>
-      <strong>Remind Me</strong>
-      <small>${escapeHtml(label)}</small>
-    </button>
   `;
 }
 
@@ -10620,7 +10712,7 @@ function getUnreadNotificationCount(profile = {}) {
 }
 
 function getAppVersion() {
-  return "1.33.0";
+  return "1.34.0";
 }
 
 function renderGameOptions(profile, page = "life") {

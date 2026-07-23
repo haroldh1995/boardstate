@@ -107,6 +107,14 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - Mobile page-swipe controls, edge-swipe zones, orientation-change layout switching, and composition mode UI toggles are retired from BoardState runtime.
 - Portrait physical-table companion gameplay is assigned to BoardState Lite. BoardState preserves its existing cosmic background, gold accents, glass HUD, and Commander battlefield identity.
 
+### Prompt 12.3: Command HUD, Digital Hand Replacement, And Player Control Experience
+
+- `src/ui/render.js` replaces the old battlefield bottom toolbar with `renderCommandHud()`, a BoardState-native Command HUD identified by `boardstate-command-hud-0.1.0`.
+- The HUD consolidates Tools, Utility, Search, Combat, Next Phase, Resolve, selected-card Context, Commander, Ask Why, Remind, and Undo into card-inspired Command Cards at the bottom battlefield edge.
+- The old utility menu and floating Rules Assistant, Remind Me, and AI Analysis launchers are retired from battlefield runtime. Their implemented panels remain available through the Command HUD and existing contextual overlays.
+- `src/styles.css` adds a premium bottom fan/arc presentation with BoardState cosmic glass, gold accents, physical lift feedback, keyboard focus states, compact landscape behavior, and reduced-motion protection.
+- `docs/ecosystem/NATIVE_GAME_VISUAL_ARCHITECTURE.md` and `docs/ecosystem/LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md` now define the Command HUD as the permanent bottom interaction standard.
+
 ## Remaining Roadmap
 
 ### Prompt 13: Full Control And Live Tracking Convergence

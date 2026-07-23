@@ -52,6 +52,20 @@ The canonical BoardState gameplay composition keeps one game layout across phone
 - Utilities appear as contextual overlays or rails, not permanent dashboard panels.
 - Hidden or incomplete future systems remain hidden until production ready.
 
+## Command HUD Standard
+
+Prompt 12.3 replaces the former bottom toolbar with the BoardState Command HUD. The bottom of the battlefield now carries the interaction role normally occupied by a digital player's hand, but it displays BoardState Command Cards instead of Magic cards or generic web buttons.
+
+Permanent standards:
+
+- `src/ui/render.js` exposes `boardstate-command-hud-0.1.0` through `data-command-hud-version` and `document.body.dataset.commandHudVersion`.
+- The Command HUD is the only bottom gameplay command surface on the battlefield.
+- Commands are presented as restrained, card-inspired BoardState controls integrated into the battlefield edge.
+- Command Cards may open existing tools, utilities, rules assistance, reminders, Commander tools, search, combat, stack resolution, phase advancement, selected-card inspection, or undo. They do not own gameplay state.
+- Inactive commands remain visually quiet or disabled. Relevant commands become prominent only when the current authoritative session state makes them useful.
+- Utility, Rules Assistant, Remind Me, AI Analysis, and history surfaces open as contextual overlays while the battlefield remains visible.
+- The HUD preserves BoardState's cosmic, gold-accented, glass-treated identity and must not copy Arena's cards, hand layout, artwork, animation, branding, or protected interface details.
+
 ## Reference Principles From Premium Digital Card Games
 
 The attached Arena reference and comparable digital card games are used only for principles:
