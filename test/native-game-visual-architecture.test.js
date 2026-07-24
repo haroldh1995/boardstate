@@ -158,10 +158,14 @@ test("battlefield runtime uses the tabletop reconstruction instead of idle dashb
   const styles = readRepositoryFile("src/styles.css");
   const visualDoc = readRepositoryFile("docs/ecosystem/NATIVE_GAME_VISUAL_ARCHITECTURE.md");
   const battlefieldDoc = readRepositoryFile("docs/ecosystem/LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md");
+  const compositionDoc = readRepositoryFile("docs/ecosystem/HUD_COMPOSITION_VISUAL_HIERARCHY.md");
 
   assert.match(render, /TABLETOP_RECONSTRUCTION_VERSION = "boardstate-tabletop-reconstruction-0\.1\.0"/);
+  assert.match(render, /HUD_COMPOSITION_VERSION = "boardstate-hud-composition-0\.1\.0"/);
   assert.match(render, /document\.body\.dataset\.tabletopReconstructionVersion = TABLETOP_RECONSTRUCTION_VERSION/);
+  assert.match(render, /document\.body\.dataset\.hudCompositionVersion = HUD_COMPOSITION_VERSION/);
   assert.match(render, /data-tabletop-reconstruction-version/);
+  assert.match(render, /data-hud-composition-version/);
   assert.match(render, /tabletop-battlefield-page/);
   assert.match(render, /tabletop-empty-board/);
   assert.equal(render.includes("landscape-selected-card is-empty"), false);
@@ -169,9 +173,21 @@ test("battlefield runtime uses the tabletop reconstruction instead of idle dashb
   assert.equal(render.includes("Bottom Battlefield"), false);
   assert.match(styles, /\.tabletop-battlefield-page\b/);
   assert.match(styles, /battlefield reconstruction removes dashboard chrome/i);
+  assert.match(styles, /HUD composition pass/i);
   assert.match(styles, /landscape-selected-card\.is-empty/);
   assert.match(styles, /landscape-stack-core\.is-idle/);
   assert.match(styles, /app-shell--battlefield \.app-header/);
+  assert.match(styles, /commander-action-hand__status:has\(\.action-hand-queue\)/);
+  assert.match(styles, /pointer-events: none/);
+  assert.match(styles, /pointer-events: auto/);
+  assert.match(styles, /action-card-state-idle/);
+  assert.match(styles, /saturate\(0\.76\)/);
+  assert.match(styles, /action-card-state-idle\.action-card-entering/);
+  assert.match(styles, /animation-fill-mode: none/);
   assert.match(visualDoc, /Battlefield Reconstruction Standard/);
+  assert.match(visualDoc, /HUD Composition And Visual Hierarchy Standard/);
   assert.match(battlefieldDoc, /Prompt 12\.2A Battlefield Reconstruction/);
+  assert.match(battlefieldDoc, /Prompt 12\.3E HUD Composition/);
+  assert.match(compositionDoc, /battlefield must be the first read/i);
+  assert.match(compositionDoc, /Future HUD work must preserve/i);
 });

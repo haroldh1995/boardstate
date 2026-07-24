@@ -83,6 +83,20 @@ Permanent standards:
 
 The design process and rejected concepts are recorded in `docs/ecosystem/COMMANDER_ACTION_HAND_DESIGN.md`.
 
+## HUD Composition And Visual Hierarchy Standard
+
+Prompt 12.3E refines the active battlefield into a single scene without changing gameplay behavior or replacing the Commander Action Hand interaction model.
+
+Permanent standards:
+
+- `src/ui/render.js` exposes `boardstate-hud-composition-0.1.0` through `data-hud-composition-version` and `document.body.dataset.hudCompositionVersion`.
+- The battlefield remains the first visual read. The Commander Action Hand is second, opponent/life information is third, contextual gameplay information follows, and secondary utilities remain visually quiet.
+- Top application chrome, idle phase status, empty-board text, and inactive Action Cards must recede until hovered, focused, pending, selected, expanded, or resolving.
+- Decorative rails, hard scene dividers, full-width idle strips, and equal-weight widget clusters are not allowed to compete with battlefield space.
+- Action Cards keep their accessible button semantics, overlap, focus lift, neighbor displacement, priority ordering, and contextual visibility.
+
+The corrective composition record lives in `docs/ecosystem/HUD_COMPOSITION_VISUAL_HIERARCHY.md`.
+
 ## Reference Principles From Premium Digital Card Games
 
 The attached Arena reference and comparable digital card games are used only for principles:

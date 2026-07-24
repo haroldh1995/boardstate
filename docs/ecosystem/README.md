@@ -20,6 +20,7 @@ Prompt 1 output files:
 - `AI_GAMEPLAY_ARCHITECTURE.md`
 - `ECOSYSTEM_INTEGRATION_ARCHITECTURE.md`
 - `NATIVE_GAME_VISUAL_ARCHITECTURE.md`
+- `HUD_COMPOSITION_VISUAL_HIERARCHY.md`
 
 These files document the preparation baseline, permanent Constitution, architecture inventory, rules-engine extraction risks, shared contracts, migration plan, handoff risks, future navigation, and future test matrix.
 
@@ -35,7 +36,7 @@ The Commander session architecture document records the Prompt 2 canonical sessi
 
 `PERSISTENCE_REPLAY_ARCHITECTURE.md` records the Prompt 4 canonical save, replay timeline, checkpoint, auto-save, recovery, import/export, validation, and migration foundation.
 
-`LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md` records the Prompt 5 through Prompt 12.3C landscape-first Commander battlefield interface, Prompt 12.2A tabletop reconstruction standard, permanent gameplay regions, battlefield lanes, Commander HUD treatment, Commander Action Hand bottom interaction surface, selected-card context, camera/carousel/motion metadata, contextual Rules Assistant, Remind Me, and AI Analysis surfaces.
+`LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md` records the Prompt 5 through Prompt 12.3E landscape-first Commander battlefield interface, Prompt 12.2A tabletop reconstruction standard, permanent gameplay regions, battlefield lanes, Commander HUD treatment, Commander Action Hand bottom interaction surface, HUD composition hierarchy, selected-card context, camera/carousel/motion metadata, contextual Rules Assistant, Remind Me, and AI Analysis surfaces.
 
 `RULES_ASSISTANT_ARCHITECTURE.md` records the Prompt 9 Rules Assistant and Question System boundary. It answers from BoardState rules/state/event data, excludes hidden/private data, avoids generative AI and internet search, and prepares What If as a non-mutating Dry Run fork boundary.
 
@@ -45,7 +46,9 @@ The Commander session architecture document records the Prompt 2 canonical sessi
 
 `ECOSYSTEM_INTEGRATION_ARCHITECTURE.md` records the Prompt 12 BoardState-side ecosystem integration boundary for Hub coordination, shared profile/preferences/notifications, presence, session discovery, offline sync queueing, BoardState Lite handoff readiness, and Deck Nexus immutable snapshot readiness. It does not claim a live Hub endpoint, live Lite transition, live Deck Nexus link, marketplace, chat, advertising, or Hub gameplay authority.
 
-`NATIVE_GAME_VISUAL_ARCHITECTURE.md` records the Prompt 12.1 landscape-only native game foundation, Prompt 12.2A battlefield reconstruction standard, and Prompt 12.3C Commander Action Hand standard. BoardState gameplay is canonical landscape, the battlefield is the application, portrait gameplay belongs to BoardState Lite, future gameplay UI must avoid dashboard/web-app conventions, and the bottom interaction zone is BoardState's living Action Hand.
+`NATIVE_GAME_VISUAL_ARCHITECTURE.md` records the Prompt 12.1 landscape-only native game foundation, Prompt 12.2A battlefield reconstruction standard, Prompt 12.3C Commander Action Hand standard, and Prompt 12.3E HUD composition hierarchy. BoardState gameplay is canonical landscape, the battlefield is the application, portrait gameplay belongs to BoardState Lite, future gameplay UI must avoid dashboard/web-app conventions, and the bottom interaction zone is BoardState's living Action Hand.
 
 `COMMANDER_ACTION_HAND_DESIGN.md` records the Prompt 12.3C design process, concept comparison, prototype gates, rejected bottom-surface patterns, and production standard for BoardState's signature Commander Action Hand.
+
+`HUD_COMPOSITION_VISUAL_HIERARCHY.md` records the Prompt 12.3E corrective visual hierarchy pass. It defines the battlefield-first scene composition, quieter idle HUD weight, shortened Action Hand aura, edge-biased chrome, and regression rules for preserving proven interactions while improving premium game readability.
 

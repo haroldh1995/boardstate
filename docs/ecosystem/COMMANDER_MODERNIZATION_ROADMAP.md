@@ -131,6 +131,14 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - `src/styles.css` replaces the old HUD stylesheet block with an overlapped, priority-centered, physically handled action-card fan with hover/focus lift, neighbor displacement, state-specific treatment, idle breathing, and reduced-motion safety.
 - Existing reducer and overlay actions remain reused through their current `data-*` attributes. No second rules engine, state owner, save format, action bus, Hub dependency, or hidden-information path was introduced.
 
+### Prompt 12.3E: HUD Composition And Visual Hierarchy Corrective Pass
+
+- `docs/ecosystem/HUD_COMPOSITION_VISUAL_HIERARCHY.md` records the corrective composition audit, reference principles, accepted refinements, rejected changes, and regression rules.
+- `src/ui/render.js` exposes `HUD_COMPOSITION_VERSION` as `boardstate-hud-composition-0.1.0` through the body and active battlefield surface.
+- `src/styles.css` refines the completed tabletop and Action Hand presentation so idle application chrome, phase status, empty-board text, decorative guide geometry, and idle Action Cards recede behind battlefield attention.
+- The existing Commander Action Hand interaction remains intact: Action Cards still overlap, fan, lift on hover/focus, displace neighbors, preserve button semantics, and use existing action-entry attributes.
+- No gameplay feature, action system, rules authority, state owner, save format, Hub/Lite/Nexus dependency, or hidden-information path was introduced.
+
 ## Remaining Roadmap
 
 ### Prompt 13: Full Control And Live Tracking Convergence

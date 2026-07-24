@@ -9484,3 +9484,181 @@ body[data-page="battlefield"] .tabletop-battlefield-page .gameplay-context-dock 
     padding-inline: clamp(1rem, 5vw, 4rem);
   }
 }
+
+/* Prompt 12.3E: HUD composition pass. Treat the battlefield as one scene and let idle UI recede. */
+body[data-page="battlefield"] .app-shell--battlefield .app-header {
+  border-color: rgba(236, 200, 122, 0.08);
+  background:
+    linear-gradient(90deg, rgba(6, 7, 18, 0.36), transparent 34%, rgba(6, 7, 18, 0.28));
+  box-shadow: none;
+  opacity: 0.48;
+  filter: saturate(0.72);
+  transition: opacity 160ms ease, filter 160ms ease;
+}
+
+body[data-page="battlefield"] .app-shell--battlefield .app-header:hover,
+body[data-page="battlefield"] .app-shell--battlefield .app-header:focus-within {
+  opacity: 0.94;
+  filter: none;
+}
+
+body[data-page="battlefield"] .app-shell--battlefield .app-header h1 {
+  font-size: clamp(0.84rem, 1.05vw, 1.08rem);
+  opacity: 0.72;
+}
+
+body[data-page="battlefield"] .app-shell--battlefield .tab-bar button {
+  min-width: clamp(4.8rem, 7vw, 6.6rem);
+  border-color: rgba(236, 200, 122, 0.14);
+  color: rgba(255, 240, 184, 0.58);
+  background: rgba(4, 6, 16, 0.2);
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .landscape-arena {
+  background:
+    radial-gradient(ellipse at 50% 54%, rgba(236, 200, 122, 0.045), transparent 22%),
+    radial-gradient(ellipse at 50% 100%, rgba(143, 211, 255, 0.045), transparent 34%),
+    linear-gradient(180deg, rgba(2, 3, 10, 0.04), rgba(2, 3, 10, 0.12));
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .landscape-arena::before {
+  inset: 12% 12% 15%;
+  background:
+    radial-gradient(ellipse at center, transparent 0 42%, rgba(236, 200, 122, 0.045) 42.4%, transparent 43.3%);
+  opacity: 0.18;
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-empty-board {
+  color: rgba(255, 231, 166, 0.48);
+  transform: translateY(-0.16rem);
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .landscape-phase-core {
+  border-color: rgba(236, 200, 122, 0.16);
+  background: rgba(4, 6, 16, 0.26);
+  opacity: 0.82;
+  transform: scale(0.96);
+  transition: opacity 160ms ease, transform 160ms ease, border-color 160ms ease;
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .landscape-phase-core:hover,
+body[data-page="battlefield"] .tabletop-battlefield-page .landscape-phase-core:focus-within {
+  border-color: rgba(236, 200, 122, 0.36);
+  opacity: 1;
+  transform: scale(1);
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .phase-next-chip {
+  border-color: rgba(236, 200, 122, 0.22);
+  background: rgba(8, 10, 25, 0.28);
+}
+
+body[data-page="battlefield"] .commander-action-hand {
+  --action-card-width: clamp(5.25rem, 7.4vw, 7.05rem);
+  --action-card-height: clamp(4.12rem, 7.8svh, 5.35rem);
+  width: min(42rem, calc(100vw - 2.4rem));
+  min-height: clamp(5.5rem, 12svh, 6.75rem);
+  bottom: max(0.06rem, env(safe-area-inset-bottom));
+}
+
+body[data-page="battlefield"] .commander-action-hand__aura {
+  inset: auto 20% 0.18rem;
+  height: clamp(2.6rem, 5.8svh, 3.8rem);
+  opacity: 0.54;
+  filter: drop-shadow(0 -5px 18px rgba(0, 0, 0, 0.22));
+}
+
+body[data-page="battlefield"] .commander-action-hand__aura::before,
+body[data-page="battlefield"] .commander-action-hand__aura::after {
+  right: 24%;
+  left: 24%;
+  opacity: 0.34;
+}
+
+body[data-page="battlefield"] .commander-action-hand__status {
+  top: 0.5rem;
+  border-color: rgba(236, 200, 122, 0.12);
+  background: rgba(5, 7, 18, 0.28);
+  box-shadow: none;
+  opacity: 0;
+  transform: translateX(-50%) translateY(0.08rem) scale(0.9);
+  transition: opacity 160ms ease, transform 160ms ease, border-color 160ms ease;
+  pointer-events: none;
+}
+
+body[data-page="battlefield"] .commander-action-hand:hover .commander-action-hand__status,
+body[data-page="battlefield"] .commander-action-hand:focus-within .commander-action-hand__status,
+body[data-page="battlefield"] .commander-action-hand__status:has(.action-hand-queue) {
+  border-color: rgba(236, 200, 122, 0.32);
+  opacity: 0.72;
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+
+body[data-page="battlefield"] .commander-action-hand__status:has(.action-hand-queue) {
+  opacity: 0.95;
+  pointer-events: auto;
+}
+
+body[data-page="battlefield"] .commander-action-hand__fan {
+  padding-top: 0.92rem;
+}
+
+body[data-page="battlefield"] .action-card {
+  box-shadow:
+    0 calc(10px + (var(--hand-prominence) * 10px)) calc(20px + (var(--hand-prominence) * 16px)) rgba(0, 0, 0, 0.32),
+    0 0 calc(6px + (var(--hand-prominence) * 14px)) rgba(236, 200, 122, calc(0.05 + (var(--hand-prominence) * 0.12))),
+    inset 0 1px 0 rgba(255, 246, 211, 0.2),
+    inset 0 -1px 0 rgba(143, 211, 255, 0.09);
+}
+
+body[data-page="battlefield"] .action-card-state-idle {
+  opacity: 0.72;
+  filter: saturate(0.76) brightness(0.86);
+}
+
+body[data-page="battlefield"] .action-card-state-idle.action-card-entering {
+  animation-fill-mode: none;
+}
+
+body[data-page="battlefield"] .action-card-state-resting,
+body[data-page="battlefield"] .action-card-state-promoted,
+body[data-page="battlefield"] .action-card-state-expanded,
+body[data-page="battlefield"] .action-card-state-selected,
+body[data-page="battlefield"] .action-card-state-focused,
+body[data-page="battlefield"] .action-card-state-waiting,
+body[data-page="battlefield"] .action-card-state-resolving {
+  opacity: 0.96;
+  filter: none;
+}
+
+body[data-page="battlefield"] .action-card:hover,
+body[data-page="battlefield"] .action-card:focus-visible {
+  opacity: 1;
+  filter: none;
+}
+
+@media (orientation: landscape) and (max-height: 560px) {
+  body[data-page="battlefield"] .commander-action-hand {
+    --action-card-width: clamp(4rem, 9.5vw, 4.62rem);
+    --action-card-height: clamp(3.22rem, 9.2svh, 3.84rem);
+    width: min(100vw, calc(100vw - 0.9rem));
+    min-height: clamp(4.35rem, 12.4svh, 5.02rem);
+    bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+
+  body[data-page="battlefield"] .commander-action-hand__status {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  body[data-page="battlefield"] .commander-action-hand__status:has(.action-hand-queue) {
+    opacity: 0.95;
+    pointer-events: auto;
+  }
+
+  body[data-page="battlefield"] .commander-action-hand__aura {
+    inset-inline: 9%;
+    height: 2.85rem;
+    opacity: 0.42;
+  }
+}

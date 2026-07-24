@@ -92,6 +92,7 @@ import {
 const NATIVE_GAME_VISUAL_FOUNDATION_VERSION = "boardstate-native-game-visual-foundation-0.1.0";
 const COMMANDER_ACTION_HAND_VERSION = "boardstate-commander-action-hand-0.1.0";
 const TABLETOP_RECONSTRUCTION_VERSION = "boardstate-tabletop-reconstruction-0.1.0";
+const HUD_COMPOSITION_VERSION = "boardstate-hud-composition-0.1.0";
 const CANONICAL_GAMEPLAY_COMPOSITION = "landscape";
 const RUNTIME_LAYOUT_COMPOSITION = "widescreen";
 const LONG_PRESS_DELAY_MS = 420;
@@ -466,6 +467,7 @@ export function mountApp(root, store) {
     document.body.dataset.visualFoundation = NATIVE_GAME_VISUAL_FOUNDATION_VERSION;
     document.body.dataset.commanderActionHandVersion = COMMANDER_ACTION_HAND_VERSION;
     document.body.dataset.tabletopReconstructionVersion = TABLETOP_RECONSTRUCTION_VERSION;
+    document.body.dataset.hudCompositionVersion = HUD_COMPOSITION_VERSION;
     document.body.dataset.page = activePage;
     document.body.dataset.uiLayer = uiLayerState.current;
     document.body.dataset.simulationActive = profile.activeSession?.simulation?.enabled ? "true" : "false";
@@ -5905,7 +5907,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
   const motion = landscapeModel.motion || {};
   const cameraFocusKind = landscapeModel.camera?.activeFocus?.kind || "table";
   return `
-    <section class="battlefield-page battlefield-page--focused landscape-battlefield-page tabletop-battlefield-page landscape-density-${escapeAttribute(landscapeModel.density)} advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} motion-${escapeAttribute(motion.intensity || "full")} camera-focus-${escapeAttribute(cameraFocusKind)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}" data-layout-version="${escapeAttribute(landscapeModel.version)}" data-tabletop-reconstruction-version="${escapeAttribute(TABLETOP_RECONSTRUCTION_VERSION)}" data-motion-version="${escapeAttribute(motion.version || "")}" data-motion-intensity="${escapeAttribute(motion.intensity || "full")}" data-camera-focus="${escapeAttribute(cameraFocusKind)}" data-camera-transition="${escapeAttribute(motion.cameraPlan?.transition || "none")}">
+    <section class="battlefield-page battlefield-page--focused landscape-battlefield-page tabletop-battlefield-page landscape-density-${escapeAttribute(landscapeModel.density)} advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} motion-${escapeAttribute(motion.intensity || "full")} camera-focus-${escapeAttribute(cameraFocusKind)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}" data-layout-version="${escapeAttribute(landscapeModel.version)}" data-tabletop-reconstruction-version="${escapeAttribute(TABLETOP_RECONSTRUCTION_VERSION)}" data-hud-composition-version="${escapeAttribute(HUD_COMPOSITION_VERSION)}" data-motion-version="${escapeAttribute(motion.version || "")}" data-motion-intensity="${escapeAttribute(motion.intensity || "full")}" data-camera-focus="${escapeAttribute(cameraFocusKind)}" data-camera-transition="${escapeAttribute(motion.cameraPlan?.transition || "none")}">
       <div class="battlefield-state-strip landscape-state-strip">
         <div>
           <strong>Turn ${escapeHtml(session.turn)} · ${escapeHtml(PHASES[session.phaseIndex] || "Beginning")} · ${escapeHtml(resolvePhaseTrackerActorLabel(session).replace(/^Active turn:\s*/i, ""))}</strong>
@@ -10798,7 +10800,7 @@ function getUnreadNotificationCount(profile = {}) {
 }
 
 function getAppVersion() {
-  return "1.36.0";
+  return "1.37.0";
 }
 
 function renderGameOptions(profile, page = "life") {

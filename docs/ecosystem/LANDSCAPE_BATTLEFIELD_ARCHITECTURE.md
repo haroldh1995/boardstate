@@ -191,6 +191,18 @@ Prompt 12.3C supersedes Prompt 12.3 and replaces the prior Command HUD explorati
 
 The Commander Action Hand is presentation and action entry only. It does not create a second action system, second rules authority, second state owner, alternate save format, fake digital hand, or Hub/Lite/Nexus dependency. The design record and rejected alternatives live in `docs/ecosystem/COMMANDER_ACTION_HAND_DESIGN.md`.
 
+## Prompt 12.3E HUD Composition And Visual Hierarchy
+
+Prompt 12.3E is a corrective visual hierarchy pass over the completed tabletop and Commander Action Hand work:
+
+- `src/ui/render.js` exposes `HUD_COMPOSITION_VERSION` as `boardstate-hud-composition-0.1.0` on the body and active battlefield surface.
+- `src/styles.css` keeps the existing Action Hand interaction contract but reduces idle HUD weight through quieter application chrome, a shorter Action Hand aura, softer tabletop guide geometry, quieter empty-board messaging, and receding idle Action Cards.
+- Promoted, selected, expanded, waiting, resolving, hovered, and keyboard-focused Action Cards remain high-contrast and readable.
+- Idle Action Hand status text is hidden by default while pending stack or trigger queues still surface when needed.
+- The battlefield remains the first visual read; the Action Hand remains second; opponent/life information and contextual gameplay information follow.
+
+This pass is presentation-only. It does not add gameplay features, change Rules Engine authority, alter action routing, change save formats, expose hidden information, or create a new HUD system. The corrective standard lives in `docs/ecosystem/HUD_COMPOSITION_VISUAL_HIERARCHY.md`.
+
 ## Deferred Work
 
 The battlefield, gameplay-flow, motion, Rules Assistant, proactive assistant, and AI analysis prompts do not implement particle effects, spectator mode, visual replay UI, sound, haptics, cloud AI, strategic coaching, external judge search, or full Rules Recovery imports. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.
