@@ -163,6 +163,19 @@ Prompt 11 adds the first production AI Gameplay Analysis surface without changin
 
 The AI layer does not mutate game state, waive rules, bypass the rules engine, expose unauthorized hidden zones, use cloud AI, call external LLMs, recommend decks, claim tournament matchmaking, or claim Hub services.
 
+## Prompt 12.2A Battlefield Reconstruction
+
+Prompt 12.2A rebuilds the active battlefield composition around the digital Commander table instead of preserving the prior panel grid:
+
+- `src/ui/render.js` exposes `TABLETOP_RECONSTRUCTION_VERSION` as `boardstate-tabletop-reconstruction-0.1.0` on the body and battlefield surface.
+- `renderLandscapeSelectedCardPanel()` no longer renders an idle fixed card-preview panel when no card or stack object is selected.
+- `renderLandscapeBattlefieldGroups()` uses `tabletop-empty-board` for empty table regions instead of the generic dashed empty-state panel.
+- The hidden-opponent state is reduced to a quiet table note rather than a large empty bordered opponent rectangle.
+- The combat strip renders only when combat has an actual action, damage preview, attacker assignment, blocker assignment, or active resolution.
+- `src/styles.css` makes the battlefield a full-screen tabletop surface, quiets application chrome, removes dashboard borders/backgrounds from arena and board regions, converts player/table info into compact overlays, and keeps Command HUD as the bottom gameplay command surface.
+
+The reconstruction is presentation-only. It does not change rules processing, State Engine ownership, Event Knowledge, saves, sync, hidden-information policy, Command HUD action routing, or future Hub/Lite/Nexus boundaries.
+
 ## Prompt 12.3 Command HUD
 
 Prompt 12.3 replaces the former battlefield bottom toolbar and floating assistant launchers with one integrated Command HUD:

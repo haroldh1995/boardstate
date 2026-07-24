@@ -35,7 +35,7 @@ The Commander session architecture document records the Prompt 2 canonical sessi
 
 `PERSISTENCE_REPLAY_ARCHITECTURE.md` records the Prompt 4 canonical save, replay timeline, checkpoint, auto-save, recovery, import/export, validation, and migration foundation.
 
-`LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md` records the Prompt 5 through Prompt 12.3 landscape-first Commander battlefield interface, permanent gameplay regions, battlefield lanes, Commander HUD treatment, Command HUD bottom interaction surface, selected-card center panel, camera/carousel/motion metadata, contextual Rules Assistant, Remind Me, and AI Analysis surfaces.
+`LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md` records the Prompt 5 through Prompt 12.3 landscape-first Commander battlefield interface, Prompt 12.2A tabletop reconstruction standard, permanent gameplay regions, battlefield lanes, Commander HUD treatment, Command HUD bottom interaction surface, selected-card context, camera/carousel/motion metadata, contextual Rules Assistant, Remind Me, and AI Analysis surfaces.
 
 `RULES_ASSISTANT_ARCHITECTURE.md` records the Prompt 9 Rules Assistant and Question System boundary. It answers from BoardState rules/state/event data, excludes hidden/private data, avoids generative AI and internet search, and prepares What If as a non-mutating Dry Run fork boundary.
 
@@ -45,5 +45,5 @@ The Commander session architecture document records the Prompt 2 canonical sessi
 
 `ECOSYSTEM_INTEGRATION_ARCHITECTURE.md` records the Prompt 12 BoardState-side ecosystem integration boundary for Hub coordination, shared profile/preferences/notifications, presence, session discovery, offline sync queueing, BoardState Lite handoff readiness, and Deck Nexus immutable snapshot readiness. It does not claim a live Hub endpoint, live Lite transition, live Deck Nexus link, marketplace, chat, advertising, or Hub gameplay authority.
 
-`NATIVE_GAME_VISUAL_ARCHITECTURE.md` records the Prompt 12.1 landscape-only native game foundation and Prompt 12.3 Command HUD standard. BoardState gameplay is canonical landscape, the battlefield is the application, portrait gameplay belongs to BoardState Lite, future gameplay UI must avoid dashboard/web-app conventions, and the bottom interaction zone is BoardState's Command HUD.
+`NATIVE_GAME_VISUAL_ARCHITECTURE.md` records the Prompt 12.1 landscape-only native game foundation, Prompt 12.2A battlefield reconstruction standard, and Prompt 12.3 Command HUD standard. BoardState gameplay is canonical landscape, the battlefield is the application, portrait gameplay belongs to BoardState Lite, future gameplay UI must avoid dashboard/web-app conventions, and the bottom interaction zone is BoardState's Command HUD.
 

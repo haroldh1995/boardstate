@@ -107,6 +107,13 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - Mobile page-swipe controls, edge-swipe zones, orientation-change layout switching, and composition mode UI toggles are retired from BoardState runtime.
 - Portrait physical-table companion gameplay is assigned to BoardState Lite. BoardState preserves its existing cosmic background, gold accents, glass HUD, and Commander battlefield identity.
 
+### Prompt 12.2A: Battlefield Reconstruction And Commander Table Redesign
+
+- `src/ui/render.js` adds `TABLETOP_RECONSTRUCTION_VERSION` as `boardstate-tabletop-reconstruction-0.1.0` and applies it to the body and active battlefield surface.
+- The active battlefield is reconstructed as a digital Commander table instead of a dashboard: idle card preview, idle stack, large hidden-opponent placeholder, generic empty-state panel, and always-visible combat strip are removed from idle gameplay.
+- `src/styles.css` makes the battlefield full-screen, quiets application chrome, removes software-style borders and panels around table regions, converts table/player information into compact overlays, and preserves the existing BoardState background and Command HUD.
+- `docs/ecosystem/NATIVE_GAME_VISUAL_ARCHITECTURE.md` and `docs/ecosystem/LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md` now define Prompt 12.2A as the battlefield reconstruction standard.
+
 ### Prompt 12.3: Command HUD, Digital Hand Replacement, And Player Control Experience
 
 - `src/ui/render.js` replaces the old battlefield bottom toolbar with `renderCommandHud()`, a BoardState-native Command HUD identified by `boardstate-command-hud-0.1.0`.

@@ -120,3 +120,26 @@ test("battlefield runtime uses the Command HUD instead of the former bottom tool
   assert.match(visualDoc, /Command HUD Standard/);
   assert.match(battlefieldDoc, /Prompt 12\.3 Command HUD/);
 });
+
+test("battlefield runtime uses the tabletop reconstruction instead of idle dashboard panels", () => {
+  const render = readRepositoryFile("src/ui/render.js");
+  const styles = readRepositoryFile("src/styles.css");
+  const visualDoc = readRepositoryFile("docs/ecosystem/NATIVE_GAME_VISUAL_ARCHITECTURE.md");
+  const battlefieldDoc = readRepositoryFile("docs/ecosystem/LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md");
+
+  assert.match(render, /TABLETOP_RECONSTRUCTION_VERSION = "boardstate-tabletop-reconstruction-0\.1\.0"/);
+  assert.match(render, /document\.body\.dataset\.tabletopReconstructionVersion = TABLETOP_RECONSTRUCTION_VERSION/);
+  assert.match(render, /data-tabletop-reconstruction-version/);
+  assert.match(render, /tabletop-battlefield-page/);
+  assert.match(render, /tabletop-empty-board/);
+  assert.equal(render.includes("landscape-selected-card is-empty"), false);
+  assert.equal(render.includes("Public board not shown"), false);
+  assert.equal(render.includes("Bottom Battlefield"), false);
+  assert.match(styles, /\.tabletop-battlefield-page\b/);
+  assert.match(styles, /battlefield reconstruction removes dashboard chrome/i);
+  assert.match(styles, /landscape-selected-card\.is-empty/);
+  assert.match(styles, /landscape-stack-core\.is-idle/);
+  assert.match(styles, /app-shell--battlefield \.app-header/);
+  assert.match(visualDoc, /Battlefield Reconstruction Standard/);
+  assert.match(battlefieldDoc, /Prompt 12\.2A Battlefield Reconstruction/);
+});

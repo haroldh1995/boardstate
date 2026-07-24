@@ -91,6 +91,7 @@ import {
 
 const NATIVE_GAME_VISUAL_FOUNDATION_VERSION = "boardstate-native-game-visual-foundation-0.1.0";
 const COMMAND_HUD_VERSION = "boardstate-command-hud-0.1.0";
+const TABLETOP_RECONSTRUCTION_VERSION = "boardstate-tabletop-reconstruction-0.1.0";
 const CANONICAL_GAMEPLAY_COMPOSITION = "landscape";
 const RUNTIME_LAYOUT_COMPOSITION = "widescreen";
 const LONG_PRESS_DELAY_MS = 420;
@@ -464,6 +465,7 @@ export function mountApp(root, store) {
     document.body.dataset.gameplayComposition = CANONICAL_GAMEPLAY_COMPOSITION;
     document.body.dataset.visualFoundation = NATIVE_GAME_VISUAL_FOUNDATION_VERSION;
     document.body.dataset.commandHudVersion = COMMAND_HUD_VERSION;
+    document.body.dataset.tabletopReconstructionVersion = TABLETOP_RECONSTRUCTION_VERSION;
     document.body.dataset.page = activePage;
     document.body.dataset.uiLayer = uiLayerState.current;
     document.body.dataset.simulationActive = profile.activeSession?.simulation?.enabled ? "true" : "false";
@@ -5903,7 +5905,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
   const motion = landscapeModel.motion || {};
   const cameraFocusKind = landscapeModel.camera?.activeFocus?.kind || "table";
   return `
-    <section class="battlefield-page battlefield-page--focused landscape-battlefield-page landscape-density-${escapeAttribute(landscapeModel.density)} advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} motion-${escapeAttribute(motion.intensity || "full")} camera-focus-${escapeAttribute(cameraFocusKind)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}" data-layout-version="${escapeAttribute(landscapeModel.version)}" data-motion-version="${escapeAttribute(motion.version || "")}" data-motion-intensity="${escapeAttribute(motion.intensity || "full")}" data-camera-focus="${escapeAttribute(cameraFocusKind)}" data-camera-transition="${escapeAttribute(motion.cameraPlan?.transition || "none")}">
+    <section class="battlefield-page battlefield-page--focused landscape-battlefield-page tabletop-battlefield-page landscape-density-${escapeAttribute(landscapeModel.density)} advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} motion-${escapeAttribute(motion.intensity || "full")} camera-focus-${escapeAttribute(cameraFocusKind)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}" data-layout-version="${escapeAttribute(landscapeModel.version)}" data-tabletop-reconstruction-version="${escapeAttribute(TABLETOP_RECONSTRUCTION_VERSION)}" data-motion-version="${escapeAttribute(motion.version || "")}" data-motion-intensity="${escapeAttribute(motion.intensity || "full")}" data-camera-focus="${escapeAttribute(cameraFocusKind)}" data-camera-transition="${escapeAttribute(motion.cameraPlan?.transition || "none")}">
       <div class="battlefield-state-strip landscape-state-strip">
         <div>
           <strong>Turn ${escapeHtml(session.turn)} · ${escapeHtml(PHASES[session.phaseIndex] || "Beginning")} · ${escapeHtml(resolvePhaseTrackerActorLabel(session).replace(/^Active turn:\s*/i, ""))}</strong>
@@ -6016,15 +6018,15 @@ function renderLandscapeGlobalInfoRail(model = {}, profile = {}) {
 function renderLandscapeOpponentRegion(region = {}, options = {}) {
   if (!options.showPerspectiveOpponentZone) {
     return `
-      <div class="opponent-zone landscape-board-region landscape-board-region--opponent is-hidden" data-opponent-swipe data-set-tool-context="empty">
-        <div class="opponent-zone-header">
-          <div><h2>Opponent Battlefield</h2><p class="eyebrow">Public board not shown</p></div>
+      <div class="opponent-zone landscape-board-region landscape-board-region--opponent tabletop-board-region is-hidden" data-opponent-swipe data-set-tool-context="empty">
+        <div class="opponent-zone-header tabletop-seat-note" aria-label="Opponent public battlefield">
+          <div><strong>Opponent side quiet</strong><p class="eyebrow">Public permanents appear here</p></div>
         </div>
       </div>
     `;
   }
   return `
-    <div class="opponent-zone landscape-board-region landscape-board-region--opponent ${escapeAttribute(options.opponentDensityClass || "")}" data-opponent-swipe data-set-tool-context="empty">
+    <div class="opponent-zone landscape-board-region landscape-board-region--opponent tabletop-board-region ${escapeAttribute(options.opponentDensityClass || "")}" data-opponent-swipe data-set-tool-context="empty">
       ${renderOpponentZoneHeader(options.opponentBoards || [], options.activeIndex || 0, options.activeOpponent, options.perspective)}
       ${renderCommanderHud(region)}
       ${renderLandscapeBattlefieldGroups(region, {
@@ -6047,10 +6049,10 @@ function renderLandscapeOpponentRegion(region = {}, options = {}) {
 
 function renderLandscapeLocalRegion(region = {}, options = {}) {
   return `
-    <div class="player-zone landscape-board-region landscape-board-region--local">
-      <div class="landscape-board-title">
+    <div class="player-zone landscape-board-region landscape-board-region--local tabletop-board-region">
+      <div class="landscape-board-title tabletop-player-vitals">
         <div>
-          <p class="eyebrow">Bottom Battlefield</p>
+          <p class="eyebrow">Local battlefield</p>
           <h2>${escapeHtml(options.showPerspectiveOpponentZone ? "Your Battlefield" : "Battlefield")}</h2>
         </div>
         <strong>Life ${escapeHtml(region.life ?? 40)}</strong>
@@ -6084,6 +6086,13 @@ function renderLandscapeCommandCenter(model = {}, profile = {}, options = {}) {
   const selectedCanAttack = Boolean(
     model.gameplayFlow?.selected?.primaryActions?.some((action) => action.id === "declare-attacker" && !action.disabled)
   );
+  const combatHasAction = Boolean(
+    selectedCanAttack ||
+      options.combatResolving ||
+      center.combat?.damagePreview ||
+      (center.combat?.attackerIds || []).length ||
+      (center.combat?.blockAssignments && Object.keys(center.combat.blockAssignments).length)
+  );
   return `
     <div class="combat-zone landscape-command-center hud-stack-${escapeAttribute(hud.stack || "collapsed")} hud-triggers-${escapeAttribute(hud.triggers || "collapsed")} hud-priority-${escapeAttribute(hud.priority || "collapsed")} hud-combat-${escapeAttribute(hud.combatControls || "hidden")} hud-motion-${escapeAttribute(motion.hudMotion?.state || "quiet")}" aria-label="Command center" data-motion-role="command-center" data-hud-motion="${escapeAttribute(motion.hudMotion?.state || "quiet")}">
       <div class="landscape-command-core">
@@ -6113,7 +6122,7 @@ function renderLandscapeCommandCenter(model = {}, profile = {}, options = {}) {
           </div>
         </article>
       </div>
-      ${options.panels?.boardCombat && combatExpanded ? `
+      ${options.panels?.boardCombat && combatExpanded && combatHasAction ? `
         <div class="landscape-combat-strip">
           ${center.combat?.damagePreview ? `<p>${escapeHtml(center.combat.damagePreview.total)} damage estimated</p>` : ""}
           <div class="row">
@@ -6168,7 +6177,12 @@ function renderLandscapeContextActionsRail(model = {}, searchResults, searchMess
 function renderLandscapeBattlefieldGroups(region = {}, options = {}) {
   const lanes = (region.lanes || []).filter((lane) => !lane.empty);
   if (!lanes.length) {
-    return empty(options.emptyText || "No permanents yet");
+    return `
+      <div class="tabletop-empty-board" aria-label="${escapeAttribute(options.emptyText || "No permanents yet")}">
+        <span aria-hidden="true">&#10022;</span>
+        <p>${escapeHtml(options.emptyText || "No permanents yet")}</p>
+      </div>
+    `;
   }
   return `
     <div class="battlefield-groups landscape-battlefield-groups">
@@ -6197,14 +6211,9 @@ function renderCommanderHud(region = {}) {
 
 function renderLandscapeSelectedCardPanel(details = {}) {
   const characteristics = details.currentCharacteristics || {};
-  const hasDetails = Boolean(details.title || details.oracleText || characteristics.typeLine || details.powerToughness || details.owner || details.controller);
+  const hasDetails = details.mode !== "empty" && Boolean(details.title || details.oracleText || characteristics.typeLine || details.powerToughness || details.owner || details.controller);
   if (!hasDetails) {
-    return `
-      <article class="landscape-selected-card is-empty" data-motion-role="selected-card">
-        <p class="eyebrow">Card Preview</p>
-        <strong>Select a card</strong>
-      </article>
-    `;
+    return "";
   }
   return `
     <article class="landscape-selected-card" data-motion-role="selected-card">
@@ -10712,7 +10721,7 @@ function getUnreadNotificationCount(profile = {}) {
 }
 
 function getAppVersion() {
-  return "1.34.0";
+  return "1.35.0";
 }
 
 function renderGameOptions(profile, page = "life") {

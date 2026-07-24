@@ -52,6 +52,19 @@ The canonical BoardState gameplay composition keeps one game layout across phone
 - Utilities appear as contextual overlays or rails, not permanent dashboard panels.
 - Hidden or incomplete future systems remain hidden until production ready.
 
+## Battlefield Reconstruction Standard
+
+Prompt 12.2A supersedes earlier battlefield layout assumptions where they conflict. The battlefield is no longer treated as a set of permanent panels inside a page. It is a digital Commander tabletop with contextual overlays only when gameplay needs them.
+
+Permanent standards:
+
+- `src/ui/render.js` exposes `boardstate-tabletop-reconstruction-0.1.0` through `data-tabletop-reconstruction-version` and `document.body.dataset.tabletopReconstructionVersion`.
+- The active battlefield must not render a permanent dashboard grid, fixed empty preview panel, idle stack box, large empty opponent rectangle, or boxed local battlefield container.
+- The top application chrome is visually quiet during gameplay. Primary gameplay controls belong to the battlefield and Command HUD, not a website-style header.
+- Empty battlefields use subtle table-space cues instead of dashed placeholder panels or large bordered rectangles.
+- The opponent and local areas remain actual table regions. Permanents, commanders, life totals, stack activity, combat, and selected-card context appear only as gameplay-relevant information.
+- The reconstruction preserves BoardState's existing cosmic background and gold-accented identity while removing software-style containers that made the battlefield feel secondary.
+
 ## Command HUD Standard
 
 Prompt 12.3 replaces the former bottom toolbar with the BoardState Command HUD. The bottom of the battlefield now carries the interaction role normally occupied by a digital player's hand, but it displays BoardState Command Cards instead of Magic cards or generic web buttons.
