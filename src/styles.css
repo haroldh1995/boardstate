@@ -8711,6 +8711,7 @@ body.phase-advance-celebration .action-card--phase {
     --action-card-height: clamp(3.62rem, 10.8svh, 4.35rem);
     width: min(100vw, calc(100vw - 0.35rem));
     min-height: clamp(4.95rem, 14svh, 5.75rem);
+    bottom: max(0.78rem, env(safe-area-inset-bottom));
     padding-inline: 0.22rem;
   }
 
@@ -8746,6 +8747,7 @@ body.phase-advance-celebration .action-card--phase {
 
   .action-card {
     padding: 0.4rem 0.42rem 0.34rem;
+    animation-name: action-card-draw-compact;
     transform: translateX(calc(var(--hand-offset) * 0.04rem)) translateY(calc(0px - var(--hand-rise))) rotate(calc(var(--hand-angle) * 0.5));
   }
 
@@ -8770,6 +8772,27 @@ body.phase-advance-celebration .action-card--phase {
 
   .action-hand-utility-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @keyframes action-card-draw-compact {
+    0% {
+      opacity: 0;
+      transform:
+        translateX(calc(var(--hand-offset) * 0.08rem))
+        rotate(calc(var(--hand-angle) * 0.78))
+        translateY(8px)
+        translateZ(-12px)
+        scale(0.92);
+    }
+    100% {
+      opacity: 1;
+      transform:
+        translateX(calc(var(--hand-offset) * 0.04rem))
+        translateY(calc(0px - var(--hand-rise)))
+        rotate(calc(var(--hand-angle) * 0.5))
+        translateZ(calc(var(--hand-prominence) * 8px))
+        scale(1);
+    }
   }
 }
 
