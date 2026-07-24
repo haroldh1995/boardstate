@@ -172,22 +172,24 @@ Prompt 12.2A rebuilds the active battlefield composition around the digital Comm
 - `renderLandscapeBattlefieldGroups()` uses `tabletop-empty-board` for empty table regions instead of the generic dashed empty-state panel.
 - The hidden-opponent state is reduced to a quiet table note rather than a large empty bordered opponent rectangle.
 - The combat strip renders only when combat has an actual action, damage preview, attacker assignment, blocker assignment, or active resolution.
-- `src/styles.css` makes the battlefield a full-screen tabletop surface, quiets application chrome, removes dashboard borders/backgrounds from arena and board regions, converts player/table info into compact overlays, and keeps Command HUD as the bottom gameplay command surface.
+- `src/styles.css` makes the battlefield a full-screen tabletop surface, quiets application chrome, removes dashboard borders/backgrounds from arena and board regions, converts player/table info into compact overlays, and keeps the Commander Action Hand as the bottom gameplay decision surface.
 
-The reconstruction is presentation-only. It does not change rules processing, State Engine ownership, Event Knowledge, saves, sync, hidden-information policy, Command HUD action routing, or future Hub/Lite/Nexus boundaries.
+The reconstruction is presentation-only. It does not change rules processing, State Engine ownership, Event Knowledge, saves, sync, hidden-information policy, Commander Action Hand action routing, or future Hub/Lite/Nexus boundaries.
 
-## Prompt 12.3 Command HUD
+## Prompt 12.3C Commander Action Hand
 
-Prompt 12.3 replaces the former battlefield bottom toolbar and floating assistant launchers with one integrated Command HUD:
+Prompt 12.3C supersedes Prompt 12.3 and replaces the prior Command HUD exploration with the Commander Action Hand:
 
-- `src/ui/render.js` exposes `COMMAND_HUD_VERSION` as `boardstate-command-hud-0.1.0`.
-- `renderCommandHud()` renders the bottom command surface as BoardState Command Cards for Tools, Utility, Search, Combat, Next Phase, Resolve, selected-card Context, Commander, Ask Why, Remind, and Undo.
-- `renderUtilityDock()` no longer renders the old utility menu. Utilities now open through the Command HUD into contextual overlays while keeping the battlefield visible.
-- `renderUtilityPanel()` includes a `utilities` command overlay for Dice, Tokens, Mana, Display, Calculator, Notes, Phase, History, and AI Analysis.
+- `src/ui/render.js` exposes `COMMANDER_ACTION_HAND_VERSION` as `boardstate-commander-action-hand-0.1.0`.
+- `renderCommanderActionHand()` renders the bottom interaction surface as a living hand of Action Cards, not a toolbar, ribbon, dock, or static row.
+- `createCommanderActionCards()` hides unavailable actions, promotes state-relevant actions, and orders visible cards so the highest-priority decision occupies the center of the fan.
+- `renderCommanderActionCard()` preserves the existing action-entry attributes for phase advancement, utility overlays, search, Commander tools, rules assistance, reminders, combat, stack resolution, selected-card inspection, and undo.
+- `renderUtilityDock()` opens existing panels from Action Cards while keeping the battlefield visible.
+- `renderUtilityPanel()` includes an `action-hand-utility-grid` for Dice, Tokens, Mana, Display, Calculator, Notes, Phase, History, and AI Analysis.
 - Rules Assistant, Remind Me, and AI Analysis remain available through existing panels and existing authoritative engines, but their old floating launcher buttons are no longer part of the battlefield runtime.
-- `src/styles.css` presents the HUD as a restrained bottom-edge fan of card-inspired BoardState controls with cosmic glass, gold accents, keyboard focus states, reduced-motion safety, compact landscape behavior, and no Arena artwork or protected interface assets.
+- `src/styles.css` presents the Action Hand as a compact overlapped fan with physical lift, focus-neighbor displacement, deterministic priority prominence, subtle idle breathing, keyboard focus states, reduced-motion safety, compact landscape behavior, and no Arena artwork or protected interface assets.
 
-The Command HUD is presentation and action entry only. It does not create a second action system, second rules authority, second state owner, alternate save format, fake digital hand, or Hub/Lite/Nexus dependency.
+The Commander Action Hand is presentation and action entry only. It does not create a second action system, second rules authority, second state owner, alternate save format, fake digital hand, or Hub/Lite/Nexus dependency. The design record and rejected alternatives live in `docs/ecosystem/COMMANDER_ACTION_HAND_DESIGN.md`.
 
 ## Deferred Work
 

@@ -111,16 +111,25 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 
 - `src/ui/render.js` adds `TABLETOP_RECONSTRUCTION_VERSION` as `boardstate-tabletop-reconstruction-0.1.0` and applies it to the body and active battlefield surface.
 - The active battlefield is reconstructed as a digital Commander table instead of a dashboard: idle card preview, idle stack, large hidden-opponent placeholder, generic empty-state panel, and always-visible combat strip are removed from idle gameplay.
-- `src/styles.css` makes the battlefield full-screen, quiets application chrome, removes software-style borders and panels around table regions, converts table/player information into compact overlays, and preserves the existing BoardState background and Command HUD.
+- `src/styles.css` makes the battlefield full-screen, quiets application chrome, removes software-style borders and panels around table regions, converts table/player information into compact overlays, and preserves the existing BoardState background and bottom decision-entry foundation.
 - `docs/ecosystem/NATIVE_GAME_VISUAL_ARCHITECTURE.md` and `docs/ecosystem/LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md` now define Prompt 12.2A as the battlefield reconstruction standard.
 
 ### Prompt 12.3: Command HUD, Digital Hand Replacement, And Player Control Experience
 
-- `src/ui/render.js` replaces the old battlefield bottom toolbar with `renderCommandHud()`, a BoardState-native Command HUD identified by `boardstate-command-hud-0.1.0`.
-- The HUD consolidates Tools, Utility, Search, Combat, Next Phase, Resolve, selected-card Context, Commander, Ask Why, Remind, and Undo into card-inspired Command Cards at the bottom battlefield edge.
-- The old utility menu and floating Rules Assistant, Remind Me, and AI Analysis launchers are retired from battlefield runtime. Their implemented panels remain available through the Command HUD and existing contextual overlays.
-- `src/styles.css` adds a premium bottom fan/arc presentation with BoardState cosmic glass, gold accents, physical lift feedback, keyboard focus states, compact landscape behavior, and reduced-motion protection.
-- `docs/ecosystem/NATIVE_GAME_VISUAL_ARCHITECTURE.md` and `docs/ecosystem/LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md` now define the Command HUD as the permanent bottom interaction standard.
+- Superseded by Prompt 12.3C where the two conflict.
+- This exploration replaced the old battlefield bottom toolbar with `renderCommandHud()`, a BoardState-native Command HUD identified by `boardstate-command-hud-0.1.0`.
+- The exploration consolidated Tools, Utility, Search, Combat, Next Phase, Resolve, selected-card Context, Commander, Ask Why, Remind, and Undo into card-inspired Command Cards at the bottom battlefield edge.
+- The old utility menu and floating Rules Assistant, Remind Me, and AI Analysis launchers were retired from battlefield runtime. Their implemented panels remained available through the exploration HUD and existing contextual overlays.
+- `src/styles.css` added a premium bottom fan/arc presentation with BoardState cosmic glass, gold accents, physical lift feedback, keyboard focus states, compact landscape behavior, and reduced-motion protection.
+- Prompt 12.3C replaces this exploration as the active permanent bottom interaction standard.
+
+### Prompt 12.3C: Commander Action Hand
+
+- `docs/ecosystem/COMMANDER_ACTION_HAND_DESIGN.md` records the AAA design process, five-plus explored concepts, rejected alternatives, whiteboard rules, visual mockup gate, interactive prototype gate, critique, and selected production model.
+- `src/ui/render.js` replaces the Prompt 12.3 HUD renderer with `COMMANDER_ACTION_HAND_VERSION`, `renderCommanderActionHand()`, `createCommanderActionCards()`, and `renderCommanderActionCard()`.
+- The bottom gameplay surface now renders dynamic Action Cards for available Commander decisions. Irrelevant combat, resolve, selected-card inspection, and undo actions are not kept as permanent disabled toolbar items.
+- `src/styles.css` replaces the old HUD stylesheet block with an overlapped, priority-centered, physically handled action-card fan with hover/focus lift, neighbor displacement, state-specific treatment, idle breathing, and reduced-motion safety.
+- Existing reducer and overlay actions remain reused through their current `data-*` attributes. No second rules engine, state owner, save format, action bus, Hub dependency, or hidden-information path was introduced.
 
 ## Remaining Roadmap
 

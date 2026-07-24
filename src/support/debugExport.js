@@ -242,8 +242,8 @@ function redactSecrets(key, value) {
 function getAppVersion() {
   return {
     name: "BoardState",
-    version: "1.35.0",
-    build: "tabletop-reconstruction-release",
+    version: "1.36.0",
+    build: "commander-action-hand-release",
   };
 }
 

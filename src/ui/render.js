@@ -90,7 +90,7 @@ import {
 } from "../migration/legacyMigration.js";
 
 const NATIVE_GAME_VISUAL_FOUNDATION_VERSION = "boardstate-native-game-visual-foundation-0.1.0";
-const COMMAND_HUD_VERSION = "boardstate-command-hud-0.1.0";
+const COMMANDER_ACTION_HAND_VERSION = "boardstate-commander-action-hand-0.1.0";
 const TABLETOP_RECONSTRUCTION_VERSION = "boardstate-tabletop-reconstruction-0.1.0";
 const CANONICAL_GAMEPLAY_COMPOSITION = "landscape";
 const RUNTIME_LAYOUT_COMPOSITION = "widescreen";
@@ -464,7 +464,7 @@ export function mountApp(root, store) {
     document.body.dataset.compositionPreference = CANONICAL_GAMEPLAY_COMPOSITION;
     document.body.dataset.gameplayComposition = CANONICAL_GAMEPLAY_COMPOSITION;
     document.body.dataset.visualFoundation = NATIVE_GAME_VISUAL_FOUNDATION_VERSION;
-    document.body.dataset.commandHudVersion = COMMAND_HUD_VERSION;
+    document.body.dataset.commanderActionHandVersion = COMMANDER_ACTION_HAND_VERSION;
     document.body.dataset.tabletopReconstructionVersion = TABLETOP_RECONSTRUCTION_VERSION;
     document.body.dataset.page = activePage;
     document.body.dataset.uiLayer = uiLayerState.current;
@@ -5958,7 +5958,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
       </section>
       ${renderGameplayContextDock(landscapeModel.gameplayFlow, session)}
     </section>
-    ${renderCommandHud(profile, {
+    ${renderCommanderActionHand(profile, {
       activeUtilityPanel,
       utilityDockOpen: Boolean(uiState.utilityDockOpen),
       toolMenuOpen: Boolean(uiState.toolMenuOpen),
@@ -7337,7 +7337,7 @@ function renderUtilityDock(
     return "";
   }
   return `
-    <section class="utility-dock command-hud-overlay-host ${open ? "open" : ""}">
+    <section class="utility-dock action-hand-overlay-host ${open ? "open" : ""}">
       ${renderUtilityPanel(profile, activeUtilityPanel, isMobilePortrait, searchResults, searchMessage, searchLoading, searchQuery, castActionPopup, rulesAssistantUi)}
     </section>
   `;
@@ -7398,7 +7398,7 @@ function resolveCommandHudCommanderSummary(session = {}) {
   };
 }
 
-function renderCommandHud(profile, options = {}) {
+function renderCommanderActionHand(profile, options = {}) {
   const {
     activeUtilityPanel = "",
     utilityDockOpen = false,
@@ -7431,145 +7431,222 @@ function renderCommandHud(profile, options = {}) {
     ? `${pendingCount} pending`
     : session.priority?.waiting
       ? "Priority window"
-      : "Commands ready";
-  const cards = [
+      : "Action hand ready";
+  const canUndo = Boolean((session.undoStack || []).length);
+  const isCombatRelevant = Boolean(phaseLabel.includes("combat") || canDeclareAttackers || combatToResolve);
+  const actionCards = createCommanderActionCards([
     {
-      id: "tools",
-      eyebrow: "Board",
-      label: "Tools",
-      detail: activeToolPanel ? formatLabel(activeToolPanel) : "Tokens / mana",
+      id: "tablecraft",
+      family: "table",
+      eyebrow: "Tablecraft",
+      label: "Table Tools",
+      detail: "Dice / mana / tokens",
+      intent: "Manipulate table aids",
       signal: toolMenuOpen || activeToolPanel ? "Active" : "Open",
-      state: toolMenuOpen || activeToolPanel ? "active" : "quiet",
-      attrs: ["data-open-tool-menu"],
-    },
-    {
-      id: "utilities",
-      eyebrow: "Table",
-      label: "Utility",
-      detail: "Dice / notes",
-      signal: utilityPanels.has(activeUtilityPanel) || utilityDockOpen ? "Active" : "Ready",
-      state: utilityPanels.has(activeUtilityPanel) || utilityDockOpen ? "active" : "quiet",
+      state: toolMenuOpen || activeToolPanel || utilityPanels.has(activeUtilityPanel) || utilityDockOpen ? "expanded" : "idle",
       attrs: ['data-open-utility="utilities"'],
+      priority: toolMenuOpen || activeToolPanel || utilityPanels.has(activeUtilityPanel) || utilityDockOpen ? 86 : 32,
+      visible: true,
     },
     {
-      id: "search",
+      id: "library",
+      family: "knowledge",
       eyebrow: "Library",
       label: "Search",
       detail: "Oracle / add",
+      intent: "Find a card or rules text",
       signal: activeUtilityPanel === "search" ? "Active" : "Find",
-      state: activeUtilityPanel === "search" ? "active" : "quiet",
+      state: activeUtilityPanel === "search" ? "expanded" : "idle",
       attrs: ['data-open-utility="search"'],
+      priority: activeUtilityPanel === "search" ? 102 : 44,
+      visible: true,
     },
     {
       id: "combat",
+      family: "combat",
       eyebrow: "Combat",
       label: "Attack",
       detail: canDeclareAttackers ? `${selectedCreatureCount} attacker${selectedCreatureCount === 1 ? "" : "s"}` : phaseLabel.includes("combat") ? "Select creatures" : "Not combat",
+      intent: "Declare attackers",
       signal: canDeclareAttackers ? "Ready" : "Closed",
-      state: canDeclareAttackers ? "pending" : "disabled",
+      state: canDeclareAttackers ? "promoted" : "disabled",
       attrs: canDeclareAttackers ? ['data-command-action="attackers"', 'data-combat-available="true"', "data-declare-attackers"] : [],
+      priority: canDeclareAttackers ? 116 : 54,
+      visible: isCombatRelevant,
       disabled: !canDeclareAttackers,
     },
     {
       id: "phase",
+      family: "turn",
       eyebrow: `Turn ${session.turn || 1}`,
       label: "Next Phase",
       detail: phaseName,
+      intent: "Advance turn structure",
       signal: session.priority?.waiting ? "Priority" : "Advance",
-      state: "primary",
+      state: session.priority?.waiting ? "waiting" : "promoted",
       attrs: ["data-next-phase"],
+      priority: session.priority?.waiting ? 78 : 96,
+      visible: true,
     },
     {
       id: "resolve",
+      family: "stack",
       eyebrow: "Stack",
       label: combatResolving ? "Resolving" : "Resolve",
       detail: stackCount ? `${stackCount} stack` : triggerCount ? `${triggerCount} triggers` : combatToResolve ? "Combat damage" : "No pending",
+      intent: "Resolve pending object",
       signal: canResolveContext ? "Ready" : "Idle",
-      state: canResolveContext ? "pending" : "disabled",
+      state: combatResolving ? "resolving" : canResolveContext ? "promoted" : "disabled",
       attrs: canResolveContext ? ['data-command-action="resolve"', `data-combat-available="${includeCombat ? "true" : "false"}"`, "data-resolve-combat"] : [],
+      priority: combatResolving ? 128 : canResolveContext ? 122 : 0,
+      visible: canResolveContext || combatResolving,
       disabled: !canResolveContext || combatResolving,
     },
     {
-      id: "context",
+      id: "inspect",
+      family: "selection",
       eyebrow: "Selection",
       label: selectedPermanents.length ? "Inspect" : "Context",
       detail: selectedSummary,
+      intent: "Inspect selected object",
       signal: selectedPermanents.length ? "Selected" : "Quiet",
-      state: selectedPermanents.length ? "active" : "disabled",
+      state: selectedPermanents.length ? "selected" : "disabled",
       attrs: selectedPermanents.length ? ['data-open-tool-panel="inspect"'] : [],
+      priority: selectedPermanents.length ? 118 : 0,
+      visible: Boolean(selectedPermanents.length),
       disabled: !selectedPermanents.length,
     },
     {
       id: "commander",
+      family: "commander",
       eyebrow: commanderSummary.extraCount ? `${commanderSummary.count} Commanders` : "Commander",
       label: commander.name,
       detail: `Tax ${commander.tax} / ${formatLabel(commander.zone)}`,
+      intent: "Manage Commander state",
       signal: commander.damageTotal ? `${commander.damageTotal} dmg` : activeCommanderTags,
-      state: activeToolPanel === "commander" ? "active" : "commander",
+      state: activeToolPanel === "commander" ? "expanded" : "resting",
       attrs: ['data-open-tool-panel="commander"'],
+      priority: activeToolPanel === "commander" ? 112 : 88,
+      visible: true,
     },
     {
       id: "rules",
+      family: "judge",
       eyebrow: "Judge",
       label: "Ask Why",
       detail: "Rules assistant",
+      intent: "Explain current game state",
       signal: activeUtilityPanel === "rules-assistant" ? "Active" : "Explain",
-      state: activeUtilityPanel === "rules-assistant" ? "active" : "quiet",
+      state: activeUtilityPanel === "rules-assistant" ? "expanded" : "idle",
       attrs: ['data-open-utility="rules-assistant"'],
+      priority: activeUtilityPanel === "rules-assistant" ? 104 : 40,
+      visible: true,
     },
     {
       id: "remind",
+      family: "memory",
       eyebrow: "Memory",
       label: "Remind",
       detail: "Triggers / alerts",
+      intent: "Set contextual reminders",
       signal: activeUtilityPanel === "remind-me" ? "Active" : "Set",
-      state: activeUtilityPanel === "remind-me" ? "active" : "quiet",
+      state: activeUtilityPanel === "remind-me" ? "expanded" : "idle",
       attrs: ['data-open-utility="remind-me"'],
+      priority: activeUtilityPanel === "remind-me" ? 104 : 38,
+      visible: true,
     },
     {
       id: "undo",
+      family: "safety",
       eyebrow: "Safety",
       label: "Undo",
       detail: "Last action",
+      intent: "Undo the latest reversible action",
       signal: "Safe",
-      state: "quiet",
+      state: canUndo ? "idle" : "demoted",
       attrs: ["data-undo"],
+      priority: canUndo ? 72 : 0,
+      visible: canUndo,
     },
-  ];
+  ]);
+  const priorityCard = actionCards.reduce((winner, card) => (card.priority > (winner?.priority || -1) ? card : winner), null);
   return `
-    <section class="command-hud glass" data-command-hud data-command-hud-version="${escapeAttribute(COMMAND_HUD_VERSION)}" aria-label="BoardState Command HUD" data-no-swipe>
-      <div class="command-hud__rail" aria-hidden="true"></div>
-      <div class="command-hud__status">
+    <section class="commander-action-hand" data-commander-action-hand data-commander-action-hand-version="${escapeAttribute(COMMANDER_ACTION_HAND_VERSION)}" data-action-count="${actionCards.length}" data-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" aria-label="Commander Action Hand" data-no-swipe>
+      <div class="commander-action-hand__aura" aria-hidden="true"></div>
+      <div class="commander-action-hand__status">
         <span>${escapeHtml(attentionLabel)}</span>
-        ${pendingCount ? `<button data-open-utility="${stackCount || pendingEffectsCount ? "stack" : "triggers"}" class="command-hud__queue ${activeUtilityPanel === "stack" || activeUtilityPanel === "triggers" ? "is-active" : ""}">${escapeHtml(stackCount ? `${stackCount} stack` : `${triggerCount} triggers`)}</button>` : ""}
+        ${pendingCount ? `<button data-open-utility="${stackCount || pendingEffectsCount ? "stack" : "triggers"}" class="action-hand-queue ${activeUtilityPanel === "stack" || activeUtilityPanel === "triggers" ? "is-active" : ""}">${escapeHtml(stackCount ? `${stackCount} stack` : `${triggerCount} triggers`)}</button>` : ""}
       </div>
-      <div class="command-hud__fan" role="toolbar" aria-label="Commander battlefield commands">
-        ${cards.map((card, index) => renderCommandHudCard(card, index, cards.length)).join("")}
+      <div class="commander-action-hand__fan" role="group" aria-label="Available Commander decisions" style="--action-count: ${actionCards.length};">
+        ${actionCards.map((card, index) => renderCommanderActionCard(card, index, actionCards.length)).join("")}
       </div>
     </section>
   `;
 }
 
-function renderCommandHudCard(card, index, count) {
+function createCommanderActionCards(cards) {
+  const visible = cards
+    .filter((card) => card.visible !== false)
+    .map((card) => ({
+      ...card,
+      priority: Number(card.priority || 0),
+      state: card.state || "idle",
+    }))
+    .sort((left, right) => {
+      if (right.priority !== left.priority) {
+        return right.priority - left.priority;
+      }
+      return String(left.id).localeCompare(String(right.id));
+    });
+  const ordered = new Array(visible.length);
+  const centerSlot = Math.floor((visible.length - 1) / 2);
+  const slotsByPriority = [centerSlot];
+  for (let distance = 1; slotsByPriority.length < visible.length; distance += 1) {
+    if (centerSlot - distance >= 0) {
+      slotsByPriority.push(centerSlot - distance);
+    }
+    if (centerSlot + distance < visible.length) {
+      slotsByPriority.push(centerSlot + distance);
+    }
+  }
+  visible.forEach((card, index) => {
+    ordered[slotsByPriority[index]] = card;
+  });
+  return ordered.filter(Boolean);
+}
+
+function renderCommanderActionCard(card, index, count) {
   const midpoint = (count - 1) / 2;
   const offset = index - midpoint;
-  const fanTilt = offset * 3.15;
-  const fanRise = Math.max(0, 8 - Math.abs(offset) * 1.4);
+  const distance = Math.abs(offset);
+  const fanTilt = offset * 5.2;
+  const fanRise = Math.max(0, 18 - distance * 4.2) + Math.max(0, Number(card.priority || 0) - 90) * 0.12;
+  const prominence = Math.max(0, Math.min(1, Number(card.priority || 0) / 128));
+  const fanScale = 0.94 + prominence * 0.11;
+  const fanDepth = Math.round((count - distance) * 10 + prominence * 24);
+  const overlapAdjust = `${Math.round((distance % 2) * 4 - distance * 1.5)}px`;
   const attrs = (card.attrs || []).join(" ");
   const disabled = card.disabled ? "disabled aria-disabled=\"true\"" : "";
   return `
     <button
-      class="command-hud-card command-hud-card--${escapeAttribute(card.id)} command-hud-card-state-${escapeAttribute(card.state || "quiet")}"
-      style="--fan-tilt: ${fanTilt.toFixed(2)}deg; --fan-rise: ${fanRise.toFixed(2)}px;"
+      class="action-card action-card--${escapeAttribute(card.id)} action-card-family-${escapeAttribute(card.family || "general")} action-card-state-${escapeAttribute(card.state || "idle")} action-card-entering"
+      style="--hand-index: ${index}; --hand-offset: ${offset.toFixed(2)}; --hand-angle: ${fanTilt.toFixed(2)}deg; --hand-rise: ${fanRise.toFixed(2)}px; --hand-scale: ${fanScale.toFixed(3)}; --hand-depth: ${fanDepth}; --hand-overlap-adjust: ${overlapAdjust}; --hand-prominence: ${prominence.toFixed(3)};"
       ${attrs}
       ${disabled}
-      aria-label="${escapeAttribute(`${card.label}: ${card.detail || card.signal || "command"}`)}"
+      data-action-card
+      data-action-card-id="${escapeAttribute(card.id)}"
+      data-action-card-state="${escapeAttribute(card.state || "idle")}"
+      data-action-priority="${escapeAttribute(String(card.priority || 0))}"
+      aria-label="${escapeAttribute(`${card.label}: ${card.detail || card.signal || "decision"}`)}"
+      aria-pressed="${card.state === "expanded" || card.state === "selected" ? "true" : "false"}"
     >
-      <span class="command-hud-card__edge" aria-hidden="true"></span>
-      <span class="command-hud-card__eyebrow">${escapeHtml(card.eyebrow || "Command")}</span>
-      <span class="command-hud-card__label">${escapeHtml(card.label || "Command")}</span>
-      <span class="command-hud-card__detail">${escapeHtml(card.detail || "")}</span>
-      <span class="command-hud-card__signal">${escapeHtml(card.signal || "Ready")}</span>
+      <span class="action-card__rim" aria-hidden="true"></span>
+      <span class="action-card__glint" aria-hidden="true"></span>
+      <span class="action-card__eyebrow">${escapeHtml(card.eyebrow || "Decision")}</span>
+      <span class="action-card__label">${escapeHtml(card.label || "Action")}</span>
+      <span class="action-card__detail">${escapeHtml(card.detail || "")}</span>
+      <span class="action-card__signal">${escapeHtml(card.signal || "Ready")}</span>
+      <span class="action-card__intent">${escapeHtml(card.intent || "Available decision")}</span>
     </button>
   `;
 }
@@ -7592,7 +7669,7 @@ function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResu
         <button data-close-utility-panel>Close</button>
       </div>
       ${panel === "utilities" ? `
-        <div class="command-hud-utility-grid">
+        <div class="action-hand-utility-grid">
           <button data-open-utility="dice"><strong>Dice</strong><span>Roll table decisions</span></button>
           <button data-open-utility="tokens"><strong>Tokens</strong><span>Create or adjust tokens</span></button>
           <button data-open-utility="mana"><strong>Mana</strong><span>Floating mana controls</span></button>
@@ -10721,7 +10798,7 @@ function getUnreadNotificationCount(profile = {}) {
 }
 
 function getAppVersion() {
-  return "1.35.0";
+  return "1.36.0";
 }
 
 function renderGameOptions(profile, page = "life") {

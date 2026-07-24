@@ -85,25 +85,35 @@ test("runtime no longer contains portrait wallpaper selection or mobile navigati
   assert.equal(render.includes("dataset.gameplayComposition = CANONICAL_GAMEPLAY_COMPOSITION"), true);
 });
 
-test("battlefield runtime uses the Command HUD instead of the former bottom toolbar", () => {
+test("battlefield runtime uses the Commander Action Hand instead of the former bottom toolbar", () => {
   const render = readRepositoryFile("src/ui/render.js");
   const styles = readRepositoryFile("src/styles.css");
   const visualDoc = readRepositoryFile("docs/ecosystem/NATIVE_GAME_VISUAL_ARCHITECTURE.md");
   const battlefieldDoc = readRepositoryFile("docs/ecosystem/LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md");
+  const actionHandDoc = readRepositoryFile("docs/ecosystem/COMMANDER_ACTION_HAND_DESIGN.md");
 
-  assert.match(render, /COMMAND_HUD_VERSION = "boardstate-command-hud-0\.1\.0"/);
-  assert.match(render, /function renderCommandHud/);
-  assert.match(render, /data-command-hud-version/);
-  assert.match(render, /document\.body\.dataset\.commandHudVersion = COMMAND_HUD_VERSION/);
+  assert.match(render, /COMMANDER_ACTION_HAND_VERSION = "boardstate-commander-action-hand-0\.1\.0"/);
+  assert.match(render, /function renderCommanderActionHand/);
+  assert.match(render, /function createCommanderActionCards/);
+  assert.match(render, /function renderCommanderActionCard/);
+  assert.match(render, /data-commander-action-hand-version/);
+  assert.match(render, /document\.body\.dataset\.commanderActionHandVersion = COMMANDER_ACTION_HAND_VERSION/);
   assert.match(render, /data-next-phase/);
   assert.match(render, /data-open-utility="rules-assistant"/);
   assert.match(render, /data-open-utility="remind-me"/);
   assert.match(render, /data-open-tool-panel="commander"/);
+  assert.match(render, /data-action-card-id/);
+  assert.match(render, /data-action-priority/);
+  assert.match(render, /visible: canResolveContext \|\| combatResolving/);
+  assert.match(render, /visible: Boolean\(selectedPermanents\.length\)/);
   assert.equal(render.includes("renderMobileBattlefieldDock"), false);
   assert.equal(render.includes("battlefield-mobile-dock"), false);
   assert.equal(render.includes("battlefield-wheel"), false);
   assert.equal(render.includes("battlefield-command-console"), false);
   assert.equal(render.includes("data-dashboard-action"), false);
+  assert.equal(render.includes("renderCommandHud"), false);
+  assert.equal(render.includes("command-hud-card"), false);
+  assert.equal(render.includes("data-command-hud-version"), false);
   assert.equal(render.includes("rules-assistant-launcher"), false);
   assert.equal(render.includes("proactive-assistant-launcher"), false);
   assert.equal(render.includes("ai-gameplay-launcher"), false);
@@ -111,14 +121,36 @@ test("battlefield runtime uses the Command HUD instead of the former bottom tool
   assert.equal(styles.includes("battlefield-wheel"), false);
   assert.equal(styles.includes("battlefield-command-console"), false);
   assert.equal(styles.includes("utility-dock-menu"), false);
+  assert.equal(styles.includes(".command-hud"), false);
+  assert.equal(styles.includes(".command-hud-card"), false);
 
-  assert.match(styles, /\.command-hud\b/);
-  assert.match(styles, /\.command-hud-card\b/);
-  assert.match(styles, /\.command-hud-card--commander\b/);
+  assert.match(styles, /\.commander-action-hand\b/);
+  assert.match(styles, /\.action-card\b/);
+  assert.match(styles, /\.action-card--commander\b/);
+  assert.match(styles, /\.commander-action-hand__fan:has\(\.action-card:hover\)/);
+  assert.match(styles, /\.action-card:has\(\+ \.action-card:hover\)/);
+  assert.match(styles, /\.action-card-state-resting\b/);
+  assert.match(styles, /\.action-card-state-idle\b/);
+  assert.match(styles, /\.action-card-state-focused\b/);
+  assert.match(styles, /\.action-card-state-expanded\b/);
+  assert.match(styles, /\.action-card-state-selected\b/);
+  assert.match(styles, /\.action-card-state-waiting\b/);
+  assert.match(styles, /\.action-card-state-disabled\b/);
+  assert.match(styles, /\.action-card-state-appearing\b/);
+  assert.match(styles, /\.action-card-state-leaving\b/);
+  assert.match(styles, /\.action-card-state-promoted\b/);
+  assert.match(styles, /\.action-card-state-demoted\b/);
+  assert.match(styles, /\.action-card-state-resolving\b/);
   assert.match(styles, /clip-path: polygon/);
   assert.match(styles, /prefers-reduced-motion: reduce/);
-  assert.match(visualDoc, /Command HUD Standard/);
-  assert.match(battlefieldDoc, /Prompt 12\.3 Command HUD/);
+  assert.match(visualDoc, /Commander Action Hand Standard/);
+  assert.match(battlefieldDoc, /Prompt 12\.3C Commander Action Hand/);
+  assert.match(actionHandDoc, /Research/);
+  assert.match(actionHandDoc, /Ideation/);
+  assert.match(actionHandDoc, /Whiteboarding/);
+  assert.match(actionHandDoc, /Visual Mockups/);
+  assert.match(actionHandDoc, /Interactive Prototype Gate/);
+  assert.match(actionHandDoc, /Internal Design Critique/);
 });
 
 test("battlefield runtime uses the tabletop reconstruction instead of idle dashboard panels", () => {

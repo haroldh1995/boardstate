@@ -60,24 +60,28 @@ Permanent standards:
 
 - `src/ui/render.js` exposes `boardstate-tabletop-reconstruction-0.1.0` through `data-tabletop-reconstruction-version` and `document.body.dataset.tabletopReconstructionVersion`.
 - The active battlefield must not render a permanent dashboard grid, fixed empty preview panel, idle stack box, large empty opponent rectangle, or boxed local battlefield container.
-- The top application chrome is visually quiet during gameplay. Primary gameplay controls belong to the battlefield and Command HUD, not a website-style header.
+- The top application chrome is visually quiet during gameplay. Primary gameplay controls belong to the battlefield and Commander Action Hand, not a website-style header.
 - Empty battlefields use subtle table-space cues instead of dashed placeholder panels or large bordered rectangles.
 - The opponent and local areas remain actual table regions. Permanents, commanders, life totals, stack activity, combat, and selected-card context appear only as gameplay-relevant information.
 - The reconstruction preserves BoardState's existing cosmic background and gold-accented identity while removing software-style containers that made the battlefield feel secondary.
 
-## Command HUD Standard
+## Commander Action Hand Standard
 
-Prompt 12.3 replaces the former bottom toolbar with the BoardState Command HUD. The bottom of the battlefield now carries the interaction role normally occupied by a digital player's hand, but it displays BoardState Command Cards instead of Magic cards or generic web buttons.
+Prompt 12.3C supersedes the Prompt 12.3 Command HUD exploration. The bottom of the battlefield now carries the interaction role normally occupied by a digital player's hand, but it displays a living hand of available Commander decisions instead of Magic cards, generic web buttons, a toolbar, a ribbon, or a static dock.
 
 Permanent standards:
 
-- `src/ui/render.js` exposes `boardstate-command-hud-0.1.0` through `data-command-hud-version` and `document.body.dataset.commandHudVersion`.
-- The Command HUD is the only bottom gameplay command surface on the battlefield.
-- Commands are presented as restrained, card-inspired BoardState controls integrated into the battlefield edge.
-- Command Cards may open existing tools, utilities, rules assistance, reminders, Commander tools, search, combat, stack resolution, phase advancement, selected-card inspection, or undo. They do not own gameplay state.
-- Inactive commands remain visually quiet or disabled. Relevant commands become prominent only when the current authoritative session state makes them useful.
+- `src/ui/render.js` exposes `boardstate-commander-action-hand-0.1.0` through `data-commander-action-hand-version` and `document.body.dataset.commanderActionHandVersion`.
+- The Commander Action Hand is the only bottom gameplay command surface on the battlefield.
+- `renderCommanderActionHand()` replaces the old bottom HUD renderer. `createCommanderActionCards()` filters unavailable actions and orders visible cards by deterministic priority.
+- Action Cards are gameplay decisions. They may open existing tools, utilities, rules assistance, reminders, Commander tools, search, combat, stack resolution, phase advancement, selected-card inspection, or undo. They do not own gameplay state.
+- Inactive or irrelevant actions are not kept as permanent disabled toolbar items. Combat, resolve, selected-card inspection, and undo cards appear only when state makes them useful.
+- The highest-priority Action Card migrates toward the center of the fan. Secondary cards alternate left and right from center.
+- Action Cards overlap, fan, lift on hover/focus, move neighboring cards aside, and retain reduced-motion-safe equivalents.
 - Utility, Rules Assistant, Remind Me, AI Analysis, and history surfaces open as contextual overlays while the battlefield remains visible.
-- The HUD preserves BoardState's cosmic, gold-accented, glass-treated identity and must not copy Arena's cards, hand layout, artwork, animation, branding, or protected interface details.
+- The Action Hand preserves BoardState's cosmic, gold-accented, glass-treated identity and must not copy Arena's cards, hand layout, artwork, animation, branding, or protected interface details.
+
+The design process and rejected concepts are recorded in `docs/ecosystem/COMMANDER_ACTION_HAND_DESIGN.md`.
 
 ## Reference Principles From Premium Digital Card Games
 
