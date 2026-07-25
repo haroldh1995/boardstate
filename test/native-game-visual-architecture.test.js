@@ -92,11 +92,22 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   const battlefieldDoc = readRepositoryFile("docs/ecosystem/LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md");
   const actionHandDoc = readRepositoryFile("docs/ecosystem/COMMANDER_ACTION_HAND_DESIGN.md");
   const rotatingDeckDoc = readRepositoryFile("docs/ecosystem/ROTATING_COMMAND_DECK_ARCHITECTURE.md");
+  const motionDoc = readRepositoryFile("docs/ecosystem/MOTION_LANGUAGE_ARCHITECTURE.md");
+  const motionTokens = readRepositoryFile("src/ui/motionTokens.js");
   const schema = readRepositoryFile("src/state/schema.js");
   const localDatabase = readRepositoryFile("src/storage/localDatabase.js");
 
   assert.match(render, /COMMANDER_ACTION_HAND_VERSION = "boardstate-commander-action-hand-0\.1\.0"/);
   assert.match(render, /COMMAND_DECK_VERSION = "boardstate-rotating-command-deck-0\.1\.0"/);
+  assert.match(render, /BOARDSTATE_MOTION_LANGUAGE_VERSION/);
+  assert.match(render, /document\.body\.dataset\.motionLanguageVersion = BOARDSTATE_MOTION_LANGUAGE_VERSION/);
+  assert.match(render, /data-motion-language-version/);
+  assert.match(render, /data-motion-owner="rotating-command-deck"/);
+  assert.match(render, /data-motion-state/);
+  assert.match(render, /data-motion-token/);
+  assert.match(render, /function renderMotionDebugOverlay/);
+  assert.match(render, /import\.meta\.env\?\.DEV/);
+  assert.match(render, /boardstate-motion-debug/);
   assert.match(render, /function renderCommanderActionHand/);
   assert.match(render, /function createCommanderActionCards/);
   assert.match(render, /function resolveCommandDeckPriorityCard/);
@@ -150,6 +161,13 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.equal(styles.includes(".command-hud-card"), false);
 
   assert.match(styles, /\.commander-action-hand\b/);
+  assert.match(styles, /--motion-duration-standard/);
+  assert.match(styles, /--motion-ease-inertia/);
+  assert.match(styles, /--motion-physics-card-hover-scale/);
+  assert.match(styles, /\.motion-debug-overlay/);
+  assert.match(styles, /\.motion-debug-overlay\[hidden\]/);
+  assert.match(styles, /action-card-draw var\(--motion-duration-standard\)/);
+  assert.match(styles, /commander-action-hand-breathe var\(--motion-duration-ambient\)/);
   assert.match(styles, /\.command-deck\b/);
   assert.match(styles, /\.command-deck__rotator\b/);
   assert.match(styles, /\.command-deck__favorite-toggle\b/);
@@ -186,6 +204,14 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.match(rotatingDeckDoc, /circular Rotating Command Deck/i);
   assert.match(rotatingDeckDoc, /Wheel, drag, keyboard, and controller-ready/i);
   assert.match(rotatingDeckDoc, /Future work must not turn the deck into a scrolling list/i);
+  assert.match(motionDoc, /Motion Token System/);
+  assert.match(motionDoc, /Developer Debug Overlay/);
+  assert.match(motionDoc, /production builds/);
+  assert.match(motionTokens, /BOARDSTATE_MOTION_LANGUAGE_VERSION = "boardstate-motion-language-0\.1\.0"/);
+  assert.match(motionTokens, /createMotionTokenSet/);
+  assert.match(motionTokens, /MOTION_STATE_CATALOG/);
+  assert.match(motionTokens, /MOTION_OWNERS/);
+  assert.match(motionTokens, /createMotionDebugSnapshot/);
 });
 
 test("battlefield runtime uses the tabletop reconstruction instead of idle dashboard panels", () => {

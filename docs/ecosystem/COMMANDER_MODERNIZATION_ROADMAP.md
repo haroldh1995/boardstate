@@ -148,6 +148,15 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - `src/state/schema.js` adds `settings.commandDeck.favoriteIds` as preference metadata only.
 - No gameplay feature, action system, rules authority, state owner, save format, Hub/Lite/Nexus dependency, hidden-information path, or digital hand of Magic cards was introduced.
 
+### Prompt 12.4: Motion Language, Interaction Physics, And Animation Architecture
+
+- `docs/ecosystem/MOTION_LANGUAGE_ARCHITECTURE.md` records the permanent motion language, reference principles, Motion Token system, animation state catalog, motion ownership boundaries, accessibility policy, motion budget, and development-only debug overlay contract.
+- `src/ui/motionTokens.js` owns `BOARDSTATE_MOTION_LANGUAGE_VERSION`, reusable timing/easing/physics/opacity tokens, motion owners, state catalogs, CSS variable generation, and debug snapshot helpers.
+- `src/ui/landscapeBattlefield.js` now exposes `boardstate-battlefield-motion-0.2.0` over the existing presentation-only motion model and consumes the centralized token set rather than maintaining local timing constants.
+- `src/ui/render.js` exposes motion-language metadata through body and battlefield `data-motion-*` attributes and keeps the Motion Debug Overlay gated behind `import.meta.env.DEV` plus the explicit `boardstate-motion-debug=true` local setting.
+- `src/styles.css` defines root motion-token variables and maps battlefield, permanent, notification, Commander Action Hand, and Rotating Command Deck motion to those tokens with reduced-motion fallbacks.
+- No gameplay feature, animation authority, rules authority, state owner, save format, sync protocol, hidden-information path, fake Hub/Lite/Nexus dependency, protected Arena asset, or production-visible developer overlay was introduced.
+
 ## Remaining Roadmap
 
 ### Prompt 13: Full Control And Live Tracking Convergence

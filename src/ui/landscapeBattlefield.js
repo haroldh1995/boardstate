@@ -4,12 +4,19 @@ import { clonePlain } from "../shared-contracts/index.js";
 import { createAiGameplayState } from "../authoritative-core/aiGameplayEngine.js";
 import { createProactiveAssistantState } from "../authoritative-core/proactiveAssistant.js";
 import { createRulesAssistantState } from "../authoritative-core/rulesAssistant.js";
+import {
+  BOARDSTATE_MOTION_LANGUAGE_VERSION,
+  MOTION_OWNERS,
+  MOTION_STATE_CATALOG,
+  createMotionDebugSnapshot,
+  createMotionTokenSet,
+} from "./motionTokens.js";
 
 export const LANDSCAPE_BATTLEFIELD_VERSION = "boardstate-landscape-battlefield-0.5.0";
 export const BATTLEFIELD_INTELLIGENCE_VERSION = "boardstate-battlefield-intelligence-0.1.0";
 export const BATTLEFIELD_CAMERA_VERSION = "boardstate-camera-foundation-0.2.0";
 export const GAMEPLAY_FLOW_VERSION = "boardstate-gameplay-flow-0.1.0";
-export const BATTLEFIELD_MOTION_VERSION = "boardstate-battlefield-motion-0.1.0";
+export const BATTLEFIELD_MOTION_VERSION = "boardstate-battlefield-motion-0.2.0";
 
 export const LANDSCAPE_BATTLEFIELD_REGIONS = Object.freeze([
   "global-info",
@@ -640,12 +647,14 @@ export function createBattlefieldMotionModel({
   preferences = {},
 } = {}) {
   const motionPreferences = resolveMotionPreferences(preferences);
+  const tokens = createMotionTokenSet(motionPreferences.durationScale);
   const cameraPlan = createCameraTransitionPlan({
     camera,
     commandCenter,
     intelligence,
     session,
     intensity: motionPreferences.intensity,
+    tokens,
   });
   const cardEvents = createCardMotionEvents({
     session,
@@ -663,16 +672,29 @@ export function createBattlefieldMotionModel({
   });
   return {
     version: BATTLEFIELD_MOTION_VERSION,
+    languageVersion: BOARDSTATE_MOTION_LANGUAGE_VERSION,
     policy: "animation-as-communication",
     intensity: motionPreferences.intensity,
     durationScale: motionPreferences.durationScale,
     reducedMotionHonored: true,
     essentialInformationPreservedWhenReduced: true,
-    tokens: createMotionTokens(motionPreferences.durationScale),
+    tokens,
+    stateCatalog: MOTION_STATE_CATALOG,
+    ownership: createMotionOwnershipPlan(),
     cameraPlan,
     cardEvents,
     hudMotion,
     visualFeedback: createVisualFeedbackPlan(commandCenter, selectedCard, gameplayFlow),
+    debug: createMotionDebugSnapshot({
+      owner: MOTION_OWNERS.battlefield,
+      state: hudMotion.state,
+      token: cameraPlan.tokenName,
+      duration: cameraPlan.durationMs,
+      queue: cardEvents.length ? `${cardEvents.length} card events` : "empty",
+      interrupt: "redirect-or-cancel-valid-input",
+      transition: cameraPlan.transition,
+      frame: "browser-owned",
+    }),
     performance: {
       transformAndOpacityOnly: true,
       avoidsLayoutThrash: true,
@@ -717,30 +739,13 @@ export function resolveMotionPreferences(preferences = {}) {
   };
 }
 
-function createMotionTokens(durationScale = 1) {
-  const scaled = (ms) => Math.round(ms * Number(durationScale || 0));
-  return {
-    easing: {
-      standard: "cubic-bezier(0.2, 0.78, 0.18, 1)",
-      emphasis: "cubic-bezier(0.16, 1, 0.3, 1)",
-      settle: "cubic-bezier(0.22, 0.72, 0.24, 1)",
-    },
-    durations: {
-      micro: scaled(120),
-      quick: scaled(180),
-      standard: scaled(260),
-      emphasis: scaled(420),
-      cinematic: scaled(620),
-    },
-  };
-}
-
 export function createCameraTransitionPlan({
   camera = {},
   commandCenter = {},
   intelligence = {},
   session = {},
   intensity = "full",
+  tokens = createMotionTokenSet(intensity === "none" ? 0 : intensity === "minimal" ? 0.22 : intensity === "reduced" ? 0.45 : 1),
 } = {}) {
   const focus = camera.activeFocus || { kind: "table", priority: CAMERA_FOCUS_PRIORITIES.tableDefault, targetId: "table", label: "Battlefield" };
   const stackCount = (commandCenter.stackObjects || session.stack || []).length;
@@ -756,19 +761,64 @@ export function createCameraTransitionPlan({
     "active-player": "active-player-drift",
     table: "table-breathe",
   };
+  const tokenName = noMotion
+    ? "instant"
+    : focus.kind === "commander-status"
+      ? "cinematic"
+      : focus.kind === "selected-permanent"
+        ? "emphasis"
+        : "standard";
   return {
     focusKind: focus.kind || "table",
     targetId: focus.targetId || "table",
     label: focus.label || "Battlefield",
     reason: focus.kind || "table",
     transition: noMotion ? "instant-focus" : transitionByFocus[focus.kind] || "subtle-focus",
-    durationMs: noMotion ? 0 : focus.kind === "commander-status" ? 620 : focus.kind === "selected-permanent" ? 420 : 260,
+    durationMs: tokens.durations?.[tokenName] ?? 0,
+    tokenName,
+    easing: tokenName === "cinematic" ? tokens.easing?.settle : tokenName === "emphasis" ? tokens.easing?.emphasis : tokens.easing?.standard,
+    owner: MOTION_OWNERS.battlefield,
     priority: Number(focus.priority || 0),
     stackCount,
     triggerCount,
     deterministic: Boolean(camera.deterministicPriority !== false),
     neverJarring: true,
     reducedMotionFallback: "instant-focus-and-highlight",
+  };
+}
+
+function createMotionOwnershipPlan() {
+  return {
+    battlefield: {
+      owner: MOTION_OWNERS.battlefield,
+      owns: ["battlefield movement", "camera focus", "permanent lane reflow"],
+      states: MOTION_STATE_CATALOG.card,
+    },
+    commandDeck: {
+      owner: MOTION_OWNERS.commandDeck,
+      owns: ["Command Card rotation", "contextual card entry", "contextual card exit", "favorite pin feedback"],
+      states: MOTION_STATE_CATALOG.commandCard,
+    },
+    cardInspector: {
+      owner: MOTION_OWNERS.cardInspector,
+      owns: ["selected-card lift", "card detail overlay", "inspection transitions"],
+      states: MOTION_STATE_CATALOG.panel,
+    },
+    notificationSystem: {
+      owner: MOTION_OWNERS.notificationSystem,
+      owns: ["toast arrival", "priority notices", "non-modal feedback"],
+      states: MOTION_STATE_CATALOG.panel,
+    },
+    modalSystem: {
+      owner: MOTION_OWNERS.modalSystem,
+      owns: ["dialog entrance", "dialog dismissal", "blocking confirmation transitions"],
+      states: MOTION_STATE_CATALOG.panel,
+    },
+    opponentCarousel: {
+      owner: MOTION_OWNERS.opponentCarousel,
+      owns: ["opponent focus step", "follow-active-player focus", "carousel wheel and swipe feedback"],
+      states: MOTION_STATE_CATALOG.panel,
+    },
   };
 }
 

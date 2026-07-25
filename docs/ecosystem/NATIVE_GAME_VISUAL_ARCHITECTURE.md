@@ -112,6 +112,21 @@ Permanent standards:
 
 The interaction architecture record lives in `docs/ecosystem/ROTATING_COMMAND_DECK_ARCHITECTURE.md`.
 
+## Motion Language Standard
+
+Prompt 12.4 establishes BoardState's motion language as a permanent visual and interaction standard.
+
+Permanent standards:
+
+- `src/ui/motionTokens.js` is the single source of truth for motion timing, easing, inertia, physics, state catalogs, ownership, and debug fields.
+- `src/ui/landscapeBattlefield.js` consumes Motion Tokens through the existing presentation-only battlefield motion model instead of creating a parallel animation authority.
+- `src/ui/render.js` exposes safe `data-motion-*` metadata and a development-only Motion Debug Overlay that is gated by `import.meta.env.DEV` and `boardstate-motion-debug=true`.
+- `src/styles.css` uses root `--motion-*` variables for battlefield, Action Card, Rotating Command Deck, panel, notification, and reduced-motion behavior.
+- Motion must answer why an object moved, where it is going, and why it stopped there.
+- Gameplay-critical motion has priority. Supporting motion stays subtle. Ambient motion must never compete with the battlefield.
+
+The permanent motion architecture record lives in `docs/ecosystem/MOTION_LANGUAGE_ARCHITECTURE.md`.
+
 ## Reference Principles From Premium Digital Card Games
 
 The attached Arena reference and comparable digital card games are used only for principles:

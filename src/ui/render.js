@@ -32,6 +32,7 @@ import {
   createLandscapeBattlefieldModel,
   getPermanentLaneKey,
 } from "./landscapeBattlefield.js";
+import { BOARDSTATE_MOTION_LANGUAGE_VERSION } from "./motionTokens.js";
 import {
   buildDeckSourceOptions,
   createBoardStateLiteHandoffBundle,
@@ -490,6 +491,7 @@ export function mountApp(root, store) {
     document.body.dataset.compositionPreference = CANONICAL_GAMEPLAY_COMPOSITION;
     document.body.dataset.gameplayComposition = CANONICAL_GAMEPLAY_COMPOSITION;
     document.body.dataset.visualFoundation = NATIVE_GAME_VISUAL_FOUNDATION_VERSION;
+    document.body.dataset.motionLanguageVersion = BOARDSTATE_MOTION_LANGUAGE_VERSION;
     document.body.dataset.commanderActionHandVersion = COMMANDER_ACTION_HAND_VERSION;
     document.body.dataset.commandDeckVersion = COMMAND_DECK_VERSION;
     document.body.dataset.tabletopReconstructionVersion = TABLETOP_RECONSTRUCTION_VERSION;
@@ -6055,7 +6057,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
   const motion = landscapeModel.motion || {};
   const cameraFocusKind = landscapeModel.camera?.activeFocus?.kind || "table";
   return `
-    <section class="battlefield-page battlefield-page--focused landscape-battlefield-page tabletop-battlefield-page landscape-density-${escapeAttribute(landscapeModel.density)} advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} motion-${escapeAttribute(motion.intensity || "full")} camera-focus-${escapeAttribute(cameraFocusKind)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}" data-layout-version="${escapeAttribute(landscapeModel.version)}" data-tabletop-reconstruction-version="${escapeAttribute(TABLETOP_RECONSTRUCTION_VERSION)}" data-hud-composition-version="${escapeAttribute(HUD_COMPOSITION_VERSION)}" data-motion-version="${escapeAttribute(motion.version || "")}" data-motion-intensity="${escapeAttribute(motion.intensity || "full")}" data-camera-focus="${escapeAttribute(cameraFocusKind)}" data-camera-transition="${escapeAttribute(motion.cameraPlan?.transition || "none")}">
+    <section class="battlefield-page battlefield-page--focused landscape-battlefield-page tabletop-battlefield-page landscape-density-${escapeAttribute(landscapeModel.density)} advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} motion-${escapeAttribute(motion.intensity || "full")} camera-focus-${escapeAttribute(cameraFocusKind)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}" data-layout-version="${escapeAttribute(landscapeModel.version)}" data-tabletop-reconstruction-version="${escapeAttribute(TABLETOP_RECONSTRUCTION_VERSION)}" data-hud-composition-version="${escapeAttribute(HUD_COMPOSITION_VERSION)}" data-motion-language-version="${escapeAttribute(motion.languageVersion || BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-token-version="${escapeAttribute(motion.tokens?.version || BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-version="${escapeAttribute(motion.version || "")}" data-motion-owner="battlefield" data-motion-state="${escapeAttribute(motion.hudMotion?.state || "quiet")}" data-motion-token="${escapeAttribute(motion.cameraPlan?.tokenName || "standard")}" data-motion-duration="${escapeAttribute(String(motion.cameraPlan?.durationMs ?? 0))}" data-motion-intensity="${escapeAttribute(motion.intensity || "full")}" data-camera-focus="${escapeAttribute(cameraFocusKind)}" data-camera-transition="${escapeAttribute(motion.cameraPlan?.transition || "none")}">
       <div class="battlefield-state-strip landscape-state-strip">
         <div>
           <strong>Turn ${escapeHtml(session.turn)} · ${escapeHtml(PHASES[session.phaseIndex] || "Beginning")} · ${escapeHtml(resolvePhaseTrackerActorLabel(session).replace(/^Active turn:\s*/i, ""))}</strong>
@@ -6107,6 +6109,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
         })}
       </section>
       ${renderGameplayContextDock(landscapeModel.gameplayFlow, session)}
+      ${renderMotionDebugOverlay(landscapeModel)}
     </section>
     ${renderCommanderActionHand(profile, {
       activeUtilityPanel,
@@ -6126,6 +6129,43 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
     ${uiState.opponentOverlayOpen && mirroredOpponent ? renderOpponentBattlefieldOverlay(profile, mirroredOpponent, mirroredOpponentIndex, perspectiveOpponentBoards.length, detailMode, compressionMode, selectedIds, expandedStackIds) : ""}
     ${session.combat?.step === "declare-blockers" && !session.simulation?.enabled ? renderBlockerDeclaration(profile, perspective) : ""}
   `;
+}
+
+function renderMotionDebugOverlay(model = {}) {
+  if (!shouldRenderMotionDebugOverlay()) {
+    return "";
+  }
+  const motion = model.motion || {};
+  const debug = motion.debug || {};
+  const owners = Object.values(motion.ownership || {});
+  const activeEvents = (motion.cardEvents || []).slice(0, 6);
+  return `
+    <aside class="motion-debug-overlay glass" data-motion-debug-overlay hidden aria-hidden="true">
+      <strong>Motion Debug</strong>
+      <dl>
+        <div><dt>Owner</dt><dd>${escapeHtml(debug.owner || "battlefield")}</dd></div>
+        <div><dt>State</dt><dd>${escapeHtml(debug.state || motion.hudMotion?.state || "quiet")}</dd></div>
+        <div><dt>Token</dt><dd>${escapeHtml(debug.token || motion.cameraPlan?.tokenName || "standard")}</dd></div>
+        <div><dt>Duration</dt><dd>${escapeHtml(String(debug.duration ?? motion.cameraPlan?.durationMs ?? 0))}ms</dd></div>
+        <div><dt>Queue</dt><dd>${escapeHtml(debug.queue || `${activeEvents.length} events`)}</dd></div>
+        <div><dt>Interrupt</dt><dd>${escapeHtml(debug.interrupt || "redirect-or-cancel")}</dd></div>
+        <div><dt>Transition</dt><dd>${escapeHtml(debug.transition || motion.cameraPlan?.transition || "stable")}</dd></div>
+      </dl>
+      ${owners.length ? `<small>${escapeHtml(owners.map((entry) => entry.owner).join(" / "))}</small>` : ""}
+      ${activeEvents.length ? `<ol>${activeEvents.map((event) => `<li>${escapeHtml(event.kind)}:${escapeHtml(event.targetId || event.eventKey || "table")}</li>`).join("")}</ol>` : ""}
+    </aside>
+  `;
+}
+
+function shouldRenderMotionDebugOverlay() {
+  if (!import.meta.env?.DEV) {
+    return false;
+  }
+  try {
+    return globalThis.localStorage?.getItem("boardstate-motion-debug") === "true";
+  } catch {
+    return false;
+  }
 }
 
 function renderLandscapeGlobalInfoRail(model = {}, profile = {}) {
@@ -7841,7 +7881,7 @@ function renderCommanderActionHand(profile, options = {}) {
   const favoriteIds = getCommandDeckFavoriteIds(profile, actionCards.map((card) => card.id));
   const centerFavorite = centerCard ? favoriteIds.includes(centerCard.id) : false;
   return `
-    <section class="commander-action-hand command-deck" data-command-deck data-commander-action-hand data-commander-action-hand-version="${escapeAttribute(COMMANDER_ACTION_HAND_VERSION)}" data-command-deck-version="${escapeAttribute(COMMAND_DECK_VERSION)}" data-command-deck-size="${actionCards.length}" data-command-deck-visible-count="${visibleCards.length}" data-command-deck-rotation="${centerIndex}" data-command-deck-center="${escapeAttribute(centerCard?.id || "phase")}" data-command-deck-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" data-command-deck-card-ids="${escapeAttribute(actionCards.map((card) => card.id).join(" "))}" data-command-deck-favorites="${escapeAttribute(favoriteIds.join(" "))}" data-action-count="${actionCards.length}" data-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" tabindex="0" aria-label="Rotating Commander Command Deck" aria-roledescription="infinite rotating command deck" aria-keyshortcuts="ArrowLeft ArrowRight PageUp PageDown Q E" data-no-swipe>
+    <section class="commander-action-hand command-deck" data-command-deck data-commander-action-hand data-commander-action-hand-version="${escapeAttribute(COMMANDER_ACTION_HAND_VERSION)}" data-command-deck-version="${escapeAttribute(COMMAND_DECK_VERSION)}" data-motion-language-version="${escapeAttribute(BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-owner="rotating-command-deck" data-motion-state="${escapeAttribute(priorityCard?.contextual ? "contextual-entry" : "idle")}" data-motion-token="${escapeAttribute(priorityCard?.contextual ? "emphasis" : "standard")}" data-command-deck-size="${actionCards.length}" data-command-deck-visible-count="${visibleCards.length}" data-command-deck-rotation="${centerIndex}" data-command-deck-center="${escapeAttribute(centerCard?.id || "phase")}" data-command-deck-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" data-command-deck-card-ids="${escapeAttribute(actionCards.map((card) => card.id).join(" "))}" data-command-deck-favorites="${escapeAttribute(favoriteIds.join(" "))}" data-action-count="${actionCards.length}" data-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" tabindex="0" aria-label="Rotating Commander Command Deck" aria-roledescription="infinite rotating command deck" aria-keyshortcuts="ArrowLeft ArrowRight PageUp PageDown Q E" data-no-swipe>
       <div class="commander-action-hand__aura" aria-hidden="true"></div>
       <button class="command-deck__rotator command-deck__rotator--previous" data-command-deck-rotate="-1" aria-label="Rotate command deck left">&lsaquo;</button>
       <button class="command-deck__rotator command-deck__rotator--next" data-command-deck-rotate="1" aria-label="Rotate command deck right">&rsaquo;</button>
@@ -7977,6 +8017,9 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
       data-command-deck-slot="${escapeAttribute(String(deckEntry.slotOffset ?? offset))}"
       data-command-deck-index="${escapeAttribute(String(deckEntry.deckIndex ?? index))}"
       data-command-deck-center="${deckEntry.isCenter ? "true" : "false"}"
+      data-motion-owner="rotating-command-deck"
+      data-motion-state="${escapeAttribute(card.contextual ? "contextual-entry" : card.state || "idle")}"
+      data-motion-token="${escapeAttribute(card.priority >= 100 ? "emphasis" : card.priority >= 70 ? "standard" : "micro")}"
       aria-label="${escapeAttribute(`${card.label}: ${card.detail || card.signal || "decision"}`)}"
       aria-pressed="${card.state === "expanded" || card.state === "selected" ? "true" : "false"}"
     >
@@ -11138,7 +11181,7 @@ function getUnreadNotificationCount(profile = {}) {
 }
 
 function getAppVersion() {
-  return "1.38.0";
+  return "1.39.0";
 }
 
 function renderGameOptions(profile, page = "life") {

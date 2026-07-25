@@ -3,6 +3,13 @@ import assert from "node:assert/strict";
 
 import { createDefaultProfile, createPermanent } from "../src/state/schema.js";
 import {
+  BOARDSTATE_MOTION_LANGUAGE_VERSION,
+  MOTION_OWNERS,
+  MOTION_STATE_CATALOG,
+  createMotionDebugSnapshot,
+  createMotionTokenSet,
+} from "../src/ui/motionTokens.js";
+import {
   BATTLEFIELD_MOTION_VERSION,
   GAMEPLAY_FLOW_VERSION,
   LANDSCAPE_BATTLEFIELD_REGIONS,
@@ -318,8 +325,17 @@ test("battlefield motion model adds premium presentation without becoming gamepl
   const profile = createLandscapeProfile();
   const model = createLandscapeBattlefieldModel(profile, { viewport: "desktop" });
   assert.equal(model.motion.version, BATTLEFIELD_MOTION_VERSION);
+  assert.equal(model.motion.languageVersion, BOARDSTATE_MOTION_LANGUAGE_VERSION);
   assert.equal(model.motion.policy, "animation-as-communication");
   assert.equal(model.motion.intensity, "full");
+  assert.equal(model.motion.tokens.version, BOARDSTATE_MOTION_LANGUAGE_VERSION);
+  assert.equal(model.motion.tokens.durations.emphasis, 420);
+  assert.equal(model.motion.cameraPlan.tokenName, "emphasis");
+  assert.equal(model.motion.cameraPlan.durationMs, model.motion.tokens.durations.emphasis);
+  assert.equal(model.motion.cameraPlan.owner, MOTION_OWNERS.battlefield);
+  assert.deepEqual(model.motion.stateCatalog.commandCard, MOTION_STATE_CATALOG.commandCard);
+  assert.equal(model.motion.ownership.commandDeck.owner, MOTION_OWNERS.commandDeck);
+  assert.equal(model.motion.debug.productionVisible, false);
   assert.equal(model.motion.cameraPlan.focusKind, "selected-permanent");
   assert.equal(model.motion.cameraPlan.transition, "focus-lift");
   assert.ok(model.motion.cardEvents.some((event) => event.kind === "commander-entering"));
@@ -327,6 +343,36 @@ test("battlefield motion model adds premium presentation without becoming gamepl
   assert.ok(model.motion.cardEvents.some((event) => event.kind === "trigger-chain"));
   assert.equal(model.motion.integration.mutatesGameState, false);
   assert.equal(model.motion.integration.savePersistence, "excluded-transient-presentation");
+});
+
+test("motion tokens centralize timing, ownership, states, and debug metadata", () => {
+  const full = createMotionTokenSet(1);
+  assert.equal(full.version, BOARDSTATE_MOTION_LANGUAGE_VERSION);
+  assert.equal(full.durations.standard, 260);
+  assert.equal(full.delays.commandCardStagger, 24);
+  assert.equal(full.easing.inertia, "cubic-bezier(0.18, 0.84, 0.22, 1)");
+  assert.equal(full.physics.commandCardMass, 0.68);
+  assert.ok(MOTION_STATE_CATALOG.card.includes("dragging"));
+  assert.ok(MOTION_STATE_CATALOG.panel.includes("opening"));
+  assert.ok(MOTION_STATE_CATALOG.commandCard.includes("contextual-entry"));
+  assert.equal(MOTION_OWNERS.commandDeck, "rotating-command-deck");
+
+  const reduced = createMotionTokenSet(0.45);
+  assert.equal(reduced.durations.emphasis, 189);
+  assert.equal(reduced.delays.commandCardStagger, 11);
+
+  const debug = createMotionDebugSnapshot({
+    owner: MOTION_OWNERS.commandDeck,
+    state: "rotating",
+    token: "standard",
+    duration: full.durations.standard,
+    queue: "2 command cards",
+    interrupt: "redirect",
+    transition: "deck-rotate",
+  });
+  assert.equal(debug.version, BOARDSTATE_MOTION_LANGUAGE_VERSION);
+  assert.equal(debug.productionVisible, false);
+  assert.ok(debug.fields.includes("frame"));
 });
 
 test("motion preferences honor reduced motion while preserving essential gameplay feedback", () => {

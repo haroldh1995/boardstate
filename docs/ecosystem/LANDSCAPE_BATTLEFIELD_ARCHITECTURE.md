@@ -216,6 +216,18 @@ Prompt 12.3F keeps the Commander Action Hand as the bottom gameplay decision sur
 
 The Rotating Command Deck is presentation and action entry only. It does not change rules processing, State Engine ownership, Event Knowledge, saves, synchronization, hidden-information policy, or future Hub/Lite/Nexus boundaries. The interaction record lives in `docs/ecosystem/ROTATING_COMMAND_DECK_ARCHITECTURE.md`.
 
+## Prompt 12.4 Motion Language
+
+Prompt 12.4 establishes BoardState's permanent motion language over the existing Prompt 8 motion foundation:
+
+- `src/ui/motionTokens.js` owns `BOARDSTATE_MOTION_LANGUAGE_VERSION`, timing, easing, physics, transform, opacity, state, owner, CSS-variable, and debug snapshot contracts.
+- `src/ui/landscapeBattlefield.js` exposes `boardstate-battlefield-motion-0.2.0`, consumes `createMotionTokenSet()`, reports `motion.languageVersion`, `motion.tokens`, `motion.stateCatalog`, `motion.ownership`, and development debug metadata.
+- `src/ui/render.js` exposes `data-motion-language-version`, `data-motion-token-version`, `data-motion-owner`, `data-motion-state`, `data-motion-token`, and `data-motion-duration` on motion-capable battlefield surfaces and Command Cards.
+- `src/styles.css` maps battlefield, card, panel, notification, Commander Action Hand, and Rotating Command Deck movement to root `--motion-*` tokens with reduced-motion fallbacks.
+- `renderMotionDebugOverlay()` is development-only and additionally requires `boardstate-motion-debug=true`; it renders nothing in production builds.
+
+The motion language remains presentation-only. It does not mutate gameplay state, persist transient animation state, replace the rules engine, create a second motion authority, expose hidden information, or copy protected Arena motion identity. The permanent record lives in `docs/ecosystem/MOTION_LANGUAGE_ARCHITECTURE.md`.
+
 ## Deferred Work
 
 The battlefield, gameplay-flow, motion, Rules Assistant, proactive assistant, and AI analysis prompts do not implement particle effects, spectator mode, visual replay UI, sound, haptics, cloud AI, strategic coaching, external judge search, or full Rules Recovery imports. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.
