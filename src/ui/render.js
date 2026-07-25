@@ -91,10 +91,31 @@ import {
 
 const NATIVE_GAME_VISUAL_FOUNDATION_VERSION = "boardstate-native-game-visual-foundation-0.1.0";
 const COMMANDER_ACTION_HAND_VERSION = "boardstate-commander-action-hand-0.1.0";
+const COMMAND_DECK_VERSION = "boardstate-rotating-command-deck-0.1.0";
 const TABLETOP_RECONSTRUCTION_VERSION = "boardstate-tabletop-reconstruction-0.1.0";
 const HUD_COMPOSITION_VERSION = "boardstate-hud-composition-0.1.0";
 const CANONICAL_GAMEPLAY_COMPOSITION = "landscape";
 const RUNTIME_LAYOUT_COMPOSITION = "widescreen";
+const COMMAND_DECK_VISIBLE_RADIUS = 3;
+const COMMAND_DECK_ROTATE_THRESHOLD = 42;
+const COMMAND_DECK_AUTO_CENTER_COOLDOWN_MS = 4200;
+const COMMAND_DECK_MAX_FAVORITES = 4;
+const COMMAND_DECK_CORE_ORDER = [
+  "phase",
+  "commander",
+  "library",
+  "rules",
+  "remind",
+  "undo",
+  "battlefield",
+  "history",
+  "notes",
+  "calculator",
+  "dice",
+  "coin",
+  "settings",
+  "tablecraft",
+];
 const LONG_PRESS_DELAY_MS = 420;
 const REPEAT_INTERVAL_MS = 110;
 const PERMANENT_DOUBLE_TAP_MS = 260;
@@ -313,6 +334,10 @@ export function mountApp(root, store) {
   let opponentBoardIndex = 0;
   let opponentOverlayOpen = false;
   let opponentSwipeStart = null;
+  let commandDeckRotationIndex = 0;
+  let commandDeckLastManualRotationAt = 0;
+  let commandDeckPointer = null;
+  let commandDeckSuppressClickUntil = 0;
   let toolContextOverride = "";
   let quickPanelOpen = "";
   let hudBadgePositions = cloneHudBadgePositions(HUD_BADGE_DEFAULTS);
@@ -466,6 +491,7 @@ export function mountApp(root, store) {
     document.body.dataset.gameplayComposition = CANONICAL_GAMEPLAY_COMPOSITION;
     document.body.dataset.visualFoundation = NATIVE_GAME_VISUAL_FOUNDATION_VERSION;
     document.body.dataset.commanderActionHandVersion = COMMANDER_ACTION_HAND_VERSION;
+    document.body.dataset.commandDeckVersion = COMMAND_DECK_VERSION;
     document.body.dataset.tabletopReconstructionVersion = TABLETOP_RECONSTRUCTION_VERSION;
     document.body.dataset.hudCompositionVersion = HUD_COMPOSITION_VERSION;
     document.body.dataset.page = activePage;
@@ -505,6 +531,8 @@ export function mountApp(root, store) {
       combatResolving,
       phaseAdvancePending,
       phaseControlMessage,
+      commandDeckRotationIndex,
+      commandDeckLastManualRotationAt,
       helperMessage,
       simulationSetupOpen,
       simulationLogOpen,
@@ -625,6 +653,118 @@ export function mountApp(root, store) {
       opponentBoardIndex = index;
       render(store.getState());
     }
+  }
+
+  function rotateCommandDeckFromElement(deck, direction = 1) {
+    const size = Math.max(0, Number(deck?.dataset.commandDeckSize || 0));
+    if (size <= 1) {
+      return;
+    }
+    const current = Number.isFinite(Number(deck?.dataset.commandDeckRotation))
+      ? Number(deck.dataset.commandDeckRotation)
+      : commandDeckRotationIndex;
+    commandDeckRotationIndex = normalizeCommandDeckIndex(current + Number(direction || 1), size);
+    commandDeckLastManualRotationAt = Date.now();
+    render(store.getState());
+  }
+
+  function toggleCommandDeckFavorite(cardId = "") {
+    const id = String(cardId || "").trim();
+    if (!id) {
+      return;
+    }
+    const current = getCommandDeckFavoriteIds(store.getState());
+    const next = current.includes(id)
+      ? current.filter((entry) => entry !== id)
+      : [id, ...current.filter((entry) => entry !== id)].slice(0, COMMAND_DECK_MAX_FAVORITES);
+    commandDeckLastManualRotationAt = Date.now();
+    store.dispatch({ type: "SET_SETTING", path: "commandDeck.favoriteIds", value: next });
+  }
+
+  function bindCommandDeck(container) {
+    const deck = container.querySelector("[data-command-deck]");
+    if (!deck) {
+      commandDeckPointer = null;
+      return;
+    }
+    deck.querySelectorAll("[data-command-deck-rotate]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        rotateCommandDeckFromElement(deck, Number(button.dataset.commandDeckRotate || 1));
+      });
+    });
+    deck.querySelectorAll("[data-command-deck-favorite]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleCommandDeckFavorite(button.dataset.commandDeckFavorite || "");
+      });
+    });
+    deck.addEventListener(
+      "click",
+      (event) => {
+        if (Date.now() < commandDeckSuppressClickUntil && event.target?.closest?.("[data-action-card]")) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      },
+      true
+    );
+    deck.addEventListener("keydown", (event) => {
+      const backwardKeys = new Set(["ArrowLeft", "PageUp", "GamepadDPadLeft", "GamepadLeftShoulder", "q", "Q"]);
+      const forwardKeys = new Set(["ArrowRight", "PageDown", "GamepadDPadRight", "GamepadRightShoulder", "e", "E"]);
+      if (backwardKeys.has(event.key)) {
+        event.preventDefault();
+        rotateCommandDeckFromElement(deck, -1);
+      } else if (forwardKeys.has(event.key)) {
+        event.preventDefault();
+        rotateCommandDeckFromElement(deck, 1);
+      }
+    });
+    deck.addEventListener(
+      "wheel",
+      (event) => {
+        if (Math.abs(event.deltaX) < 8 && Math.abs(event.deltaY) < 8) {
+          return;
+        }
+        event.preventDefault();
+        const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+        rotateCommandDeckFromElement(deck, Math.sign(delta) || 1);
+      },
+      { passive: false }
+    );
+    const fan = deck.querySelector("[data-command-deck-fan]");
+    if (!fan) {
+      return;
+    }
+    fan.addEventListener("pointerdown", (event) => {
+      commandDeckPointer = {
+        id: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+      };
+      fan.setPointerCapture?.(event.pointerId);
+    });
+    fan.addEventListener("pointerup", (event) => {
+      if (!commandDeckPointer || commandDeckPointer.id !== event.pointerId) {
+        return;
+      }
+      const dx = event.clientX - commandDeckPointer.x;
+      const dy = event.clientY - commandDeckPointer.y;
+      commandDeckPointer = null;
+      fan.releasePointerCapture?.(event.pointerId);
+      if (Math.abs(dx) < COMMAND_DECK_ROTATE_THRESHOLD || Math.abs(dx) < Math.abs(dy) * 1.15) {
+        return;
+      }
+      commandDeckSuppressClickUntil = Date.now() + 260;
+      rotateCommandDeckFromElement(deck, dx < 0 ? 1 : -1);
+    });
+    fan.addEventListener("pointercancel", (event) => {
+      if (commandDeckPointer?.id === event.pointerId) {
+        commandDeckPointer = null;
+      }
+    });
   }
 
   function bind(container, profile) {
@@ -1044,6 +1184,7 @@ export function mountApp(root, store) {
         render(store.getState());
       });
     });
+    bindCommandDeck(container, store);
     container.querySelectorAll("[data-tool-menu], [data-open-tool-menu]").forEach((button) =>
       button.addEventListener("click", () => {
         const nextOpen = !toolMenuOpen;
@@ -3002,6 +3143,13 @@ export function mountApp(root, store) {
         const sides = Math.max(2, Number(button.dataset.rollDice) || 20);
         const roll = Math.floor(Math.random() * sides) + 1;
         store.dispatch({ type: "SET_SETTING", path: "utility.lastDice", value: `d${sides}: ${roll}` });
+      });
+    });
+    container.querySelectorAll("[data-flip-coin]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const result = Math.random() < 0.5 ? "Heads" : "Tails";
+        store.dispatch({ type: "SET_SETTING", path: "utility.lastDice", value: `Coin: ${result}` });
+        showNotice(`Coin flip: ${result}`, "info");
       });
     });
     container.querySelector("[data-run-calculator]")?.addEventListener("click", () => {
@@ -5206,7 +5354,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       </header>
       ${page === "home" ? renderBoardStateHome(profile) : ""}
       ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier, uiState) : ""}
-      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", isMobilePortrait: Boolean(uiState.isMobilePortrait), manualChoicePanelCollapsed: Boolean(uiState.manualChoicePanelCollapsed), utilityDockOpen: Boolean(uiState.utilityDockOpen), castActionPopup: uiState.castActionPopup, toolMenuOpen: Boolean(uiState.toolMenuOpen), activeToolPanel: uiState.activeToolPanel || "" }) : ""}
+      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", isMobilePortrait: Boolean(uiState.isMobilePortrait), manualChoicePanelCollapsed: Boolean(uiState.manualChoicePanelCollapsed), utilityDockOpen: Boolean(uiState.utilityDockOpen), castActionPopup: uiState.castActionPopup, toolMenuOpen: Boolean(uiState.toolMenuOpen), activeToolPanel: uiState.activeToolPanel || "", activeOptionsCategory: uiState.activeOptionsCategory || "", commandDeckRotationIndex: uiState.commandDeckRotationIndex || 0, commandDeckLastManualRotationAt: uiState.commandDeckLastManualRotationAt || 0 }) : ""}
       ${page === "tournament" ? renderTournamentPage(profile) : ""}
       ${page === "profile" ? renderProfile(profile) : ""}
       ${page === "archive" ? renderArchive(profile) : ""}
@@ -5967,6 +6115,9 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
       activeToolPanel: uiState.activeToolPanel || "",
       includeCombat: Boolean(panels.boardCombat),
       combatResolving: Boolean(combatResolving),
+      commandDeckRotationIndex: Number(uiState.commandDeckRotationIndex || 0),
+      commandDeckLastManualRotationAt: Number(uiState.commandDeckLastManualRotationAt || 0),
+      activeOptionsCategory: uiState.activeOptionsCategory || "",
     })}
     ${panels.advancedRulesHelpers || (session.pendingEffects || []).some((entry) => !["resolved", "skipped", "ignored"].includes(entry.status)) ? renderPending(session, Boolean(uiState.manualChoicePanelCollapsed), perspective) : ""}
     ${session.tutorial?.active ? renderTutorialSamplePanel(session) : ""}
@@ -7408,6 +7559,9 @@ function renderCommanderActionHand(profile, options = {}) {
     activeToolPanel = "",
     includeCombat = true,
     combatResolving = false,
+    commandDeckRotationIndex = 0,
+    commandDeckLastManualRotationAt = 0,
+    activeOptionsCategory = "",
   } = options;
   const session = profile.activeSession || {};
   const stackCount = (session.stack || []).length;
@@ -7433,36 +7587,10 @@ function renderCommanderActionHand(profile, options = {}) {
     ? `${pendingCount} pending`
     : session.priority?.waiting
       ? "Priority window"
-      : "Action hand ready";
+      : "Command deck ready";
   const canUndo = Boolean((session.undoStack || []).length);
   const isCombatRelevant = Boolean(phaseLabel.includes("combat") || canDeclareAttackers || combatToResolve);
   const actionCards = createCommanderActionCards([
-    {
-      id: "tablecraft",
-      family: "table",
-      eyebrow: "Tablecraft",
-      label: "Table Tools",
-      detail: "Dice / mana / tokens",
-      intent: "Manipulate table aids",
-      signal: toolMenuOpen || activeToolPanel ? "Active" : "Open",
-      state: toolMenuOpen || activeToolPanel || utilityPanels.has(activeUtilityPanel) || utilityDockOpen ? "expanded" : "idle",
-      attrs: ['data-open-utility="utilities"'],
-      priority: toolMenuOpen || activeToolPanel || utilityPanels.has(activeUtilityPanel) || utilityDockOpen ? 86 : 32,
-      visible: true,
-    },
-    {
-      id: "library",
-      family: "knowledge",
-      eyebrow: "Library",
-      label: "Search",
-      detail: "Oracle / add",
-      intent: "Find a card or rules text",
-      signal: activeUtilityPanel === "search" ? "Active" : "Find",
-      state: activeUtilityPanel === "search" ? "expanded" : "idle",
-      attrs: ['data-open-utility="search"'],
-      priority: activeUtilityPanel === "search" ? 102 : 44,
-      visible: true,
-    },
     {
       id: "combat",
       family: "combat",
@@ -7476,6 +7604,7 @@ function renderCommanderActionHand(profile, options = {}) {
       priority: canDeclareAttackers ? 116 : 54,
       visible: isCombatRelevant,
       disabled: !canDeclareAttackers,
+      contextual: true,
     },
     {
       id: "phase",
@@ -7489,6 +7618,7 @@ function renderCommanderActionHand(profile, options = {}) {
       attrs: ["data-next-phase"],
       priority: session.priority?.waiting ? 78 : 96,
       visible: true,
+      permanent: true,
     },
     {
       id: "resolve",
@@ -7503,6 +7633,7 @@ function renderCommanderActionHand(profile, options = {}) {
       priority: combatResolving ? 128 : canResolveContext ? 122 : 0,
       visible: canResolveContext || combatResolving,
       disabled: !canResolveContext || combatResolving,
+      contextual: true,
     },
     {
       id: "inspect",
@@ -7517,6 +7648,7 @@ function renderCommanderActionHand(profile, options = {}) {
       priority: selectedPermanents.length ? 118 : 0,
       visible: Boolean(selectedPermanents.length),
       disabled: !selectedPermanents.length,
+      contextual: true,
     },
     {
       id: "commander",
@@ -7530,6 +7662,21 @@ function renderCommanderActionHand(profile, options = {}) {
       attrs: ['data-open-tool-panel="commander"'],
       priority: activeToolPanel === "commander" ? 112 : 88,
       visible: true,
+      permanent: true,
+    },
+    {
+      id: "library",
+      family: "knowledge",
+      eyebrow: "Library",
+      label: "Search",
+      detail: "Oracle / add",
+      intent: "Find a card or rules text",
+      signal: activeUtilityPanel === "search" ? "Active" : "Find",
+      state: activeUtilityPanel === "search" ? "expanded" : "idle",
+      attrs: ['data-open-utility="search"'],
+      priority: activeUtilityPanel === "search" ? 102 : 44,
+      visible: true,
+      permanent: true,
     },
     {
       id: "rules",
@@ -7543,6 +7690,7 @@ function renderCommanderActionHand(profile, options = {}) {
       attrs: ['data-open-utility="rules-assistant"'],
       priority: activeUtilityPanel === "rules-assistant" ? 104 : 40,
       visible: true,
+      permanent: true,
     },
     {
       id: "remind",
@@ -7556,6 +7704,7 @@ function renderCommanderActionHand(profile, options = {}) {
       attrs: ['data-open-utility="remind-me"'],
       priority: activeUtilityPanel === "remind-me" ? 104 : 38,
       visible: true,
+      permanent: true,
     },
     {
       id: "undo",
@@ -7564,67 +7713,249 @@ function renderCommanderActionHand(profile, options = {}) {
       label: "Undo",
       detail: "Last action",
       intent: "Undo the latest reversible action",
-      signal: "Safe",
+      signal: canUndo ? "Safe" : "Empty",
       state: canUndo ? "idle" : "demoted",
       attrs: ["data-undo"],
       priority: canUndo ? 72 : 0,
-      visible: canUndo,
+      visible: true,
+      disabled: !canUndo,
+      permanent: true,
     },
-  ]);
-  const priorityCard = actionCards.reduce((winner, card) => (card.priority > (winner?.priority || -1) ? card : winner), null);
+    {
+      id: "battlefield",
+      family: "table",
+      eyebrow: "Battlefield",
+      label: "Focus",
+      detail: profile.settings?.battlefield?.focusMode ? "Focused board" : "Full table",
+      intent: "Toggle battlefield focus view",
+      signal: profile.settings?.battlefield?.focusMode ? "Active" : "Wide",
+      state: "idle",
+      attrs: [`data-setting-button="battlefield.focusMode" data-value="${profile.settings?.battlefield?.focusMode ? "false" : "true"}"`],
+      priority: profile.settings?.battlefield?.focusMode ? 46 : 34,
+      visible: true,
+      permanent: true,
+    },
+    {
+      id: "history",
+      family: "memory",
+      eyebrow: "History",
+      label: "Timeline",
+      detail: "Replay basis",
+      intent: "Review event history",
+      signal: activeUtilityPanel === "history" ? "Active" : "Review",
+      state: activeUtilityPanel === "history" ? "expanded" : "idle",
+      attrs: ['data-open-utility="history"'],
+      priority: activeUtilityPanel === "history" ? 104 : 30,
+      visible: true,
+      permanent: true,
+    },
+    {
+      id: "notes",
+      family: "memory",
+      eyebrow: "Notes",
+      label: "Notes",
+      detail: "Session memory",
+      intent: "Record table notes",
+      signal: activeUtilityPanel === "notes" ? "Active" : "Write",
+      state: activeUtilityPanel === "notes" ? "expanded" : "idle",
+      attrs: ['data-open-utility="notes"'],
+      priority: activeUtilityPanel === "notes" ? 104 : 28,
+      visible: true,
+      permanent: true,
+    },
+    {
+      id: "calculator",
+      family: "table",
+      eyebrow: "Calculator",
+      label: "Calculator",
+      detail: "Quick math",
+      intent: "Open table calculator",
+      signal: activeUtilityPanel === "calculator" ? "Active" : "Count",
+      state: activeUtilityPanel === "calculator" ? "expanded" : "idle",
+      attrs: ['data-open-utility="calculator"'],
+      priority: activeUtilityPanel === "calculator" ? 104 : 27,
+      visible: true,
+      permanent: true,
+    },
+    {
+      id: "dice",
+      family: "table",
+      eyebrow: "Dice",
+      label: "Dice",
+      detail: profile.settings?.utility?.lastDice || "d20 ready",
+      intent: "Roll table dice",
+      signal: activeUtilityPanel === "dice" ? "Active" : "Roll",
+      state: activeUtilityPanel === "dice" ? "expanded" : "idle",
+      attrs: ['data-open-utility="dice"'],
+      priority: activeUtilityPanel === "dice" ? 104 : 26,
+      visible: true,
+      permanent: true,
+    },
+    {
+      id: "coin",
+      family: "table",
+      eyebrow: "Coin Flip",
+      label: "Coin",
+      detail: "Heads / tails",
+      intent: "Flip a table coin",
+      signal: "Flip",
+      state: "idle",
+      attrs: ["data-flip-coin"],
+      priority: 25,
+      visible: true,
+      permanent: true,
+    },
+    {
+      id: "settings",
+      family: "table",
+      eyebrow: "Settings",
+      label: "Settings",
+      detail: "Game options",
+      intent: "Open BoardState options",
+      signal: activeOptionsCategory ? "Open" : "Tune",
+      state: activeOptionsCategory ? "expanded" : "idle",
+      attrs: ['data-open-game-options data-options-category="battlefield"'],
+      priority: activeOptionsCategory ? 90 : 24,
+      visible: true,
+      permanent: true,
+    },
+    {
+      id: "tablecraft",
+      family: "table",
+      eyebrow: "Tablecraft",
+      label: "More Tools",
+      detail: "Tokens / mana / display",
+      intent: "Manipulate table aids",
+      signal: toolMenuOpen || activeToolPanel ? "Active" : "Open",
+      state: toolMenuOpen || activeToolPanel || utilityPanels.has(activeUtilityPanel) || utilityDockOpen ? "expanded" : "idle",
+      attrs: ['data-open-utility="utilities"'],
+      priority: toolMenuOpen || activeToolPanel || utilityPanels.has(activeUtilityPanel) || utilityDockOpen ? 86 : 23,
+      visible: true,
+      permanent: true,
+    },
+  ], getCommandDeckFavoriteIds(profile));
+  const priorityCard = resolveCommandDeckPriorityCard(actionCards);
+  const centerIndex = resolveCommandDeckCenterIndex(actionCards, commandDeckRotationIndex, priorityCard, commandDeckLastManualRotationAt);
+  const visibleCards = getVisibleCommandDeckCards(actionCards, centerIndex);
+  const centerCard = actionCards[centerIndex] || priorityCard || actionCards[0] || null;
+  const favoriteIds = getCommandDeckFavoriteIds(profile, actionCards.map((card) => card.id));
+  const centerFavorite = centerCard ? favoriteIds.includes(centerCard.id) : false;
   return `
-    <section class="commander-action-hand" data-commander-action-hand data-commander-action-hand-version="${escapeAttribute(COMMANDER_ACTION_HAND_VERSION)}" data-action-count="${actionCards.length}" data-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" aria-label="Commander Action Hand" data-no-swipe>
+    <section class="commander-action-hand command-deck" data-command-deck data-commander-action-hand data-commander-action-hand-version="${escapeAttribute(COMMANDER_ACTION_HAND_VERSION)}" data-command-deck-version="${escapeAttribute(COMMAND_DECK_VERSION)}" data-command-deck-size="${actionCards.length}" data-command-deck-visible-count="${visibleCards.length}" data-command-deck-rotation="${centerIndex}" data-command-deck-center="${escapeAttribute(centerCard?.id || "phase")}" data-command-deck-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" data-command-deck-card-ids="${escapeAttribute(actionCards.map((card) => card.id).join(" "))}" data-command-deck-favorites="${escapeAttribute(favoriteIds.join(" "))}" data-action-count="${actionCards.length}" data-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" tabindex="0" aria-label="Rotating Commander Command Deck" aria-roledescription="infinite rotating command deck" aria-keyshortcuts="ArrowLeft ArrowRight PageUp PageDown Q E" data-no-swipe>
       <div class="commander-action-hand__aura" aria-hidden="true"></div>
+      <button class="command-deck__rotator command-deck__rotator--previous" data-command-deck-rotate="-1" aria-label="Rotate command deck left">&lsaquo;</button>
+      <button class="command-deck__rotator command-deck__rotator--next" data-command-deck-rotate="1" aria-label="Rotate command deck right">&rsaquo;</button>
+      ${centerCard ? `<button class="command-deck__favorite-toggle ${centerFavorite ? "is-favorite" : ""}" data-command-deck-favorite="${escapeAttribute(centerCard.id)}" aria-pressed="${centerFavorite}" aria-label="${escapeAttribute(centerFavorite ? `Unpin ${centerCard.label}` : `Pin ${centerCard.label}`)}">${centerFavorite ? "Pinned" : "Pin"}</button>` : ""}
       <div class="commander-action-hand__status">
         <span>${escapeHtml(attentionLabel)}</span>
+        ${centerCard ? `<span class="command-deck__center-label">${escapeHtml(centerCard.label || centerCard.id)}</span>` : ""}
         ${pendingCount ? `<button data-open-utility="${stackCount || pendingEffectsCount ? "stack" : "triggers"}" class="action-hand-queue ${activeUtilityPanel === "stack" || activeUtilityPanel === "triggers" ? "is-active" : ""}">${escapeHtml(stackCount ? `${stackCount} stack` : `${triggerCount} triggers`)}</button>` : ""}
       </div>
-      <div class="commander-action-hand__fan" role="group" aria-label="Available Commander decisions" style="--action-count: ${actionCards.length};">
-        ${actionCards.map((card, index) => renderCommanderActionCard(card, index, actionCards.length)).join("")}
+      <div class="commander-action-hand__fan command-deck__fan" data-command-deck-fan role="group" aria-label="Visible rotating Commander decisions" style="--action-count: ${visibleCards.length}; --deck-size: ${actionCards.length};">
+        ${visibleCards.map((entry, index) => renderCommanderActionCard(entry.card, index, visibleCards.length, entry)).join("")}
       </div>
     </section>
   `;
 }
 
-function createCommanderActionCards(cards) {
+function createCommanderActionCards(cards, favoriteIds = []) {
+  const favoriteOrder = new Map(favoriteIds.map((id, index) => [id, index]));
   const visible = cards
     .filter((card) => card.visible !== false)
     .map((card) => ({
       ...card,
+      favorite: favoriteOrder.has(card.id),
       priority: Number(card.priority || 0),
       state: card.state || "idle",
-    }))
-    .sort((left, right) => {
-      if (right.priority !== left.priority) {
-        return right.priority - left.priority;
-      }
-      return String(left.id).localeCompare(String(right.id));
-    });
-  const ordered = new Array(visible.length);
-  const centerSlot = Math.floor((visible.length - 1) / 2);
-  const slotsByPriority = [centerSlot];
-  for (let distance = 1; slotsByPriority.length < visible.length; distance += 1) {
-    if (centerSlot - distance >= 0) {
-      slotsByPriority.push(centerSlot - distance);
-    }
-    if (centerSlot + distance < visible.length) {
-      slotsByPriority.push(centerSlot + distance);
-    }
-  }
-  visible.forEach((card, index) => {
-    ordered[slotsByPriority[index]] = card;
-  });
-  return ordered.filter(Boolean);
+      coreOrder: COMMAND_DECK_CORE_ORDER.includes(card.id) ? COMMAND_DECK_CORE_ORDER.indexOf(card.id) : 999,
+    }));
+  const contextual = visible
+    .filter((card) => card.contextual)
+    .sort((left, right) => right.priority - left.priority || String(left.id).localeCompare(String(right.id)));
+  const favorites = visible
+    .filter((card) => !card.contextual && card.favorite)
+    .sort((left, right) => favoriteOrder.get(left.id) - favoriteOrder.get(right.id) || left.coreOrder - right.coreOrder);
+  const core = visible
+    .filter((card) => !card.contextual && !card.favorite)
+    .sort((left, right) => left.coreOrder - right.coreOrder || String(left.id).localeCompare(String(right.id)));
+  return [...contextual, ...favorites, ...core];
 }
 
-function renderCommanderActionCard(card, index, count) {
+function resolveCommandDeckPriorityCard(cards = []) {
+  return (
+    cards.find((card) => card.contextual && ["resolving", "promoted", "selected", "waiting"].includes(card.state)) ||
+    cards.find((card) => ["expanded", "selected", "resolving", "waiting"].includes(card.state)) ||
+    cards.find((card) => card.favorite) ||
+    cards.find((card) => card.id === "phase") ||
+    cards[0] ||
+    null
+  );
+}
+
+function resolveCommandDeckCenterIndex(cards = [], requestedIndex = 0, priorityCard = null, lastManualRotationAt = 0) {
+  if (!cards.length) {
+    return 0;
+  }
+  const normalized = normalizeCommandDeckIndex(requestedIndex, cards.length);
+  const manualRecent = Date.now() - Number(lastManualRotationAt || 0) < COMMAND_DECK_AUTO_CENTER_COOLDOWN_MS;
+  const priorityIndex = priorityCard ? cards.findIndex((card) => card.id === priorityCard.id) : -1;
+  const priorityShouldAssist = Boolean(
+    priorityCard &&
+      (
+        priorityCard.contextual ||
+        ["expanded", "selected", "resolving", "waiting"].includes(priorityCard.state) ||
+        !manualRecent
+      )
+  );
+  if (priorityIndex >= 0 && priorityShouldAssist) {
+    return priorityIndex;
+  }
+  return normalized;
+}
+
+function getVisibleCommandDeckCards(cards = [], centerIndex = 0, radius = COMMAND_DECK_VISIBLE_RADIUS) {
+  const count = cards.length;
+  if (!count) {
+    return [];
+  }
+  const visibleCount = Math.min(count, radius * 2 + 1);
+  const leftSlots = Math.floor((visibleCount - 1) / 2);
+  const center = normalizeCommandDeckIndex(centerIndex, count);
+  return Array.from({ length: visibleCount }, (_, slotIndex) => {
+    const slotOffset = slotIndex - leftSlots;
+    const deckIndex = normalizeCommandDeckIndex(center + slotOffset, count);
+    return {
+      card: cards[deckIndex],
+      deckIndex,
+      centerIndex: center,
+      slotIndex,
+      slotOffset,
+      isCenter: slotOffset === 0,
+    };
+  });
+}
+
+function normalizeCommandDeckIndex(index = 0, size = 1) {
+  const count = Math.max(1, Number(size || 1));
+  return ((Math.trunc(Number(index || 0)) % count) + count) % count;
+}
+
+function getCommandDeckFavoriteIds(profile = {}, validIds = []) {
+  const valid = new Set(validIds);
+  return [...new Set((profile.settings?.commandDeck?.favoriteIds || []).map((id) => String(id || "").trim()).filter(Boolean))]
+    .filter((id) => !valid.size || valid.has(id))
+    .slice(0, COMMAND_DECK_MAX_FAVORITES);
+}
+
+function renderCommanderActionCard(card, index, count, deckEntry = {}) {
   const midpoint = (count - 1) / 2;
-  const offset = index - midpoint;
+  const offset = Number.isFinite(deckEntry.slotOffset) ? deckEntry.slotOffset : index - midpoint;
   const distance = Math.abs(offset);
   const fanTilt = offset * 5.2;
-  const fanRise = Math.max(0, 18 - distance * 4.2) + Math.max(0, Number(card.priority || 0) - 90) * 0.12;
+  const centerLift = deckEntry.isCenter ? 4 : 0;
+  const fanRise = Math.max(0, 18 - distance * 4.2) + Math.max(0, Number(card.priority || 0) - 90) * 0.12 + centerLift;
   const prominence = Math.max(0, Math.min(1, Number(card.priority || 0) / 128));
-  const fanScale = 0.94 + prominence * 0.11;
+  const fanScale = 0.94 + prominence * 0.11 + (deckEntry.isCenter ? 0.025 : 0);
   const fanDepth = Math.round((count - distance) * 10 + prominence * 24);
   const overlapAdjust = `${Math.round((distance % 2) * 4 - distance * 1.5)}px`;
   const attrs = (card.attrs || []).join(" ");
@@ -7639,6 +7970,13 @@ function renderCommanderActionCard(card, index, count) {
       data-action-card-id="${escapeAttribute(card.id)}"
       data-action-card-state="${escapeAttribute(card.state || "idle")}"
       data-action-priority="${escapeAttribute(String(card.priority || 0))}"
+      data-command-deck-card
+      data-command-deck-card-permanent="${card.contextual ? "false" : "true"}"
+      data-command-deck-contextual="${card.contextual ? "true" : "false"}"
+      data-command-deck-card-favorite="${card.favorite ? "true" : "false"}"
+      data-command-deck-slot="${escapeAttribute(String(deckEntry.slotOffset ?? offset))}"
+      data-command-deck-index="${escapeAttribute(String(deckEntry.deckIndex ?? index))}"
+      data-command-deck-center="${deckEntry.isCenter ? "true" : "false"}"
       aria-label="${escapeAttribute(`${card.label}: ${card.detail || card.signal || "decision"}`)}"
       aria-pressed="${card.state === "expanded" || card.state === "selected" ? "true" : "false"}"
     >
@@ -10800,7 +11138,7 @@ function getUnreadNotificationCount(profile = {}) {
 }
 
 function getAppVersion() {
-  return "1.37.0";
+  return "1.38.0";
 }
 
 function renderGameOptions(profile, page = "life") {

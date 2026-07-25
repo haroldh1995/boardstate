@@ -91,21 +91,46 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   const visualDoc = readRepositoryFile("docs/ecosystem/NATIVE_GAME_VISUAL_ARCHITECTURE.md");
   const battlefieldDoc = readRepositoryFile("docs/ecosystem/LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md");
   const actionHandDoc = readRepositoryFile("docs/ecosystem/COMMANDER_ACTION_HAND_DESIGN.md");
+  const rotatingDeckDoc = readRepositoryFile("docs/ecosystem/ROTATING_COMMAND_DECK_ARCHITECTURE.md");
+  const schema = readRepositoryFile("src/state/schema.js");
+  const localDatabase = readRepositoryFile("src/storage/localDatabase.js");
 
   assert.match(render, /COMMANDER_ACTION_HAND_VERSION = "boardstate-commander-action-hand-0\.1\.0"/);
+  assert.match(render, /COMMAND_DECK_VERSION = "boardstate-rotating-command-deck-0\.1\.0"/);
   assert.match(render, /function renderCommanderActionHand/);
   assert.match(render, /function createCommanderActionCards/);
+  assert.match(render, /function resolveCommandDeckPriorityCard/);
+  assert.match(render, /function resolveCommandDeckCenterIndex/);
+  assert.match(render, /function getVisibleCommandDeckCards/);
+  assert.match(render, /function normalizeCommandDeckIndex/);
+  assert.match(render, /function bindCommandDeck/);
   assert.match(render, /function renderCommanderActionCard/);
   assert.match(render, /data-commander-action-hand-version/);
+  assert.match(render, /data-command-deck-version/);
+  assert.match(render, /data-command-deck-rotation/);
+  assert.match(render, /data-command-deck-center/);
+  assert.match(render, /document\.body\.dataset\.commandDeckVersion = COMMAND_DECK_VERSION/);
   assert.match(render, /document\.body\.dataset\.commanderActionHandVersion = COMMANDER_ACTION_HAND_VERSION/);
   assert.match(render, /data-next-phase/);
   assert.match(render, /data-open-utility="rules-assistant"/);
   assert.match(render, /data-open-utility="remind-me"/);
   assert.match(render, /data-open-tool-panel="commander"/);
+  assert.match(render, /data-open-utility="history"/);
+  assert.match(render, /data-open-utility="notes"/);
+  assert.match(render, /data-open-utility="calculator"/);
+  assert.match(render, /data-open-utility="dice"/);
+  assert.match(render, /data-flip-coin/);
+  assert.match(render, /data-command-deck-favorite/);
+  assert.match(render, /data-command-deck-card-favorite/);
   assert.match(render, /data-action-card-id/);
   assert.match(render, /data-action-priority/);
   assert.match(render, /visible: canResolveContext \|\| combatResolving/);
   assert.match(render, /visible: Boolean\(selectedPermanents\.length\)/);
+  assert.match(render, /COMMAND_DECK_CORE_ORDER/);
+  assert.match(render, /COMMAND_DECK_AUTO_CENTER_COOLDOWN_MS/);
+  assert.match(render, /COMMAND_DECK_MAX_FAVORITES/);
+  assert.match(schema, /commandDeck:\s*{\s*favoriteIds:\s*\[\]/);
+  assert.match(localDatabase, /commandDeck:\s*{\s*\.{3}defaults\.settings\.commandDeck/);
   assert.equal(render.includes("renderMobileBattlefieldDock"), false);
   assert.equal(render.includes("battlefield-mobile-dock"), false);
   assert.equal(render.includes("battlefield-wheel"), false);
@@ -125,6 +150,11 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.equal(styles.includes(".command-hud-card"), false);
 
   assert.match(styles, /\.commander-action-hand\b/);
+  assert.match(styles, /\.command-deck\b/);
+  assert.match(styles, /\.command-deck__rotator\b/);
+  assert.match(styles, /\.command-deck__favorite-toggle\b/);
+  assert.match(styles, /data-command-deck-center="true"/);
+  assert.match(styles, /data-command-deck-slot="-3"/);
   assert.match(styles, /\.action-card\b/);
   assert.match(styles, /\.action-card--commander\b/);
   assert.match(styles, /\.commander-action-hand__fan:has\(\.action-card:hover\)/);
@@ -144,13 +174,18 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.match(styles, /clip-path: polygon/);
   assert.match(styles, /prefers-reduced-motion: reduce/);
   assert.match(visualDoc, /Commander Action Hand Standard/);
+  assert.match(visualDoc, /Rotating Command Deck Standard/);
   assert.match(battlefieldDoc, /Prompt 12\.3C Commander Action Hand/);
+  assert.match(battlefieldDoc, /Prompt 12\.3F Rotating Command Deck/);
   assert.match(actionHandDoc, /Research/);
   assert.match(actionHandDoc, /Ideation/);
   assert.match(actionHandDoc, /Whiteboarding/);
   assert.match(actionHandDoc, /Visual Mockups/);
   assert.match(actionHandDoc, /Interactive Prototype Gate/);
   assert.match(actionHandDoc, /Internal Design Critique/);
+  assert.match(rotatingDeckDoc, /circular Rotating Command Deck/i);
+  assert.match(rotatingDeckDoc, /Wheel, drag, keyboard, and controller-ready/i);
+  assert.match(rotatingDeckDoc, /Future work must not turn the deck into a scrolling list/i);
 });
 
 test("battlefield runtime uses the tabletop reconstruction instead of idle dashboard panels", () => {

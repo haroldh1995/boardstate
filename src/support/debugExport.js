@@ -242,8 +242,8 @@ function redactSecrets(key, value) {
 function getAppVersion() {
   return {
     name: "BoardState",
-    version: "1.37.0",
-    build: "hud-composition-release",
+    version: "1.38.0",
+    build: "rotating-command-deck-release",
   };
 }
 

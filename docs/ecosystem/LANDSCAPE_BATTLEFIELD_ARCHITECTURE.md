@@ -203,6 +203,19 @@ Prompt 12.3E is a corrective visual hierarchy pass over the completed tabletop a
 
 This pass is presentation-only. It does not add gameplay features, change Rules Engine authority, alter action routing, change save formats, expose hidden information, or create a new HUD system. The corrective standard lives in `docs/ecosystem/HUD_COMPOSITION_VISUAL_HIERARCHY.md`.
 
+## Prompt 12.3F Rotating Command Deck
+
+Prompt 12.3F keeps the Commander Action Hand as the bottom gameplay decision surface but replaces the fixed linear projection with a circular Rotating Command Deck:
+
+- `src/ui/render.js` exposes `COMMAND_DECK_VERSION` as `boardstate-rotating-command-deck-0.1.0`.
+- `renderCommanderActionHand()` now marks the hand root with `data-command-deck`, `data-command-deck-version`, `data-command-deck-size`, `data-command-deck-visible-count`, `data-command-deck-rotation`, and `data-command-deck-center`.
+- `createCommanderActionCards()` separates stable core Command Cards from temporary contextual cards, applies user favorites, and preserves the existing action attributes.
+- `getVisibleCommandDeckCards()` projects only a small circular window of the deck into the visible fan while `normalizeCommandDeckIndex()` keeps rotation infinite.
+- `bindCommandDeck()` adds wheel, pointer-drag, keyboard, and controller-ready rotation without changing existing card click handlers.
+- `settings.commandDeck.favoriteIds` stores only favorite-card preferences. It is not gameplay state.
+
+The Rotating Command Deck is presentation and action entry only. It does not change rules processing, State Engine ownership, Event Knowledge, saves, synchronization, hidden-information policy, or future Hub/Lite/Nexus boundaries. The interaction record lives in `docs/ecosystem/ROTATING_COMMAND_DECK_ARCHITECTURE.md`.
+
 ## Deferred Work
 
 The battlefield, gameplay-flow, motion, Rules Assistant, proactive assistant, and AI analysis prompts do not implement particle effects, spectator mode, visual replay UI, sound, haptics, cloud AI, strategic coaching, external judge search, or full Rules Recovery imports. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.

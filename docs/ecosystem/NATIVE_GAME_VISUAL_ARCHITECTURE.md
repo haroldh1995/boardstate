@@ -97,6 +97,21 @@ Permanent standards:
 
 The corrective composition record lives in `docs/ecosystem/HUD_COMPOSITION_VISUAL_HIERARCHY.md`.
 
+## Rotating Command Deck Standard
+
+Prompt 12.3F replaces the fixed linear Action Hand projection with a circular Rotating Command Deck while preserving the existing Action Card material identity and action routing.
+
+Permanent standards:
+
+- `src/ui/render.js` exposes `boardstate-rotating-command-deck-0.1.0` through `data-command-deck-version` and `document.body.dataset.commandDeckVersion`.
+- The deck is circular. Rotation must wrap through `normalizeCommandDeckIndex()` and must not expose a first or last card to the player.
+- Only a visible hand-sized window of the full deck renders at once through `getVisibleCommandDeckCards()`.
+- Core Command Cards keep stable order for muscle memory. User favorites may group near the front through `settings.commandDeck.favoriteIds`.
+- Contextual Command Cards enter only when relevant and may be centered by `resolveCommandDeckPriorityCard()` without becoming permanent inactive clutter.
+- Wheel, drag, keyboard, and controller-ready key aliases must produce the same rotation behavior.
+
+The interaction architecture record lives in `docs/ecosystem/ROTATING_COMMAND_DECK_ARCHITECTURE.md`.
+
 ## Reference Principles From Premium Digital Card Games
 
 The attached Arena reference and comparable digital card games are used only for principles:

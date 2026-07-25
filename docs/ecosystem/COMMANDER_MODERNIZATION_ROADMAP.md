@@ -139,6 +139,15 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - The existing Commander Action Hand interaction remains intact: Action Cards still overlap, fan, lift on hover/focus, displace neighbors, preserve button semantics, and use existing action-entry attributes.
 - No gameplay feature, action system, rules authority, state owner, save format, Hub/Lite/Nexus dependency, or hidden-information path was introduced.
 
+### Prompt 12.3F: Rotating Command Deck System
+
+- `docs/ecosystem/ROTATING_COMMAND_DECK_ARCHITECTURE.md` records the circular deck interaction model, reference principles, runtime boundary, core/contextual card split, input contract, favorites, and regression rules.
+- `src/ui/render.js` exposes `COMMAND_DECK_VERSION` as `boardstate-rotating-command-deck-0.1.0` through the body and Action Hand root.
+- `createCommanderActionCards()`, `resolveCommandDeckPriorityCard()`, `resolveCommandDeckCenterIndex()`, `getVisibleCommandDeckCards()`, and `normalizeCommandDeckIndex()` convert the bottom hand into a circular deck projection with a small visible fan.
+- `bindCommandDeck()` supports wheel, pointer-drag, keyboard, and controller-ready rotation while preserving existing Action Card click semantics and action attributes.
+- `src/state/schema.js` adds `settings.commandDeck.favoriteIds` as preference metadata only.
+- No gameplay feature, action system, rules authority, state owner, save format, Hub/Lite/Nexus dependency, hidden-information path, or digital hand of Magic cards was introduced.
+
 ## Remaining Roadmap
 
 ### Prompt 13: Full Control And Live Tracking Convergence

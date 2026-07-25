@@ -329,6 +329,7 @@ function normalizeProfile(profile) {
       rulesAssistant: { ...defaults.settings.rulesAssistant, ...(profile.settings?.rulesAssistant || {}) },
       remindMe: { ...defaults.settings.remindMe, ...(profile.settings?.remindMe || {}) },
       aiGameplay: { ...defaults.settings.aiGameplay, ...(profile.settings?.aiGameplay || {}) },
+      commandDeck: { ...defaults.settings.commandDeck, ...(profile.settings?.commandDeck || {}) },
       ecosystem: { ...defaults.settings.ecosystem, ...(profile.settings?.ecosystem || {}) },
       playerMemory: {
         ...defaults.settings.playerMemory,

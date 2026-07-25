@@ -147,6 +147,9 @@ export function createDefaultProfile() {
         densityScale: 1,
         focusMode: true,
       },
+      commandDeck: {
+        favoriteIds: [],
+      },
       appearance: {
         compositionMode: "landscape",
       },
