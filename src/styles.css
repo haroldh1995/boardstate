@@ -10120,10 +10120,6 @@ body[data-page="battlefield"] .command-deck__favorite-toggle:focus-visible {
   transform: translateY(-0.08rem);
 }
 
-body[data-page="battlefield"] .command-deck__center-label {
-  color: rgba(143, 211, 255, 0.72);
-}
-
 @media (orientation: landscape) and (max-height: 560px) {
   body[data-page="battlefield"] .commander-action-hand.command-deck {
     width: min(100vw, calc(100vw - 0.75rem));

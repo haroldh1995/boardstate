@@ -7850,11 +7850,11 @@ function renderCommanderActionHand(profile, options = {}) {
   const selectedSummary = selectedPermanents.length
     ? `${selectedPermanents.length} selected`
     : `${(session.battlefield?.player || []).length} permanents`;
-  const attentionLabel = pendingCount
-    ? `${pendingCount} pending`
-    : session.priority?.waiting
-      ? "Priority window"
-      : "Command deck ready";
+  const pendingQueueLabel = stackCount
+    ? `${stackCount} stack`
+    : triggerCount
+      ? `${triggerCount} triggers`
+      : `${pendingEffectsCount} pending`;
   const canUndo = Boolean((session.undoStack || []).length);
   const isCombatRelevant = Boolean(phaseLabel.includes("combat") || canDeclareAttackers || combatToResolve);
   const actionCards = createCommanderActionCards([
@@ -8118,11 +8118,11 @@ function renderCommanderActionHand(profile, options = {}) {
       <button class="command-deck__rotator command-deck__rotator--previous" data-command-deck-rotate="-1" aria-label="Rotate command deck left">&lsaquo;</button>
       <button class="command-deck__rotator command-deck__rotator--next" data-command-deck-rotate="1" aria-label="Rotate command deck right">&rsaquo;</button>
       ${centerCard ? `<button class="command-deck__favorite-toggle ${centerFavorite ? "is-favorite" : ""}" data-command-deck-favorite="${escapeAttribute(centerCard.id)}" aria-pressed="${centerFavorite}" aria-label="${escapeAttribute(centerFavorite ? `Unpin ${centerCard.label}` : `Pin ${centerCard.label}`)}">${centerFavorite ? "Pinned" : "Pin"}</button>` : ""}
-      <div class="commander-action-hand__status">
-        <span>${escapeHtml(attentionLabel)}</span>
-        ${centerCard ? `<span class="command-deck__center-label">${escapeHtml(centerCard.label || centerCard.id)}</span>` : ""}
-        ${pendingCount ? `<button data-open-utility="${stackCount || pendingEffectsCount ? "stack" : "triggers"}" class="action-hand-queue ${activeUtilityPanel === "stack" || activeUtilityPanel === "triggers" ? "is-active" : ""}">${escapeHtml(stackCount ? `${stackCount} stack` : `${triggerCount} triggers`)}</button>` : ""}
-      </div>
+      ${pendingCount ? `
+        <div class="commander-action-hand__status">
+          <button data-open-utility="${stackCount || pendingEffectsCount ? "stack" : "triggers"}" class="action-hand-queue ${activeUtilityPanel === "stack" || activeUtilityPanel === "triggers" ? "is-active" : ""}">${escapeHtml(pendingQueueLabel)}</button>
+        </div>
+      ` : ""}
       <div class="commander-action-hand__fan command-deck__fan" data-command-deck-fan role="group" aria-label="Visible rotating Commander decisions" style="--action-count: ${visibleCards.length}; --deck-size: ${actionCards.length};">
         ${visibleCards.map((entry, index) => renderCommanderActionCard(entry.card, index, visibleCards.length, entry)).join("")}
       </div>
