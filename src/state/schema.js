@@ -159,6 +159,11 @@ export function createDefaultProfile() {
       commandDeck: {
         favoriteIds: [],
       },
+      learning: {
+        adaptiveGuidance: true,
+        helpCenterHints: true,
+        developerDebug: false,
+      },
       appearance: {
         compositionMode: "landscape",
       },
@@ -263,6 +268,7 @@ export function createDefaultProfile() {
       },
     },
     onboarding: {
+      experienceVersion: "boardstate-adaptive-learning-0.1.0",
       firstLaunchComplete: false,
       tutorialOffered: false,
       tutorialStarted: false,
@@ -276,6 +282,32 @@ export function createDefaultProfile() {
       helperSpriteEnabled: true,
       screenReaderPromptsEnabled: false,
       tutorialReducedMotion: false,
+      helpCenterOpened: false,
+      lastHelpTopic: "",
+      onboardingTokens: {
+        version: "boardstate-adaptive-learning-0.1.0",
+        dismissBehavior: "teach-once",
+      },
+      adaptiveLearning: {
+        version: "boardstate-adaptive-learning-0.1.0",
+        enabled: true,
+        mode: "adaptive",
+        confidence: "new",
+        proficiencyScore: 0,
+        completedSteps: [],
+        dismissedHints: [],
+        featureDiscovery: {},
+        interactionCounts: {},
+        mistakeCounts: {},
+        hesitationSignals: {},
+        featureAvoidance: {},
+        lastGuidanceAt: 0,
+        lastHintId: "",
+        repeatedSearchCount: 0,
+        resetCount: 0,
+        debugEnabled: false,
+        updatedAt: 0,
+      },
       tutorialLastUpdatedAt: 0,
     },
     localAuth: {

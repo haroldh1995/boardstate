@@ -226,6 +226,7 @@ export function createSharedProfileProjection(profile = {}, input = {}) {
       reminders: "settings:remindMe",
       questions: "settings:rulesAssistant",
       ai: "settings:aiGameplay",
+      learning: "onboarding:adaptiveLearning",
       theme: "settings:appearance",
     },
     sourceApp: BOARDSTATE_APP_ID,
@@ -274,6 +275,13 @@ export function createSharedPreferenceSnapshot(profile = {}, input = {}) {
     reminders: cloneSafe(settings.remindMe || {}),
     questions: cloneSafe(settings.rulesAssistant || {}),
     ai: cloneSafe(settings.aiGameplay || {}),
+    learning: {
+      adaptiveGuidance: settings.learning?.adaptiveGuidance !== false,
+      helpCenterHints: settings.learning?.helpCenterHints !== false,
+      onboardingExperienceVersion: profile.onboarding?.experienceVersion || "boardstate-adaptive-learning-0.1.0",
+      confidence: profile.onboarding?.adaptiveLearning?.confidence || "new",
+      completedCount: (profile.onboarding?.adaptiveLearning?.completedSteps || []).length,
+    },
     notifications: createNotificationPreferenceSummary(settings.notifications || {}),
     sensory: createSensoryPreferenceSummary(settings),
     synchronizedThroughHub: false,
@@ -684,6 +692,11 @@ export function applySharedPreferencePatch(profile = {}, patch = {}) {
         ...(settings.aiGameplay || {}),
         ...(safePatch.ai || {}),
       },
+      learning: {
+        ...(settings.learning || {}),
+        ...(safePatch.learning || {}),
+        developerDebug: false,
+      },
       notifications: {
         ...(settings.notifications || {}),
         ...(safePatch.notifications || {}),
@@ -972,6 +985,7 @@ function normalizeSharedPreferencePatch(patch = {}) {
     reminders: cloneSafe(patch.reminders || {}),
     questions: cloneSafe(patch.questions || {}),
     ai: cloneSafe(patch.ai || {}),
+    learning: cloneSafe(patch.learning || {}),
     notifications: cloneSafe(patch.notifications || {}),
     sensory: cloneSafe(patch.sensory || {}),
   };

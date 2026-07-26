@@ -173,6 +173,13 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - Existing notification sound, notification haptics, and gameplay haptic hooks now route through generated browser-safe Web Audio and haptic tokens rather than hard-coded per-call feedback.
 - `src/state/schema.js`, `src/storage/localDatabase.js`, and `src/ecosystem/ecosystemIntegration.js` preserve sensory preferences and shared preference summaries without introducing sound assets, music, a second notification authority, gameplay state mutation, hidden-information leakage, or fake Hub/Lite/Nexus connectivity.
 
+### Prompt 13.1: First-Time User Experience And Adaptive Learning
+
+- `docs/ecosystem/ADAPTIVE_LEARNING_ONBOARDING.md` records the permanent onboarding philosophy, progressive disclosure rules, Onboarding Tokens, Adaptive Learning Engine, Help and Learning Center, and development-only Learning Debug Overlay contract.
+- `src/onboarding/tutorialSystem.js` extends the existing onboarding/tutorial owner with versioned learning tokens, profile-scoped adaptive learning memory, contextual guidance selection, help catalog generation, and debug snapshots.
+- `src/ui/render.js` keeps first-run education on the battlefield through the existing Helper Sprite, adds a Help and Learning options area, records low-friction learning interactions from the Rotating Command Deck, search, accessibility, and utility surfaces, and exposes production-safe onboarding version metadata.
+- `src/state/schema.js`, `src/state/gameReducer.js`, `src/storage/localDatabase.js`, and `src/ecosystem/ecosystemIntegration.js` preserve learning settings and profile memory without creating a second tutorial engine, gameplay authority, save format, or Hub dependency.
+
 ## Remaining Roadmap
 
 ### Prompt 13: Full Control And Live Tracking Convergence

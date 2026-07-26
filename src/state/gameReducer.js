@@ -71,8 +71,11 @@ import { RULES_CONFIDENCE, createRecoveryEntry } from "../support/debugExport.js
 import {
   advanceFiveTurnTutorial,
   completeTutorialToFreePlay,
+  dismissLearningHint,
   markOnboardingExplored,
   pauseTutorial,
+  recordLearningInteraction,
+  resetAdaptiveLearning,
   resetOnboardingProgress,
   resumeTutorial,
   skipTutorial,
@@ -152,6 +155,7 @@ export function reduceProfile(profile, event) {
     !["IMPORT_PROFILE", "SAVE_TICK", "SIMULATION_TICK"].includes(actionType) &&
     !actionKey.startsWith("ONBOARDING_") &&
     !actionKey.startsWith("TUTORIAL_") &&
+    !actionKey.startsWith("LEARNING_") &&
     !actionKey.startsWith("AI_") &&
     !actionKey.startsWith("LOCAL_SAVE_");
   const baseProfile = undoable ? pushUndo(profile, event) : profile;
@@ -187,13 +191,25 @@ export function reduceProfile(profile, event) {
       };
       break;
     case "ONBOARDING_EXPLORE":
-      nextProfile = markOnboardingExplored(baseProfile, { doNotShowAgain: true });
+      nextProfile = markOnboardingExplored(baseProfile, {
+        doNotShowAgain: true,
+        helperSpriteEnabled: true,
+        adaptiveLearningEnabled: true,
+      });
       break;
     case "ONBOARDING_WATCH_LATER":
-      nextProfile = markOnboardingExplored(baseProfile, { doNotShowAgain: false });
+      nextProfile = markOnboardingExplored(baseProfile, {
+        doNotShowAgain: false,
+        helperSpriteEnabled: true,
+        adaptiveLearningEnabled: true,
+      });
       break;
     case "ONBOARDING_DO_NOT_SHOW":
-      nextProfile = markOnboardingExplored(baseProfile, { doNotShowAgain: true });
+      nextProfile = markOnboardingExplored(baseProfile, {
+        doNotShowAgain: true,
+        helperSpriteEnabled: false,
+        adaptiveLearningEnabled: false,
+      });
       break;
     case "ONBOARDING_RESET":
       nextProfile = resetOnboardingProgress(baseProfile);
@@ -548,6 +564,15 @@ export function reduceProfile(profile, event) {
         }),
       };
       break;
+    case "LEARNING_RECORD_INTERACTION":
+      nextProfile = recordLearningInteraction(baseProfile, event);
+      break;
+    case "LEARNING_DISMISS_HINT":
+      nextProfile = dismissLearningHint(baseProfile, event.hintId || event.messageKey || "");
+      break;
+    case "LEARNING_RESET":
+      nextProfile = resetAdaptiveLearning(baseProfile);
+      break;
     case "ECOSYSTEM_QUEUE_SYNC":
       nextProfile = queueEcosystemSync(baseProfile, event);
       break;
@@ -749,9 +774,20 @@ export function reduceProfile(profile, event) {
       break;
     case "HELPER_DISMISS_MESSAGE":
       nextProfile = withSession(baseProfile, dismissHelperMessage(baseProfile.activeSession, event.messageKey || ""));
+      if (String(event.messageKey || "").startsWith("learning:")) {
+        nextProfile = dismissLearningHint(nextProfile, event.messageKey || "");
+      }
       break;
     case "HELPER_MARK_SHOWN":
       nextProfile = withSession(baseProfile, markHelperMessageShown(baseProfile.activeSession, event.messageKey || ""));
+      if (String(event.messageKey || "").startsWith("learning:")) {
+        nextProfile = recordLearningInteraction(nextProfile, {
+          interactionType: "hint-shown",
+          featureId: getLearningFeatureFromMessageKey(event.messageKey || ""),
+          hintId: event.messageKey,
+          amount: 1,
+        });
+      }
       break;
     case "REMIND_ME_ADD":
       nextProfile = withSession(baseProfile, addRemindMeReminder(baseProfile.activeSession, event.reminder || event));
@@ -4904,6 +4940,24 @@ function markHelperMessageShown(session, messageKey = "") {
       lastShownAt: Date.now(),
     },
   };
+}
+
+function getLearningFeatureFromMessageKey(messageKey = "") {
+  const hintId = String(messageKey || "").split(":")[1] || "";
+  const map = {
+    "command-hand-first-touch": "commandHand",
+    "battlefield-first-use": "battlefield",
+    "first-permanent": "firstPermanent",
+    "first-undo": "undo",
+    "search-discovery": "search",
+    "selected-card": "selection",
+    "stack-review": "stack",
+    "commander-tools": "commander",
+    "reminders": "reminders",
+    "help-center": "helpCenter",
+    "accessibility": "accessibility",
+  };
+  return map[hintId] || "battlefield";
 }
 
 function addRemindMeReminder(session, input = {}) {

@@ -154,6 +154,21 @@ Permanent standards:
 
 The permanent sensory architecture record lives in `docs/ecosystem/SENSORY_LANGUAGE_ARCHITECTURE.md`.
 
+## Adaptive Learning And Onboarding Standard
+
+Prompt 13.1 establishes BoardState's first-time user experience and progressive learning standard.
+
+Permanent standards:
+
+- `src/onboarding/tutorialSystem.js` remains the single onboarding and tutorial owner. Future learning work must extend its Adaptive Learning Engine instead of adding parallel onboarding systems.
+- `src/ui/render.js` exposes `boardstate-adaptive-learning-0.1.0` through `document.body.dataset.onboardingExperienceVersion`, first-launch choices, Helper Sprite guidance, and the Help and Learning options area.
+- First-time users may choose guided practice or direct battlefield entry. Direct entry enables gentle contextual guidance; Do Not Show Again disables it.
+- Guidance is brief, optional, dismissible, profile-scoped, and reduced as proficiency increases.
+- Help remains available from Game Options without restarting onboarding.
+- The Learning Debug Overlay is development-only and gated by `import.meta.env.DEV` plus `boardstate-learning-debug=true`.
+
+The permanent onboarding architecture record lives in `docs/ecosystem/ADAPTIVE_LEARNING_ONBOARDING.md`.
+
 ## Reference Principles From Premium Digital Card Games
 
 The attached Arena reference and comparable digital card games are used only for principles:

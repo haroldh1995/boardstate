@@ -2,7 +2,16 @@ import { buildStats } from "../analytics/statsService.js";
 import { exportProfile, parseImportedProfile } from "../storage/localDatabase.js";
 import { fetchScryfallCardDetails, searchScryfall } from "../services/scryfallService.js";
 import { buildFriendInviteLink } from "../social/friendSystem.js";
-import { buildTutorialHelperMessage, buildTutorialScreenReaderText, getTutorialProgress, shouldShowFirstLaunch } from "../onboarding/tutorialSystem.js";
+import {
+  ONBOARDING_EXPERIENCE_VERSION,
+  buildTutorialHelperMessage,
+  buildTutorialScreenReaderText,
+  createHelpLearningCatalog,
+  createLearningDebugSnapshot,
+  getTutorialProgress,
+  selectAdaptiveGuidance,
+  shouldShowFirstLaunch,
+} from "../onboarding/tutorialSystem.js";
 import { exportLocalSave } from "../storage/saveState.js";
 import { canBeCommander } from "../game/commanderSystem.js";
 import { calculateLegalTargets, getPermanentManaOptions } from "../rules-engine/index.js";
@@ -518,6 +527,7 @@ export function mountApp(root, store) {
     document.body.dataset.visualLanguageVersion = VISUAL_LANGUAGE_VERSION;
     document.body.dataset.motionLanguageVersion = BOARDSTATE_MOTION_LANGUAGE_VERSION;
     document.body.dataset.sensoryLanguageVersion = SENSORY_LANGUAGE_VERSION;
+    document.body.dataset.onboardingExperienceVersion = ONBOARDING_EXPERIENCE_VERSION;
     document.body.dataset.commanderActionHandVersion = COMMANDER_ACTION_HAND_VERSION;
     document.body.dataset.commandDeckVersion = COMMAND_DECK_VERSION;
     document.body.dataset.tabletopReconstructionVersion = TABLETOP_RECONSTRUCTION_VERSION;
@@ -586,6 +596,7 @@ export function mountApp(root, store) {
       confirmationDialog,
       uiNotice,
       sensoryDebugSnapshot,
+      learningDebugSnapshot: createLearningDebugSnapshot(profile),
       manualChoicePanelCollapsed,
     });
     bind(root, profile);
@@ -700,6 +711,14 @@ export function mountApp(root, store) {
       priority: SENSORY_PRIORITY.backgroundFeedback,
       volumeCategory: "uiVolume",
     });
+    queueMicrotask(() =>
+      store.dispatch({
+        type: "LEARNING_RECORD_INTERACTION",
+        interactionType: "command-deck-rotate",
+        featureId: "commandHand",
+        internalOnly: true,
+      })
+    );
     render(store.getState());
   }
 
@@ -744,6 +763,14 @@ export function mountApp(root, store) {
           priority: button.dataset.sensoryPriority || SENSORY_PRIORITY.contextualAction,
           volumeCategory: button.dataset.sensoryChannel === SENSORY_CHANNELS.gameplay ? "gameplayVolume" : "uiVolume",
         });
+        queueMicrotask(() =>
+          store.dispatch({
+            type: "LEARNING_RECORD_INTERACTION",
+            interactionType: "command-card-select",
+            featureId: "commandHand",
+            internalOnly: true,
+          })
+        );
       });
     });
     deck.addEventListener(
@@ -1001,6 +1028,13 @@ export function mountApp(root, store) {
         activeOptionsCategory = button.dataset.optionCategory || "";
         if (activeOptionsCategory === "notifications") {
           store.dispatch({ type: "NOTIFICATIONS_MARK_READ", internalOnly: true });
+        } else if (activeOptionsCategory === "learning") {
+          store.dispatch({
+            type: "LEARNING_RECORD_INTERACTION",
+            interactionType: "help-center-open",
+            featureId: "helpCenter",
+            internalOnly: true,
+          });
         } else {
           render(store.getState());
         }
@@ -1288,6 +1322,26 @@ export function mountApp(root, store) {
         showNotice("Tutorial saved for later.");
       })
     );
+    container.querySelectorAll("[data-onboarding-do-not-show]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "ONBOARDING_DO_NOT_SHOW" });
+        showNotice("First-time guidance disabled. You can reset it from Help and Learning.");
+      })
+    );
+    container.querySelectorAll("[data-onboarding-learning]").forEach((button) =>
+      button.addEventListener("click", () => {
+        store.dispatch({ type: "ONBOARDING_WATCH_LATER" });
+        store.dispatch({
+          type: "LEARNING_RECORD_INTERACTION",
+          interactionType: "help-center-open",
+          featureId: "helpCenter",
+          internalOnly: true,
+        });
+        optionsOpen = true;
+        activeOptionsCategory = "learning";
+        render(store.getState());
+      })
+    );
     container.querySelectorAll("[data-onboarding-profile]").forEach((button) =>
       button.addEventListener("click", () => {
         store.dispatch({ type: "ONBOARDING_EXPLORE" });
@@ -1306,6 +1360,12 @@ export function mountApp(root, store) {
     );
     container.querySelectorAll("[data-onboarding-accessibility]").forEach((button) =>
       button.addEventListener("click", () => {
+        store.dispatch({
+          type: "LEARNING_RECORD_INTERACTION",
+          interactionType: "accessibility-open",
+          featureId: "accessibility",
+          internalOnly: true,
+        });
         optionsOpen = true;
         activeOptionsCategory = "accessibility";
         render(store.getState());
@@ -1383,6 +1443,17 @@ export function mountApp(root, store) {
           title: "Reset tutorial progress?",
           message: "The first-time onboarding window and guided tutorial progress will reset locally.",
           confirmLabel: "Reset Tutorial",
+          danger: true,
+        })
+      )
+    );
+    container.querySelectorAll("[data-reset-learning]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openConfirmation({
+          id: "learning-reset",
+          title: "Reset adaptive learning?",
+          message: "This resets profile-scoped learning memory, completed hints, and proficiency signals without changing gameplay or saves.",
+          confirmLabel: "Reset Learning",
           danger: true,
         })
       )
@@ -2816,6 +2887,12 @@ export function mountApp(root, store) {
       const query = new FormData(form).get("query");
       searchQuery = String(query || "");
       dismissSearchInputFocus();
+      store.dispatch({
+        type: "LEARNING_RECORD_INTERACTION",
+        interactionType: "search-query",
+        featureId: "search",
+        internalOnly: true,
+      });
       await runScryfallSearch(query, store.getState(), true);
     };
     container.querySelectorAll("[data-search-form]").forEach((form) => {
@@ -3107,6 +3184,9 @@ export function mountApp(root, store) {
         });
         dismissHelperSpriteMessage(true);
         return;
+      } else if (helperMessage.source === "adaptive-learning") {
+        optionsOpen = true;
+        activeOptionsCategory = "learning";
       }
       render(store.getState());
     });
@@ -3121,6 +3201,20 @@ export function mountApp(root, store) {
       button.addEventListener("click", () => {
         closeAllTemporaryUi({ renderAfter: false });
         activeUtilityPanel = button.dataset.openUtility || "";
+        const learningFeature = {
+          search: "search",
+          "rules-assistant": "rulesAssistant",
+          "remind-me": "reminders",
+          stack: "stack",
+          triggers: "stack",
+          history: "helpCenter",
+        }[activeUtilityPanel] || "commandHand";
+        store.dispatch({
+          type: "LEARNING_RECORD_INTERACTION",
+          interactionType: `open-utility-${activeUtilityPanel || "unknown"}`,
+          featureId: learningFeature,
+          internalOnly: true,
+        });
         // Open the selected utility panel without forcing the dock menu to stay expanded behind it.
         utilityDockOpen = false;
         render(store.getState());
@@ -4639,6 +4733,18 @@ export function mountApp(root, store) {
           isReminderReplay: true,
         }
       : null;
+    const criticalCandidateWaiting = candidates.some((candidate) =>
+      ["guided-tutorial", "trigger-queue", "pending-effects"].includes(candidate.source)
+    );
+    if (
+      !replayCandidate &&
+      helperMessage?.source === "adaptive-learning" &&
+      !helperMessage.fading &&
+      !criticalCandidateWaiting &&
+      now - Number(helperMessage.shownAt || 0) < Number(helperMessage.ttlMs || 6400)
+    ) {
+      return helperMessage;
+    }
     const next = replayCandidate || candidates[0];
     if (!next) {
       return helperMessage;
@@ -4690,6 +4796,18 @@ export function mountApp(root, store) {
 
     if (tutorialMessage) {
       messages.push(tutorialMessage);
+    }
+
+    const adaptiveLearningMessage = selectAdaptiveGuidance(profile, {
+      page,
+      activeUtilityPanel,
+      searchQuery,
+      searchLoading,
+      commandDeckRotationIndex,
+      optionsOpen,
+    });
+    if (adaptiveLearningMessage) {
+      messages.push(adaptiveLearningMessage);
     }
 
     if (pendingQueue.length) {
@@ -4777,6 +4895,8 @@ export function mountApp(root, store) {
     }
     if (helperMessage.isReminderReplay) {
       store.dispatch({ type: "HELPER_DISMISS_MESSAGE", messageKey: helperMessage.key });
+    } else if (helperMessage.source === "adaptive-learning" && helperMessage.key) {
+      store.dispatch({ type: "HELPER_DISMISS_MESSAGE", messageKey: helperMessage.key });
     }
     helperMessage = null;
     render(store.getState());
@@ -4838,6 +4958,10 @@ export function mountApp(root, store) {
       case "onboarding-reset":
         store.dispatch({ type: "ONBOARDING_RESET" });
         showNotice("Tutorial progress reset.");
+        break;
+      case "learning-reset":
+        store.dispatch({ type: "LEARNING_RESET" });
+        showNotice("Adaptive learning reset.");
         break;
       case "local-save-load":
         if (payload?.saveId) {
@@ -5515,7 +5639,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       </header>
       ${page === "home" ? renderBoardStateHome(profile) : ""}
       ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier, uiState) : ""}
-      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", isMobilePortrait: Boolean(uiState.isMobilePortrait), manualChoicePanelCollapsed: Boolean(uiState.manualChoicePanelCollapsed), utilityDockOpen: Boolean(uiState.utilityDockOpen), castActionPopup: uiState.castActionPopup, toolMenuOpen: Boolean(uiState.toolMenuOpen), activeToolPanel: uiState.activeToolPanel || "", activeOptionsCategory: uiState.activeOptionsCategory || "", commandDeckRotationIndex: uiState.commandDeckRotationIndex || 0, commandDeckLastManualRotationAt: uiState.commandDeckLastManualRotationAt || 0, sensoryDebugSnapshot: uiState.sensoryDebugSnapshot }) : ""}
+      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", isMobilePortrait: Boolean(uiState.isMobilePortrait), manualChoicePanelCollapsed: Boolean(uiState.manualChoicePanelCollapsed), utilityDockOpen: Boolean(uiState.utilityDockOpen), castActionPopup: uiState.castActionPopup, toolMenuOpen: Boolean(uiState.toolMenuOpen), activeToolPanel: uiState.activeToolPanel || "", activeOptionsCategory: uiState.activeOptionsCategory || "", commandDeckRotationIndex: uiState.commandDeckRotationIndex || 0, commandDeckLastManualRotationAt: uiState.commandDeckLastManualRotationAt || 0, sensoryDebugSnapshot: uiState.sensoryDebugSnapshot, learningDebugSnapshot: uiState.learningDebugSnapshot }) : ""}
       ${page === "tournament" ? renderTournamentPage(profile) : ""}
       ${page === "profile" ? renderProfile(profile) : ""}
       ${page === "archive" ? renderArchive(profile) : ""}
@@ -6271,6 +6395,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
       ${renderMotionDebugOverlay(landscapeModel)}
       ${renderVisualDebugOverlay()}
       ${renderSensoryDebugOverlay(uiState.sensoryDebugSnapshot)}
+      ${renderLearningDebugOverlay(uiState.learningDebugSnapshot)}
     </section>
     ${renderCommanderActionHand(profile, {
       activeUtilityPanel,
@@ -6390,6 +6515,38 @@ function shouldRenderSensoryDebugOverlay() {
   }
   try {
     return globalThis.localStorage?.getItem("boardstate-sensory-debug") === "true";
+  } catch {
+    return false;
+  }
+}
+
+function renderLearningDebugOverlay(snapshot = createLearningDebugSnapshot()) {
+  if (!shouldRenderLearningDebugOverlay()) {
+    return "";
+  }
+  const debug = snapshot || createLearningDebugSnapshot();
+  return `
+    <aside class="learning-debug-overlay glass" data-learning-debug-overlay hidden aria-hidden="true">
+      <strong>Learning Debug</strong>
+      <dl>
+        <div><dt>State</dt><dd>${escapeHtml(debug.enabled ? debug.confidence : "disabled")}</dd></div>
+        <div><dt>Score</dt><dd>${escapeHtml(String(debug.proficiencyScore ?? 0))}</dd></div>
+        <div><dt>Pending</dt><dd>${escapeHtml(debug.pendingOnboarding ? "first-launch" : "none")}</dd></div>
+        <div><dt>Last Hint</dt><dd>${escapeHtml(debug.lastHintId || "none")}</dd></div>
+        <div><dt>Completed</dt><dd>${escapeHtml(String((debug.completedSteps || []).length))}</dd></div>
+        <div><dt>Suppression</dt><dd>${escapeHtml(Object.entries(debug.hintSuppression || {}).filter((entry) => entry[1]).map((entry) => entry[0]).join(" / ") || "none")}</dd></div>
+      </dl>
+      <small>${escapeHtml(debug.version || ONBOARDING_EXPERIENCE_VERSION)}</small>
+    </aside>
+  `;
+}
+
+function shouldRenderLearningDebugOverlay() {
+  if (!import.meta.env?.DEV) {
+    return false;
+  }
+  try {
+    return globalThis.localStorage?.getItem("boardstate-learning-debug") === "true";
   } catch {
     return false;
   }
@@ -9980,21 +10137,22 @@ function renderFirstLaunchOnboarding(profile) {
         <div class="overlay-header">
           <div>
             <p class="eyebrow">First Launch</p>
-            <h2 id="first-launch-title">Welcome to BoardState</h2>
-            <p>BoardState can track your game, teach you how to use the app, and guide you through your first Magic: The Gathering turns.</p>
+            <h2 id="first-launch-title">Start The Table</h2>
+            <p>Choose guided practice or enter the battlefield now. BoardState teaches quietly through the Action Hand and only surfaces deeper help when it matters.</p>
           </div>
         </div>
         <div class="onboarding-action-grid">
-          <button class="primary-action" data-start-guided-tutorial>Start Guided Tutorial</button>
-          <button data-onboarding-explore>Explore App Freely</button>
+          <button class="primary-action" data-start-guided-tutorial>Start Guided Practice</button>
+          <button data-onboarding-explore>Enter Battlefield</button>
           <button data-onboarding-profile>Create Profile</button>
           <button data-onboarding-load-save ${hasSaves ? "" : "disabled"}>Load Local Save</button>
-          <button data-onboarding-watch-later>Watch Tutorial Later</button>
-          <button data-onboarding-explore>Do Not Show Again</button>
+          <button data-onboarding-watch-later>Learn Later</button>
+          <button data-onboarding-learning>Help & Learning</button>
           <button data-onboarding-accessibility>Accessibility Options</button>
+          <button data-onboarding-do-not-show>Do Not Show Again</button>
           <button data-onboarding-screen-reader>${profile.settings?.helperSprite?.screenReaderPrompts ? "Disable" : "Enable"} Screen Reader Prompts</button>
         </div>
-        <p class="options-version-note">Returning users can restart this from Game Options > Accessibility / ADHD Assist or About / Help.</p>
+        <p class="options-version-note">Guidance is profile-scoped and will not repeat after it has been learned unless you reset it.</p>
       </div>
     </section>
   `;
@@ -10184,6 +10342,13 @@ function getOptionsCategories(profile, page = "life") {
       status: profile.activeSession?.simulation?.enabled ? "Active" : `${getRecentSimulationEntries(profile).length} recent`,
     },
     {
+      id: "learning",
+      glyph: "LEARN",
+      title: "Help & Learning",
+      description: "Adaptive guidance, completed lessons, feature refreshers, and searchable help.",
+      status: profile.onboarding?.adaptiveLearning?.confidence || "new",
+    },
+    {
       id: "tutorial",
       glyph: "HELP",
       title: "Tutorial",
@@ -10287,6 +10452,8 @@ function renderOptionsSubpage(profile, page, category, pendingHandoff = null) {
       return renderGameplayOptionsSubpage(profile, page);
     case "dry-run":
       return renderDryRunOptionsSubpage(profile);
+    case "learning":
+      return renderLearningOptionsSubpage(profile);
     case "tutorial":
       return renderTutorialOptionsSubpage(profile);
     case "saves":
@@ -10368,6 +10535,62 @@ function renderDryRunOptionsSubpage(profile) {
         ${renderToggle("Simulation revenge learning", "multiplayer.simulationRevenge", Boolean(profile.settings?.multiplayer?.simulationRevenge ?? true))}
       </article>
       ${renderRecentSimulationsPanel(profile)}
+    </div>
+  `;
+}
+
+function renderLearningOptionsSubpage(profile) {
+  const catalog = createHelpLearningCatalog(profile);
+  const learning = profile.onboarding?.adaptiveLearning || {};
+  const completed = new Set(learning.completedSteps || []);
+  const discoveredCount = catalog.topics.filter((topic) => topic.discovered).length;
+  return `
+    <div class="options-subpage learning-options-subpage">
+      <article class="option-card learning-status-card">
+        <div class="overlay-header compact">
+          <div>
+            <p class="eyebrow">Adaptive Learning</p>
+            <h3>Help & Learning</h3>
+            <p>BoardState teaches through brief contextual guidance, remembers completed lessons, and stays quiet as proficiency increases.</p>
+          </div>
+          <span class="option-status-badge">${escapeHtml(catalog.proficiency)} / ${escapeHtml(String(catalog.proficiencyScore))}</span>
+        </div>
+        <div class="learning-meter" style="--learning-progress:${Math.max(0, Math.min(100, Number(catalog.proficiencyScore || 0)))}%">
+          <span></span>
+        </div>
+        <div class="learning-status-grid">
+          <span><strong>${escapeHtml(String(catalog.completedCount))}</strong><small>Signals learned</small></span>
+          <span><strong>${escapeHtml(String(discoveredCount))}</strong><small>Topics discovered</small></span>
+          <span><strong>${escapeHtml(learning.enabled === false ? "Off" : "On")}</strong><small>Adaptive guidance</small></span>
+        </div>
+        <div class="button-grid">
+          <button data-start-guided-tutorial>Start Guided Practice</button>
+          <button data-reset-learning>Reset Adaptive Learning</button>
+          <button data-reset-onboarding>Reset First-Time Flow</button>
+        </div>
+        ${renderToggle("Adaptive guidance", "learning.adaptiveGuidance", profile.settings?.learning?.adaptiveGuidance !== false)}
+        ${renderToggle("Help Center hints", "learning.helpCenterHints", profile.settings?.learning?.helpCenterHints !== false)}
+        ${renderToggle("Helper Sprite", "helperSprite.enabled", Boolean(profile.settings?.helperSprite?.enabled))}
+        ${renderToggle("Screen-reader prompts", "helperSprite.screenReaderPrompts", Boolean(profile.settings?.helperSprite?.screenReaderPrompts))}
+      </article>
+      <article class="option-card learning-catalog-card">
+        <h3>Learning Center</h3>
+        <p>Revisit interaction refreshers without restarting onboarding.</p>
+        <div class="learning-card-grid">
+          ${catalog.topics.map((topic) => `
+            <section class="learning-card ${topic.discovered || completed.has(topic.tokenId) ? "is-discovered" : ""}" data-learning-topic="${escapeAttribute(topic.id)}">
+              <div>
+                <p class="eyebrow">${topic.discovered || completed.has(topic.tokenId) ? "Learned" : "Available"}</p>
+                <h4>${escapeHtml(topic.title)}</h4>
+                <p>${escapeHtml(topic.summary)}</p>
+              </div>
+              <ul>
+                ${(topic.actions || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+              </ul>
+            </section>
+          `).join("")}
+        </div>
+      </article>
     </div>
   `;
 }
@@ -12283,7 +12506,7 @@ function renderHelperSprite(profile, helperMessage, positions = HUD_BADGE_DEFAUL
     <section class="helper-sprite-widget ${helperMessage.fading ? "is-fading" : ""} glass" data-no-swipe ${inlineStyle} ${draggableAttrs} role="status" aria-live="polite">
       <button class="helper-sprite-avatar" data-helper-dismiss title="Dismiss helper sprite">*</button>
       <button class="helper-sprite-bubble" data-helper-open aria-label="Open Helper Sprite prompt">
-        <strong>Helper Sprite</strong>
+        <strong>${escapeHtml(helperMessage.source === "adaptive-learning" ? "Learning Hint" : "Helper Sprite")}</strong>
         <span>${escapeHtml(helperMessage.text)}</span>
       </button>
       ${helperMessage.source === "guided-tutorial" ? `<div class="helper-sprite-actions"><button data-tutorial-repeat>Repeat</button><button data-tutorial-pause>Pause</button></div>` : ""}

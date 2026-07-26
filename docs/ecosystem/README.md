@@ -25,6 +25,7 @@ Prompt 1 output files:
 - `MOTION_LANGUAGE_ARCHITECTURE.md`
 - `VISUAL_LANGUAGE_MATERIAL_SYSTEM.md`
 - `SENSORY_LANGUAGE_ARCHITECTURE.md`
+- `ADAPTIVE_LEARNING_ONBOARDING.md`
 
 These files document the preparation baseline, permanent Constitution, architecture inventory, rules-engine extraction risks, shared contracts, migration plan, handoff risks, future navigation, and future test matrix.
 
@@ -63,3 +64,5 @@ The Commander session architecture document records the Prompt 2 canonical sessi
 `VISUAL_LANGUAGE_MATERIAL_SYSTEM.md` records the Prompt 12.5 Visual Language, centralized Visual Tokens, material system, lighting/depth/shadow/glow semantics, accessibility checks, and development-only visual debug overlay contract.
 
 `SENSORY_LANGUAGE_ARCHITECTURE.md` records the Prompt 12.6 Audio Language, Haptic Language, centralized sensory tokens, volume and haptic preferences, notification/Command Deck integration, accessibility policy, and development-only audio debug overlay contract.
+
+`ADAPTIVE_LEARNING_ONBOARDING.md` records the Prompt 13.1 first-time user experience, progressive onboarding philosophy, Adaptive Learning Engine, Onboarding Tokens, Help and Learning Center, profile-scoped learning memory, accessibility requirements, and development-only Learning Debug Overlay contract.

@@ -330,6 +330,7 @@ function normalizeProfile(profile) {
       remindMe: { ...defaults.settings.remindMe, ...(profile.settings?.remindMe || {}) },
       aiGameplay: { ...defaults.settings.aiGameplay, ...(profile.settings?.aiGameplay || {}) },
       commandDeck: { ...defaults.settings.commandDeck, ...(profile.settings?.commandDeck || {}) },
+      learning: { ...defaults.settings.learning, ...(profile.settings?.learning || {}) },
       ecosystem: { ...defaults.settings.ecosystem, ...(profile.settings?.ecosystem || {}) },
       sensory: { ...defaults.settings.sensory, ...(profile.settings?.sensory || {}) },
       playerMemory: {

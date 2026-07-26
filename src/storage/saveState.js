@@ -11,6 +11,7 @@ import { ensureInterfaceModeState } from "../shared-session/handoff.js";
 import { createAdvancedMultiplayerState } from "../shared-session/perspective.js";
 import { createImportedDataSnapshotForSession } from "../bridge/appLinkAdapters.js";
 import { createEcosystemIntegrationState } from "../ecosystem/ecosystemIntegration.js";
+import { createOnboardingState } from "../onboarding/tutorialSystem.js";
 import {
   CANONICAL_SAVE_VERSION,
   CHECKPOINT_VERSION,
@@ -118,12 +119,12 @@ export function loadLocalSave(profile, saveId = "") {
       activeSaveId: save.saveId,
       lastError: "",
     },
-    onboarding: {
+    onboarding: createOnboardingState({
       ...(profile.onboarding || {}),
       ...(save.tutorialState?.onboarding || {}),
       tutorialSaveId: save.saveId,
       tutorialLastUpdatedAt: Date.now(),
-    },
+    }),
   };
 }
 

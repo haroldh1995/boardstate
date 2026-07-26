@@ -2,6 +2,73 @@ import { createGameSession, createManaPool, createPermanent } from "../state/sch
 import { createId, clone } from "../state/ids.js";
 
 export const TUTORIAL_VERSION = "five-turn-v1";
+export const ONBOARDING_EXPERIENCE_VERSION = "boardstate-adaptive-learning-0.1.0";
+
+export const ONBOARDING_TOKEN_IDS = Object.freeze({
+  welcomeChoice: "welcome-choice",
+  commandHand: "command-hand-first-touch",
+  battlefieldFirstUse: "battlefield-first-use",
+  firstPermanent: "first-permanent",
+  firstUndo: "first-undo",
+  searchDiscovery: "search-discovery",
+  selectedCard: "selected-card",
+  stackReview: "stack-review",
+  commanderTools: "commander-tools",
+  reminders: "reminders",
+  helpCenter: "help-center",
+  accessibility: "accessibility",
+});
+
+export const LEARNING_HINT_PRIORITIES = Object.freeze({
+  critical: "critical",
+  contextual: "contextual",
+  gentle: "gentle",
+  reference: "reference",
+});
+
+export function createOnboardingTokenSet(source = {}) {
+  const tokenOverrides = source.tokens || {};
+  return {
+    version: ONBOARDING_EXPERIENCE_VERSION,
+    dismissBehavior: source.dismissBehavior || "teach-once",
+    tooltip: {
+      material: "polished-glass",
+      tone: "gentle",
+      maxWords: 28,
+      allowBlocking: false,
+      ...(tokenOverrides.tooltip || {}),
+    },
+    coachMark: {
+      material: "magical-crystal",
+      tone: "contextual",
+      obscureGameplay: false,
+      ...(tokenOverrides.coachMark || {}),
+    },
+    highlight: {
+      glow: "gold-subtle",
+      motionToken: "gentle-emphasis",
+      reducedMotionFallback: "outline",
+      ...(tokenOverrides.highlight || {}),
+    },
+    learningCard: {
+      material: "premium-card-stock",
+      elevation: "contextual",
+      size: "compact",
+      ...(tokenOverrides.learningCard || {}),
+    },
+    featureIntroduction: {
+      priority: LEARNING_HINT_PRIORITIES.gentle,
+      repeatPolicy: "once-unless-reset",
+      ...(tokenOverrides.featureIntroduction || {}),
+    },
+    persistence: {
+      profileScoped: true,
+      futureHubSync: true,
+      resettable: true,
+      ...(tokenOverrides.persistence || {}),
+    },
+  };
+}
 
 export const TUTORIAL_STEPS = [
   {
@@ -153,6 +220,7 @@ export const TUTORIAL_STEPS = [
 export function createOnboardingState(source = {}) {
   const now = Date.now();
   return {
+    experienceVersion: source.experienceVersion || ONBOARDING_EXPERIENCE_VERSION,
     firstLaunchComplete: Boolean(source.firstLaunchComplete),
     tutorialOffered: Boolean(source.tutorialOffered),
     tutorialStarted: Boolean(source.tutorialStarted),
@@ -166,7 +234,38 @@ export function createOnboardingState(source = {}) {
     helperSpriteEnabled: source.helperSpriteEnabled !== false,
     screenReaderPromptsEnabled: Boolean(source.screenReaderPromptsEnabled),
     tutorialReducedMotion: Boolean(source.tutorialReducedMotion),
+    helpCenterOpened: Boolean(source.helpCenterOpened),
+    lastHelpTopic: source.lastHelpTopic || "",
+    onboardingTokens: createOnboardingTokenSet(source.onboardingTokens),
+    adaptiveLearning: createAdaptiveLearningState(source.adaptiveLearning || source.learning),
     tutorialLastUpdatedAt: Number(source.tutorialLastUpdatedAt || (source.tutorialStarted ? now : 0)),
+  };
+}
+
+export function createAdaptiveLearningState(source = {}) {
+  const now = Date.now();
+  const completedSteps = normalizeStringList(source.completedSteps);
+  const dismissedHints = normalizeStringList(source.dismissedHints);
+  const proficiencyScore = clampNumber(source.proficiencyScore ?? source.proficiency, 0, 100, inferProficiencyScore(source));
+  return {
+    version: source.version || ONBOARDING_EXPERIENCE_VERSION,
+    enabled: source.enabled !== false,
+    mode: source.mode || "adaptive",
+    confidence: normalizeLearningConfidence(source.confidence || source.proficiencyLevel || scoreToConfidence(proficiencyScore)),
+    proficiencyScore,
+    completedSteps,
+    dismissedHints,
+    featureDiscovery: normalizeFeatureDiscovery(source.featureDiscovery),
+    interactionCounts: normalizeCountRecord(source.interactionCounts),
+    mistakeCounts: normalizeCountRecord(source.mistakeCounts),
+    hesitationSignals: normalizeCountRecord(source.hesitationSignals),
+    featureAvoidance: normalizeCountRecord(source.featureAvoidance),
+    lastGuidanceAt: Number(source.lastGuidanceAt || 0),
+    lastHintId: source.lastHintId || "",
+    repeatedSearchCount: Number(source.repeatedSearchCount || 0),
+    resetCount: Number(source.resetCount || 0),
+    debugEnabled: Boolean(source.debugEnabled),
+    updatedAt: Number(source.updatedAt || (source.version ? now : 0)),
   };
 }
 
@@ -193,10 +292,15 @@ export function getTutorialProgress(tutorialState = {}) {
 export function startFiveTurnTutorial(profile, options = {}) {
   const now = Date.now();
   const session = applyTutorialMilestone(createTutorialPracticeSession(profile, now), 0, profile);
+  const onboarding = markFeatureDiscovered(
+    createOnboardingState(profile.onboarding),
+    ONBOARDING_TOKEN_IDS.welcomeChoice,
+    now
+  );
   return {
     ...profile,
     onboarding: {
-      ...createOnboardingState(profile.onboarding),
+      ...onboarding,
       firstLaunchComplete: true,
       tutorialOffered: true,
       tutorialStarted: true,
@@ -261,7 +365,12 @@ export function advanceFiveTurnTutorial(profile, direction = 1) {
   return {
     ...profile,
     onboarding: {
-      ...createOnboardingState(profile.onboarding),
+      ...recordLearningInteraction({ ...profile, onboarding: createOnboardingState(profile.onboarding) }, {
+        interactionType: "tutorial-step",
+        featureId: "tutorial",
+        stepId: step.id,
+        amount: 3,
+      }).onboarding,
       firstLaunchComplete: true,
       tutorialOffered: true,
       tutorialStarted: true,
@@ -353,10 +462,22 @@ export function skipTutorial(profile) {
 
 export function completeTutorialToFreePlay(profile) {
   const now = Date.now();
+  const onboarding = recordLearningInteraction(
+    {
+      ...profile,
+      onboarding: createOnboardingState(profile.onboarding),
+    },
+    {
+      interactionType: "tutorial-complete",
+      featureId: "tutorial",
+      hintId: ONBOARDING_TOKEN_IDS.welcomeChoice,
+      amount: 12,
+    }
+  ).onboarding;
   return {
     ...profile,
     onboarding: {
-      ...createOnboardingState(profile.onboarding),
+      ...onboarding,
       firstLaunchComplete: true,
       tutorialOffered: true,
       tutorialStarted: true,
@@ -402,14 +523,233 @@ export function resetOnboardingProgress(profile) {
 
 export function markOnboardingExplored(profile, options = {}) {
   const now = Date.now();
+  const adaptiveEnabled = options.adaptiveLearningEnabled !== false;
+  const onboarding = recordLearningInteraction(
+    {
+      ...profile,
+      onboarding: createOnboardingState(profile.onboarding),
+    },
+    {
+      interactionType: options.doNotShowAgain === true && adaptiveEnabled === false ? "onboarding-dismissed" : "onboarding-explore",
+      featureId: "firstLaunch",
+      hintId: ONBOARDING_TOKEN_IDS.welcomeChoice,
+      amount: adaptiveEnabled ? 5 : 2,
+    }
+  ).onboarding;
   return {
     ...profile,
     onboarding: {
-      ...createOnboardingState(profile.onboarding),
+      ...onboarding,
       firstLaunchComplete: true,
       tutorialOffered: true,
       tutorialSkipped: options.doNotShowAgain !== false,
+      adaptiveLearning: {
+        ...onboarding.adaptiveLearning,
+        enabled: adaptiveEnabled,
+      },
       tutorialLastUpdatedAt: now,
+    },
+    settings: {
+      ...(profile.settings || {}),
+      helperSprite: {
+        ...(profile.settings?.helperSprite || {}),
+        enabled: options.helperSpriteEnabled ?? (adaptiveEnabled ? true : Boolean(profile.settings?.helperSprite?.enabled)),
+      },
+    },
+  };
+}
+
+export function recordLearningInteraction(profile, event = {}) {
+  const now = Date.now();
+  const onboarding = createOnboardingState(profile.onboarding);
+  const learning = createAdaptiveLearningState(onboarding.adaptiveLearning);
+  const interactionType = event.interactionType || event.type || "interaction";
+  const featureId = normalizeFeatureId(event.featureId || interactionToFeature(interactionType));
+  const hintId = event.hintId || event.stepId || "";
+  const hintShownOnly = interactionType === "hint-shown";
+  const interactionCounts = incrementRecord(learning.interactionCounts, interactionType, 1);
+  const featureDiscovery = hintShownOnly
+    ? learning.featureDiscovery
+    : {
+        ...learning.featureDiscovery,
+        [featureId]: markDiscoveryEntry(learning.featureDiscovery[featureId], now, interactionType),
+      };
+  const completedSteps = hintShownOnly
+    ? learning.completedSteps
+    : normalizeStringList([
+        ...learning.completedSteps,
+        featureId,
+        hintId,
+      ]);
+  const amount = Number.isFinite(Number(event.amount)) ? Number(event.amount) : learningAmountFor(interactionType);
+  const proficiencyScore = clampNumber(learning.proficiencyScore + amount, 0, 100, learning.proficiencyScore);
+  return {
+    ...profile,
+    onboarding: {
+      ...onboarding,
+      helpCenterOpened: onboarding.helpCenterOpened || featureId === "helpCenter",
+      lastHelpTopic: featureId === "helpCenter" ? event.topicId || onboarding.lastHelpTopic || "" : onboarding.lastHelpTopic,
+      adaptiveLearning: {
+        ...learning,
+        confidence: scoreToConfidence(proficiencyScore),
+        proficiencyScore,
+        completedSteps,
+        featureDiscovery,
+        interactionCounts,
+        repeatedSearchCount: interactionType === "search-query" ? learning.repeatedSearchCount + 1 : learning.repeatedSearchCount,
+        lastHintId: hintId || learning.lastHintId,
+        lastGuidanceAt: interactionType === "hint-shown" ? now : learning.lastGuidanceAt,
+        updatedAt: now,
+      },
+    },
+  };
+}
+
+export function dismissLearningHint(profile, hintId = "") {
+  const id = normalizeHintId(hintId);
+  if (!id) {
+    return profile;
+  }
+  const now = Date.now();
+  const onboarding = createOnboardingState(profile.onboarding);
+  const learning = createAdaptiveLearningState(onboarding.adaptiveLearning);
+  return {
+    ...profile,
+    onboarding: {
+      ...onboarding,
+      adaptiveLearning: {
+        ...learning,
+        dismissedHints: normalizeStringList([...learning.dismissedHints, id]),
+        completedSteps: normalizeStringList([...learning.completedSteps, id]),
+        lastHintId: id,
+        lastGuidanceAt: now,
+        updatedAt: now,
+      },
+    },
+  };
+}
+
+export function resetAdaptiveLearning(profile) {
+  const onboarding = createOnboardingState(profile.onboarding);
+  const previous = createAdaptiveLearningState(onboarding.adaptiveLearning);
+  return {
+    ...profile,
+    onboarding: {
+      ...onboarding,
+      helpCenterOpened: false,
+      lastHelpTopic: "",
+      adaptiveLearning: {
+        ...createAdaptiveLearningState({}),
+        resetCount: previous.resetCount + 1,
+        updatedAt: Date.now(),
+      },
+    },
+  };
+}
+
+export function selectAdaptiveGuidance(profile = {}, context = {}) {
+  const onboarding = createOnboardingState(profile.onboarding);
+  const learning = createAdaptiveLearningState(onboarding.adaptiveLearning);
+  if (!learning.enabled || profile.settings?.learning?.adaptiveGuidance === false || profile.settings?.helperSprite?.enabled === false) {
+    return null;
+  }
+  const tutorial = profile.activeSession?.tutorial || {};
+  if (tutorial.active || tutorial.completionPending || tutorial.status === "paused") {
+    return null;
+  }
+  const candidates = buildAdaptiveGuidanceCandidates(profile, context, learning);
+  const next = candidates.find((candidate) => shouldShowLearningCandidate(candidate, learning, context));
+  if (!next) {
+    return null;
+  }
+  const keyScope = next.scope || "global";
+  return {
+    key: `learning:${next.id}:${keyScope}`,
+    source: "adaptive-learning",
+    text: next.text,
+    title: next.title,
+    tokenId: next.tokenId,
+    priority: next.priority || LEARNING_HINT_PRIORITIES.gentle,
+    dismissBehavior: "teach-once",
+    ariaLabel: next.ariaLabel || next.text,
+    ttlMs: next.ttlMs || 6400,
+  };
+}
+
+export function createHelpLearningCatalog(profile = {}) {
+  const onboarding = createOnboardingState(profile.onboarding);
+  const learning = createAdaptiveLearningState(onboarding.adaptiveLearning);
+  const discovered = learning.featureDiscovery || {};
+  const topics = [
+    {
+      id: "getting-started",
+      title: "Start Tracking",
+      summary: "Use BoardState as a quiet Commander tabletop. Life and phase controls stay visible; deeper tools wait until needed.",
+      actions: ["Enter the battlefield", "Use Next Phase when the table moves", "Track only what matters first"],
+      tokenId: ONBOARDING_TOKEN_IDS.battlefieldFirstUse,
+    },
+    {
+      id: "command-deck",
+      title: "Rotating Command Deck",
+      summary: "The bottom Action Hand is a circular deck of decisions. Rotate with swipe, wheel, arrows, Q/E, or controller shoulders.",
+      actions: ["Center card is primary", "Pin favorites", "Context cards enter only when legal/relevant"],
+      tokenId: ONBOARDING_TOKEN_IDS.commandHand,
+    },
+    {
+      id: "undo-safety",
+      title: "Undo And Recovery",
+      summary: "Undo is available for reversible actions and uses BoardState's tracked action history instead of guessing.",
+      actions: ["Use Undo for recent mistakes", "Saves preserve tutorial and game state", "Recovery messages explain risky imports"],
+      tokenId: ONBOARDING_TOKEN_IDS.firstUndo,
+    },
+    {
+      id: "rules-assistant",
+      title: "Ask Why",
+      summary: "Rules answers are derived from the current session, event history, Oracle text already present, and BoardState confidence metadata.",
+      actions: ["Ask what happened", "Inspect stack or selected cards", "Use beginner/intermediate/advanced explanations"],
+      tokenId: ONBOARDING_TOKEN_IDS.stackReview,
+    },
+    {
+      id: "accessibility",
+      title: "Accessibility",
+      summary: "Learning supports screen-reader prompts, reduced motion, quiet guidance, large text, keyboard, mouse, touch, and controller-ready navigation.",
+      actions: ["Toggle Helper Sprite", "Enable screen-reader prompts", "Use reduced visual noise"],
+      tokenId: ONBOARDING_TOKEN_IDS.accessibility,
+    },
+  ];
+  return {
+    version: ONBOARDING_EXPERIENCE_VERSION,
+    opened: onboarding.helpCenterOpened,
+    proficiency: learning.confidence,
+    proficiencyScore: learning.proficiencyScore,
+    completedCount: learning.completedSteps.length,
+    topics: topics.map((topic) => ({
+      ...topic,
+      discovered: Boolean(discovered[normalizeFeatureId(topic.tokenId)]?.completed || learning.completedSteps.includes(topic.tokenId)),
+    })),
+  };
+}
+
+export function createLearningDebugSnapshot(profile = {}) {
+  const onboarding = createOnboardingState(profile.onboarding);
+  const learning = createAdaptiveLearningState(onboarding.adaptiveLearning);
+  return {
+    version: ONBOARDING_EXPERIENCE_VERSION,
+    productionHidden: true,
+    enabled: learning.enabled,
+    mode: learning.mode,
+    confidence: learning.confidence,
+    proficiencyScore: learning.proficiencyScore,
+    completedSteps: learning.completedSteps,
+    pendingOnboarding: shouldShowFirstLaunch(onboarding),
+    lastHintId: learning.lastHintId,
+    lastGuidanceAt: learning.lastGuidanceAt,
+    dismissedHints: learning.dismissedHints,
+    featureDiscovery: learning.featureDiscovery,
+    hintSuppression: {
+      helperDisabled: profile.settings?.helperSprite?.enabled === false,
+      adaptiveDisabled: profile.settings?.learning?.adaptiveGuidance === false || learning.enabled === false,
+      highProficiency: learning.proficiencyScore >= 80,
     },
   };
 }
@@ -432,6 +772,313 @@ export function buildTutorialScreenReaderText(session = {}) {
   const message = buildTutorialHelperMessage(session);
   if (!message) return "";
   return `Tutorial turn ${message.step.turn}. ${message.step.title}. ${message.text}`;
+}
+
+const LEARNING_FEATURE_IDS = [
+  "firstLaunch",
+  "tutorial",
+  "battlefield",
+  "commandHand",
+  "firstPermanent",
+  "undo",
+  "search",
+  "selection",
+  "stack",
+  "commander",
+  "reminders",
+  "rulesAssistant",
+  "helpCenter",
+  "accessibility",
+];
+
+function buildAdaptiveGuidanceCandidates(profile, context, learning) {
+  const session = profile.activeSession || {};
+  const page = context.page || "battlefield";
+  const selectedCount = Array.isArray(session.selectedIds) ? session.selectedIds.length : 0;
+  const playerPermanentCount = (session.battlefield?.player || []).length;
+  const stackCount = (session.stack || []).length;
+  const triggerCount = (session.triggerQueue || []).filter((entry) => entry.status === "pending").length;
+  const undoCount = (session.undoStack || []).length;
+  const searchActive = context.activeUtilityPanel === "search" || Boolean(context.searchQuery);
+  const hasCommander = Boolean(session.commander?.name || Object.keys(profile.commanders || {}).length);
+  const isFirstSession = Boolean(profile.onboarding?.firstLaunchComplete && learning.proficiencyScore < 25);
+  if (page !== "battlefield") {
+    return [];
+  }
+  return [
+    {
+      id: ONBOARDING_TOKEN_IDS.commandHand,
+      tokenId: ONBOARDING_TOKEN_IDS.commandHand,
+      featureId: "commandHand",
+      scope: "battlefield",
+      priority: LEARNING_HINT_PRIORITIES.gentle,
+      title: "Action Hand",
+      text: "Rotate the Action Hand with swipe, wheel, arrows, Q/E, or controller shoulders. The center card is your current decision.",
+      visible: isFirstSession && !featureCompleted(learning, "commandHand"),
+    },
+    {
+      id: ONBOARDING_TOKEN_IDS.battlefieldFirstUse,
+      tokenId: ONBOARDING_TOKEN_IDS.battlefieldFirstUse,
+      featureId: "battlefield",
+      scope: `turn-${session.turn || 1}`,
+      priority: LEARNING_HINT_PRIORITIES.gentle,
+      title: "Quiet Battlefield",
+      text: "BoardState starts quiet. Add only the cards and changes the table needs tracked; empty space stays reserved for gameplay.",
+      visible: playerPermanentCount === 0 && isFirstSession && featureCompleted(learning, "commandHand"),
+    },
+    {
+      id: ONBOARDING_TOKEN_IDS.firstPermanent,
+      tokenId: ONBOARDING_TOKEN_IDS.firstPermanent,
+      featureId: "firstPermanent",
+      scope: "permanents",
+      priority: LEARNING_HINT_PRIORITIES.contextual,
+      title: "Card Interaction",
+      text: "Tap a permanent to select it. Double tap to tap or untap. Long press opens direct card handling.",
+      visible: playerPermanentCount > 0 && !featureCompleted(learning, "firstPermanent"),
+    },
+    {
+      id: ONBOARDING_TOKEN_IDS.selectedCard,
+      tokenId: ONBOARDING_TOKEN_IDS.selectedCard,
+      featureId: "selection",
+      scope: "selection",
+      priority: LEARNING_HINT_PRIORITIES.contextual,
+      title: "Selected Card",
+      text: "Selection keeps gameplay visible. Inspect, move, counter, or ask why without leaving the battlefield.",
+      visible: selectedCount > 0 && !featureCompleted(learning, "selection"),
+    },
+    {
+      id: ONBOARDING_TOKEN_IDS.firstUndo,
+      tokenId: ONBOARDING_TOKEN_IDS.firstUndo,
+      featureId: "undo",
+      scope: "undo",
+      priority: LEARNING_HINT_PRIORITIES.contextual,
+      title: "Safe Undo",
+      text: "Undo uses recorded action history for recent reversible changes. It is there for table-tracking mistakes.",
+      visible: undoCount > 0 && !featureCompleted(learning, "undo"),
+    },
+    {
+      id: ONBOARDING_TOKEN_IDS.searchDiscovery,
+      tokenId: ONBOARDING_TOKEN_IDS.searchDiscovery,
+      featureId: "search",
+      scope: "search",
+      priority: LEARNING_HINT_PRIORITIES.contextual,
+      title: "Search",
+      text: "Search can find Oracle text, add cards, and preserve keyboard focus while the battlefield remains visible.",
+      visible: searchActive && !featureCompleted(learning, "search"),
+    },
+    {
+      id: ONBOARDING_TOKEN_IDS.stackReview,
+      tokenId: ONBOARDING_TOKEN_IDS.stackReview,
+      featureId: "stack",
+      scope: `stack-${stackCount}-${triggerCount}`,
+      priority: LEARNING_HINT_PRIORITIES.contextual,
+      title: "Stack And Triggers",
+      text: "Stack, priority, and trigger help appears only when it matters. Ask Why explains the chain from game history.",
+      visible: (stackCount > 0 || triggerCount > 0) && !featureCompleted(learning, "stack"),
+    },
+    {
+      id: ONBOARDING_TOKEN_IDS.commanderTools,
+      tokenId: ONBOARDING_TOKEN_IDS.commanderTools,
+      featureId: "commander",
+      scope: "commander",
+      priority: LEARNING_HINT_PRIORITIES.reference,
+      title: "Commander Tools",
+      text: "The Commander card tracks tax, zone, damage, and Commander-specific decisions without requiring a separate screen.",
+      visible: hasCommander && !featureCompleted(learning, "commander") && learning.proficiencyScore < 45,
+    },
+    {
+      id: ONBOARDING_TOKEN_IDS.helpCenter,
+      tokenId: ONBOARDING_TOKEN_IDS.helpCenter,
+      featureId: "helpCenter",
+      scope: "options",
+      priority: LEARNING_HINT_PRIORITIES.reference,
+      title: "Learning Center",
+      text: "Need a refresher later? Game Options contains Help and Learning without restarting onboarding.",
+      visible: learning.proficiencyScore >= 15 && !featureCompleted(learning, "helpCenter"),
+    },
+  ].filter((candidate) => candidate.visible);
+}
+
+function shouldShowLearningCandidate(candidate, learning, context = {}) {
+  if (!candidate?.id) {
+    return false;
+  }
+  const id = normalizeHintId(candidate.id);
+  if (learning.dismissedHints.includes(id) || learning.completedSteps.includes(id)) {
+    return false;
+  }
+  if (candidate.featureId && featureCompleted(learning, candidate.featureId)) {
+    return false;
+  }
+  const now = Date.now();
+  const minInterval = context.force ? 0 : learning.proficiencyScore >= 45 ? 180000 : 42000;
+  if (learning.lastGuidanceAt && now - learning.lastGuidanceAt < minInterval) {
+    return false;
+  }
+  return true;
+}
+
+function featureCompleted(learning, featureId = "") {
+  const id = normalizeFeatureId(featureId);
+  const discovery = learning.featureDiscovery?.[id];
+  return Boolean(discovery?.completed || learning.completedSteps.includes(id));
+}
+
+function markFeatureDiscovered(onboarding, featureId = "", now = Date.now()) {
+  const learning = createAdaptiveLearningState(onboarding.adaptiveLearning);
+  const normalized = normalizeFeatureId(featureId);
+  return {
+    ...onboarding,
+    adaptiveLearning: {
+      ...learning,
+      completedSteps: normalizeStringList([...learning.completedSteps, normalized]),
+      featureDiscovery: {
+        ...learning.featureDiscovery,
+        [normalized]: markDiscoveryEntry(learning.featureDiscovery[normalized], now, "onboarding"),
+      },
+      updatedAt: now,
+    },
+  };
+}
+
+function normalizeFeatureDiscovery(source = {}) {
+  const result = {};
+  LEARNING_FEATURE_IDS.forEach((featureId) => {
+    result[featureId] = normalizeDiscoveryEntry(source[featureId]);
+  });
+  Object.entries(source || {}).forEach(([featureId, entry]) => {
+    const normalized = normalizeFeatureId(featureId);
+    result[normalized] = normalizeDiscoveryEntry(entry);
+  });
+  return result;
+}
+
+function normalizeDiscoveryEntry(source = {}) {
+  return {
+    completed: Boolean(source.completed || source.discovered),
+    firstSeenAt: Number(source.firstSeenAt || source.discoveredAt || 0),
+    lastSeenAt: Number(source.lastSeenAt || source.updatedAt || source.firstSeenAt || 0),
+    count: Math.max(0, Number(source.count || 0)),
+    lastInteraction: source.lastInteraction || "",
+  };
+}
+
+function markDiscoveryEntry(source = {}, now = Date.now(), interactionType = "interaction") {
+  const previous = normalizeDiscoveryEntry(source);
+  return {
+    completed: true,
+    firstSeenAt: previous.firstSeenAt || now,
+    lastSeenAt: now,
+    count: previous.count + 1,
+    lastInteraction: interactionType,
+  };
+}
+
+function interactionToFeature(interactionType = "") {
+  const normalized = String(interactionType || "").toLowerCase();
+  if (normalized.includes("command")) return "commandHand";
+  if (normalized.includes("search")) return "search";
+  if (normalized.includes("undo")) return "undo";
+  if (normalized.includes("select")) return "selection";
+  if (normalized.includes("permanent")) return "firstPermanent";
+  if (normalized.includes("stack") || normalized.includes("trigger")) return "stack";
+  if (normalized.includes("commander")) return "commander";
+  if (normalized.includes("remind")) return "reminders";
+  if (normalized.includes("rules") || normalized.includes("question")) return "rulesAssistant";
+  if (normalized.includes("help") || normalized.includes("learning")) return "helpCenter";
+  if (normalized.includes("accessibility") || normalized.includes("screen-reader")) return "accessibility";
+  if (normalized.includes("tutorial")) return "tutorial";
+  return "battlefield";
+}
+
+function learningAmountFor(interactionType = "") {
+  const normalized = String(interactionType || "").toLowerCase();
+  if (normalized.includes("complete")) return 12;
+  if (normalized.includes("tutorial")) return 3;
+  if (normalized.includes("hint-shown")) return 1;
+  if (normalized.includes("dismiss")) return 2;
+  if (normalized.includes("search")) return 2;
+  return 4;
+}
+
+function normalizeFeatureId(value = "") {
+  const raw = String(value || "").trim();
+  if (!raw) return "battlefield";
+  const map = {
+    [ONBOARDING_TOKEN_IDS.welcomeChoice]: "firstLaunch",
+    [ONBOARDING_TOKEN_IDS.commandHand]: "commandHand",
+    [ONBOARDING_TOKEN_IDS.battlefieldFirstUse]: "battlefield",
+    [ONBOARDING_TOKEN_IDS.firstPermanent]: "firstPermanent",
+    [ONBOARDING_TOKEN_IDS.firstUndo]: "undo",
+    [ONBOARDING_TOKEN_IDS.searchDiscovery]: "search",
+    [ONBOARDING_TOKEN_IDS.selectedCard]: "selection",
+    [ONBOARDING_TOKEN_IDS.stackReview]: "stack",
+    [ONBOARDING_TOKEN_IDS.commanderTools]: "commander",
+    [ONBOARDING_TOKEN_IDS.reminders]: "reminders",
+    [ONBOARDING_TOKEN_IDS.helpCenter]: "helpCenter",
+    [ONBOARDING_TOKEN_IDS.accessibility]: "accessibility",
+  };
+  if (map[raw]) return map[raw];
+  if (LEARNING_FEATURE_IDS.includes(raw)) return raw;
+  return raw.replace(/[^a-z0-9]+([a-z0-9])/gi, (_, letter) => letter.toUpperCase()).replace(/[^a-z0-9]/gi, "") || "battlefield";
+}
+
+function normalizeHintId(value = "") {
+  const key = String(value || "").trim();
+  const match = key.match(/^learning:([^:]+)/);
+  return match?.[1] || key;
+}
+
+function normalizeLearningConfidence(value = "") {
+  const normalized = String(value || "").toLowerCase();
+  if (["new", "learning", "comfortable", "expert"].includes(normalized)) {
+    return normalized;
+  }
+  return "new";
+}
+
+function scoreToConfidence(score = 0) {
+  const value = Number(score || 0);
+  if (value >= 80) return "expert";
+  if (value >= 45) return "comfortable";
+  if (value >= 15) return "learning";
+  return "new";
+}
+
+function inferProficiencyScore(source = {}) {
+  const completed = normalizeStringList(source.completedSteps).length;
+  const interactions = Object.values(source.interactionCounts || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+  return clampNumber(completed * 5 + interactions, 0, 100, 0);
+}
+
+function normalizeStringList(values = []) {
+  return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || "").trim()).filter(Boolean))].slice(-160);
+}
+
+function normalizeCountRecord(source = {}) {
+  return Object.fromEntries(
+    Object.entries(source || {}).map(([key, value]) => [
+      String(key || "").trim(),
+      Math.max(0, Math.floor(Number(value || 0))),
+    ]).filter(([key]) => Boolean(key))
+  );
+}
+
+function incrementRecord(source = {}, key = "", amount = 1) {
+  const normalized = normalizeCountRecord(source);
+  const id = String(key || "interaction");
+  return {
+    ...normalized,
+    [id]: Math.max(0, Number(normalized[id] || 0) + Number(amount || 1)),
+  };
+}
+
+function clampNumber(value, min, max, fallback = min) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, number));
 }
 
 function createTutorialPracticeSession(profile, now = Date.now()) {
