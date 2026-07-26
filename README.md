@@ -17,7 +17,7 @@ It works offline for gameplay, stores profile data locally, and treats Scryfall 
 - Local Commander tournament hosting/joining with pinned tournament panels, invite links, full-window alerts, standings, pods, 1v1 rotation, and separate tournament sync.
 - Full Friends Options subpage with 4-6 character friend codes, copy/share/regenerate controls, add-by-code, favorites, blocked users, pending requests, nearby player discovery fallback, and friend game/tournament invite shortcuts.
 - Friend discovery/invites use their own namespace so friend messages, gameplay sync, and tournament sync do not process each other's packets.
-- Notification preferences with popup/toast controls plus browser-safe sound and haptic hooks where supported.
+- Notification preferences with popup/toast controls plus centralized browser-safe Audio Tokens and Haptic Tokens where supported.
 - Export/import full local player profiles as JSON.
 
 ## Local-First Design

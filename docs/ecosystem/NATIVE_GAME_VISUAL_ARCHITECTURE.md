@@ -141,6 +141,19 @@ Permanent standards:
 
 The permanent visual architecture record lives in `docs/ecosystem/VISUAL_LANGUAGE_MATERIAL_SYSTEM.md`.
 
+## Audio Language And Haptics Standard
+
+Prompt 12.6 establishes BoardState's sensory language as a permanent audio and haptic standard.
+
+Permanent standards:
+
+- `src/ui/sensoryTokens.js` is the single source of truth for generated Web Audio tokens, haptic tokens, sensory channels, priority levels, preference defaults, notification/action mapping, and sensory-debug contracts.
+- `src/ui/render.js` exposes `boardstate-sensory-language-0.1.0` through `document.body.dataset.sensoryLanguageVersion`, battlefield `data-sensory-*` metadata, Rotating Command Deck metadata, Action Card sensory metadata, centralized notification/test feedback, and a development-only Sensory Debug Overlay gated by `import.meta.env.DEV` and `boardstate-sensory-debug=true`.
+- `src/state/schema.js` and `src/storage/localDatabase.js` preserve `settings.sensory` with master, UI, gameplay, ambient, music, and reduced-haptics preferences while keeping existing sound and haptic opt-in controls compatible.
+- Sensory feedback is presentation-only. Gameplay must remain fully understandable when muted, without haptics, or on browsers that do not support Web Audio or vibration.
+
+The permanent sensory architecture record lives in `docs/ecosystem/SENSORY_LANGUAGE_ARCHITECTURE.md`.
+
 ## Reference Principles From Premium Digital Card Games
 
 The attached Arena reference and comparable digital card games are used only for principles:

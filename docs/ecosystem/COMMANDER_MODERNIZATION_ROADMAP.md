@@ -165,6 +165,14 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - `src/styles.css` defines root visual-token variables and maps existing cosmic atmosphere, glass, stone, metal, card-stock, gold, crystal, parchment, elevation, shadow, glow, blur, and focus treatment to those tokens.
 - No gameplay feature, rules authority, state owner, save format, sync protocol, hidden-information path, fake Hub/Lite/Nexus dependency, protected Arena asset, or production-visible developer overlay was introduced.
 
+### Prompt 12.6: Audio Language, Haptics, And Sensory Feedback
+
+- `docs/ecosystem/SENSORY_LANGUAGE_ARCHITECTURE.md` records the permanent audio language, haptic language, reference principles, selected restrained tactile direction, accessibility checks, and development-only audio debug overlay contract.
+- `src/ui/sensoryTokens.js` owns `BOARDSTATE_SENSORY_LANGUAGE_VERSION`, Audio Token IDs, Haptic Token IDs, sensory channels, priority levels, preference defaults, notification/action mapping, and debug snapshot helpers.
+- `src/ui/render.js` exposes sensory-language metadata through body and gameplay `data-sensory-*`, `data-audio-token`, and `data-haptic-token` attributes for the battlefield, Rotating Command Deck, and Action Cards.
+- Existing notification sound, notification haptics, and gameplay haptic hooks now route through generated browser-safe Web Audio and haptic tokens rather than hard-coded per-call feedback.
+- `src/state/schema.js`, `src/storage/localDatabase.js`, and `src/ecosystem/ecosystemIntegration.js` preserve sensory preferences and shared preference summaries without introducing sound assets, music, a second notification authority, gameplay state mutation, hidden-information leakage, or fake Hub/Lite/Nexus connectivity.
+
 ## Remaining Roadmap
 
 ### Prompt 13: Full Control And Live Tracking Convergence

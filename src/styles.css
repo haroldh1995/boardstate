@@ -1286,6 +1286,29 @@ body[data-composition="widescreen"] .landscape-battlefield-groups .permanent {
   color: var(--gold-bright);
 }
 
+.sensory-settings-panel {
+  display: grid;
+  gap: 0.58rem;
+}
+
+.sensory-volume-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.9fr) minmax(10rem, 1.4fr);
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.45rem 0;
+  border-top: 1px solid rgba(236, 200, 122, 0.1);
+}
+
+.sensory-volume-row small {
+  display: block;
+  color: var(--muted);
+}
+
+.sensory-volume-row .button-grid {
+  margin: 0;
+}
+
 .boardstate-home-page {
   display: grid;
   gap: clamp(1rem, 2vw, 1.5rem);
@@ -8173,6 +8196,41 @@ body[data-page="battlefield"] .visual-debug-overlay div {
 
 body[data-page="battlefield"] .visual-debug-overlay dt {
   color: var(--visual-color-gold);
+}
+
+body[data-page="battlefield"] .sensory-debug-overlay {
+  position: fixed;
+  bottom: max(0.75rem, env(safe-area-inset-bottom));
+  right: max(0.75rem, env(safe-area-inset-right));
+  z-index: 9999;
+  max-width: min(22rem, 42vw);
+  padding: 0.7rem;
+  border: var(--visual-border-crystal);
+  border-radius: 14px;
+  color: var(--visual-color-text);
+  background: var(--visual-material-crystal);
+  backdrop-filter: var(--visual-blur-glass);
+  box-shadow: var(--visual-shadow-overlay);
+  font-size: 0.68rem;
+  pointer-events: none;
+}
+
+body[data-page="battlefield"] .sensory-debug-overlay[hidden] {
+  display: none !important;
+}
+
+body[data-page="battlefield"] .sensory-debug-overlay dl {
+  margin: 0.34rem 0 0;
+}
+
+body[data-page="battlefield"] .sensory-debug-overlay div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+body[data-page="battlefield"] .sensory-debug-overlay dt {
+  color: var(--visual-color-info);
 }
 
 body[data-page="battlefield"] .gameplay-flow-action:hover,

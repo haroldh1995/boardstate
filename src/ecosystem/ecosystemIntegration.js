@@ -275,6 +275,7 @@ export function createSharedPreferenceSnapshot(profile = {}, input = {}) {
     questions: cloneSafe(settings.rulesAssistant || {}),
     ai: cloneSafe(settings.aiGameplay || {}),
     notifications: createNotificationPreferenceSummary(settings.notifications || {}),
+    sensory: createSensoryPreferenceSummary(settings),
     synchronizedThroughHub: false,
     hubSyncStatus: input.hubSyncStatus || "queued-local-only",
     updatedAt: Number(input.updatedAt || Date.now()),
@@ -687,6 +688,10 @@ export function applySharedPreferencePatch(profile = {}, patch = {}) {
         ...(settings.notifications || {}),
         ...(safePatch.notifications || {}),
       },
+      sensory: {
+        ...(settings.sensory || {}),
+        ...(safePatch.sensory || {}),
+      },
     },
   };
   return {
@@ -968,7 +973,30 @@ function normalizeSharedPreferencePatch(patch = {}) {
     questions: cloneSafe(patch.questions || {}),
     ai: cloneSafe(patch.ai || {}),
     notifications: cloneSafe(patch.notifications || {}),
+    sensory: cloneSafe(patch.sensory || {}),
   };
+}
+
+function createSensoryPreferenceSummary(settings = {}) {
+  const sensory = settings.sensory || {};
+  return {
+    audioEnabled: Boolean(settings.notifications?.sound),
+    hapticsEnabled: Boolean(settings.haptics || settings.notifications?.haptics),
+    masterVolume: clampUnit(sensory.masterVolume ?? 0.45),
+    uiVolume: clampUnit(sensory.uiVolume ?? 0.48),
+    gameplayVolume: clampUnit(sensory.gameplayVolume ?? 0.54),
+    ambientVolume: clampUnit(sensory.ambientVolume ?? 0),
+    musicVolume: clampUnit(sensory.musicVolume ?? 0),
+    reducedHaptics: Boolean(sensory.reducedHaptics),
+  };
+}
+
+function clampUnit(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(1, numeric));
 }
 
 function createDiscoveryEntryFromActiveSession(profile = {}, session = {}) {

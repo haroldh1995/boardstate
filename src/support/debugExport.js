@@ -242,8 +242,8 @@ function redactSecrets(key, value) {
 function getAppVersion() {
   return {
     name: "BoardState",
-    version: "1.40.0",
-    build: "visual-language-release",
+    version: "1.41.0",
+    build: "sensory-language-release",
   };
 }
 

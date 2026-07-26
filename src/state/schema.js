@@ -100,6 +100,15 @@ export function createDefaultProfile() {
         hubEndpointConfigured: false,
       },
       haptics: false,
+      sensory: {
+        masterVolume: 0.45,
+        uiVolume: 0.48,
+        gameplayVolume: 0.54,
+        ambientVolume: 0,
+        musicVolume: 0,
+        reducedHaptics: false,
+        audioDebug: false,
+      },
       compactTiles: true,
       pagePanels: {
         lifeTrackerLife: true,

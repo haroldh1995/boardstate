@@ -34,6 +34,20 @@ import {
 } from "./landscapeBattlefield.js";
 import { BOARDSTATE_MOTION_LANGUAGE_VERSION } from "./motionTokens.js";
 import {
+  AUDIO_TOKEN_IDS,
+  BOARDSTATE_SENSORY_LANGUAGE_VERSION,
+  HAPTIC_TOKEN_IDS,
+  SENSORY_CHANNELS,
+  SENSORY_PRIORITY,
+  createSensoryDebugSnapshot,
+  getAudioToken,
+  getHapticToken,
+  resolveAudioTokenForNotification,
+  resolveHapticTokenForNotification,
+  resolveSensoryPreferences,
+  resolveSensoryTokenForAction,
+} from "./sensoryTokens.js";
+import {
   BOARDSTATE_VISUAL_LANGUAGE_VERSION,
   VISUAL_LAYERS,
   VISUAL_MATERIALS,
@@ -98,6 +112,7 @@ import {
 
 const NATIVE_GAME_VISUAL_FOUNDATION_VERSION = "boardstate-native-game-visual-foundation-0.1.0";
 const VISUAL_LANGUAGE_VERSION = BOARDSTATE_VISUAL_LANGUAGE_VERSION;
+const SENSORY_LANGUAGE_VERSION = BOARDSTATE_SENSORY_LANGUAGE_VERSION;
 const COMMANDER_ACTION_HAND_VERSION = "boardstate-commander-action-hand-0.1.0";
 const COMMAND_DECK_VERSION = "boardstate-rotating-command-deck-0.1.0";
 const TABLETOP_RECONSTRUCTION_VERSION = "boardstate-tabletop-reconstruction-0.1.0";
@@ -124,6 +139,7 @@ const COMMAND_DECK_CORE_ORDER = [
   "settings",
   "tablecraft",
 ];
+let sharedSensoryAudioContext = null;
 const LONG_PRESS_DELAY_MS = 420;
 const REPEAT_INTERVAL_MS = 110;
 const PERMANENT_DOUBLE_TAP_MS = 260;
@@ -368,6 +384,7 @@ export function mountApp(root, store) {
   let helperDismissCooldown = new Map();
   let confirmationDialog = null;
   let uiNotice = null;
+  let sensoryDebugSnapshot = createSensoryDebugSnapshot();
   let manualChoicePanelCollapsed = false;
   let globalDismissHandlersInstalled = false;
   let outsideDismissPointerStart = null;
@@ -500,6 +517,7 @@ export function mountApp(root, store) {
     document.body.dataset.visualFoundation = NATIVE_GAME_VISUAL_FOUNDATION_VERSION;
     document.body.dataset.visualLanguageVersion = VISUAL_LANGUAGE_VERSION;
     document.body.dataset.motionLanguageVersion = BOARDSTATE_MOTION_LANGUAGE_VERSION;
+    document.body.dataset.sensoryLanguageVersion = SENSORY_LANGUAGE_VERSION;
     document.body.dataset.commanderActionHandVersion = COMMANDER_ACTION_HAND_VERSION;
     document.body.dataset.commandDeckVersion = COMMAND_DECK_VERSION;
     document.body.dataset.tabletopReconstructionVersion = TABLETOP_RECONSTRUCTION_VERSION;
@@ -567,6 +585,7 @@ export function mountApp(root, store) {
       opponentOverlayOpen,
       confirmationDialog,
       uiNotice,
+      sensoryDebugSnapshot,
       manualChoicePanelCollapsed,
     });
     bind(root, profile);
@@ -675,6 +694,12 @@ export function mountApp(root, store) {
       : commandDeckRotationIndex;
     commandDeckRotationIndex = normalizeCommandDeckIndex(current + Number(direction || 1), size);
     commandDeckLastManualRotationAt = Date.now();
+    playSensoryFeedback(store.getState(), {
+      audioTokenId: AUDIO_TOKEN_IDS.commandDeckRotate,
+      hapticTokenId: HAPTIC_TOKEN_IDS.commandDeckRotate,
+      priority: SENSORY_PRIORITY.backgroundFeedback,
+      volumeCategory: "uiVolume",
+    });
     render(store.getState());
   }
 
@@ -709,6 +734,16 @@ export function mountApp(root, store) {
         event.preventDefault();
         event.stopPropagation();
         toggleCommandDeckFavorite(button.dataset.commandDeckFavorite || "");
+      });
+    });
+    deck.querySelectorAll("[data-action-card]").forEach((button) => {
+      button.addEventListener("click", () => {
+        playSensoryFeedback(store.getState(), {
+          audioTokenId: button.dataset.audioToken || AUDIO_TOKEN_IDS.interactionConfirm,
+          hapticTokenId: button.dataset.hapticToken || HAPTIC_TOKEN_IDS.selection,
+          priority: button.dataset.sensoryPriority || SENSORY_PRIORITY.contextualAction,
+          volumeCategory: button.dataset.sensoryChannel === SENSORY_CHANNELS.gameplay ? "gameplayVolume" : "uiVolume",
+        });
       });
     });
     deck.addEventListener(
@@ -909,7 +944,7 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-setting-button]").forEach((button) => {
       button.addEventListener("click", () =>
-        store.dispatch({ type: "SET_SETTING", path: button.dataset.settingButton, value: parseSettingValue(button.dataset.value) })
+        store.dispatch({ type: "SET_SETTING", path: button.dataset.settingButton, value: parseSettingValue(button.dataset.value, button.dataset.settingValueType) })
       );
     });
     container.querySelector("[data-add-counter-selected]")?.addEventListener("click", () =>
@@ -1724,11 +1759,11 @@ export function mountApp(root, store) {
       });
     });
     container.querySelector("[data-test-sound]")?.addEventListener("click", () => {
-      playNotificationSound("success");
+      playNotificationSound("success", { force: true });
       showNotice("Sound test requested. Browser policy may require prior user interaction.", "info");
     });
     container.querySelector("[data-test-haptic]")?.addEventListener("click", () => {
-      triggerNotificationHaptic("warning");
+      triggerNotificationHaptic("warning", { force: true });
       showNotice(navigator.vibrate ? "Haptic test requested." : "Haptics are not supported on this browser.", "info");
     });
     container.querySelector("[data-reset-notification-preferences]")?.addEventListener("click", () => {
@@ -4935,50 +4970,164 @@ export function mountApp(root, store) {
     }
   }
 
-  function playNotificationSound(kind = "info") {
+  function playNotificationSound(kind = "info", options = {}) {
+    return playSensoryFeedback(store.getState(), {
+      audioTokenId: resolveAudioTokenForNotification(kind),
+      hapticTokenId: "",
+      priority: /final|winner|error|failed/i.test(kind) ? SENSORY_PRIORITY.criticalGameplay : SENSORY_PRIORITY.notification,
+      volumeCategory: "uiVolume",
+      forceAudio: Boolean(options.force),
+    }).audioPlayed;
+  }
+
+  function triggerNotificationHaptic(kind = "info", options = {}) {
+    return playSensoryFeedback(store.getState(), {
+      audioTokenId: "",
+      hapticTokenId: resolveHapticTokenForNotification(kind),
+      priority: /final|winner|error|failed/i.test(kind) ? SENSORY_PRIORITY.criticalGameplay : SENSORY_PRIORITY.notification,
+      volumeCategory: "uiVolume",
+      forceHaptics: Boolean(options.force),
+    }).hapticTriggered;
+  }
+
+  function playSensoryFeedback(profile, plan = {}) {
+    const preferences = resolveSensoryPreferences(profile);
+    const audioTokenId = plan.audioTokenId || "";
+    const hapticTokenId = plan.hapticTokenId || "";
+    const priority = plan.priority || SENSORY_PRIORITY.contextualAction;
+    const volumeCategory = plan.volumeCategory || "uiVolume";
+    const audioResult = audioTokenId
+      ? playAudioToken(audioTokenId, preferences, {
+          force: Boolean(plan.forceAudio),
+          volumeCategory,
+        })
+      : { played: false, suppressed: "no-audio-token" };
+    const hapticResult = hapticTokenId
+      ? triggerHapticToken(hapticTokenId, preferences, {
+          force: Boolean(plan.forceHaptics),
+          touchOnly: Boolean(plan.touchOnly),
+          priority,
+        })
+      : { triggered: false, suppressed: "no-haptic-token" };
+    sensoryDebugSnapshot = createSensoryDebugSnapshot({
+      audioToken: audioTokenId || "none",
+      hapticToken: hapticTokenId || "none",
+      priority,
+      suppressed: [audioResult.suppressed, hapticResult.suppressed].filter(Boolean).join(" / ") || "none",
+      channels: [
+        audioTokenId ? getAudioToken(audioTokenId).channel : "",
+        hapticTokenId ? SENSORY_CHANNELS.haptics : "",
+      ].filter(Boolean),
+      volumeCategory,
+    });
+    return {
+      audioPlayed: Boolean(audioResult.played),
+      hapticTriggered: Boolean(hapticResult.triggered),
+      audioSuppressed: audioResult.suppressed || "",
+      hapticSuppressed: hapticResult.suppressed || "",
+    };
+  }
+
+  function playAudioToken(tokenId = AUDIO_TOKEN_IDS.notification, preferences = resolveSensoryPreferences(store.getState()), options = {}) {
+    if (!options.force && (!preferences.audioEnabled || preferences.masterVolume <= 0)) {
+      return { played: false, suppressed: "audio-disabled" };
+    }
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     if (!AudioContext) {
-      return false;
+      return { played: false, suppressed: "web-audio-unavailable" };
     }
     try {
-      const context = new AudioContext();
+      const context = getSharedSensoryAudioContext(AudioContext);
+      if (!context) {
+        return { played: false, suppressed: "audio-context-unavailable" };
+      }
+      if (context.state === "suspended") {
+        const resumeResult = context.resume?.();
+        if (resumeResult?.catch) {
+          resumeResult.catch(() => {});
+        }
+      }
+      const token = getAudioToken(tokenId);
+      const frequencies = token.frequencies?.length ? token.frequencies : [392];
+      const volumeCategory = options.volumeCategory || `${token.channel || SENSORY_CHANNELS.ui}Volume`;
+      const peak = token.gain * preferences.masterVolume * resolveVolumeScalar(preferences, volumeCategory);
+      if (!options.force && peak <= 0) {
+        return { played: false, suppressed: "volume-muted" };
+      }
       const gain = context.createGain();
       const oscillator = context.createOscillator();
       const now = context.currentTime;
-      const success = /success|final|winner/i.test(kind);
-      const warning = /warning|sudden|choice|error/i.test(kind);
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(warning ? 220 : success ? 523.25 : 392, now);
-      oscillator.frequency.exponentialRampToValueAtTime(warning ? 164.81 : success ? 659.25 : 493.88, now + 0.12);
+      const durationSeconds = Math.max(0.02, Number(token.durationMs || 90) / 1000);
+      const attackSeconds = Math.max(0.004, Number(token.attackMs || 10) / 1000);
+      oscillator.type = token.waveform || "sine";
+      oscillator.frequency.setValueAtTime(Math.max(1, frequencies[0]), now);
+      const frequencyStep = durationSeconds / Math.max(1, frequencies.length - 1);
+      frequencies.slice(1).forEach((frequency, index) => {
+        oscillator.frequency.exponentialRampToValueAtTime(Math.max(1, frequency), now + frequencyStep * (index + 1));
+      });
       gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.08, now + 0.015);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+      gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, peak), now + attackSeconds);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + durationSeconds);
       oscillator.connect(gain);
       gain.connect(context.destination);
       oscillator.start(now);
-      oscillator.stop(now + 0.24);
-      oscillator.addEventListener("ended", () => context.close().catch(() => {}));
-      return true;
+      oscillator.stop(now + durationSeconds + 0.01);
+      oscillator.addEventListener("ended", () => {
+        oscillator.disconnect();
+        gain.disconnect();
+      });
+      return { played: true, suppressed: "" };
     } catch {
-      return false;
+      return { played: false, suppressed: "audio-playback-error" };
     }
   }
 
-  function triggerNotificationHaptic(kind = "info") {
+  function triggerHapticToken(tokenId = HAPTIC_TOKEN_IDS.lightConfirmation, preferences = resolveSensoryPreferences(store.getState()), options = {}) {
     if (!navigator.vibrate) {
-      return false;
+      return { triggered: false, suppressed: "vibration-unavailable" };
     }
-    const pattern = /final|winner|success/i.test(kind)
-      ? [60, 35, 90, 35, 120]
-      : /warning|sudden|choice|error/i.test(kind)
-        ? [45, 35, 45]
-        : [35];
+    if (options.touchOnly && !isTouchFeedbackMode()) {
+      return { triggered: false, suppressed: "not-touch-input" };
+    }
+    if (!options.force && !preferences.hapticsEnabled) {
+      return { triggered: false, suppressed: "haptics-disabled" };
+    }
+    const token = getHapticToken(tokenId);
+    let pattern = [...(token.pattern || [8])];
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    if (preferences.reducedHaptics || reducedMotion) {
+      if (![SENSORY_PRIORITY.criticalGameplay, SENSORY_PRIORITY.commanderEvent].includes(options.priority || token.priority)) {
+        return { triggered: false, suppressed: "reduced-haptics" };
+      }
+      pattern = [10];
+    }
     try {
       navigator.vibrate(pattern);
-      return true;
+      return { triggered: true, suppressed: "" };
     } catch {
-      return false;
+      return { triggered: false, suppressed: "vibration-error" };
     }
+  }
+
+  function getSharedSensoryAudioContext(AudioContext) {
+    if (sharedSensoryAudioContext && sharedSensoryAudioContext.state !== "closed") {
+      return sharedSensoryAudioContext;
+    }
+    sharedSensoryAudioContext = new AudioContext();
+    return sharedSensoryAudioContext;
+  }
+
+  function resolveVolumeScalar(preferences = {}, category = "uiVolume") {
+    if (category === "gameplayVolume") {
+      return Number(preferences.gameplayVolume ?? 0.54);
+    }
+    if (category === "ambientVolume") {
+      return Number(preferences.ambientVolume ?? 0);
+    }
+    if (category === "musicVolume") {
+      return Number(preferences.musicVolume ?? 0);
+    }
+    return Number(preferences.uiVolume ?? 0.48);
   }
 
   function resolveStackRemovalRequest(stackedPermanents = [], requestedMode = "custom") {
@@ -5038,10 +5187,12 @@ export function mountApp(root, store) {
   }
 
   function vibrateFeedback(strong = false) {
-    if (!isTouchFeedbackMode() || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches || !navigator.vibrate) {
-      return;
-    }
-    navigator.vibrate(strong ? 24 : 8);
+    playSensoryFeedback(store.getState(), {
+      audioTokenId: "",
+      hapticTokenId: strong ? HAPTIC_TOKEN_IDS.mediumConfirmation : HAPTIC_TOKEN_IDS.lightConfirmation,
+      priority: strong ? SENSORY_PRIORITY.contextualAction : SENSORY_PRIORITY.backgroundFeedback,
+      touchOnly: true,
+    });
   }
 
   function isTouchGestureMode() {
@@ -5364,7 +5515,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       </header>
       ${page === "home" ? renderBoardStateHome(profile) : ""}
       ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier, uiState) : ""}
-      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", isMobilePortrait: Boolean(uiState.isMobilePortrait), manualChoicePanelCollapsed: Boolean(uiState.manualChoicePanelCollapsed), utilityDockOpen: Boolean(uiState.utilityDockOpen), castActionPopup: uiState.castActionPopup, toolMenuOpen: Boolean(uiState.toolMenuOpen), activeToolPanel: uiState.activeToolPanel || "", activeOptionsCategory: uiState.activeOptionsCategory || "", commandDeckRotationIndex: uiState.commandDeckRotationIndex || 0, commandDeckLastManualRotationAt: uiState.commandDeckLastManualRotationAt || 0 }) : ""}
+      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", isMobilePortrait: Boolean(uiState.isMobilePortrait), manualChoicePanelCollapsed: Boolean(uiState.manualChoicePanelCollapsed), utilityDockOpen: Boolean(uiState.utilityDockOpen), castActionPopup: uiState.castActionPopup, toolMenuOpen: Boolean(uiState.toolMenuOpen), activeToolPanel: uiState.activeToolPanel || "", activeOptionsCategory: uiState.activeOptionsCategory || "", commandDeckRotationIndex: uiState.commandDeckRotationIndex || 0, commandDeckLastManualRotationAt: uiState.commandDeckLastManualRotationAt || 0, sensoryDebugSnapshot: uiState.sensoryDebugSnapshot }) : ""}
       ${page === "tournament" ? renderTournamentPage(profile) : ""}
       ${page === "profile" ? renderProfile(profile) : ""}
       ${page === "archive" ? renderArchive(profile) : ""}
@@ -6065,7 +6216,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
   const motion = landscapeModel.motion || {};
   const cameraFocusKind = landscapeModel.camera?.activeFocus?.kind || "table";
   return `
-    <section class="battlefield-page battlefield-page--focused landscape-battlefield-page tabletop-battlefield-page landscape-density-${escapeAttribute(landscapeModel.density)} advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} motion-${escapeAttribute(motion.intensity || "full")} camera-focus-${escapeAttribute(cameraFocusKind)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}" data-layout-version="${escapeAttribute(landscapeModel.version)}" data-tabletop-reconstruction-version="${escapeAttribute(TABLETOP_RECONSTRUCTION_VERSION)}" data-hud-composition-version="${escapeAttribute(HUD_COMPOSITION_VERSION)}" data-visual-language-version="${escapeAttribute(VISUAL_LANGUAGE_VERSION)}" data-visual-material="${escapeAttribute(VISUAL_MATERIALS.battlefieldAtmosphere)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.battlefield)}" data-visual-elevation="table" data-visual-shadow="ambient" data-visual-glow="subtle" data-motion-language-version="${escapeAttribute(motion.languageVersion || BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-token-version="${escapeAttribute(motion.tokens?.version || BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-version="${escapeAttribute(motion.version || "")}" data-motion-owner="battlefield" data-motion-state="${escapeAttribute(motion.hudMotion?.state || "quiet")}" data-motion-token="${escapeAttribute(motion.cameraPlan?.tokenName || "standard")}" data-motion-duration="${escapeAttribute(String(motion.cameraPlan?.durationMs ?? 0))}" data-motion-intensity="${escapeAttribute(motion.intensity || "full")}" data-camera-focus="${escapeAttribute(cameraFocusKind)}" data-camera-transition="${escapeAttribute(motion.cameraPlan?.transition || "none")}">
+    <section class="battlefield-page battlefield-page--focused landscape-battlefield-page tabletop-battlefield-page landscape-density-${escapeAttribute(landscapeModel.density)} advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} motion-${escapeAttribute(motion.intensity || "full")} camera-focus-${escapeAttribute(cameraFocusKind)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}" data-layout-version="${escapeAttribute(landscapeModel.version)}" data-tabletop-reconstruction-version="${escapeAttribute(TABLETOP_RECONSTRUCTION_VERSION)}" data-hud-composition-version="${escapeAttribute(HUD_COMPOSITION_VERSION)}" data-visual-language-version="${escapeAttribute(VISUAL_LANGUAGE_VERSION)}" data-visual-material="${escapeAttribute(VISUAL_MATERIALS.battlefieldAtmosphere)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.battlefield)}" data-visual-elevation="table" data-visual-shadow="ambient" data-visual-glow="subtle" data-motion-language-version="${escapeAttribute(motion.languageVersion || BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-token-version="${escapeAttribute(motion.tokens?.version || BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-version="${escapeAttribute(motion.version || "")}" data-motion-owner="battlefield" data-motion-state="${escapeAttribute(motion.hudMotion?.state || "quiet")}" data-motion-token="${escapeAttribute(motion.cameraPlan?.tokenName || "standard")}" data-motion-duration="${escapeAttribute(String(motion.cameraPlan?.durationMs ?? 0))}" data-motion-intensity="${escapeAttribute(motion.intensity || "full")}" data-sensory-language-version="${escapeAttribute(SENSORY_LANGUAGE_VERSION)}" data-audio-token="${escapeAttribute(AUDIO_TOKEN_IDS.ambient)}" data-haptic-token="${escapeAttribute(HAPTIC_TOKEN_IDS.lightConfirmation)}" data-sensory-priority="${escapeAttribute(SENSORY_PRIORITY.backgroundFeedback)}" data-sensory-channel="${escapeAttribute(SENSORY_CHANNELS.ambient)}" data-camera-focus="${escapeAttribute(cameraFocusKind)}" data-camera-transition="${escapeAttribute(motion.cameraPlan?.transition || "none")}">
       <div class="battlefield-state-strip landscape-state-strip">
         <div>
           <strong>Turn ${escapeHtml(session.turn)} · ${escapeHtml(PHASES[session.phaseIndex] || "Beginning")} · ${escapeHtml(resolvePhaseTrackerActorLabel(session).replace(/^Active turn:\s*/i, ""))}</strong>
@@ -6119,6 +6270,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
       ${renderGameplayContextDock(landscapeModel.gameplayFlow, session)}
       ${renderMotionDebugOverlay(landscapeModel)}
       ${renderVisualDebugOverlay()}
+      ${renderSensoryDebugOverlay(uiState.sensoryDebugSnapshot)}
     </section>
     ${renderCommanderActionHand(profile, {
       activeUtilityPanel,
@@ -6206,6 +6358,38 @@ function shouldRenderVisualDebugOverlay() {
   }
   try {
     return globalThis.localStorage?.getItem("boardstate-visual-debug") === "true";
+  } catch {
+    return false;
+  }
+}
+
+function renderSensoryDebugOverlay(snapshot = createSensoryDebugSnapshot()) {
+  if (!shouldRenderSensoryDebugOverlay()) {
+    return "";
+  }
+  const debug = snapshot || createSensoryDebugSnapshot();
+  return `
+    <aside class="sensory-debug-overlay glass" data-sensory-debug-overlay hidden aria-hidden="true">
+      <strong>Sensory Debug</strong>
+      <dl>
+        <div><dt>Audio</dt><dd>${escapeHtml(debug.audioToken || "none")}</dd></div>
+        <div><dt>Haptic</dt><dd>${escapeHtml(debug.hapticToken || "none")}</dd></div>
+        <div><dt>Priority</dt><dd>${escapeHtml(debug.priority || "contextual-action")}</dd></div>
+        <div><dt>Suppressed</dt><dd>${escapeHtml(debug.suppressed || "none")}</dd></div>
+        <div><dt>Channels</dt><dd>${escapeHtml((debug.channels || []).join(" / ") || "none")}</dd></div>
+        <div><dt>Volume</dt><dd>${escapeHtml(debug.volumeCategory || "uiVolume")}</dd></div>
+      </dl>
+      <small>${escapeHtml(debug.version || SENSORY_LANGUAGE_VERSION)}</small>
+    </aside>
+  `;
+}
+
+function shouldRenderSensoryDebugOverlay() {
+  if (!import.meta.env?.DEV) {
+    return false;
+  }
+  try {
+    return globalThis.localStorage?.getItem("boardstate-sensory-debug") === "true";
   } catch {
     return false;
   }
@@ -7923,8 +8107,13 @@ function renderCommanderActionHand(profile, options = {}) {
   const centerCard = actionCards[centerIndex] || priorityCard || actionCards[0] || null;
   const favoriteIds = getCommandDeckFavoriteIds(profile, actionCards.map((card) => card.id));
   const centerFavorite = centerCard ? favoriteIds.includes(centerCard.id) : false;
+  const centerSensory = centerCard ? resolveSensoryTokenForAction(centerCard) : {
+    audioTokenId: AUDIO_TOKEN_IDS.interactionConfirm,
+    hapticTokenId: HAPTIC_TOKEN_IDS.lightConfirmation,
+    priority: SENSORY_PRIORITY.contextualAction,
+  };
   return `
-    <section class="commander-action-hand command-deck" data-command-deck data-commander-action-hand data-commander-action-hand-version="${escapeAttribute(COMMANDER_ACTION_HAND_VERSION)}" data-command-deck-version="${escapeAttribute(COMMAND_DECK_VERSION)}" data-visual-language-version="${escapeAttribute(VISUAL_LANGUAGE_VERSION)}" data-visual-material="${escapeAttribute(VISUAL_MATERIALS.metal)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.commandHand)}" data-visual-elevation="command-hand" data-visual-shadow="raised-card" data-visual-glow="gold-subtle" data-motion-language-version="${escapeAttribute(BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-owner="rotating-command-deck" data-motion-state="${escapeAttribute(priorityCard?.contextual ? "contextual-entry" : "idle")}" data-motion-token="${escapeAttribute(priorityCard?.contextual ? "emphasis" : "standard")}" data-command-deck-size="${actionCards.length}" data-command-deck-visible-count="${visibleCards.length}" data-command-deck-rotation="${centerIndex}" data-command-deck-center="${escapeAttribute(centerCard?.id || "phase")}" data-command-deck-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" data-command-deck-card-ids="${escapeAttribute(actionCards.map((card) => card.id).join(" "))}" data-command-deck-favorites="${escapeAttribute(favoriteIds.join(" "))}" data-action-count="${actionCards.length}" data-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" tabindex="0" aria-label="Rotating Commander Command Deck" aria-roledescription="infinite rotating command deck" aria-keyshortcuts="ArrowLeft ArrowRight PageUp PageDown Q E" data-no-swipe>
+    <section class="commander-action-hand command-deck" data-command-deck data-commander-action-hand data-commander-action-hand-version="${escapeAttribute(COMMANDER_ACTION_HAND_VERSION)}" data-command-deck-version="${escapeAttribute(COMMAND_DECK_VERSION)}" data-visual-language-version="${escapeAttribute(VISUAL_LANGUAGE_VERSION)}" data-visual-material="${escapeAttribute(VISUAL_MATERIALS.metal)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.commandHand)}" data-visual-elevation="command-hand" data-visual-shadow="raised-card" data-visual-glow="gold-subtle" data-motion-language-version="${escapeAttribute(BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-owner="rotating-command-deck" data-motion-state="${escapeAttribute(priorityCard?.contextual ? "contextual-entry" : "idle")}" data-motion-token="${escapeAttribute(priorityCard?.contextual ? "emphasis" : "standard")}" data-sensory-language-version="${escapeAttribute(SENSORY_LANGUAGE_VERSION)}" data-audio-token="${escapeAttribute(centerSensory.audioTokenId)}" data-haptic-token="${escapeAttribute(centerSensory.hapticTokenId)}" data-sensory-priority="${escapeAttribute(centerSensory.priority)}" data-sensory-channel="${escapeAttribute(SENSORY_CHANNELS.ui)}" data-command-deck-size="${actionCards.length}" data-command-deck-visible-count="${visibleCards.length}" data-command-deck-rotation="${centerIndex}" data-command-deck-center="${escapeAttribute(centerCard?.id || "phase")}" data-command-deck-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" data-command-deck-card-ids="${escapeAttribute(actionCards.map((card) => card.id).join(" "))}" data-command-deck-favorites="${escapeAttribute(favoriteIds.join(" "))}" data-action-count="${actionCards.length}" data-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" tabindex="0" aria-label="Rotating Commander Command Deck" aria-roledescription="infinite rotating command deck" aria-keyshortcuts="ArrowLeft ArrowRight PageUp PageDown Q E" data-no-swipe>
       <div class="commander-action-hand__aura" aria-hidden="true"></div>
       <button class="command-deck__rotator command-deck__rotator--previous" data-command-deck-rotate="-1" aria-label="Rotate command deck left">&lsaquo;</button>
       <button class="command-deck__rotator command-deck__rotator--next" data-command-deck-rotate="1" aria-label="Rotate command deck right">&rsaquo;</button>
@@ -8060,6 +8249,7 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
   const attrs = (card.attrs || []).join(" ");
   const disabled = card.disabled ? "disabled aria-disabled=\"true\"" : "";
   const visualMaterial = resolveActionCardVisualMaterial(card);
+  const sensory = resolveSensoryTokenForAction(card);
   return `
     <button
       class="action-card action-card--${escapeAttribute(card.id)} action-card-family-${escapeAttribute(card.family || "general")} action-card-state-${escapeAttribute(card.state || "idle")} action-card-entering"
@@ -8085,6 +8275,11 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
       data-motion-owner="rotating-command-deck"
       data-motion-state="${escapeAttribute(card.contextual ? "contextual-entry" : card.state || "idle")}"
       data-motion-token="${escapeAttribute(card.priority >= 100 ? "emphasis" : card.priority >= 70 ? "standard" : "micro")}"
+      data-sensory-language-version="${escapeAttribute(SENSORY_LANGUAGE_VERSION)}"
+      data-audio-token="${escapeAttribute(sensory.audioTokenId)}"
+      data-haptic-token="${escapeAttribute(sensory.hapticTokenId)}"
+      data-sensory-priority="${escapeAttribute(sensory.priority)}"
+      data-sensory-channel="${escapeAttribute(sensory.volumeCategory === "gameplayVolume" ? SENSORY_CHANNELS.gameplay : SENSORY_CHANNELS.ui)}"
       aria-label="${escapeAttribute(`${card.label}: ${card.detail || card.signal || "decision"}`)}"
       aria-pressed="${card.state === "expanded" || card.state === "selected" ? "true" : "false"}"
     >
@@ -10976,6 +11171,10 @@ function renderNotificationOptionsSubpage(profile) {
           ${renderToggle("Sound Notifications", "notifications.sound", Boolean(preferences.sound))}
           ${renderToggle("Haptics / Vibration", "notifications.haptics", Boolean(preferences.haptics))}
         </div>
+        <div class="options-setting-group sensory-settings-panel">
+          <h4>Sensory Language</h4>
+          ${renderSensorySettings(profile)}
+        </div>
         <div class="options-setting-group">
           <h4>Categories</h4>
           ${renderToggle("Tournament Notifications", "notifications.tournament", Boolean(preferences.tournament))}
@@ -10999,6 +11198,43 @@ function renderNotificationOptionsSubpage(profile) {
           ${renderGameplayNotificationToggles(preferences)}
         </div>
       </article>
+    </div>
+  `;
+}
+
+function renderSensorySettings(profile = {}) {
+  const sensory = resolveSensoryPreferences(profile);
+  return `
+    <p>Audio and vibration use centralized tokens. Sounds remain browser-safe and user-controlled.</p>
+    ${renderToggle("Gameplay Haptic Hooks", "haptics", Boolean(profile.settings?.haptics))}
+    ${renderToggle("Reduced Haptics", "sensory.reducedHaptics", Boolean(sensory.reducedHaptics))}
+    ${renderSensoryVolumeControl("Master Volume", "sensory.masterVolume", sensory.masterVolume)}
+    ${renderSensoryVolumeControl("UI Volume", "sensory.uiVolume", sensory.uiVolume)}
+    ${renderSensoryVolumeControl("Gameplay Volume", "sensory.gameplayVolume", sensory.gameplayVolume)}
+    ${renderSensoryVolumeControl("Ambient Volume", "sensory.ambientVolume", sensory.ambientVolume)}
+    ${renderSensoryVolumeControl("Music Volume", "sensory.musicVolume", sensory.musicVolume)}
+  `;
+}
+
+function renderSensoryVolumeControl(label, path, value) {
+  const normalized = Math.max(0, Math.min(1, Number(value || 0)));
+  const presets = [
+    { label: "Off", value: 0 },
+    { label: "Low", value: 0.28 },
+    { label: "Standard", value: 0.55 },
+    { label: "High", value: 0.82 },
+  ];
+  return `
+    <div class="sensory-volume-row">
+      <div>
+        <strong>${escapeHtml(label)}</strong>
+        <small>${Math.round(normalized * 100)}%</small>
+      </div>
+      <div class="button-grid mini">
+        ${presets
+          .map((preset) => `<button class="${Math.abs(normalized - preset.value) < 0.02 ? "active" : ""}" data-setting-button="${escapeAttribute(path)}" data-setting-value-type="number" data-value="${escapeAttribute(String(preset.value))}" aria-pressed="${Math.abs(normalized - preset.value) < 0.02}">${escapeHtml(preset.label)}</button>`)
+          .join("")}
+      </div>
     </div>
   `;
 }
@@ -11112,7 +11348,10 @@ function renderAccessibilityOptionsSubpage(profile) {
         ${renderToggle("ADHD resource reminders", "adhdMode.resourceReminders", Boolean(settings.adhdMode?.resourceReminders))}
         ${renderToggle("ADHD deterministic auto-assist", "adhdAutomation", settings.adhdAutomation)}
         ${renderToggle("Confirm ambiguous effects", "confirmAmbiguousEffects", settings.confirmAmbiguousEffects)}
-        ${renderToggle("Haptics hooks", "haptics", settings.haptics)}
+        <div class="options-setting-group sensory-settings-panel">
+          <h4>Sensory Language</h4>
+          ${renderSensorySettings(profile)}
+        </div>
         ${renderToggle("Compact permanent tiles", "compactTiles", settings.compactTiles)}
         ${renderToggle("Enable Advanced Gestures", "gestures.advanced", Boolean(profile.settings?.gestures?.advanced))}
         ${renderToggle("Focus mode", "battlefield.focusMode", Boolean(profile.settings?.battlefield?.focusMode))}
@@ -11246,7 +11485,7 @@ function getUnreadNotificationCount(profile = {}) {
 }
 
 function getAppVersion() {
-  return "1.40.0";
+  return "1.41.0";
 }
 
 function renderGameOptions(profile, page = "life") {
@@ -12446,12 +12685,15 @@ function formatDuration(ms) {
   return `${minutes}m ${String(remainder).padStart(2, "0")}s`;
 }
 
-function parseSettingValue(value) {
+function parseSettingValue(value, type = "") {
   if (value === "true") {
     return true;
   }
   if (value === "false") {
     return false;
+  }
+  if (type === "number" && /^-?\d+(\.\d+)?$/.test(String(value || ""))) {
+    return Number(value);
   }
   return value;
 }

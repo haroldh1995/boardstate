@@ -241,4 +241,10 @@ The visual language remains presentation-only. It does not mutate gameplay state
 
 ## Deferred Work
 
-The battlefield, gameplay-flow, motion, visual language, Rules Assistant, proactive assistant, and AI analysis prompts do not implement particle effects, spectator mode, visual replay UI, sound, haptics, cloud AI, strategic coaching, external judge search, or full Rules Recovery imports. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.
+The battlefield, gameplay-flow, motion, visual language, sensory language, Rules Assistant, proactive assistant, and AI analysis prompts do not implement particle effects, spectator mode, visual replay UI, cloud AI, strategic coaching, external judge search, or full Rules Recovery imports. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.
+
+## Prompt 12.6 Audio Language And Haptics
+
+Prompt 12.6 adds `src/ui/sensoryTokens.js` as the centralized Audio Token and Haptic Token contract for generated browser-safe feedback. `src/ui/render.js` exposes `data-sensory-*` metadata on the battlefield, Rotating Command Deck, and Action Cards; notification tests and Command Deck rotation now use `playSensoryFeedback()` instead of hard-coded beeps or direct vibration calls. `src/state/schema.js`, `src/storage/localDatabase.js`, and `src/ecosystem/ecosystemIntegration.js` preserve sensory preferences without changing gameplay authority, save truth, hidden-information boundaries, or Hub availability claims.
+
+The permanent sensory architecture record lives in `docs/ecosystem/SENSORY_LANGUAGE_ARCHITECTURE.md`.
