@@ -34,6 +34,12 @@ import {
 } from "./landscapeBattlefield.js";
 import { BOARDSTATE_MOTION_LANGUAGE_VERSION } from "./motionTokens.js";
 import {
+  BOARDSTATE_VISUAL_LANGUAGE_VERSION,
+  VISUAL_LAYERS,
+  VISUAL_MATERIALS,
+  createVisualDebugSnapshot,
+} from "./visualTokens.js";
+import {
   buildDeckSourceOptions,
   createBoardStateLiteHandoffBundle,
   getAppLinkAdapters,
@@ -91,6 +97,7 @@ import {
 } from "../migration/legacyMigration.js";
 
 const NATIVE_GAME_VISUAL_FOUNDATION_VERSION = "boardstate-native-game-visual-foundation-0.1.0";
+const VISUAL_LANGUAGE_VERSION = BOARDSTATE_VISUAL_LANGUAGE_VERSION;
 const COMMANDER_ACTION_HAND_VERSION = "boardstate-commander-action-hand-0.1.0";
 const COMMAND_DECK_VERSION = "boardstate-rotating-command-deck-0.1.0";
 const TABLETOP_RECONSTRUCTION_VERSION = "boardstate-tabletop-reconstruction-0.1.0";
@@ -491,6 +498,7 @@ export function mountApp(root, store) {
     document.body.dataset.compositionPreference = CANONICAL_GAMEPLAY_COMPOSITION;
     document.body.dataset.gameplayComposition = CANONICAL_GAMEPLAY_COMPOSITION;
     document.body.dataset.visualFoundation = NATIVE_GAME_VISUAL_FOUNDATION_VERSION;
+    document.body.dataset.visualLanguageVersion = VISUAL_LANGUAGE_VERSION;
     document.body.dataset.motionLanguageVersion = BOARDSTATE_MOTION_LANGUAGE_VERSION;
     document.body.dataset.commanderActionHandVersion = COMMANDER_ACTION_HAND_VERSION;
     document.body.dataset.commandDeckVersion = COMMAND_DECK_VERSION;
@@ -6057,7 +6065,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
   const motion = landscapeModel.motion || {};
   const cameraFocusKind = landscapeModel.camera?.activeFocus?.kind || "table";
   return `
-    <section class="battlefield-page battlefield-page--focused landscape-battlefield-page tabletop-battlefield-page landscape-density-${escapeAttribute(landscapeModel.density)} advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} motion-${escapeAttribute(motion.intensity || "full")} camera-focus-${escapeAttribute(cameraFocusKind)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}" data-layout-version="${escapeAttribute(landscapeModel.version)}" data-tabletop-reconstruction-version="${escapeAttribute(TABLETOP_RECONSTRUCTION_VERSION)}" data-hud-composition-version="${escapeAttribute(HUD_COMPOSITION_VERSION)}" data-motion-language-version="${escapeAttribute(motion.languageVersion || BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-token-version="${escapeAttribute(motion.tokens?.version || BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-version="${escapeAttribute(motion.version || "")}" data-motion-owner="battlefield" data-motion-state="${escapeAttribute(motion.hudMotion?.state || "quiet")}" data-motion-token="${escapeAttribute(motion.cameraPlan?.tokenName || "standard")}" data-motion-duration="${escapeAttribute(String(motion.cameraPlan?.durationMs ?? 0))}" data-motion-intensity="${escapeAttribute(motion.intensity || "full")}" data-camera-focus="${escapeAttribute(cameraFocusKind)}" data-camera-transition="${escapeAttribute(motion.cameraPlan?.transition || "none")}">
+    <section class="battlefield-page battlefield-page--focused landscape-battlefield-page tabletop-battlefield-page landscape-density-${escapeAttribute(landscapeModel.density)} advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} motion-${escapeAttribute(motion.intensity || "full")} camera-focus-${escapeAttribute(cameraFocusKind)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}" data-layout-version="${escapeAttribute(landscapeModel.version)}" data-tabletop-reconstruction-version="${escapeAttribute(TABLETOP_RECONSTRUCTION_VERSION)}" data-hud-composition-version="${escapeAttribute(HUD_COMPOSITION_VERSION)}" data-visual-language-version="${escapeAttribute(VISUAL_LANGUAGE_VERSION)}" data-visual-material="${escapeAttribute(VISUAL_MATERIALS.battlefieldAtmosphere)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.battlefield)}" data-visual-elevation="table" data-visual-shadow="ambient" data-visual-glow="subtle" data-motion-language-version="${escapeAttribute(motion.languageVersion || BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-token-version="${escapeAttribute(motion.tokens?.version || BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-version="${escapeAttribute(motion.version || "")}" data-motion-owner="battlefield" data-motion-state="${escapeAttribute(motion.hudMotion?.state || "quiet")}" data-motion-token="${escapeAttribute(motion.cameraPlan?.tokenName || "standard")}" data-motion-duration="${escapeAttribute(String(motion.cameraPlan?.durationMs ?? 0))}" data-motion-intensity="${escapeAttribute(motion.intensity || "full")}" data-camera-focus="${escapeAttribute(cameraFocusKind)}" data-camera-transition="${escapeAttribute(motion.cameraPlan?.transition || "none")}">
       <div class="battlefield-state-strip landscape-state-strip">
         <div>
           <strong>Turn ${escapeHtml(session.turn)} · ${escapeHtml(PHASES[session.phaseIndex] || "Beginning")} · ${escapeHtml(resolvePhaseTrackerActorLabel(session).replace(/^Active turn:\s*/i, ""))}</strong>
@@ -6072,7 +6080,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
       ${perspective.compactOpponentLanes && !landscapeModel.opponentCarousel?.enabled ? renderCompactOpponentLanes(perspective) : ""}
       ${landscapeModel.opponentCarousel?.enabled ? renderOpponentCarouselControls(landscapeModel.opponentCarousel) : ""}
       ${renderLandscapeGlobalInfoRail(landscapeModel, profile)}
-      <section class="arena glass landscape-arena ${playerDensityClass} ${perspective.viewMode === "two-player-mirrored" ? "arena--two-player-mirrored" : ""} ${perspective.viewMode === "commander-pod-advanced" || perspective.viewMode === "mixed-interface-session" ? "arena--commander-pod" : ""} ${profile.settings?.battlefield?.focusMode && session.selectedIds?.length ? "focus-mode" : ""} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${showPerspectiveOpponentZone ? "" : "arena--opponent-hidden"} ${panels.boardCombat ? "" : "arena--combat-hidden"}" data-set-tool-context="empty" data-motion-role="camera-stage">
+      <section class="arena glass landscape-arena ${playerDensityClass} ${perspective.viewMode === "two-player-mirrored" ? "arena--two-player-mirrored" : ""} ${perspective.viewMode === "commander-pod-advanced" || perspective.viewMode === "mixed-interface-session" ? "arena--commander-pod" : ""} ${profile.settings?.battlefield?.focusMode && session.selectedIds?.length ? "focus-mode" : ""} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""} ${showPerspectiveOpponentZone ? "" : "arena--opponent-hidden"} ${panels.boardCombat ? "" : "arena--combat-hidden"}" data-set-tool-context="empty" data-motion-role="camera-stage" data-visual-material="${escapeAttribute(VISUAL_MATERIALS.stone)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.battlefield)}" data-visual-elevation="table">
         ${renderLandscapeOpponentRegion(landscapeModel.opponentBattlefield, {
           opponentBoards: perspectiveOpponentBoards,
           activeIndex: mirroredOpponentIndex,
@@ -6110,6 +6118,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
       </section>
       ${renderGameplayContextDock(landscapeModel.gameplayFlow, session)}
       ${renderMotionDebugOverlay(landscapeModel)}
+      ${renderVisualDebugOverlay()}
     </section>
     ${renderCommanderActionHand(profile, {
       activeUtilityPanel,
@@ -6168,12 +6177,46 @@ function shouldRenderMotionDebugOverlay() {
   }
 }
 
+function renderVisualDebugOverlay() {
+  if (!shouldRenderVisualDebugOverlay()) {
+    return "";
+  }
+  const debug = createVisualDebugSnapshot();
+  return `
+    <aside class="visual-debug-overlay glass" data-visual-debug-overlay hidden aria-hidden="true">
+      <strong>Visual Debug</strong>
+      <dl>
+        <div><dt>Material</dt><dd>${escapeHtml(debug.material)}</dd></div>
+        <div><dt>Elevation</dt><dd>${escapeHtml(debug.elevation)}</dd></div>
+        <div><dt>Shadow</dt><dd>${escapeHtml(debug.shadow)}</dd></div>
+        <div><dt>Glow</dt><dd>${escapeHtml(debug.glow)}</dd></div>
+        <div><dt>Border</dt><dd>${escapeHtml(debug.border)}</dd></div>
+        <div><dt>Layer</dt><dd>${escapeHtml(debug.layer)}</dd></div>
+        <div><dt>Opacity</dt><dd>${escapeHtml(debug.opacity)}</dd></div>
+        <div><dt>Theme</dt><dd>${escapeHtml(debug.theme)}</dd></div>
+      </dl>
+      <small>${escapeHtml(debug.version)}</small>
+    </aside>
+  `;
+}
+
+function shouldRenderVisualDebugOverlay() {
+  if (!import.meta.env?.DEV) {
+    return false;
+  }
+  try {
+    return globalThis.localStorage?.getItem("boardstate-visual-debug") === "true";
+  } catch {
+    return false;
+  }
+}
+
 function renderLandscapeGlobalInfoRail(model = {}, profile = {}) {
   const globalInfo = model.globalInfo || {};
   const localPlayerId = model.perspective?.localPlayerId || "local-player";
   const players = globalInfo.players || [];
   return `
-    <aside class="landscape-info-rail landscape-table-ribbon glass" aria-label="Global game information">
+    <aside class="landscape-info-rail landscape-table-ribbon glass" aria-label="Global game information" data-visual-material="${escapeAttribute(VISUAL_MATERIALS.polishedGlass)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.contextual)}" data-visual-elevation="contextual">
       <div class="landscape-rail-header">
         <p class="eyebrow">Table</p>
         <strong>${escapeHtml(String(globalInfo.tableStatus?.playerCount || players.length || 1))}P</strong>
@@ -6211,7 +6254,7 @@ function renderLandscapeGlobalInfoRail(model = {}, profile = {}) {
 function renderLandscapeOpponentRegion(region = {}, options = {}) {
   if (!options.showPerspectiveOpponentZone) {
     return `
-      <div class="opponent-zone landscape-board-region landscape-board-region--opponent tabletop-board-region is-hidden" data-opponent-swipe data-set-tool-context="empty">
+      <div class="opponent-zone landscape-board-region landscape-board-region--opponent tabletop-board-region is-hidden" data-opponent-swipe data-set-tool-context="empty" data-visual-material="${escapeAttribute(VISUAL_MATERIALS.stone)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.battlefield)}" data-visual-elevation="table">
         <div class="opponent-zone-header tabletop-seat-note" aria-label="Opponent public battlefield">
           <div><strong>Opponent side quiet</strong><p class="eyebrow">Public permanents appear here</p></div>
         </div>
@@ -6219,7 +6262,7 @@ function renderLandscapeOpponentRegion(region = {}, options = {}) {
     `;
   }
   return `
-    <div class="opponent-zone landscape-board-region landscape-board-region--opponent tabletop-board-region ${escapeAttribute(options.opponentDensityClass || "")}" data-opponent-swipe data-set-tool-context="empty">
+    <div class="opponent-zone landscape-board-region landscape-board-region--opponent tabletop-board-region ${escapeAttribute(options.opponentDensityClass || "")}" data-opponent-swipe data-set-tool-context="empty" data-visual-material="${escapeAttribute(VISUAL_MATERIALS.stone)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.battlefield)}" data-visual-elevation="table">
       ${renderOpponentZoneHeader(options.opponentBoards || [], options.activeIndex || 0, options.activeOpponent, options.perspective)}
       ${renderCommanderHud(region)}
       ${renderLandscapeBattlefieldGroups(region, {
@@ -6242,7 +6285,7 @@ function renderLandscapeOpponentRegion(region = {}, options = {}) {
 
 function renderLandscapeLocalRegion(region = {}, options = {}) {
   return `
-    <div class="player-zone landscape-board-region landscape-board-region--local tabletop-board-region">
+    <div class="player-zone landscape-board-region landscape-board-region--local tabletop-board-region" data-visual-material="${escapeAttribute(VISUAL_MATERIALS.stone)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.battlefield)}" data-visual-elevation="table">
       <div class="landscape-board-title tabletop-player-vitals">
         <div>
           <p class="eyebrow">Local battlefield</p>
@@ -6287,7 +6330,7 @@ function renderLandscapeCommandCenter(model = {}, profile = {}, options = {}) {
       (center.combat?.blockAssignments && Object.keys(center.combat.blockAssignments).length)
   );
   return `
-    <div class="combat-zone landscape-command-center hud-stack-${escapeAttribute(hud.stack || "collapsed")} hud-triggers-${escapeAttribute(hud.triggers || "collapsed")} hud-priority-${escapeAttribute(hud.priority || "collapsed")} hud-combat-${escapeAttribute(hud.combatControls || "hidden")} hud-motion-${escapeAttribute(motion.hudMotion?.state || "quiet")}" aria-label="Command center" data-motion-role="command-center" data-hud-motion="${escapeAttribute(motion.hudMotion?.state || "quiet")}">
+    <div class="combat-zone landscape-command-center hud-stack-${escapeAttribute(hud.stack || "collapsed")} hud-triggers-${escapeAttribute(hud.triggers || "collapsed")} hud-priority-${escapeAttribute(hud.priority || "collapsed")} hud-combat-${escapeAttribute(hud.combatControls || "hidden")} hud-motion-${escapeAttribute(motion.hudMotion?.state || "quiet")}" aria-label="Command center" data-motion-role="command-center" data-hud-motion="${escapeAttribute(motion.hudMotion?.state || "quiet")}" data-visual-material="${escapeAttribute(VISUAL_MATERIALS.energy)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.contextual)}" data-visual-elevation="contextual">
       <div class="landscape-command-core">
         <article class="landscape-phase-core" data-motion-role="phase">
           <p class="eyebrow">Command Center</p>
@@ -7881,7 +7924,7 @@ function renderCommanderActionHand(profile, options = {}) {
   const favoriteIds = getCommandDeckFavoriteIds(profile, actionCards.map((card) => card.id));
   const centerFavorite = centerCard ? favoriteIds.includes(centerCard.id) : false;
   return `
-    <section class="commander-action-hand command-deck" data-command-deck data-commander-action-hand data-commander-action-hand-version="${escapeAttribute(COMMANDER_ACTION_HAND_VERSION)}" data-command-deck-version="${escapeAttribute(COMMAND_DECK_VERSION)}" data-motion-language-version="${escapeAttribute(BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-owner="rotating-command-deck" data-motion-state="${escapeAttribute(priorityCard?.contextual ? "contextual-entry" : "idle")}" data-motion-token="${escapeAttribute(priorityCard?.contextual ? "emphasis" : "standard")}" data-command-deck-size="${actionCards.length}" data-command-deck-visible-count="${visibleCards.length}" data-command-deck-rotation="${centerIndex}" data-command-deck-center="${escapeAttribute(centerCard?.id || "phase")}" data-command-deck-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" data-command-deck-card-ids="${escapeAttribute(actionCards.map((card) => card.id).join(" "))}" data-command-deck-favorites="${escapeAttribute(favoriteIds.join(" "))}" data-action-count="${actionCards.length}" data-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" tabindex="0" aria-label="Rotating Commander Command Deck" aria-roledescription="infinite rotating command deck" aria-keyshortcuts="ArrowLeft ArrowRight PageUp PageDown Q E" data-no-swipe>
+    <section class="commander-action-hand command-deck" data-command-deck data-commander-action-hand data-commander-action-hand-version="${escapeAttribute(COMMANDER_ACTION_HAND_VERSION)}" data-command-deck-version="${escapeAttribute(COMMAND_DECK_VERSION)}" data-visual-language-version="${escapeAttribute(VISUAL_LANGUAGE_VERSION)}" data-visual-material="${escapeAttribute(VISUAL_MATERIALS.metal)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.commandHand)}" data-visual-elevation="command-hand" data-visual-shadow="raised-card" data-visual-glow="gold-subtle" data-motion-language-version="${escapeAttribute(BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-owner="rotating-command-deck" data-motion-state="${escapeAttribute(priorityCard?.contextual ? "contextual-entry" : "idle")}" data-motion-token="${escapeAttribute(priorityCard?.contextual ? "emphasis" : "standard")}" data-command-deck-size="${actionCards.length}" data-command-deck-visible-count="${visibleCards.length}" data-command-deck-rotation="${centerIndex}" data-command-deck-center="${escapeAttribute(centerCard?.id || "phase")}" data-command-deck-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" data-command-deck-card-ids="${escapeAttribute(actionCards.map((card) => card.id).join(" "))}" data-command-deck-favorites="${escapeAttribute(favoriteIds.join(" "))}" data-action-count="${actionCards.length}" data-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" tabindex="0" aria-label="Rotating Commander Command Deck" aria-roledescription="infinite rotating command deck" aria-keyshortcuts="ArrowLeft ArrowRight PageUp PageDown Q E" data-no-swipe>
       <div class="commander-action-hand__aura" aria-hidden="true"></div>
       <button class="command-deck__rotator command-deck__rotator--previous" data-command-deck-rotate="-1" aria-label="Rotate command deck left">&lsaquo;</button>
       <button class="command-deck__rotator command-deck__rotator--next" data-command-deck-rotate="1" aria-label="Rotate command deck right">&rsaquo;</button>
@@ -7987,6 +8030,22 @@ function getCommandDeckFavoriteIds(profile = {}, validIds = []) {
     .slice(0, COMMAND_DECK_MAX_FAVORITES);
 }
 
+function resolveActionCardVisualMaterial(card = {}) {
+  if (card.id === "commander" || card.family === "commander") {
+    return VISUAL_MATERIALS.gold;
+  }
+  if (card.id === "rules" || card.family === "rules") {
+    return VISUAL_MATERIALS.crystal;
+  }
+  if (card.id === "remind" || card.id === "history" || card.id === "notes") {
+    return VISUAL_MATERIALS.parchment;
+  }
+  if (card.contextual || card.priority >= 100) {
+    return VISUAL_MATERIALS.energy;
+  }
+  return VISUAL_MATERIALS.cardStock;
+}
+
 function renderCommanderActionCard(card, index, count, deckEntry = {}) {
   const midpoint = (count - 1) / 2;
   const offset = Number.isFinite(deckEntry.slotOffset) ? deckEntry.slotOffset : index - midpoint;
@@ -8000,6 +8059,7 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
   const overlapAdjust = `${Math.round((distance % 2) * 4 - distance * 1.5)}px`;
   const attrs = (card.attrs || []).join(" ");
   const disabled = card.disabled ? "disabled aria-disabled=\"true\"" : "";
+  const visualMaterial = resolveActionCardVisualMaterial(card);
   return `
     <button
       class="action-card action-card--${escapeAttribute(card.id)} action-card-family-${escapeAttribute(card.family || "general")} action-card-state-${escapeAttribute(card.state || "idle")} action-card-entering"
@@ -8017,6 +8077,11 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
       data-command-deck-slot="${escapeAttribute(String(deckEntry.slotOffset ?? offset))}"
       data-command-deck-index="${escapeAttribute(String(deckEntry.deckIndex ?? index))}"
       data-command-deck-center="${deckEntry.isCenter ? "true" : "false"}"
+      data-visual-material="${escapeAttribute(visualMaterial)}"
+      data-visual-layer="${escapeAttribute(VISUAL_LAYERS.commandHand)}"
+      data-visual-elevation="${deckEntry.isCenter ? "command-card-center" : "command-card"}"
+      data-visual-shadow="${card.priority >= 100 ? "raised-card" : "panel"}"
+      data-visual-glow="${card.priority >= 100 || card.state === "promoted" ? "gold-strong" : card.family === "rules" ? "crystal" : "gold-subtle"}"
       data-motion-owner="rotating-command-deck"
       data-motion-state="${escapeAttribute(card.contextual ? "contextual-entry" : card.state || "idle")}"
       data-motion-token="${escapeAttribute(card.priority >= 100 ? "emphasis" : card.priority >= 70 ? "standard" : "micro")}"
@@ -8046,7 +8111,7 @@ function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResu
   const utilityTitle = panel === "utilities" ? "Command Utilities" : panel === "search" ? "Search/Add Card" : panel === "stack" ? "Stack & Priority" : panel === "rules-assistant" ? "Rules Assistant" : panel === "remind-me" ? "Remind Me" : panel === "ai-analysis" ? "AI Analysis" : formatLabel(panel);
   const mobileSheetClass = isMobilePortrait ? "mobile-bottom-sheet" : "";
   return `
-    <section class="utility-overlay glass ${mobileSheetClass}" data-no-swipe>
+    <section class="utility-overlay glass ${mobileSheetClass}" data-no-swipe data-visual-material="${escapeAttribute(VISUAL_MATERIALS.polishedGlass)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.overlay)}" data-visual-elevation="overlay" data-visual-shadow="overlay" data-visual-glow="subtle">
       <div class="overlay-header compact">
         <h2>${escapeHtml(utilityTitle)}</h2>
         <button data-close-utility-panel>Close</button>
@@ -11181,7 +11246,7 @@ function getUnreadNotificationCount(profile = {}) {
 }
 
 function getAppVersion() {
-  return "1.39.0";
+  return "1.40.0";
 }
 
 function renderGameOptions(profile, page = "life") {

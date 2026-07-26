@@ -228,6 +228,17 @@ Prompt 12.4 establishes BoardState's permanent motion language over the existing
 
 The motion language remains presentation-only. It does not mutate gameplay state, persist transient animation state, replace the rules engine, create a second motion authority, expose hidden information, or copy protected Arena motion identity. The permanent record lives in `docs/ecosystem/MOTION_LANGUAGE_ARCHITECTURE.md`.
 
+## Prompt 12.5 Visual Language And Material System
+
+Prompt 12.5 establishes BoardState's permanent visual language without changing gameplay behavior:
+
+- `src/ui/visualTokens.js` owns `BOARDSTATE_VISUAL_LANGUAGE_VERSION`, semantic materials, visual layers, color/border/radius/elevation/shadow/glow/blur/opacity/outline tokens, CSS-variable generation, and debug snapshot helpers.
+- `src/ui/render.js` exposes `boardstate-visual-language-0.1.0` through body and gameplay `data-visual-*` metadata for the battlefield, table regions, command center, Rotating Command Deck, Action Cards, and utility overlays.
+- `renderVisualDebugOverlay()` is development-only and additionally requires `boardstate-visual-debug=true`; it renders nothing in production builds.
+- `src/styles.css` maps BoardState's existing cosmic atmosphere, glass overlays, stone table grounding, metal command structure, premium Action Card stock, gold Commander emphasis, crystal rules/focus treatment, parchment memory treatment, elevation, shadows, glows, blur, and focus outlines to root `--visual-*` tokens.
+
+The visual language remains presentation-only. It does not mutate gameplay state, persist transient styling state, replace the rules engine, create a second theme authority, expose hidden information, or copy protected Arena visuals. The permanent record lives in `docs/ecosystem/VISUAL_LANGUAGE_MATERIAL_SYSTEM.md`.
+
 ## Deferred Work
 
-The battlefield, gameplay-flow, motion, Rules Assistant, proactive assistant, and AI analysis prompts do not implement particle effects, spectator mode, visual replay UI, sound, haptics, cloud AI, strategic coaching, external judge search, or full Rules Recovery imports. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.
+The battlefield, gameplay-flow, motion, visual language, Rules Assistant, proactive assistant, and AI analysis prompts do not implement particle effects, spectator mode, visual replay UI, sound, haptics, cloud AI, strategic coaching, external judge search, or full Rules Recovery imports. Those remain deferred to later modernization prompts and must reuse this intelligent landscape battlefield foundation.

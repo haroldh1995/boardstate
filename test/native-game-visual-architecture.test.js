@@ -9,6 +9,14 @@ import {
   applySharedPreferencePatch,
   createSharedPreferenceSnapshot,
 } from "../src/ecosystem/ecosystemIntegration.js";
+import {
+  BOARDSTATE_VISUAL_LANGUAGE_VERSION,
+  VISUAL_LAYERS,
+  VISUAL_MATERIALS,
+  createVisualCssVariables,
+  createVisualDebugSnapshot,
+  createVisualTokenSet,
+} from "../src/ui/visualTokens.js";
 
 function readRepositoryFile(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -93,12 +101,24 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   const actionHandDoc = readRepositoryFile("docs/ecosystem/COMMANDER_ACTION_HAND_DESIGN.md");
   const rotatingDeckDoc = readRepositoryFile("docs/ecosystem/ROTATING_COMMAND_DECK_ARCHITECTURE.md");
   const motionDoc = readRepositoryFile("docs/ecosystem/MOTION_LANGUAGE_ARCHITECTURE.md");
+  const visualLanguageDoc = readRepositoryFile("docs/ecosystem/VISUAL_LANGUAGE_MATERIAL_SYSTEM.md");
   const motionTokens = readRepositoryFile("src/ui/motionTokens.js");
+  const visualTokens = readRepositoryFile("src/ui/visualTokens.js");
   const schema = readRepositoryFile("src/state/schema.js");
   const localDatabase = readRepositoryFile("src/storage/localDatabase.js");
 
   assert.match(render, /COMMANDER_ACTION_HAND_VERSION = "boardstate-commander-action-hand-0\.1\.0"/);
   assert.match(render, /COMMAND_DECK_VERSION = "boardstate-rotating-command-deck-0\.1\.0"/);
+  assert.match(render, /BOARDSTATE_VISUAL_LANGUAGE_VERSION/);
+  assert.match(render, /document\.body\.dataset\.visualLanguageVersion = VISUAL_LANGUAGE_VERSION/);
+  assert.match(render, /data-visual-language-version/);
+  assert.match(render, /data-visual-material/);
+  assert.match(render, /data-visual-layer/);
+  assert.match(render, /data-visual-elevation/);
+  assert.match(render, /data-visual-shadow/);
+  assert.match(render, /data-visual-glow/);
+  assert.match(render, /function renderVisualDebugOverlay/);
+  assert.match(render, /boardstate-visual-debug/);
   assert.match(render, /BOARDSTATE_MOTION_LANGUAGE_VERSION/);
   assert.match(render, /document\.body\.dataset\.motionLanguageVersion = BOARDSTATE_MOTION_LANGUAGE_VERSION/);
   assert.match(render, /data-motion-language-version/);
@@ -161,6 +181,15 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.equal(styles.includes(".command-hud-card"), false);
 
   assert.match(styles, /\.commander-action-hand\b/);
+  assert.match(styles, /--visual-color-bg-deep/);
+  assert.match(styles, /--visual-material-polished-glass/);
+  assert.match(styles, /--visual-material-card-stock/);
+  assert.match(styles, /--visual-material-legendary-gold/);
+  assert.match(styles, /--visual-shadow-overlay/);
+  assert.match(styles, /--visual-glow-gold-strong/);
+  assert.match(styles, /\.visual-debug-overlay/);
+  assert.match(styles, /\.visual-debug-overlay\[hidden\]/);
+  assert.match(styles, /data-visual-material="magical-crystal"/);
   assert.match(styles, /--motion-duration-standard/);
   assert.match(styles, /--motion-ease-inertia/);
   assert.match(styles, /--motion-physics-card-hover-scale/);
@@ -212,6 +241,44 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.match(motionTokens, /MOTION_STATE_CATALOG/);
   assert.match(motionTokens, /MOTION_OWNERS/);
   assert.match(motionTokens, /createMotionDebugSnapshot/);
+  assert.match(visualLanguageDoc, /Visual Token System/);
+  assert.match(visualLanguageDoc, /Material System/);
+  assert.match(visualLanguageDoc, /Developer Debug Overlay/);
+  assert.match(visualTokens, /BOARDSTATE_VISUAL_LANGUAGE_VERSION = "boardstate-visual-language-0\.1\.0"/);
+  assert.match(visualTokens, /VISUAL_MATERIALS/);
+  assert.match(visualTokens, /VISUAL_LAYERS/);
+  assert.match(visualTokens, /createVisualTokenSet/);
+  assert.match(visualTokens, /createVisualDebugSnapshot/);
+});
+
+test("visual tokens centralize material, elevation, shadow, glow, and debug metadata", () => {
+  const tokens = createVisualTokenSet();
+  assert.equal(tokens.version, BOARDSTATE_VISUAL_LANGUAGE_VERSION);
+  assert.equal(tokens.materialIds.gold, VISUAL_MATERIALS.gold);
+  assert.equal(tokens.layers.commandHand, VISUAL_LAYERS.commandHand);
+  assert.match(tokens.materials.cardStock, /linear-gradient/);
+  assert.match(tokens.shadow.overlay, /rgba\(0, 0, 0, 0\.36\)/);
+  assert.match(tokens.glow.crystal, /143, 211, 255/);
+
+  const cssVariables = createVisualCssVariables();
+  assert.equal(cssVariables["--visual-color-gold"], tokens.colors.gold);
+  assert.equal(cssVariables["--visual-material-card-stock"], tokens.materials.cardStock);
+  assert.equal(cssVariables["--visual-shadow-overlay"], tokens.shadow.overlay);
+  assert.equal(cssVariables["--visual-outline-focus"], tokens.outline.focus);
+
+  const debug = createVisualDebugSnapshot({
+    material: VISUAL_MATERIALS.crystal,
+    elevation: "overlay",
+    shadow: "overlay",
+    glow: "crystal",
+    border: "crystal",
+    layer: VISUAL_LAYERS.overlay,
+    opacity: "active",
+  });
+  assert.equal(debug.version, BOARDSTATE_VISUAL_LANGUAGE_VERSION);
+  assert.equal(debug.productionVisible, false);
+  assert.ok(debug.fields.includes("material"));
+  assert.ok(debug.fields.includes("theme"));
 });
 
 test("battlefield runtime uses the tabletop reconstruction instead of idle dashboard panels", () => {

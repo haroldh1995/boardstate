@@ -127,6 +127,20 @@ Permanent standards:
 
 The permanent motion architecture record lives in `docs/ecosystem/MOTION_LANGUAGE_ARCHITECTURE.md`.
 
+## Visual Language And Material System Standard
+
+Prompt 12.5 establishes BoardState's visual language as a permanent material, lighting, depth, shadow, glow, and accessibility standard.
+
+Permanent standards:
+
+- `src/ui/visualTokens.js` is the single source of truth for color, material, border, radius, elevation, shadow, glow, blur, opacity, outline, layer, and visual-debug contracts.
+- `src/ui/render.js` exposes `boardstate-visual-language-0.1.0` through `document.body.dataset.visualLanguageVersion`, active battlefield `data-visual-*` metadata, Command Hand metadata, Action Card material metadata, utility overlay metadata, and a development-only Visual Debug Overlay gated by `import.meta.env.DEV` and `boardstate-visual-debug=true`.
+- `src/styles.css` maps existing BoardState cosmic, glass, gold-accented, Action Card, and overlay treatments to root `--visual-*` tokens.
+- Materials are semantic: battlefield atmosphere, glass, polished glass, metal, stone, energy, parchment, premium card stock, gold accent, and magical crystal each communicate a distinct gameplay or interface role.
+- Visual polish must preserve contrast, legibility, touch accuracy, keyboard focus, controller readiness, and long Commander-session comfort.
+
+The permanent visual architecture record lives in `docs/ecosystem/VISUAL_LANGUAGE_MATERIAL_SYSTEM.md`.
+
 ## Reference Principles From Premium Digital Card Games
 
 The attached Arena reference and comparable digital card games are used only for principles:

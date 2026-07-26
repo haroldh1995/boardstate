@@ -102,6 +102,8 @@ BoardState gameplay is permanently landscape-only. Portrait gameplay, portrait n
 
 The Prompt 12.1 visual foundation is documented in `docs/ecosystem/NATIVE_GAME_VISUAL_ARCHITECTURE.md` and implemented through `src/main.js`, `src/state/schema.js`, `src/storage/localDatabase.js`, `src/state/gameReducer.js`, `src/ui/render.js`, and `src/ecosystem/ecosystemIntegration.js`.
 
+The Prompt 12.5 visual language foundation is documented in `docs/ecosystem/VISUAL_LANGUAGE_MATERIAL_SYSTEM.md` and implemented through `src/ui/visualTokens.js`, `src/ui/render.js`, and `src/styles.css`. Future gameplay UI must consume centralized visual materials, layers, elevation, shadows, glows, and accessibility-safe focus treatment instead of adding unversioned one-off styling.
+
 ## Modernization Strategy
 
 Modernize the repository. Do not rewrite it. Preserve valuable systems. Replace obsolete architecture only when evidence shows it is incompatible with the approved architecture. Each prompt must leave the repository cleaner, better documented, and less duplicative than before.

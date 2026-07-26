@@ -157,6 +157,14 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - `src/styles.css` defines root motion-token variables and maps battlefield, permanent, notification, Commander Action Hand, and Rotating Command Deck motion to those tokens with reduced-motion fallbacks.
 - No gameplay feature, animation authority, rules authority, state owner, save format, sync protocol, hidden-information path, fake Hub/Lite/Nexus dependency, protected Arena asset, or production-visible developer overlay was introduced.
 
+### Prompt 12.5: Visual Language, Material System, And Atmospheric Polish
+
+- `docs/ecosystem/VISUAL_LANGUAGE_MATERIAL_SYSTEM.md` records the permanent visual language, reference principles, explored material directions, selected BoardState-native material system, accessibility checks, and development-only visual debug overlay contract.
+- `src/ui/visualTokens.js` owns `BOARDSTATE_VISUAL_LANGUAGE_VERSION`, semantic visual materials, visual layers, reusable color/border/radius/elevation/shadow/glow/blur/opacity/outline tokens, CSS variable generation, and debug snapshot helpers.
+- `src/ui/render.js` exposes visual-language metadata through body and gameplay `data-visual-*` attributes for battlefield atmosphere, table regions, command center, Rotating Command Deck, Action Cards, and utility overlays.
+- `src/styles.css` defines root visual-token variables and maps existing cosmic atmosphere, glass, stone, metal, card-stock, gold, crystal, parchment, elevation, shadow, glow, blur, and focus treatment to those tokens.
+- No gameplay feature, rules authority, state owner, save format, sync protocol, hidden-information path, fake Hub/Lite/Nexus dependency, protected Arena asset, or production-visible developer overlay was introduced.
+
 ## Remaining Roadmap
 
 ### Prompt 13: Full Control And Live Tracking Convergence
