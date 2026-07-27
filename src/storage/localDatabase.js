@@ -331,6 +331,7 @@ function normalizeProfile(profile) {
       aiGameplay: { ...defaults.settings.aiGameplay, ...(profile.settings?.aiGameplay || {}) },
       commandDeck: { ...defaults.settings.commandDeck, ...(profile.settings?.commandDeck || {}) },
       learning: { ...defaults.settings.learning, ...(profile.settings?.learning || {}) },
+      assistance: { ...defaults.settings.assistance, ...(profile.settings?.assistance || {}) },
       ecosystem: { ...defaults.settings.ecosystem, ...(profile.settings?.ecosystem || {}) },
       sensory: { ...defaults.settings.sensory, ...(profile.settings?.sensory || {}) },
       playerMemory: {

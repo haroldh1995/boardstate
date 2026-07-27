@@ -25,6 +25,7 @@ import {
 } from "../shared-contracts/commanderSession.js";
 
 export const ECOSYSTEM_INTEGRATION_VERSION = "boardstate-ecosystem-integration-0.1.0";
+const CONTEXTUAL_ASSISTANCE_VERSION = "boardstate-contextual-assistance-0.1.0";
 
 export const ECOSYSTEM_SYNC_DOMAINS = Object.freeze([
   "profile",
@@ -278,9 +279,22 @@ export function createSharedPreferenceSnapshot(profile = {}, input = {}) {
     learning: {
       adaptiveGuidance: settings.learning?.adaptiveGuidance !== false,
       helpCenterHints: settings.learning?.helpCenterHints !== false,
+      contextualAssistance: settings.learning?.contextualAssistance !== false,
+      workflowSuggestions: settings.learning?.workflowSuggestions !== false,
+      featureDiscovery: settings.learning?.featureDiscovery !== false,
       onboardingExperienceVersion: profile.onboarding?.experienceVersion || "boardstate-adaptive-learning-0.1.0",
       confidence: profile.onboarding?.adaptiveLearning?.confidence || "new",
       completedCount: (profile.onboarding?.adaptiveLearning?.completedSteps || []).length,
+      contextualAssistanceVersion: profile.onboarding?.contextualAssistance?.version || CONTEXTUAL_ASSISTANCE_VERSION,
+      assistanceShownCount: (profile.onboarding?.contextualAssistance?.shownSuggestions || []).length,
+      assistanceAcceptedCount: (profile.onboarding?.contextualAssistance?.acceptedSuggestions || []).length,
+      assistanceDismissedCount: (profile.onboarding?.contextualAssistance?.dismissedSuggestions || []).length,
+    },
+    assistance: {
+      contextualAssistance: settings.assistance?.contextualAssistance !== false,
+      workflowSuggestions: settings.assistance?.workflowSuggestions !== false,
+      featureDiscovery: settings.assistance?.featureDiscovery !== false,
+      version: profile.onboarding?.contextualAssistance?.version || CONTEXTUAL_ASSISTANCE_VERSION,
     },
     notifications: createNotificationPreferenceSummary(settings.notifications || {}),
     sensory: createSensoryPreferenceSummary(settings),
@@ -695,6 +709,11 @@ export function applySharedPreferencePatch(profile = {}, patch = {}) {
       learning: {
         ...(settings.learning || {}),
         ...(safePatch.learning || {}),
+        developerDebug: false,
+      },
+      assistance: {
+        ...(settings.assistance || {}),
+        ...(safePatch.assistance || {}),
         developerDebug: false,
       },
       notifications: {

@@ -34,6 +34,7 @@ These references do not introduce external runtime dependencies, internet search
 - `src/state/gameReducer.js` remains the only reducer path for profile learning state.
 - `src/ui/render.js` continues using Helper Sprite and Game Options instead of adding a parallel tutorial shell.
 - Existing profile persistence and local save paths preserve onboarding state through profile normalization and save metadata.
+- Prompt 13.2 contextual assistance extends this same ownership path through `CONTEXTUAL_ASSISTANCE_SYSTEM.md`; future help work must not create a competing assistant, tutorial shell, or profile memory store.
 
 ## Adaptive Learning Engine
 
@@ -133,6 +134,8 @@ It must never appear in production builds.
 Profile defaults and local profile normalization preserve `settings.learning` and `onboarding.adaptiveLearning`.
 
 Shared preference snapshots expose only safe learning summaries: adaptive guidance preference, help-center hints preference, onboarding experience version, confidence label, and completed count. They do not expose hidden gameplay, private choices, or tutorial content as gameplay authority.
+
+Prompt 13.2 adds contextual assistance summaries to the same safe preference projection: assistance enabled state, workflow and feature-discovery toggles, version, and aggregate counts only.
 
 ## Regression Rules
 

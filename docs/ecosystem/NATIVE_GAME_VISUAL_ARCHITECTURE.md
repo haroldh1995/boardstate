@@ -169,6 +169,20 @@ Permanent standards:
 
 The permanent onboarding architecture record lives in `docs/ecosystem/ADAPTIVE_LEARNING_ONBOARDING.md`.
 
+## Contextual Assistance Standard
+
+Prompt 13.2 establishes BoardState's contextual assistance standard.
+
+Permanent standards:
+
+- `src/onboarding/tutorialSystem.js` remains the single owner for onboarding, adaptive learning, and contextual assistance. Future player-support work must extend Assistance Tokens and candidate selection instead of adding parallel helper systems.
+- `src/ui/render.js` exposes `boardstate-contextual-assistance-0.1.0` through `document.body.dataset.contextualAssistanceVersion`, uses the existing Helper Sprite for small non-blocking suggestions, and keeps Help and Learning as the revisit/reset surface.
+- Assistance waits for natural pauses, suppresses during combat resolution, animation, rapid input, active search typing, and required manual choices, and never performs gameplay actions automatically.
+- Profile-scoped assistance memory records shown, accepted, dismissed, repeated workflow, and familiar-feature signals so veteran players see less assistance over time.
+- The Assistance Debug Overlay is development-only and gated by `import.meta.env.DEV` plus `boardstate-assistance-debug=true`.
+
+The permanent contextual assistance architecture record lives in `docs/ecosystem/CONTEXTUAL_ASSISTANCE_SYSTEM.md`.
+
 ## Reference Principles From Premium Digital Card Games
 
 The attached Arena reference and comparable digital card games are used only for principles:

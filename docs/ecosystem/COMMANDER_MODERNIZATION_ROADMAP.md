@@ -180,6 +180,13 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - `src/ui/render.js` keeps first-run education on the battlefield through the existing Helper Sprite, adds a Help and Learning options area, records low-friction learning interactions from the Rotating Command Deck, search, accessibility, and utility surfaces, and exposes production-safe onboarding version metadata.
 - `src/state/schema.js`, `src/state/gameReducer.js`, `src/storage/localDatabase.js`, and `src/ecosystem/ecosystemIntegration.js` preserve learning settings and profile memory without creating a second tutorial engine, gameplay authority, save format, or Hub dependency.
 
+### Prompt 13.2: Contextual Assistance And Player Support
+
+- `docs/ecosystem/CONTEXTUAL_ASSISTANCE_SYSTEM.md` records the permanent contextual assistance philosophy, Assistance Priority Levels, Assistance Tokens, natural-pause timing rules, profile-scoped assistance memory, safe shared preference summaries, and development-only Assistance Debug Overlay contract.
+- `src/onboarding/tutorialSystem.js` extends the existing onboarding/tutorial owner with contextual assistance token creation, profile memory normalization, candidate selection, accepted/dismissed workflow signals, reset handling, assistance center models, and debug snapshots.
+- `src/ui/render.js` routes assistance through the existing Helper Sprite and Help and Learning panel, opens only existing panels when a suggestion is accepted, records low-cost behavior signals, and exposes production-safe contextual assistance version metadata.
+- `src/state/schema.js`, `src/state/gameReducer.js`, `src/storage/localDatabase.js`, and `src/ecosystem/ecosystemIntegration.js` preserve assistance settings and memory without creating a second assistant, rules advisor, AI gameplay path, save format, or Hub dependency.
+
 ## Remaining Roadmap
 
 ### Prompt 13: Full Control And Live Tracking Convergence

@@ -3,12 +3,16 @@ import { exportProfile, parseImportedProfile } from "../storage/localDatabase.js
 import { fetchScryfallCardDetails, searchScryfall } from "../services/scryfallService.js";
 import { buildFriendInviteLink } from "../social/friendSystem.js";
 import {
+  CONTEXTUAL_ASSISTANCE_VERSION,
   ONBOARDING_EXPERIENCE_VERSION,
   buildTutorialHelperMessage,
   buildTutorialScreenReaderText,
+  createAssistanceCenterModel,
+  createAssistanceDebugSnapshot,
   createHelpLearningCatalog,
   createLearningDebugSnapshot,
   getTutorialProgress,
+  selectContextualAssistance,
   selectAdaptiveGuidance,
   shouldShowFirstLaunch,
 } from "../onboarding/tutorialSystem.js";
@@ -528,6 +532,7 @@ export function mountApp(root, store) {
     document.body.dataset.motionLanguageVersion = BOARDSTATE_MOTION_LANGUAGE_VERSION;
     document.body.dataset.sensoryLanguageVersion = SENSORY_LANGUAGE_VERSION;
     document.body.dataset.onboardingExperienceVersion = ONBOARDING_EXPERIENCE_VERSION;
+    document.body.dataset.contextualAssistanceVersion = CONTEXTUAL_ASSISTANCE_VERSION;
     document.body.dataset.commanderActionHandVersion = COMMANDER_ACTION_HAND_VERSION;
     document.body.dataset.commandDeckVersion = COMMAND_DECK_VERSION;
     document.body.dataset.tabletopReconstructionVersion = TABLETOP_RECONSTRUCTION_VERSION;
@@ -597,6 +602,14 @@ export function mountApp(root, store) {
       uiNotice,
       sensoryDebugSnapshot,
       learningDebugSnapshot: createLearningDebugSnapshot(profile),
+      assistanceDebugSnapshot: createAssistanceDebugSnapshot(profile, {
+        page: activePage,
+        activeUtilityPanel,
+        searchLoading,
+        combatResolving,
+        optionsOpen,
+        keepSearchInputFocus,
+      }),
       manualChoicePanelCollapsed,
     });
     bind(root, profile);
@@ -716,6 +729,14 @@ export function mountApp(root, store) {
         type: "LEARNING_RECORD_INTERACTION",
         interactionType: "command-deck-rotate",
         featureId: "commandHand",
+        internalOnly: true,
+      })
+    );
+    queueMicrotask(() =>
+      store.dispatch({
+        type: "ASSISTANCE_RECORD_INTERACTION",
+        interactionType: "command-deck-rotate",
+        workflowId: "commandHand",
         internalOnly: true,
       })
     );
@@ -1033,6 +1054,12 @@ export function mountApp(root, store) {
             type: "LEARNING_RECORD_INTERACTION",
             interactionType: "help-center-open",
             featureId: "helpCenter",
+            internalOnly: true,
+          });
+          store.dispatch({
+            type: "ASSISTANCE_RECORD_INTERACTION",
+            interactionType: "open-help-learning",
+            workflowId: "helpCenter",
             internalOnly: true,
           });
         } else {
@@ -1454,6 +1481,17 @@ export function mountApp(root, store) {
           title: "Reset adaptive learning?",
           message: "This resets profile-scoped learning memory, completed hints, and proficiency signals without changing gameplay or saves.",
           confirmLabel: "Reset Learning",
+          danger: true,
+        })
+      )
+    );
+    container.querySelectorAll("[data-reset-assistance]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openConfirmation({
+          id: "assistance-reset",
+          title: "Reset contextual assistance?",
+          message: "This resets assistance suggestions, dismissals, and workflow signals without changing gameplay or saves.",
+          confirmLabel: "Reset Assistance",
           danger: true,
         })
       )
@@ -2893,6 +2931,12 @@ export function mountApp(root, store) {
         featureId: "search",
         internalOnly: true,
       });
+      store.dispatch({
+        type: "ASSISTANCE_RECORD_INTERACTION",
+        interactionType: "search-query",
+        workflowId: "search",
+        internalOnly: true,
+      });
       await runScryfallSearch(query, store.getState(), true);
     };
     container.querySelectorAll("[data-search-form]").forEach((form) => {
@@ -3187,6 +3231,13 @@ export function mountApp(root, store) {
       } else if (helperMessage.source === "adaptive-learning") {
         optionsOpen = true;
         activeOptionsCategory = "learning";
+      } else if (helperMessage.source === "contextual-assistance") {
+        store.dispatch({
+          type: "ASSISTANCE_ACCEPT_SUGGESTION",
+          suggestionId: helperMessage.key,
+          internalOnly: true,
+        });
+        openAssistanceSuggestedPanel(helperMessage.suggestedPanel);
       }
       render(store.getState());
     });
@@ -3213,6 +3264,12 @@ export function mountApp(root, store) {
           type: "LEARNING_RECORD_INTERACTION",
           interactionType: `open-utility-${activeUtilityPanel || "unknown"}`,
           featureId: learningFeature,
+          internalOnly: true,
+        });
+        store.dispatch({
+          type: "ASSISTANCE_RECORD_INTERACTION",
+          interactionType: `open-utility-${activeUtilityPanel || "unknown"}`,
+          workflowId: learningFeature,
           internalOnly: true,
         });
         // Open the selected utility panel without forcing the dock menu to stay expanded behind it.
@@ -4738,7 +4795,7 @@ export function mountApp(root, store) {
     );
     if (
       !replayCandidate &&
-      helperMessage?.source === "adaptive-learning" &&
+      ["adaptive-learning", "contextual-assistance"].includes(helperMessage?.source) &&
       !helperMessage.fading &&
       !criticalCandidateWaiting &&
       now - Number(helperMessage.shownAt || 0) < Number(helperMessage.ttlMs || 6400)
@@ -4833,6 +4890,19 @@ export function mountApp(root, store) {
         text: "Ignored manual effect still unresolved. Open pending effects to review.",
       });
     }
+    const contextualAssistanceMessage = selectContextualAssistance(profile, {
+      page,
+      activeUtilityPanel,
+      searchQuery,
+      searchLoading,
+      commandDeckRotationIndex,
+      optionsOpen,
+      keepSearchInputFocus,
+      combatResolving,
+    });
+    if (contextualAssistanceMessage) {
+      messages.push(contextualAssistanceMessage);
+    }
     if (stacked.length) {
       messages.push({
         key: `stack:${stacked.map((entry) => entry.id).join(",")}`,
@@ -4897,9 +4967,42 @@ export function mountApp(root, store) {
       store.dispatch({ type: "HELPER_DISMISS_MESSAGE", messageKey: helperMessage.key });
     } else if (helperMessage.source === "adaptive-learning" && helperMessage.key) {
       store.dispatch({ type: "HELPER_DISMISS_MESSAGE", messageKey: helperMessage.key });
+    } else if (helperMessage.source === "contextual-assistance" && helperMessage.key) {
+      store.dispatch({ type: "HELPER_DISMISS_MESSAGE", messageKey: helperMessage.key });
     }
     helperMessage = null;
     render(store.getState());
+  }
+
+  function openAssistanceSuggestedPanel(panel = "") {
+    switch (panel) {
+      case "triggers":
+      case "stack":
+        activeUtilityPanel = "triggers";
+        utilityDockOpen = true;
+        break;
+      case "search":
+      case "history":
+      case "remind-me":
+        activeUtilityPanel = panel;
+        utilityDockOpen = false;
+        break;
+      case "selection":
+        activeToolPanel = "inspect";
+        break;
+      case "commander":
+        activeToolPanel = "commander";
+        break;
+      case "display":
+      case "learning":
+        optionsOpen = true;
+        activeOptionsCategory = panel;
+        break;
+      default:
+        optionsOpen = true;
+        activeOptionsCategory = "learning";
+        break;
+    }
   }
 
   function dispatchWithFeedback(action, strong = false) {
@@ -4962,6 +5065,10 @@ export function mountApp(root, store) {
       case "learning-reset":
         store.dispatch({ type: "LEARNING_RESET" });
         showNotice("Adaptive learning reset.");
+        break;
+      case "assistance-reset":
+        store.dispatch({ type: "ASSISTANCE_RESET" });
+        showNotice("Contextual assistance reset.");
         break;
       case "local-save-load":
         if (payload?.saveId) {
@@ -5639,7 +5746,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       </header>
       ${page === "home" ? renderBoardStateHome(profile) : ""}
       ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier, uiState) : ""}
-      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", isMobilePortrait: Boolean(uiState.isMobilePortrait), manualChoicePanelCollapsed: Boolean(uiState.manualChoicePanelCollapsed), utilityDockOpen: Boolean(uiState.utilityDockOpen), castActionPopup: uiState.castActionPopup, toolMenuOpen: Boolean(uiState.toolMenuOpen), activeToolPanel: uiState.activeToolPanel || "", activeOptionsCategory: uiState.activeOptionsCategory || "", commandDeckRotationIndex: uiState.commandDeckRotationIndex || 0, commandDeckLastManualRotationAt: uiState.commandDeckLastManualRotationAt || 0, sensoryDebugSnapshot: uiState.sensoryDebugSnapshot, learningDebugSnapshot: uiState.learningDebugSnapshot }) : ""}
+      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", isMobilePortrait: Boolean(uiState.isMobilePortrait), manualChoicePanelCollapsed: Boolean(uiState.manualChoicePanelCollapsed), utilityDockOpen: Boolean(uiState.utilityDockOpen), castActionPopup: uiState.castActionPopup, toolMenuOpen: Boolean(uiState.toolMenuOpen), activeToolPanel: uiState.activeToolPanel || "", activeOptionsCategory: uiState.activeOptionsCategory || "", commandDeckRotationIndex: uiState.commandDeckRotationIndex || 0, commandDeckLastManualRotationAt: uiState.commandDeckLastManualRotationAt || 0, sensoryDebugSnapshot: uiState.sensoryDebugSnapshot, learningDebugSnapshot: uiState.learningDebugSnapshot, assistanceDebugSnapshot: uiState.assistanceDebugSnapshot }) : ""}
       ${page === "tournament" ? renderTournamentPage(profile) : ""}
       ${page === "profile" ? renderProfile(profile) : ""}
       ${page === "archive" ? renderArchive(profile) : ""}
@@ -6396,6 +6503,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
       ${renderVisualDebugOverlay()}
       ${renderSensoryDebugOverlay(uiState.sensoryDebugSnapshot)}
       ${renderLearningDebugOverlay(uiState.learningDebugSnapshot)}
+      ${renderAssistanceDebugOverlay(uiState.assistanceDebugSnapshot)}
     </section>
     ${renderCommanderActionHand(profile, {
       activeUtilityPanel,
@@ -6547,6 +6655,40 @@ function shouldRenderLearningDebugOverlay() {
   }
   try {
     return globalThis.localStorage?.getItem("boardstate-learning-debug") === "true";
+  } catch {
+    return false;
+  }
+}
+
+function renderAssistanceDebugOverlay(snapshot = createAssistanceDebugSnapshot()) {
+  if (!shouldRenderAssistanceDebugOverlay()) {
+    return "";
+  }
+  const debug = snapshot || createAssistanceDebugSnapshot();
+  const opportunities = (debug.opportunities || []).slice(0, 4);
+  return `
+    <aside class="assistance-debug-overlay glass" data-assistance-debug-overlay hidden aria-hidden="true">
+      <strong>Assistance Debug</strong>
+      <dl>
+        <div><dt>State</dt><dd>${escapeHtml(debug.enabled ? debug.mode : "disabled")}</dd></div>
+        <div><dt>Selected</dt><dd>${escapeHtml(debug.selectedOpportunityId || "none")}</dd></div>
+        <div><dt>Natural Pause</dt><dd>${escapeHtml(debug.contextEvaluation?.naturalPause ? "yes" : "no")}</dd></div>
+        <div><dt>Suppressed</dt><dd>${escapeHtml(Object.entries(debug.contextEvaluation || {}).filter((entry) => entry[1] === true && entry[0] !== "naturalPause").map((entry) => entry[0]).join(" / ") || "none")}</dd></div>
+        <div><dt>Dismissed</dt><dd>${escapeHtml(String((debug.dismissedSuggestions || []).length))}</dd></div>
+        <div><dt>Accepted</dt><dd>${escapeHtml(String((debug.acceptedSuggestions || []).length))}</dd></div>
+      </dl>
+      ${opportunities.length ? `<ol>${opportunities.map((entry) => `<li>${escapeHtml(entry.id)}:${escapeHtml(entry.priority)}</li>`).join("")}</ol>` : ""}
+      <small>${escapeHtml(debug.version || CONTEXTUAL_ASSISTANCE_VERSION)}</small>
+    </aside>
+  `;
+}
+
+function shouldRenderAssistanceDebugOverlay() {
+  if (!import.meta.env?.DEV) {
+    return false;
+  }
+  try {
+    return globalThis.localStorage?.getItem("boardstate-assistance-debug") === "true";
   } catch {
     return false;
   }
@@ -10541,6 +10683,7 @@ function renderDryRunOptionsSubpage(profile) {
 
 function renderLearningOptionsSubpage(profile) {
   const catalog = createHelpLearningCatalog(profile);
+  const assistance = createAssistanceCenterModel(profile);
   const learning = profile.onboarding?.adaptiveLearning || {};
   const completed = new Set(learning.completedSteps || []);
   const discoveredCount = catalog.topics.filter((topic) => topic.discovered).length;
@@ -10562,16 +10705,39 @@ function renderLearningOptionsSubpage(profile) {
           <span><strong>${escapeHtml(String(catalog.completedCount))}</strong><small>Signals learned</small></span>
           <span><strong>${escapeHtml(String(discoveredCount))}</strong><small>Topics discovered</small></span>
           <span><strong>${escapeHtml(learning.enabled === false ? "Off" : "On")}</strong><small>Adaptive guidance</small></span>
+          <span><strong>${escapeHtml(assistance.enabled ? "On" : "Off")}</strong><small>Context assistance</small></span>
         </div>
         <div class="button-grid">
           <button data-start-guided-tutorial>Start Guided Practice</button>
           <button data-reset-learning>Reset Adaptive Learning</button>
+          <button data-reset-assistance>Reset Assistance</button>
           <button data-reset-onboarding>Reset First-Time Flow</button>
         </div>
         ${renderToggle("Adaptive guidance", "learning.adaptiveGuidance", profile.settings?.learning?.adaptiveGuidance !== false)}
         ${renderToggle("Help Center hints", "learning.helpCenterHints", profile.settings?.learning?.helpCenterHints !== false)}
+        ${renderToggle("Contextual assistance", "learning.contextualAssistance", profile.settings?.learning?.contextualAssistance !== false)}
+        ${renderToggle("Workflow suggestions", "learning.workflowSuggestions", profile.settings?.learning?.workflowSuggestions !== false)}
+        ${renderToggle("Feature discovery", "learning.featureDiscovery", profile.settings?.learning?.featureDiscovery !== false)}
         ${renderToggle("Helper Sprite", "helperSprite.enabled", Boolean(profile.settings?.helperSprite?.enabled))}
         ${renderToggle("Screen-reader prompts", "helperSprite.screenReaderPrompts", Boolean(profile.settings?.helperSprite?.screenReaderPrompts))}
+      </article>
+      <article class="option-card assistance-status-card">
+        <div class="overlay-header compact">
+          <div>
+            <p class="eyebrow">Contextual Assistance</p>
+            <h3>Table Assist</h3>
+            <p>Suggestions appear only at natural pauses, never perform gameplay, and learn from accepted or dismissed guidance.</p>
+          </div>
+          <span class="option-status-badge">${escapeHtml(assistance.mode)}</span>
+        </div>
+        <div class="assistance-status-grid">
+          <span><strong>${escapeHtml(String(assistance.shownCount))}</strong><small>Shown</small></span>
+          <span><strong>${escapeHtml(String(assistance.acceptedCount))}</strong><small>Accepted</small></span>
+          <span><strong>${escapeHtml(String(assistance.dismissedCount))}</strong><small>Dismissed</small></span>
+        </div>
+        <div class="assistance-opportunity-list">
+          ${assistance.opportunities.map((entry) => `<span>${escapeHtml(entry.priority)} - ${escapeHtml(entry.title)}<small>${escapeHtml(entry.reason || "context")}</small></span>`).join("") || "<span>No current assistance opportunities. The system stays quiet when no help is useful.</span>"}
+        </div>
       </article>
       <article class="option-card learning-catalog-card">
         <h3>Learning Center</h3>
@@ -12493,6 +12659,11 @@ function renderHelperSprite(profile, helperMessage, positions = HUD_BADGE_DEFAUL
   if (!profile.settings?.helperSprite?.enabled || !helperMessage) {
     return "";
   }
+  const helperLabel = helperMessage.source === "adaptive-learning"
+    ? "Learning Hint"
+    : helperMessage.source === "contextual-assistance"
+      ? "Table Assist"
+      : "Helper Sprite";
   const position = positions.helper || HUD_BADGE_DEFAULTS.helper;
   const styleParts = [`--helper-ttl:${Math.round(Number(helperMessage.ttlMs) || 5200)}ms`];
   if (isMobilePortrait) {
@@ -12506,7 +12677,7 @@ function renderHelperSprite(profile, helperMessage, positions = HUD_BADGE_DEFAUL
     <section class="helper-sprite-widget ${helperMessage.fading ? "is-fading" : ""} glass" data-no-swipe ${inlineStyle} ${draggableAttrs} role="status" aria-live="polite">
       <button class="helper-sprite-avatar" data-helper-dismiss title="Dismiss helper sprite">*</button>
       <button class="helper-sprite-bubble" data-helper-open aria-label="Open Helper Sprite prompt">
-        <strong>${escapeHtml(helperMessage.source === "adaptive-learning" ? "Learning Hint" : "Helper Sprite")}</strong>
+        <strong>${escapeHtml(helperLabel)}</strong>
         <span>${escapeHtml(helperMessage.text)}</span>
       </button>
       ${helperMessage.source === "guided-tutorial" ? `<div class="helper-sprite-actions"><button data-tutorial-repeat>Repeat</button><button data-tutorial-pause>Pause</button></div>` : ""}

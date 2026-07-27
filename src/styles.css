@@ -987,17 +987,22 @@ body[data-composition="widescreen"] .landscape-battlefield-groups .permanent {
 }
 
 .learning-status-grid,
-.learning-card-grid {
+.learning-card-grid,
+.assistance-status-grid,
+.assistance-opportunity-list {
   display: grid;
   gap: 0.7rem;
 }
 
-.learning-status-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.learning-status-grid,
+.assistance-status-grid {
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
 }
 
 .learning-status-grid span,
-.learning-card {
+.learning-card,
+.assistance-status-grid span,
+.assistance-opportunity-list span {
   border: 1px solid rgba(236, 200, 122, 0.18);
   border-radius: 1rem;
   background:
@@ -1006,20 +1011,33 @@ body[data-composition="widescreen"] .landscape-battlefield-groups .permanent {
   box-shadow: inset 0 0 0 1px rgba(255, 246, 211, 0.05);
 }
 
-.learning-status-grid span {
+.learning-status-grid span,
+.assistance-status-grid span,
+.assistance-opportunity-list span {
   display: grid;
   gap: 0.12rem;
   padding: 0.65rem;
 }
 
-.learning-status-grid strong {
+.learning-status-grid strong,
+.assistance-status-grid strong {
   color: var(--accent-gold);
 }
 
 .learning-status-grid small,
+.assistance-status-grid small,
+.assistance-opportunity-list small,
 .learning-card p,
 .learning-card li {
   color: rgba(236, 240, 255, 0.78);
+}
+
+.assistance-status-card {
+  gap: 0.75rem;
+}
+
+.assistance-opportunity-list span {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .learning-card-grid {
@@ -8321,7 +8339,8 @@ body[data-page="battlefield"] .sensory-debug-overlay dt {
   color: var(--visual-color-info);
 }
 
-body[data-page="battlefield"] .learning-debug-overlay {
+body[data-page="battlefield"] .learning-debug-overlay,
+body[data-page="battlefield"] .assistance-debug-overlay {
   position: fixed;
   bottom: max(0.75rem, env(safe-area-inset-bottom));
   left: max(0.75rem, env(safe-area-inset-left));
@@ -8338,15 +8357,23 @@ body[data-page="battlefield"] .learning-debug-overlay {
   pointer-events: none;
 }
 
-body[data-page="battlefield"] .learning-debug-overlay[hidden] {
+body[data-page="battlefield"] .assistance-debug-overlay {
+  bottom: max(9.2rem, calc(env(safe-area-inset-bottom) + 8.5rem));
+  border-color: rgba(143, 211, 255, 0.34);
+}
+
+body[data-page="battlefield"] .learning-debug-overlay[hidden],
+body[data-page="battlefield"] .assistance-debug-overlay[hidden] {
   display: none !important;
 }
 
-body[data-page="battlefield"] .learning-debug-overlay dl {
+body[data-page="battlefield"] .learning-debug-overlay dl,
+body[data-page="battlefield"] .assistance-debug-overlay dl {
   margin: 0.34rem 0 0;
 }
 
-body[data-page="battlefield"] .learning-debug-overlay div {
+body[data-page="battlefield"] .learning-debug-overlay div,
+body[data-page="battlefield"] .assistance-debug-overlay div {
   display: flex;
   justify-content: space-between;
   gap: 0.6rem;
@@ -8354,6 +8381,10 @@ body[data-page="battlefield"] .learning-debug-overlay div {
 
 body[data-page="battlefield"] .learning-debug-overlay dt {
   color: var(--visual-color-gold);
+}
+
+body[data-page="battlefield"] .assistance-debug-overlay dt {
+  color: var(--visual-color-info);
 }
 
 body[data-page="battlefield"] .gameplay-flow-action:hover,

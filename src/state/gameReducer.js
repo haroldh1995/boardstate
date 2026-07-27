@@ -70,12 +70,16 @@ import {
 import { RULES_CONFIDENCE, createRecoveryEntry } from "../support/debugExport.js";
 import {
   advanceFiveTurnTutorial,
+  acceptAssistanceSuggestion,
   completeTutorialToFreePlay,
+  dismissAssistanceSuggestion,
   dismissLearningHint,
   markOnboardingExplored,
   pauseTutorial,
+  recordAssistanceInteraction,
   recordLearningInteraction,
   resetAdaptiveLearning,
+  resetContextualAssistance,
   resetOnboardingProgress,
   resumeTutorial,
   skipTutorial,
@@ -156,6 +160,7 @@ export function reduceProfile(profile, event) {
     !actionKey.startsWith("ONBOARDING_") &&
     !actionKey.startsWith("TUTORIAL_") &&
     !actionKey.startsWith("LEARNING_") &&
+    !actionKey.startsWith("ASSISTANCE_") &&
     !actionKey.startsWith("AI_") &&
     !actionKey.startsWith("LOCAL_SAVE_");
   const baseProfile = undoable ? pushUndo(profile, event) : profile;
@@ -573,6 +578,18 @@ export function reduceProfile(profile, event) {
     case "LEARNING_RESET":
       nextProfile = resetAdaptiveLearning(baseProfile);
       break;
+    case "ASSISTANCE_RECORD_INTERACTION":
+      nextProfile = recordAssistanceInteraction(baseProfile, event);
+      break;
+    case "ASSISTANCE_DISMISS_SUGGESTION":
+      nextProfile = dismissAssistanceSuggestion(baseProfile, event.suggestionId || event.messageKey || "");
+      break;
+    case "ASSISTANCE_ACCEPT_SUGGESTION":
+      nextProfile = acceptAssistanceSuggestion(baseProfile, event.suggestionId || event.messageKey || "");
+      break;
+    case "ASSISTANCE_RESET":
+      nextProfile = resetContextualAssistance(baseProfile);
+      break;
     case "ECOSYSTEM_QUEUE_SYNC":
       nextProfile = queueEcosystemSync(baseProfile, event);
       break;
@@ -776,6 +793,8 @@ export function reduceProfile(profile, event) {
       nextProfile = withSession(baseProfile, dismissHelperMessage(baseProfile.activeSession, event.messageKey || ""));
       if (String(event.messageKey || "").startsWith("learning:")) {
         nextProfile = dismissLearningHint(nextProfile, event.messageKey || "");
+      } else if (String(event.messageKey || "").startsWith("assistance:")) {
+        nextProfile = dismissAssistanceSuggestion(nextProfile, event.messageKey || "");
       }
       break;
     case "HELPER_MARK_SHOWN":
@@ -786,6 +805,12 @@ export function reduceProfile(profile, event) {
           featureId: getLearningFeatureFromMessageKey(event.messageKey || ""),
           hintId: event.messageKey,
           amount: 1,
+        });
+      } else if (String(event.messageKey || "").startsWith("assistance:")) {
+        nextProfile = recordAssistanceInteraction(nextProfile, {
+          interactionType: "assistance-shown",
+          suggestionId: event.messageKey,
+          priority: event.priority || "",
         });
       }
       break;

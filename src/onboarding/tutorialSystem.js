@@ -3,6 +3,7 @@ import { createId, clone } from "../state/ids.js";
 
 export const TUTORIAL_VERSION = "five-turn-v1";
 export const ONBOARDING_EXPERIENCE_VERSION = "boardstate-adaptive-learning-0.1.0";
+export const CONTEXTUAL_ASSISTANCE_VERSION = "boardstate-contextual-assistance-0.1.0";
 
 export const ONBOARDING_TOKEN_IDS = Object.freeze({
   welcomeChoice: "welcome-choice",
@@ -24,6 +25,46 @@ export const LEARNING_HINT_PRIORITIES = Object.freeze({
   contextual: "contextual",
   gentle: "gentle",
   reference: "reference",
+});
+
+export const ASSISTANCE_PRIORITY_LEVELS = Object.freeze({
+  critical: "critical",
+  important: "important",
+  helpful: "helpful",
+  educational: "educational",
+  optional: "optional",
+  decorative: "decorative",
+});
+
+export const ASSISTANCE_TOKEN_IDS = Object.freeze({
+  suggestionCard: "assistance-suggestion-card",
+  reminder: "assistance-reminder",
+  quickTip: "assistance-quick-tip",
+  coachMark: "assistance-coach-mark",
+  workflowRecommendation: "assistance-workflow-recommendation",
+  priorityLevel: "assistance-priority-level",
+  dismissStyle: "assistance-dismiss-style",
+  persistence: "assistance-persistence",
+  pauseTiming: "assistance-pause-timing",
+  featureDiscovery: "assistance-feature-discovery",
+});
+
+const ASSISTANCE_PRIORITY_WEIGHT = Object.freeze({
+  [ASSISTANCE_PRIORITY_LEVELS.critical]: 100,
+  [ASSISTANCE_PRIORITY_LEVELS.important]: 80,
+  [ASSISTANCE_PRIORITY_LEVELS.helpful]: 60,
+  [ASSISTANCE_PRIORITY_LEVELS.educational]: 40,
+  [ASSISTANCE_PRIORITY_LEVELS.optional]: 20,
+  [ASSISTANCE_PRIORITY_LEVELS.decorative]: 5,
+});
+
+const ASSISTANCE_COOLDOWN_MS = Object.freeze({
+  [ASSISTANCE_PRIORITY_LEVELS.critical]: 0,
+  [ASSISTANCE_PRIORITY_LEVELS.important]: 45000,
+  [ASSISTANCE_PRIORITY_LEVELS.helpful]: 90000,
+  [ASSISTANCE_PRIORITY_LEVELS.educational]: 180000,
+  [ASSISTANCE_PRIORITY_LEVELS.optional]: 240000,
+  [ASSISTANCE_PRIORITY_LEVELS.decorative]: 360000,
 });
 
 export function createOnboardingTokenSet(source = {}) {
@@ -66,6 +107,82 @@ export function createOnboardingTokenSet(source = {}) {
       futureHubSync: true,
       resettable: true,
       ...(tokenOverrides.persistence || {}),
+    },
+  };
+}
+
+export function createAssistanceTokenSet(source = {}) {
+  const tokenOverrides = source.tokens || source || {};
+  return {
+    version: CONTEXTUAL_ASSISTANCE_VERSION,
+    suggestionCard: {
+      id: ASSISTANCE_TOKEN_IDS.suggestionCard,
+      material: "polished-glass",
+      tone: "respectful",
+      maxWords: 24,
+      allowBlocking: false,
+      stealFocus: false,
+      obscureGameplay: false,
+      ...(tokenOverrides.suggestionCard || {}),
+    },
+    reminder: {
+      id: ASSISTANCE_TOKEN_IDS.reminder,
+      priority: ASSISTANCE_PRIORITY_LEVELS.helpful,
+      repeatPolicy: "only-when-context-changes",
+      ...(tokenOverrides.reminder || {}),
+    },
+    quickTip: {
+      id: ASSISTANCE_TOKEN_IDS.quickTip,
+      priority: ASSISTANCE_PRIORITY_LEVELS.educational,
+      dismissible: true,
+      ...(tokenOverrides.quickTip || {}),
+    },
+    coachMark: {
+      id: ASSISTANCE_TOKEN_IDS.coachMark,
+      priority: ASSISTANCE_PRIORITY_LEVELS.educational,
+      reducedMotionFallback: "static-highlight",
+      ...(tokenOverrides.coachMark || {}),
+    },
+    workflowRecommendation: {
+      id: ASSISTANCE_TOKEN_IDS.workflowRecommendation,
+      priority: ASSISTANCE_PRIORITY_LEVELS.helpful,
+      automaticAction: false,
+      requiresPlayerChoice: true,
+      ...(tokenOverrides.workflowRecommendation || {}),
+    },
+    priorityLevel: {
+      id: ASSISTANCE_TOKEN_IDS.priorityLevel,
+      levels: Object.values(ASSISTANCE_PRIORITY_LEVELS),
+      onlyHighestVisible: true,
+      ...(tokenOverrides.priorityLevel || {}),
+    },
+    dismissStyle: {
+      id: ASSISTANCE_TOKEN_IDS.dismissStyle,
+      behavior: "remember-and-respect",
+      resettable: true,
+      ...(tokenOverrides.dismissStyle || {}),
+    },
+    persistence: {
+      id: ASSISTANCE_TOKEN_IDS.persistence,
+      profileScoped: true,
+      futureHubSync: true,
+      gameplayAuthoritative: false,
+      ...(tokenOverrides.persistence || {}),
+    },
+    pauseTiming: {
+      id: ASSISTANCE_TOKEN_IDS.pauseTiming,
+      waitForNaturalPause: true,
+      suppressDuringAnimation: true,
+      suppressDuringCombatResolution: true,
+      suppressDuringRapidInput: true,
+      suppressDuringSearchTyping: true,
+      ...(tokenOverrides.pauseTiming || {}),
+    },
+    featureDiscovery: {
+      id: ASSISTANCE_TOKEN_IDS.featureDiscovery,
+      progressive: true,
+      veteranQuietMode: true,
+      ...(tokenOverrides.featureDiscovery || {}),
     },
   };
 }
@@ -238,6 +355,8 @@ export function createOnboardingState(source = {}) {
     lastHelpTopic: source.lastHelpTopic || "",
     onboardingTokens: createOnboardingTokenSet(source.onboardingTokens),
     adaptiveLearning: createAdaptiveLearningState(source.adaptiveLearning || source.learning),
+    assistanceTokens: createAssistanceTokenSet(source.assistanceTokens),
+    contextualAssistance: createContextualAssistanceState(source.contextualAssistance || source.assistance),
     tutorialLastUpdatedAt: Number(source.tutorialLastUpdatedAt || (source.tutorialStarted ? now : 0)),
   };
 }
@@ -263,6 +382,33 @@ export function createAdaptiveLearningState(source = {}) {
     lastGuidanceAt: Number(source.lastGuidanceAt || 0),
     lastHintId: source.lastHintId || "",
     repeatedSearchCount: Number(source.repeatedSearchCount || 0),
+    resetCount: Number(source.resetCount || 0),
+    debugEnabled: Boolean(source.debugEnabled),
+    updatedAt: Number(source.updatedAt || (source.version ? now : 0)),
+  };
+}
+
+export function createContextualAssistanceState(source = {}) {
+  const now = Date.now();
+  return {
+    version: source.version || CONTEXTUAL_ASSISTANCE_VERSION,
+    enabled: source.enabled !== false,
+    mode: source.mode || "respectful",
+    acceptedSuggestions: normalizeAssistanceHistory(source.acceptedSuggestions),
+    dismissedSuggestions: normalizeAssistanceHistory(source.dismissedSuggestions),
+    shownSuggestions: normalizeAssistanceHistory(source.shownSuggestions),
+    suppressedSuggestions: normalizeAssistanceHistory(source.suppressedSuggestions),
+    interactionCounts: normalizeCountRecord(source.interactionCounts),
+    workflowCounts: normalizeCountRecord(source.workflowCounts),
+    repeatedActions: normalizeCountRecord(source.repeatedActions),
+    familiarFeatures: normalizeCountRecord(source.familiarFeatures),
+    ignoredFeatures: normalizeCountRecord(source.ignoredFeatures),
+    lastSuggestionAt: Number(source.lastSuggestionAt || 0),
+    lastAcceptedAt: Number(source.lastAcceptedAt || 0),
+    lastDismissedAt: Number(source.lastDismissedAt || 0),
+    lastOpportunityId: source.lastOpportunityId || "",
+    quietUntil: Number(source.quietUntil || 0),
+    rapidInteractionUntil: Number(source.rapidInteractionUntil || 0),
     resetCount: Number(source.resetCount || 0),
     debugEnabled: Boolean(source.debugEnabled),
     updatedAt: Number(source.updatedAt || (source.version ? now : 0)),
@@ -754,6 +900,175 @@ export function createLearningDebugSnapshot(profile = {}) {
   };
 }
 
+export function recordAssistanceInteraction(profile, event = {}) {
+  const now = Date.now();
+  const onboarding = createOnboardingState(profile.onboarding);
+  const assistance = createContextualAssistanceState(onboarding.contextualAssistance);
+  const interactionType = event.interactionType || event.type || "interaction";
+  const suggestionId = normalizeAssistanceId(event.suggestionId || event.messageKey || event.opportunityId || event.assistanceId || interactionType);
+  const workflowId = normalizeAssistanceId(event.workflowId || event.featureId || assistanceSuggestionToFeature(suggestionId) || interactionToFeature(interactionType));
+  const shown = /shown|displayed|presented/i.test(interactionType);
+  const accepted = /accept|opened|used|followed/i.test(interactionType);
+  const dismissed = /dismiss|ignored|declined/i.test(interactionType);
+  const rapid = Boolean(event.rapid || /rapid|repeat-tap|fast-drag|scroll/i.test(interactionType));
+  const quietMs = dismissed ? 300000 : accepted ? 120000 : 0;
+  const historyEntry = {
+    id: suggestionId,
+    at: now,
+    context: event.context || event.reason || interactionType,
+    priority: event.priority || "",
+  };
+  return {
+    ...profile,
+    onboarding: {
+      ...onboarding,
+      contextualAssistance: {
+        ...assistance,
+        interactionCounts: incrementRecord(assistance.interactionCounts, interactionType, 1),
+        workflowCounts: workflowId ? incrementRecord(assistance.workflowCounts, workflowId, 1) : assistance.workflowCounts,
+        repeatedActions: incrementRecord(assistance.repeatedActions, workflowId || interactionType, 1),
+        familiarFeatures: accepted && workflowId ? incrementRecord(assistance.familiarFeatures, workflowId, 1) : assistance.familiarFeatures,
+        ignoredFeatures: dismissed && workflowId ? incrementRecord(assistance.ignoredFeatures, workflowId, 1) : assistance.ignoredFeatures,
+        shownSuggestions: shown ? upsertAssistanceHistory(assistance.shownSuggestions, historyEntry) : assistance.shownSuggestions,
+        acceptedSuggestions: accepted ? upsertAssistanceHistory(assistance.acceptedSuggestions, historyEntry) : assistance.acceptedSuggestions,
+        dismissedSuggestions: dismissed ? upsertAssistanceHistory(assistance.dismissedSuggestions, historyEntry) : assistance.dismissedSuggestions,
+        lastSuggestionAt: shown ? now : assistance.lastSuggestionAt,
+        lastAcceptedAt: accepted ? now : assistance.lastAcceptedAt,
+        lastDismissedAt: dismissed ? now : assistance.lastDismissedAt,
+        lastOpportunityId: suggestionId || assistance.lastOpportunityId,
+        quietUntil: quietMs ? Math.max(assistance.quietUntil || 0, now + quietMs) : assistance.quietUntil,
+        rapidInteractionUntil: rapid ? Math.max(assistance.rapidInteractionUntil || 0, now + 1800) : assistance.rapidInteractionUntil,
+        updatedAt: now,
+      },
+    },
+  };
+}
+
+export function dismissAssistanceSuggestion(profile, suggestionId = "") {
+  return recordAssistanceInteraction(profile, {
+    interactionType: "assistance-dismissed",
+    suggestionId,
+    workflowId: assistanceSuggestionToFeature(suggestionId),
+  });
+}
+
+export function acceptAssistanceSuggestion(profile, suggestionId = "") {
+  return recordAssistanceInteraction(profile, {
+    interactionType: "assistance-accepted",
+    suggestionId,
+    workflowId: assistanceSuggestionToFeature(suggestionId),
+  });
+}
+
+export function resetContextualAssistance(profile) {
+  const onboarding = createOnboardingState(profile.onboarding);
+  const previous = createContextualAssistanceState(onboarding.contextualAssistance);
+  return {
+    ...profile,
+    onboarding: {
+      ...onboarding,
+      contextualAssistance: {
+        ...createContextualAssistanceState({}),
+        resetCount: previous.resetCount + 1,
+        updatedAt: Date.now(),
+      },
+    },
+  };
+}
+
+export function selectContextualAssistance(profile = {}, context = {}) {
+  const onboarding = createOnboardingState(profile.onboarding);
+  const assistance = createContextualAssistanceState(onboarding.contextualAssistance);
+  if (!assistance.enabled || profile.settings?.assistance?.contextualAssistance === false || profile.settings?.learning?.contextualAssistance === false || profile.settings?.helperSprite?.enabled === false) {
+    return null;
+  }
+  const tutorial = profile.activeSession?.tutorial || {};
+  if (tutorial.active || tutorial.completionPending || tutorial.status === "paused") {
+    return null;
+  }
+  const candidates = buildContextualAssistanceCandidates(profile, context, assistance)
+    .filter((candidate) => shouldShowAssistanceCandidate(candidate, assistance, context))
+    .sort((left, right) =>
+      (ASSISTANCE_PRIORITY_WEIGHT[right.priority] || 0) - (ASSISTANCE_PRIORITY_WEIGHT[left.priority] || 0) ||
+      Number(right.score || 0) - Number(left.score || 0)
+    );
+  const next = candidates[0];
+  if (!next) {
+    return null;
+  }
+  return {
+    key: `assistance:${next.id}:${next.scope || "battlefield"}`,
+    source: "contextual-assistance",
+    assistanceId: next.id,
+    opportunityId: next.id,
+    text: next.text,
+    title: next.title,
+    tokenId: next.tokenId || ASSISTANCE_TOKEN_IDS.suggestionCard,
+    priority: next.priority || ASSISTANCE_PRIORITY_LEVELS.helpful,
+    dismissBehavior: next.dismissBehavior || "remember-and-respect",
+    suggestedPanel: next.suggestedPanel || "",
+    ariaLabel: next.ariaLabel || next.text,
+    ttlMs: next.ttlMs || 7000,
+  };
+}
+
+export function createAssistanceCenterModel(profile = {}) {
+  const onboarding = createOnboardingState(profile.onboarding);
+  const assistance = createContextualAssistanceState(onboarding.contextualAssistance);
+  const candidates = buildContextualAssistanceCandidates(profile, { page: "battlefield", force: true, fromLearningCenter: true }, assistance);
+  return {
+    version: CONTEXTUAL_ASSISTANCE_VERSION,
+    enabled: assistance.enabled,
+    mode: assistance.mode,
+    priorityLevels: Object.values(ASSISTANCE_PRIORITY_LEVELS),
+    tokenIds: Object.values(ASSISTANCE_TOKEN_IDS),
+    acceptedCount: assistance.acceptedSuggestions.length,
+    dismissedCount: assistance.dismissedSuggestions.length,
+    shownCount: assistance.shownSuggestions.length,
+    lastOpportunityId: assistance.lastOpportunityId,
+    opportunities: candidates.slice(0, 6).map((candidate) => ({
+      id: candidate.id,
+      title: candidate.title,
+      priority: candidate.priority,
+      visible: Boolean(candidate.visible),
+      reason: candidate.reason || "",
+    })),
+  };
+}
+
+export function createAssistanceDebugSnapshot(profile = {}, context = {}) {
+  const onboarding = createOnboardingState(profile.onboarding);
+  const assistance = createContextualAssistanceState(onboarding.contextualAssistance);
+  const opportunities = buildContextualAssistanceCandidates(profile, { ...context, force: true }, assistance);
+  const selected = selectContextualAssistance(profile, { ...context, force: true });
+  return {
+    version: CONTEXTUAL_ASSISTANCE_VERSION,
+    productionHidden: true,
+    enabled: assistance.enabled,
+    mode: assistance.mode,
+    selectedOpportunityId: selected?.opportunityId || "",
+    opportunities: opportunities.map((candidate) => ({
+      id: candidate.id,
+      priority: candidate.priority,
+      visible: Boolean(candidate.visible),
+      reason: candidate.reason || "",
+    })),
+    suppressedSuggestions: assistance.suppressedSuggestions,
+    dismissedSuggestions: assistance.dismissedSuggestions,
+    acceptedSuggestions: assistance.acceptedSuggestions,
+    workflowCounts: assistance.workflowCounts,
+    contextEvaluation: {
+      naturalPause: !isAssistanceTimingSuppressed(assistance, context),
+      helperDisabled: profile.settings?.helperSprite?.enabled === false,
+      assistanceDisabled: profile.settings?.assistance?.contextualAssistance === false || profile.settings?.learning?.contextualAssistance === false,
+      rapidInput: Date.now() < Number(assistance.rapidInteractionUntil || 0) || Boolean(context.rapidInteraction),
+      combatResolving: Boolean(context.combatResolving),
+      animationActive: Boolean(context.animationActive || context.isAnimating),
+      searchTyping: Boolean(context.keepSearchInputFocus || context.searchFocused),
+    },
+  };
+}
+
 export function buildTutorialHelperMessage(session = {}) {
   const tutorial = session.tutorial || {};
   if (!tutorial.active && !tutorial.completionPending) {
@@ -790,6 +1105,176 @@ const LEARNING_FEATURE_IDS = [
   "helpCenter",
   "accessibility",
 ];
+
+function buildContextualAssistanceCandidates(profile = {}, context = {}, assistance = createContextualAssistanceState()) {
+  const session = profile.activeSession || {};
+  const learning = createAdaptiveLearningState(profile.onboarding?.adaptiveLearning);
+  const page = context.page || "battlefield";
+  const playerPermanents = session.battlefield?.player || [];
+  const opponentPermanents = session.battlefield?.opponent || [];
+  const playerPermanentCount = playerPermanents.length;
+  const opponentPermanentCount = opponentPermanents.length;
+  const totalPermanentCount = playerPermanentCount + opponentPermanentCount;
+  const tokenCount = [...playerPermanents, ...opponentPermanents].filter((entry) => entry.isToken || Number(entry.quantity || 1) > 1).length;
+  const stackCount = (session.stack || []).length;
+  const triggerCount = (session.triggerQueue || []).filter((entry) => entry.status === "pending").length;
+  const undoCount = (session.undoStack || []).length;
+  const selectedCount = Array.isArray(session.selectedIds) ? session.selectedIds.length : 0;
+  const hasCommander = Boolean(session.commander?.name || Object.keys(profile.commanders || {}).length);
+  const repeatedSearchCount = Number(learning.repeatedSearchCount || 0) + Number(assistance.workflowCounts.search || 0);
+  const highProficiency = learning.proficiencyScore >= 80;
+  const activeUtilityPanel = context.activeUtilityPanel || "";
+  const workflowEnabled = profile.settings?.learning?.workflowSuggestions !== false && profile.settings?.assistance?.workflowSuggestions !== false;
+  const featureDiscoveryEnabled = profile.settings?.learning?.featureDiscovery !== false && profile.settings?.assistance?.featureDiscovery !== false;
+  if (page !== "battlefield" && !context.fromLearningCenter) {
+    return [];
+  }
+  return [
+    {
+      id: "stack-chain-review",
+      title: "Review Stack Chain",
+      text: "Several stack or trigger items are pending. Open the stack view at the next pause to resolve them in order.",
+      tokenId: ASSISTANCE_TOKEN_IDS.workflowRecommendation,
+      priority: ASSISTANCE_PRIORITY_LEVELS.important,
+      suggestedPanel: "triggers",
+      scope: `turn-${session.turn || 1}`,
+      score: stackCount * 8 + triggerCount * 6,
+      reason: "large stack or trigger queue",
+      visible: workflowEnabled && stackCount + triggerCount >= 3 && activeUtilityPanel !== "triggers",
+    },
+    {
+      id: "undo-safety",
+      title: "Undo Is Available",
+      text: "Undo can restore recent reversible tracking changes if the table corrects something.",
+      tokenId: ASSISTANCE_TOKEN_IDS.reminder,
+      priority: ASSISTANCE_PRIORITY_LEVELS.helpful,
+      suggestedPanel: "history",
+      scope: "undo",
+      score: undoCount * 5,
+      reason: "recent reversible actions exist",
+      visible: workflowEnabled && undoCount >= 3 && !featureFamiliar(assistance, "undo"),
+    },
+    {
+      id: "crowded-board-density",
+      title: "Crowded Board Help",
+      text: "If the table gets crowded, Display & Performance can tune card density without changing game state.",
+      tokenId: ASSISTANCE_TOKEN_IDS.workflowRecommendation,
+      priority: ASSISTANCE_PRIORITY_LEVELS.helpful,
+      suggestedPanel: "display",
+      scope: `board-${Math.floor(totalPermanentCount / 6)}`,
+      score: totalPermanentCount + tokenCount * 2,
+      reason: "large battlefield or token pressure",
+      visible: workflowEnabled && (totalPermanentCount >= 12 || tokenCount >= 4),
+    },
+    {
+      id: "search-workflow",
+      title: "Search Shortcut",
+      text: "Search stays in the Action Hand. Pin it if you reach for Oracle or card lookup often.",
+      tokenId: ASSISTANCE_TOKEN_IDS.quickTip,
+      priority: ASSISTANCE_PRIORITY_LEVELS.helpful,
+      suggestedPanel: "search",
+      scope: "search",
+      score: repeatedSearchCount * 4,
+      reason: "repeated search behavior",
+      visible: workflowEnabled && repeatedSearchCount >= 2 && activeUtilityPanel !== "search" && !featureFamiliar(assistance, "search"),
+    },
+    {
+      id: "selection-inspector",
+      title: "Selected Card Context",
+      text: "Selected permanents expose context actions and inspection without leaving the battlefield.",
+      tokenId: ASSISTANCE_TOKEN_IDS.quickTip,
+      priority: ASSISTANCE_PRIORITY_LEVELS.educational,
+      suggestedPanel: "selection",
+      scope: "selection",
+      score: selectedCount * 5,
+      reason: "selected permanent with hidden context",
+      visible: featureDiscoveryEnabled && selectedCount > 0 && !featureFamiliar(assistance, "selection"),
+    },
+    {
+      id: "commander-workflow",
+      title: "Commander Tools",
+      text: "Commander tools track zone, tax, and commander damage from the battlefield.",
+      tokenId: ASSISTANCE_TOKEN_IDS.workflowRecommendation,
+      priority: ASSISTANCE_PRIORITY_LEVELS.educational,
+      suggestedPanel: "commander",
+      scope: "commander",
+      score: hasCommander ? 18 : 0,
+      reason: "commander-specific workflow available",
+      visible: featureDiscoveryEnabled && hasCommander && !highProficiency && !featureFamiliar(assistance, "commander"),
+    },
+    {
+      id: "reminder-workflow",
+      title: "Future Reminder",
+      text: "Use Remind when a card, phase, or future table state matters. Stale reminders stay quiet.",
+      tokenId: ASSISTANCE_TOKEN_IDS.reminder,
+      priority: ASSISTANCE_PRIORITY_LEVELS.educational,
+      suggestedPanel: "remind-me",
+      scope: `turn-${session.turn || 1}`,
+      score: Number(session.turn || 1),
+      reason: "future-state reminder discovery",
+      visible: featureDiscoveryEnabled && Number(session.turn || 1) >= 2 && !highProficiency && !featureFamiliar(assistance, "reminders"),
+    },
+    {
+      id: "learning-center-reference",
+      title: "Learning Center",
+      text: "Help & Learning stores tips and assistance history so you can revisit guidance without restarting onboarding.",
+      tokenId: ASSISTANCE_TOKEN_IDS.featureDiscovery,
+      priority: ASSISTANCE_PRIORITY_LEVELS.optional,
+      suggestedPanel: "learning",
+      scope: "learning",
+      score: assistance.dismissedSuggestions.length + learning.proficiencyScore / 10,
+      reason: "help reference available",
+      visible: featureDiscoveryEnabled && learning.proficiencyScore >= 20 && !featureFamiliar(assistance, "helpCenter"),
+    },
+  ].filter((candidate) => candidate.visible);
+}
+
+function shouldShowAssistanceCandidate(candidate, assistance, context = {}) {
+  if (!candidate?.id || !candidate.visible) {
+    return false;
+  }
+  if (!context.force && isAssistanceTimingSuppressed(assistance, context)) {
+    return false;
+  }
+  const id = normalizeAssistanceId(candidate.id);
+  const shown = hasAssistanceHistory(assistance.shownSuggestions, id);
+  const dismissed = hasAssistanceHistory(assistance.dismissedSuggestions, id);
+  const accepted = hasAssistanceHistory(assistance.acceptedSuggestions, id);
+  if (!context.force && (dismissed || accepted || shown)) {
+    return false;
+  }
+  const priority = candidate.priority || ASSISTANCE_PRIORITY_LEVELS.helpful;
+  const now = Date.now();
+  const minInterval = ASSISTANCE_COOLDOWN_MS[priority] ?? 90000;
+  if (!context.force && assistance.lastSuggestionAt && now - Number(assistance.lastSuggestionAt || 0) < minInterval) {
+    return false;
+  }
+  return true;
+}
+
+function isAssistanceTimingSuppressed(assistance, context = {}) {
+  const now = Date.now();
+  return Boolean(
+    context.optionsOpen ||
+    context.keepSearchInputFocus ||
+    context.searchFocused ||
+    context.searchLoading ||
+    context.combatResolving ||
+    context.animationActive ||
+    context.isAnimating ||
+    context.continuousScrolling ||
+    context.rapidInteraction ||
+    now < Number(assistance.quietUntil || 0) ||
+    now < Number(assistance.rapidInteractionUntil || 0)
+  );
+}
+
+function featureFamiliar(assistance, featureId = "") {
+  const id = normalizeFeatureId(featureId);
+  const alt = normalizeAssistanceId(featureId);
+  return Number(assistance.familiarFeatures?.[id] || assistance.familiarFeatures?.[alt] || 0) > 0 ||
+    Number(assistance.workflowCounts?.[id] || assistance.workflowCounts?.[alt] || 0) >= 3;
+}
 
 function buildAdaptiveGuidanceCandidates(profile, context, learning) {
   const session = profile.activeSession || {};
@@ -991,6 +1476,19 @@ function interactionToFeature(interactionType = "") {
   return "battlefield";
 }
 
+function assistanceSuggestionToFeature(value = "") {
+  const id = normalizeAssistanceId(value);
+  if (id.includes("stack") || id.includes("trigger")) return "stack";
+  if (id.includes("undo")) return "undo";
+  if (id.includes("search")) return "search";
+  if (id.includes("selection") || id.includes("inspector")) return "selection";
+  if (id.includes("commander")) return "commander";
+  if (id.includes("reminder") || id.includes("remind")) return "reminders";
+  if (id.includes("learning") || id.includes("help")) return "helpCenter";
+  if (id.includes("board") || id.includes("density")) return "battlefield";
+  return "";
+}
+
 function learningAmountFor(interactionType = "") {
   const normalized = String(interactionType || "").toLowerCase();
   if (normalized.includes("complete")) return 12;
@@ -1029,6 +1527,13 @@ function normalizeHintId(value = "") {
   return match?.[1] || key;
 }
 
+function normalizeAssistanceId(value = "") {
+  const key = String(value || "").trim();
+  const match = key.match(/^assistance:([^:]+)/);
+  const raw = match?.[1] || key;
+  return raw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
+}
+
 function normalizeLearningConfidence(value = "") {
   const normalized = String(value || "").toLowerCase();
   if (["new", "learning", "comfortable", "expert"].includes(normalized)) {
@@ -1053,6 +1558,50 @@ function inferProficiencyScore(source = {}) {
 
 function normalizeStringList(values = []) {
   return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || "").trim()).filter(Boolean))].slice(-160);
+}
+
+function normalizeAssistanceHistory(values = []) {
+  return (Array.isArray(values) ? values : [])
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return { id: normalizeAssistanceId(entry), at: 0, count: 1, context: "", priority: "" };
+      }
+      const id = normalizeAssistanceId(entry?.id || entry?.suggestionId || entry?.opportunityId || entry?.key || "");
+      if (!id) {
+        return null;
+      }
+      return {
+        id,
+        at: Number(entry.at || entry.timestamp || entry.shownAt || 0),
+        count: Math.max(1, Math.floor(Number(entry.count || 1))),
+        context: String(entry.context || entry.reason || "").slice(0, 80),
+        priority: String(entry.priority || "").slice(0, 32),
+      };
+    })
+    .filter(Boolean)
+    .slice(-160);
+}
+
+function upsertAssistanceHistory(values = [], entry = {}) {
+  const history = normalizeAssistanceHistory(values);
+  const id = normalizeAssistanceId(entry.id || entry.suggestionId || entry.opportunityId || entry.key || "");
+  if (!id) {
+    return history;
+  }
+  const previous = history.find((item) => item.id === id);
+  const next = {
+    id,
+    at: Number(entry.at || Date.now()),
+    count: Math.max(1, Number(previous?.count || 0) + 1),
+    context: String(entry.context || previous?.context || "").slice(0, 80),
+    priority: String(entry.priority || previous?.priority || "").slice(0, 32),
+  };
+  return [next, ...history.filter((item) => item.id !== id)].slice(0, 160);
+}
+
+function hasAssistanceHistory(values = [], id = "") {
+  const normalized = normalizeAssistanceId(id);
+  return normalizeAssistanceHistory(values).some((entry) => entry.id === normalized);
 }
 
 function normalizeCountRecord(source = {}) {
