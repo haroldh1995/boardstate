@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import { createDefaultProfile } from "../src/state/schema.js";
 import { reduceProfile } from "../src/state/gameReducer.js";
@@ -19,7 +19,11 @@ import {
 } from "../src/ui/visualTokens.js";
 
 function readRepositoryFile(path) {
-  return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+  return readFileSync(repositoryPath(path), "utf8");
+}
+
+function repositoryPath(path) {
+  return new URL(`../${path}`, import.meta.url);
 }
 
 test("native game visual architecture documents the permanent landscape battlefield laws", () => {
@@ -93,12 +97,16 @@ test("runtime no longer contains portrait wallpaper selection or mobile navigati
   const mainActivity = readRepositoryFile("android-app/app/src/main/java/com/boardstate/app/MainActivity.java");
   const flutter = readRepositoryFile("flutter-app/lib/main.dart");
 
+  assert.equal(existsSync(repositoryPath("assets/boardstate-bg-landscape.png")), true);
+  assert.equal(existsSync(repositoryPath("assets/boardstate-bg-portrait.png")), false);
+  assert.match(main, /boardstate-bg-landscape\.png/);
   assert.equal(main.includes("boardstate-bg-portrait"), false);
   assert.match(main, /requestBoardStateLandscapeLock/);
   assert.match(main, /globalThis\.screen\?\.orientation/);
   assert.match(main, /orientation\.lock\(mode\)/);
   assert.match(loadingScreen, /location\.hash = "#battlefield"/);
   assert.equal(loadingScreen.includes("#life"), false);
+  assert.match(styles, /boardstate-bg-landscape\.png/);
   assert.equal(styles.includes("boardstate-bg-portrait"), false);
   assert.equal(render.includes("orientationchange"), false);
   assert.equal(render.includes("portrait-allowed"), false);

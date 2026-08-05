@@ -20,7 +20,7 @@ Prompt 5 extends those systems instead of replacing them:
 Prompt 12.1 makes landscape permanent instead of preference-based:
 
 - `docs/ecosystem/NATIVE_GAME_VISUAL_ARCHITECTURE.md` records the permanent visual laws for Commander-first, landscape-only, battlefield-first, native digital game presentation.
-- `src/main.js` now preloads the landscape wallpaper for every BoardState gameplay startup path.
+- `src/main.js` now preloads the canonical `assets/boardstate-bg-landscape.png` wallpaper for every BoardState gameplay startup path.
 - `src/state/schema.js` defaults `settings.appearance.compositionMode` to `landscape`.
 - `src/storage/localDatabase.js` normalizes legacy profile settings back to `landscape` and retires runtime mobile HUD/profile navigation settings for BoardState.
 - `src/state/gameReducer.js` rejects `SET_SETTING` attempts to move BoardState gameplay back to `auto`, `mobile`, or portrait-style composition.

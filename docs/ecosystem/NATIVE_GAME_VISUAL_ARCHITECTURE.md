@@ -23,7 +23,7 @@ Every visible system exists to support Commander gameplay. When no contextual in
 
 ## Runtime Standards
 
-- `src/main.js` preloads the landscape battlefield wallpaper for every gameplay startup path and requests a best-effort browser landscape orientation lock before the app renders.
+- `src/main.js` preloads the canonical `assets/boardstate-bg-landscape.png` battlefield wallpaper for every gameplay startup path and requests a best-effort browser landscape orientation lock before the app renders.
 - `index.html` and `public/manifest.webmanifest` declare landscape startup metadata and launch directly into `#battlefield`.
 - `src/state/schema.js` sets `settings.appearance.compositionMode` to `landscape`.
 - `src/storage/localDatabase.js` normalizes legacy saved profiles back to `landscape` and strips deprecated mobile navigation fields during load.
@@ -39,7 +39,7 @@ Every visible system exists to support Commander gameplay. When no contextual in
 - BoardState no longer exposes Auto Detect, Mobile View, or Widescreen View gameplay composition controls.
 - BoardState no longer renders mobile page-swipe navigation controls for gameplay.
 - BoardState no longer renders edge-swipe navigation zones.
-- BoardState no longer selects the portrait wallpaper during startup.
+- BoardState no longer ships or selects the retired portrait gameplay wallpaper during startup.
 - BoardState no longer renders draggable mobile HUD badges, compact mobile HUD columns, mobile focus view, or mobile bottom sheets.
 - BoardState no longer defaults to Home, Life Tracker, or any portrait-oriented gameplay surface after loading. Invalid or empty routes resolve to `#battlefield`.
 
