@@ -1321,7 +1321,6 @@ export function mountApp(root, store) {
         closeAllTemporaryUi({ renderAfter: false });
         store.dispatch({
           type: "TUTORIAL_START",
-          helperSpriteEnabled: true,
           screenReaderPrompts: Boolean(store.getState().settings?.helperSprite?.screenReaderPrompts),
         });
         setActivePage("battlefield");
@@ -5638,6 +5637,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       ${page === "decks" ? renderDecks(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery) : ""}
       ${page === "leaderboards" ? renderLeaderboards(profile) : ""}
       ${page === "battlefield" ? renderBattlefieldToolBadge(profile, uiState.toolMenuOpen, uiState.floatingManaOpen, uiState.activeToolPanel, uiState.toolContext, Boolean(uiState.simulationLogOpen)) : ""}
+      ${renderPersistentSettingsGear(page, uiState.optionsOpen, uiState.activeOptionsCategory || "")}
       ${page === "battlefield" ? renderUtilityDock(profile, uiState.utilityDockOpen, uiState.activeUtilityPanel, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.castActionPopup, {
         question: uiState.rulesAssistantQuestion,
         answer: uiState.rulesAssistantAnswer,
@@ -5667,6 +5667,15 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       ${uiState.confirmationDialog ? renderConfirmationDialog(uiState.confirmationDialog) : ""}
       ${renderEdgeSwipeZones(profile)}
     </main>
+  `;
+}
+
+function renderPersistentSettingsGear(page = "", optionsOpen = false, activeCategory = "") {
+  return `
+    <button class="persistent-settings-gear ${optionsOpen ? "is-open" : ""}" data-game-options aria-label="Open settings" title="Settings" aria-pressed="${optionsOpen ? "true" : "false"}" data-options-category="${escapeAttribute(activeCategory || "")}" data-page="${escapeAttribute(page)}">
+      <span aria-hidden="true">&#9881;</span>
+      <small>Settings</small>
+    </button>
   `;
 }
 
@@ -10400,6 +10409,14 @@ function getOptionsCategories(profile, page = "life") {
       status: profile.onboarding?.adaptiveLearning?.confidence || "new",
     },
     {
+      id: "notifications",
+      glyph: "BELL",
+      title: "Notifications",
+      description: "Opt-in popups, toasts, sound, haptics, and event categories.",
+      status: getNotificationStatus(profile),
+      badge: getUnreadNotificationCount(profile),
+    },
+    {
       id: "tutorial",
       glyph: "HELP",
       title: "Tutorial",
@@ -11454,7 +11471,7 @@ function renderNotificationOptionsSubpage(profile) {
     <div class="options-subpage">
       <article class="option-card">
         <h3>Notification Options ${unread ? `<span class="option-status-badge">${unread} unread</span>` : ""}</h3>
-        <p>Choose how BoardState alerts you. Important tournament alerts default on; browser sound may require user interaction first.</p>
+        <p>Notifications are off by default. Turn on Master Notifications here when you want BoardState to show popups, toasts, sound, or haptics.</p>
         <div class="button-grid">
           <button data-test-notification>Test Notification</button>
           <button data-test-sound>Test Sound</button>
@@ -11741,7 +11758,8 @@ function getFriendStatusLabel(profile = {}) {
 
 function getNotificationPreferences(profile = {}) {
   const defaults = {
-    master: true,
+    userEnabled: false,
+    master: false,
     fullWindow: true,
     toast: true,
     sound: false,
@@ -11761,6 +11779,8 @@ function getNotificationPreferences(profile = {}) {
   return {
     ...defaults,
     ...current,
+    userEnabled: current.userEnabled === true,
+    master: current.userEnabled === true && current.master === true,
     tournamentEvents: { ...(defaults.tournamentEvents || {}), ...(current.tournamentEvents || {}) },
     gameplayEvents: { ...(defaults.gameplayEvents || {}), ...(current.gameplayEvents || {}) },
     friendEvents: { ...(defaults.friendEvents || {}), ...(current.friendEvents || {}) },
@@ -11988,17 +12008,15 @@ function renderTournamentInviteModal(profile, invite = {}) {
 function getActiveFullWindowNotification(profile = {}) {
   const preferences = getNotificationPreferences(profile);
   const dismissed = new Set(profile.notifications?.dismissedIds || []);
-  if (!preferences.master && !(profile.notifications?.items || []).some((entry) => entry.critical)) {
+  if (!preferences.master) {
     return null;
   }
-  if (!preferences.fullWindow && !(profile.notifications?.items || []).some((entry) => entry.critical)) {
+  if (!preferences.fullWindow) {
     return null;
   }
   return [...(profile.notifications?.items || [])]
     .filter((entry) => !entry.acknowledged && !dismissed.has(entry.id))
     .filter((entry) => entry.fullWindow !== false)
-    .filter((entry) => preferences.fullWindow || entry.critical)
-    .filter((entry) => preferences.master || entry.critical)
     .sort((left, right) => Number(left.createdAt || 0) - Number(right.createdAt || 0))[0] || null;
 }
 
@@ -12606,6 +12624,7 @@ function getSettings(profile) {
     adhdAutomation: adhdMode.enabled,
     adhdMode,
     helperSprite: {
+      userEnabled: false,
       enabled: false,
       remindersAtUpkeep: true,
       ...(profile.settings?.helperSprite || {}),

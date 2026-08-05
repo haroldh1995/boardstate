@@ -33,7 +33,7 @@ test("onboarding tokens and adaptive state are versioned and profile-scoped", ()
 test("fresh users receive adaptive battlefield guidance after direct entry while returning imports stay quiet", () => {
   let profile = createDefaultProfile();
   profile = dispatch(profile, { type: "ONBOARDING_EXPLORE" });
-  assert.equal(profile.settings.helperSprite.enabled, true);
+  assert.equal(profile.settings.helperSprite.enabled, false);
   assert.equal(profile.onboarding.adaptiveLearning.enabled, true);
 
   const guidance = selectAdaptiveGuidance(profile, { page: "battlefield", force: true });
@@ -44,6 +44,21 @@ test("fresh users receive adaptive battlefield guidance after direct entry while
   assert.equal(returning.onboarding.firstLaunchComplete, true);
   assert.equal(returning.settings.helperSprite.enabled, false);
   assert.equal(selectAdaptiveGuidance(returning, { page: "battlefield", force: true }), null);
+
+  const legacyAutomatic = parseImportedProfile(JSON.stringify({
+    player: { name: "Legacy Player" },
+    settings: {
+      helperSprite: { enabled: true },
+      notifications: { master: true },
+    },
+  }));
+  assert.equal(legacyAutomatic.settings.helperSprite.enabled, false);
+  assert.equal(legacyAutomatic.settings.notifications.master, false);
+
+  let optedIn = dispatch(createDefaultProfile(), { type: "SET_SETTING", path: "helperSprite.enabled", value: true });
+  optedIn = dispatch(optedIn, { type: "ONBOARDING_EXPLORE" });
+  assert.equal(optedIn.settings.helperSprite.userEnabled, true);
+  assert.equal(optedIn.settings.helperSprite.enabled, true);
 });
 
 test("learning hints are teach-once and interaction records reduce future guidance", () => {

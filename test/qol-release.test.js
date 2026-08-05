@@ -116,6 +116,16 @@ test("tournament notifications persist locally and respect non-critical preferen
     body: "Top 3 ready.",
     critical: true,
   });
+  assert.equal(profile.notifications.items.length, 0);
+  profile = reduceProfile(profile, { type: "SET_SETTING", path: "notifications.master", value: true });
+  profile = reduceProfile(profile, {
+    type: "NOTIFICATION_ADD",
+    category: "tournament",
+    eventKey: "finalWinners",
+    title: "Final Winners",
+    body: "Top 3 ready.",
+    critical: true,
+  });
   assert.equal(profile.notifications.items.length, 1);
   profile = reduceProfile(profile, { type: "NOTIFICATION_ACK", id: profile.notifications.items[0].id });
   assert.equal(profile.notifications.items[0].acknowledged, true);

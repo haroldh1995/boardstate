@@ -175,6 +175,9 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.match(render, /import\.meta\.env\?\.DEV/);
   assert.match(render, /boardstate-motion-debug/);
   assert.match(render, /function renderCommanderActionHand/);
+  assert.match(render, /function renderPersistentSettingsGear/);
+  assert.match(render, /persistent-settings-gear/);
+  assert.match(render, /data-game-options/);
   assert.match(render, /function createCommanderActionCards/);
   assert.match(render, /function resolveCommandDeckPriorityCard/);
   assert.match(render, /function resolveCommandDeckCenterIndex/);
@@ -227,6 +230,7 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.equal(styles.includes(".command-hud-card"), false);
 
   assert.match(styles, /\.commander-action-hand\b/);
+  assert.match(styles, /\.persistent-settings-gear\b/);
   assert.match(styles, /--visual-color-bg-deep/);
   assert.match(styles, /--visual-material-polished-glass/);
   assert.match(styles, /--visual-material-card-stock/);

@@ -348,7 +348,7 @@ export function createOnboardingState(source = {}) {
     tutorialCurrentStep: Number(source.tutorialCurrentStep || 0),
     tutorialPaused: Boolean(source.tutorialPaused),
     tutorialSaveId: source.tutorialSaveId || "",
-    helperSpriteEnabled: source.helperSpriteEnabled !== false,
+    helperSpriteEnabled: source.helperSpriteEnabled === true,
     screenReaderPromptsEnabled: Boolean(source.screenReaderPromptsEnabled),
     tutorialReducedMotion: Boolean(source.tutorialReducedMotion),
     helpCenterOpened: Boolean(source.helpCenterOpened),
@@ -437,6 +437,7 @@ export function getTutorialProgress(tutorialState = {}) {
 
 export function startFiveTurnTutorial(profile, options = {}) {
   const now = Date.now();
+  const helperSpriteOptedIn = profile.settings?.helperSprite?.userEnabled === true && profile.settings?.helperSprite?.enabled === true;
   const session = applyTutorialMilestone(createTutorialPracticeSession(profile, now), 0, profile);
   const onboarding = markFeatureDiscovered(
     createOnboardingState(profile.onboarding),
@@ -462,7 +463,7 @@ export function startFiveTurnTutorial(profile, options = {}) {
       ...(profile.settings || {}),
       helperSprite: {
         ...(profile.settings?.helperSprite || {}),
-        enabled: options.helperSpriteEnabled ?? true,
+        enabled: helperSpriteOptedIn,
         screenReaderPrompts: Boolean(options.screenReaderPrompts || profile.settings?.helperSprite?.screenReaderPrompts),
         tutorialNarration: true,
       },
@@ -553,6 +554,7 @@ export function pauseTutorial(profile) {
 
 export function resumeTutorial(profile) {
   const now = Date.now();
+  const helperSpriteOptedIn = profile.settings?.helperSprite?.userEnabled === true && profile.settings?.helperSprite?.enabled === true;
   return {
     ...profile,
     onboarding: {
@@ -565,7 +567,7 @@ export function resumeTutorial(profile) {
       ...(profile.settings || {}),
       helperSprite: {
         ...(profile.settings?.helperSprite || {}),
-        enabled: true,
+        enabled: helperSpriteOptedIn,
       },
     },
     activeSession: {
@@ -670,6 +672,7 @@ export function resetOnboardingProgress(profile) {
 export function markOnboardingExplored(profile, options = {}) {
   const now = Date.now();
   const adaptiveEnabled = options.adaptiveLearningEnabled !== false;
+  const helperSpriteOptedIn = profile.settings?.helperSprite?.userEnabled === true && profile.settings?.helperSprite?.enabled === true;
   const onboarding = recordLearningInteraction(
     {
       ...profile,
@@ -699,7 +702,7 @@ export function markOnboardingExplored(profile, options = {}) {
       ...(profile.settings || {}),
       helperSprite: {
         ...(profile.settings?.helperSprite || {}),
-        enabled: options.helperSpriteEnabled ?? (adaptiveEnabled ? true : Boolean(profile.settings?.helperSprite?.enabled)),
+        enabled: helperSpriteOptedIn,
       },
     },
   };
@@ -796,7 +799,7 @@ export function resetAdaptiveLearning(profile) {
 export function selectAdaptiveGuidance(profile = {}, context = {}) {
   const onboarding = createOnboardingState(profile.onboarding);
   const learning = createAdaptiveLearningState(onboarding.adaptiveLearning);
-  if (!learning.enabled || profile.settings?.learning?.adaptiveGuidance === false || profile.settings?.helperSprite?.enabled === false) {
+  if (!learning.enabled || profile.settings?.learning?.adaptiveGuidance === false) {
     return null;
   }
   const tutorial = profile.activeSession?.tutorial || {};
@@ -979,7 +982,7 @@ export function resetContextualAssistance(profile) {
 export function selectContextualAssistance(profile = {}, context = {}) {
   const onboarding = createOnboardingState(profile.onboarding);
   const assistance = createContextualAssistanceState(onboarding.contextualAssistance);
-  if (!assistance.enabled || profile.settings?.assistance?.contextualAssistance === false || profile.settings?.learning?.contextualAssistance === false || profile.settings?.helperSprite?.enabled === false) {
+  if (!assistance.enabled || profile.settings?.assistance?.contextualAssistance === false || profile.settings?.learning?.contextualAssistance === false) {
     return null;
   }
   const tutorial = profile.activeSession?.tutorial || {};

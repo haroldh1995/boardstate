@@ -58,6 +58,15 @@ test("friend notifications respect friend event preferences", () => {
     title: "Friend Game Invite",
     body: "Join?",
   });
+  assert.equal(profile.notifications.items.some((entry) => entry.eventKey === "gameInvite"), false);
+  profile = reduceProfile(profile, { type: "SET_SETTING", path: "notifications.master", value: true });
+  profile = reduceProfile(profile, {
+    type: "NOTIFICATION_ADD",
+    category: "friend",
+    eventKey: "gameInvite",
+    title: "Friend Game Invite",
+    body: "Join?",
+  });
   assert.equal(profile.notifications.items.some((entry) => entry.eventKey === "gameInvite"), true);
 });
 
@@ -66,7 +75,11 @@ test("incoming friend requests populate pending requests before accept or declin
   profile = reduceProfile(profile, { type: "FRIEND_RECEIVE_REQUEST", friendCode: "HEX7", displayName: "Hex Friend", source: "wifi-relay" });
   assert.equal(profile.friends.pendingFriendRequests.length, 1);
   assert.equal(profile.friends.pendingFriendRequests[0].friendCode, "HEX7");
-  assert.equal(profile.notifications.items.some((entry) => entry.eventKey === "friendRequest"), true);
+  assert.equal(profile.notifications.items.some((entry) => entry.eventKey === "friendRequest"), false);
+
+  let notifyingProfile = reduceProfile(createDefaultProfile(), { type: "SET_SETTING", path: "notifications.master", value: true });
+  notifyingProfile = reduceProfile(notifyingProfile, { type: "FRIEND_RECEIVE_REQUEST", friendCode: "WIZ9", displayName: "Wizard Friend", source: "wifi-relay" });
+  assert.equal(notifyingProfile.notifications.items.some((entry) => entry.eventKey === "friendRequest"), true);
 
   profile = reduceProfile(profile, { type: "FRIEND_ACCEPT_REQUEST", friendCode: "HEX7" });
   assert.equal(profile.friends.pendingFriendRequests.length, 0);

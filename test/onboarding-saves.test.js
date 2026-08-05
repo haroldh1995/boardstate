@@ -28,13 +28,20 @@ test("first-launch onboarding shows only for fresh profiles and can be skipped",
 test("guided tutorial starts deterministic five-turn practice and autosaves", () => {
   let profile = dispatch(createDefaultProfile(), { type: "TUTORIAL_START" });
   assert.equal(profile.onboarding.tutorialStarted, true);
-  assert.equal(profile.settings.helperSprite.enabled, true);
+  assert.equal(profile.settings.helperSprite.enabled, false);
   assert.equal(profile.activeSession.tutorial.active, true);
   assert.equal(profile.activeSession.tutorial.totalSteps, TUTORIAL_STEPS.length);
   assert.equal(profile.activeSession.life, 40);
   assert.ok(profile.activeSession.zones.hand.some((card) => card.name === "Spark Cub"));
   assert.equal(profile.localSaves.items.length, 1);
   assert.equal(validateLocalSave(profile.localSaves.items[0]).valid, true);
+
+  const optedInTutorial = dispatch(
+    dispatch(createDefaultProfile(), { type: "SET_SETTING", path: "helperSprite.enabled", value: true }),
+    { type: "TUTORIAL_START" }
+  );
+  assert.equal(optedInTutorial.settings.helperSprite.userEnabled, true);
+  assert.equal(optedInTutorial.settings.helperSprite.enabled, true);
 
   for (let index = 1; index < TUTORIAL_STEPS.length; index += 1) {
     profile = dispatch(profile, { type: "TUTORIAL_ADVANCE" });

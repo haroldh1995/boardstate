@@ -296,7 +296,43 @@ function normalizeProfile(profile) {
         firstLaunchComplete: true,
         tutorialOffered: true,
         tutorialSkipped: true,
+        adaptiveLearning: {
+          ...defaults.onboarding.adaptiveLearning,
+          enabled: false,
+        },
+        contextualAssistance: {
+          ...defaults.onboarding.contextualAssistance,
+          enabled: false,
+        },
       });
+  const rawHelperSpriteSettings = profile.settings?.helperSprite || {};
+  const helperSpriteUserEnabled = rawHelperSpriteSettings.userEnabled === true;
+  const helperSpriteSettings = {
+    ...defaults.settings.helperSprite,
+    ...rawHelperSpriteSettings,
+    userEnabled: helperSpriteUserEnabled,
+    enabled: helperSpriteUserEnabled && rawHelperSpriteSettings.enabled === true,
+  };
+  const rawNotificationSettings = profile.settings?.notifications || {};
+  const notificationsUserEnabled = rawNotificationSettings.userEnabled === true;
+  const notificationSettings = {
+    ...defaults.settings.notifications,
+    ...rawNotificationSettings,
+    userEnabled: notificationsUserEnabled,
+    master: notificationsUserEnabled && rawNotificationSettings.master === true,
+    tournamentEvents: {
+      ...defaults.settings.notifications.tournamentEvents,
+      ...(rawNotificationSettings.tournamentEvents || {}),
+    },
+    gameplayEvents: {
+      ...defaults.settings.notifications.gameplayEvents,
+      ...(rawNotificationSettings.gameplayEvents || {}),
+    },
+    friendEvents: {
+      ...defaults.settings.notifications.friendEvents,
+      ...(rawNotificationSettings.friendEvents || {}),
+    },
+  };
   const manaPool = {
     ...defaults.activeSession.manaPool,
     ...(profile.activeSession?.manaPool || {}),
@@ -323,7 +359,7 @@ function normalizeProfile(profile) {
       navigation: navigationSettings,
       gestures: { ...defaults.settings.gestures, ...(profile.settings?.gestures || {}) },
       adhdMode: { ...defaults.settings.adhdMode, ...(profile.settings?.adhdMode || {}) },
-      helperSprite: { ...defaults.settings.helperSprite, ...(profile.settings?.helperSprite || {}) },
+      helperSprite: helperSpriteSettings,
       rulesAssistant: { ...defaults.settings.rulesAssistant, ...(profile.settings?.rulesAssistant || {}) },
       remindMe: { ...defaults.settings.remindMe, ...(profile.settings?.remindMe || {}) },
       aiGameplay: { ...defaults.settings.aiGameplay, ...(profile.settings?.aiGameplay || {}) },
@@ -356,22 +392,7 @@ function normalizeProfile(profile) {
           ...(profile.settings?.playerMemory?.gameplayPreferences || {}),
         },
       },
-      notifications: {
-        ...defaults.settings.notifications,
-        ...(profile.settings?.notifications || {}),
-        tournamentEvents: {
-          ...defaults.settings.notifications.tournamentEvents,
-          ...(profile.settings?.notifications?.tournamentEvents || {}),
-        },
-        gameplayEvents: {
-          ...defaults.settings.notifications.gameplayEvents,
-          ...(profile.settings?.notifications?.gameplayEvents || {}),
-        },
-        friendEvents: {
-          ...defaults.settings.notifications.friendEvents,
-          ...(profile.settings?.notifications?.friendEvents || {}),
-        },
-      },
+      notifications: notificationSettings,
       recentCounterTypes: profile.settings?.recentCounterTypes || defaults.settings.recentCounterTypes || [],
     },
     localAuth: { ...defaults.localAuth, ...(profile.localAuth || {}) },

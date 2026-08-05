@@ -198,14 +198,12 @@ export function reduceProfile(profile, event) {
     case "ONBOARDING_EXPLORE":
       nextProfile = markOnboardingExplored(baseProfile, {
         doNotShowAgain: true,
-        helperSpriteEnabled: true,
         adaptiveLearningEnabled: true,
       });
       break;
     case "ONBOARDING_WATCH_LATER":
       nextProfile = markOnboardingExplored(baseProfile, {
         doNotShowAgain: false,
-        helperSpriteEnabled: true,
         adaptiveLearningEnabled: true,
       });
       break;
@@ -1132,6 +1130,20 @@ function updateSetting(profile, path, value) {
     cursor = cursor[key];
   });
   cursor[keys[keys.length - 1]] = normalizedValue;
+  if (path === "helperSprite.enabled") {
+    settings.helperSprite = {
+      ...(settings.helperSprite || {}),
+      userEnabled: Boolean(normalizedValue),
+      enabled: Boolean(normalizedValue),
+    };
+  }
+  if (path === "notifications.master") {
+    settings.notifications = {
+      ...(settings.notifications || {}),
+      userEnabled: Boolean(normalizedValue),
+      master: Boolean(normalizedValue),
+    };
+  }
   if (path === "adhdMode.enabled") {
     settings.adhdAutomation = Boolean(normalizedValue);
   }
@@ -1430,6 +1442,8 @@ function getNotificationPreferences(profile = {}) {
   return {
     ...defaults,
     ...current,
+    userEnabled: current.userEnabled === true,
+    master: current.userEnabled === true && current.master === true,
     tournamentEvents: { ...defaults.tournamentEvents, ...(current.tournamentEvents || {}) },
     gameplayEvents: { ...defaults.gameplayEvents, ...(current.gameplayEvents || {}) },
     friendEvents: { ...defaults.friendEvents, ...(current.friendEvents || {}) },
@@ -1437,7 +1451,7 @@ function getNotificationPreferences(profile = {}) {
 }
 
 function shouldKeepNotification(preferences = {}, category = "system", eventKey = "general", notification = {}) {
-  if (!preferences.master && !notification.critical) return false;
+  if (!preferences.master) return false;
   if (category === "tournament") {
     if (!preferences.tournament && !notification.critical) return false;
     return preferences.tournamentEvents?.[eventKey] !== false || Boolean(notification.critical);
