@@ -871,14 +871,6 @@ export function mountApp(root, store) {
           priority: button.dataset.sensoryPriority || SENSORY_PRIORITY.contextualAction,
           volumeCategory: button.dataset.sensoryChannel === SENSORY_CHANNELS.gameplay ? "gameplayVolume" : "uiVolume",
         });
-        queueMicrotask(() =>
-          store.dispatch({
-            type: "LEARNING_RECORD_INTERACTION",
-            interactionType: "command-card-select",
-            featureId: "commandHand",
-            internalOnly: true,
-          })
-        );
       });
     });
     deck.addEventListener(
@@ -3368,26 +3360,6 @@ export function mountApp(root, store) {
       button.addEventListener("click", () => {
         closeAllTemporaryUi({ renderAfter: false });
         activeUtilityPanel = button.dataset.openUtility || "";
-        const learningFeature = {
-          search: "search",
-          "rules-assistant": "rulesAssistant",
-          "remind-me": "reminders",
-          stack: "stack",
-          triggers: "stack",
-          history: "helpCenter",
-        }[activeUtilityPanel] || "commandHand";
-        store.dispatch({
-          type: "LEARNING_RECORD_INTERACTION",
-          interactionType: `open-utility-${activeUtilityPanel || "unknown"}`,
-          featureId: learningFeature,
-          internalOnly: true,
-        });
-        store.dispatch({
-          type: "ASSISTANCE_RECORD_INTERACTION",
-          interactionType: `open-utility-${activeUtilityPanel || "unknown"}`,
-          workflowId: learningFeature,
-          internalOnly: true,
-        });
         // Open the selected utility panel without forcing the dock menu to stay expanded behind it.
         utilityDockOpen = false;
         render(store.getState());
