@@ -162,11 +162,11 @@ export function createLoadingScreenController({ assets = [] } = {}) {
       } catch {
         // Recovery must remain available even if storage is unavailable.
       }
-      location.hash = "#life";
+      location.hash = "#battlefield";
       location.reload();
     });
     actions?.querySelector("[data-loading-fresh]")?.addEventListener("click", () => {
-      location.hash = "#life";
+      location.hash = "#battlefield";
       location.reload();
     });
   }

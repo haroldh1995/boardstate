@@ -23,12 +23,15 @@ Every visible system exists to support Commander gameplay. When no contextual in
 
 ## Runtime Standards
 
-- `src/main.js` preloads the landscape battlefield wallpaper for every gameplay startup path. The portrait wallpaper remains an asset for historical compatibility but is no longer selected by BoardState runtime.
+- `src/main.js` preloads the landscape battlefield wallpaper for every gameplay startup path and requests a best-effort browser landscape orientation lock before the app renders.
+- `index.html` and `public/manifest.webmanifest` declare landscape startup metadata and launch directly into `#battlefield`.
 - `src/state/schema.js` sets `settings.appearance.compositionMode` to `landscape`.
-- `src/storage/localDatabase.js` normalizes legacy saved profiles back to `landscape` and retires `edgeSwipeShortcuts`, `compactMobileHud`, and `mobileFocusView` for BoardState runtime.
-- `src/state/gameReducer.js` rejects attempts to switch `appearance.compositionMode` away from `landscape`.
-- `src/ui/render.js` reports `data-gameplay-composition="landscape"` and `data-visual-foundation="boardstate-native-game-visual-foundation-0.1.0"` while keeping the existing widescreen CSS compatibility selector until the stylesheet can be fully consolidated.
+- `src/storage/localDatabase.js` normalizes legacy saved profiles back to `landscape` and strips deprecated mobile navigation fields during load.
+- `src/state/gameReducer.js` rejects attempts to switch `appearance.compositionMode` away from `landscape` and ignores deprecated mobile-navigation setting paths.
+- `src/ui/render.js` reports `data-gameplay-composition="landscape"`, `data-gameplay-orientation="landscape"`, `data-game-viewport="fixed"`, and `data-landscape-viewport-lock-version`.
 - `src/ecosystem/ecosystemIntegration.js` exports shared preferences with `compositionMode: "landscape"` and refuses external preference patches that attempt to re-enable portrait/mobile gameplay composition.
+- `android-app` locks `MainActivity` and its manifest to landscape.
+- `flutter-app` locks preferred orientations to `landscapeLeft` and `landscapeRight` and launches hosted BoardState at `#battlefield`.
 
 ## Retired Runtime Behavior
 
@@ -37,8 +40,10 @@ Every visible system exists to support Commander gameplay. When no contextual in
 - BoardState no longer renders mobile page-swipe navigation controls for gameplay.
 - BoardState no longer renders edge-swipe navigation zones.
 - BoardState no longer selects the portrait wallpaper during startup.
+- BoardState no longer renders draggable mobile HUD badges, compact mobile HUD columns, mobile focus view, or mobile bottom sheets.
+- BoardState no longer defaults to Home, Life Tracker, or any portrait-oriented gameplay surface after loading. Invalid or empty routes resolve to `#battlefield`.
 
-Legacy CSS selectors containing `mobile`, `portrait`, or `body[data-composition="mobile"]` are compatibility remnants from earlier prompts. They are not active in the canonical runtime and should be removed opportunistically only when doing so does not risk current battlefield, tutorial, save, or accessibility behavior.
+The loading screen remains orientation-neutral enough to recover from startup failures. All post-loading BoardState gameplay surfaces are landscape-only.
 
 ## Digital Tabletop Composition
 

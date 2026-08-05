@@ -1,0 +1,12 @@
+{
+  "name": "BoardState",
+  "short_name": "BoardState",
+  "description": "Landscape-first Commander battlefield and authoritative gameplay companion.",
+  "start_url": "./#battlefield",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#05030a",
+  "theme_color": "#120c1b"
+}

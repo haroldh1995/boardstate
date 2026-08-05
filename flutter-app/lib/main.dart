@@ -4,13 +4,17 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 const String _boardStateAssetEntry = 'assets/boardstate/index.html';
-const String _hostedBoardStateUrl = 'https://haroldh1995.github.io/boardstate/#life';
+const String _hostedBoardStateUrl = 'https://haroldh1995.github.io/boardstate/#battlefield';
 const Color _appBackground = Color(0xFF05030A);
 const Color _gold = Color(0xFFF1C06B);
 const Color _blue = Color(0xFF8FD3FF);
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]);
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(

@@ -284,6 +284,10 @@ function loadAuthFallback() {
 
 function normalizeProfile(profile) {
   const defaults = createDefaultProfile();
+  const navigationSettings = normalizeBoardStateNavigationSettings(
+    profile.settings?.navigation || {},
+    defaults.settings.navigation,
+  );
   const hasExplicitOnboarding = Boolean(profile && Object.prototype.hasOwnProperty.call(profile, "onboarding"));
   const onboarding = hasExplicitOnboarding
     ? createOnboardingState({ ...defaults.onboarding, ...(profile.onboarding || {}) })
@@ -316,13 +320,7 @@ function normalizeProfile(profile) {
         ...(profile.settings?.appearance || {}),
         compositionMode: "landscape",
       },
-      navigation: {
-        ...defaults.settings.navigation,
-        ...(profile.settings?.navigation || {}),
-        edgeSwipeShortcuts: false,
-        compactMobileHud: false,
-        mobileFocusView: false,
-      },
+      navigation: navigationSettings,
       gestures: { ...defaults.settings.gestures, ...(profile.settings?.gestures || {}) },
       adhdMode: { ...defaults.settings.adhdMode, ...(profile.settings?.adhdMode || {}) },
       helperSprite: { ...defaults.settings.helperSprite, ...(profile.settings?.helperSprite || {}) },
@@ -551,6 +549,14 @@ function normalizeProfile(profile) {
     ...normalized,
     ecosystemIntegration: createEcosystemIntegrationState(normalized, profile.ecosystemIntegration || {}),
   };
+}
+
+function normalizeBoardStateNavigationSettings(navigation = {}, defaults = {}) {
+  const normalized = { ...defaults };
+  if (typeof navigation?.showProfileInMainUi === "boolean") {
+    normalized.showProfileInMainUi = navigation.showProfileInMainUi;
+  }
+  return normalized;
 }
 
 function createGuestProfile(hasPassword, options = {}) {

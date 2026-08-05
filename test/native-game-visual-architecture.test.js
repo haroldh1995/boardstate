@@ -35,9 +35,11 @@ test("native game visual architecture documents the permanent landscape battlefi
 test("default profile and reducer keep BoardState gameplay composition landscape-only", () => {
   const profile = createDefaultProfile();
   assert.equal(profile.settings.appearance.compositionMode, "landscape");
-  assert.equal(profile.settings.navigation.edgeSwipeShortcuts, false);
-  assert.equal(profile.settings.navigation.compactMobileHud, false);
-  assert.equal(profile.settings.navigation.mobileFocusView, false);
+  assert.equal("edgeSwipeShortcuts" in profile.settings.navigation, false);
+  assert.equal("compactMobileHud" in profile.settings.navigation, false);
+  assert.equal("mobileFocusView" in profile.settings.navigation, false);
+  assert.equal("hudBadgesLocked" in profile.settings.navigation, false);
+  assert.equal("hudBadgePositions" in profile.settings.navigation, false);
 
   const attemptedMobile = reduceProfile(profile, {
     type: "SET_SETTING",
@@ -51,14 +53,14 @@ test("default profile and reducer keep BoardState gameplay composition landscape
     path: "navigation.edgeSwipeShortcuts",
     value: true,
   });
-  assert.equal(attemptedEdgeSwipe.settings.navigation.edgeSwipeShortcuts, false);
+  assert.equal("edgeSwipeShortcuts" in attemptedEdgeSwipe.settings.navigation, false);
 });
 
 test("ecosystem preferences report landscape honestly and reject portrait/mobile patches", () => {
   const profile = createDefaultProfile();
   const snapshot = createSharedPreferenceSnapshot(profile);
   assert.equal(snapshot.animation.compositionMode, "landscape");
-  assert.equal(snapshot.interaction.edgeSwipeShortcuts, false);
+  assert.equal("edgeSwipeShortcuts" in snapshot.interaction, false);
   assert.equal(snapshot.synchronizedThroughHub, false);
 
   const patched = applySharedPreferencePatch(profile, {
@@ -66,29 +68,65 @@ test("ecosystem preferences report landscape honestly and reject portrait/mobile
     animation: { compositionMode: "mobile" },
   });
   assert.equal(patched.settings.appearance.compositionMode, "landscape");
-  assert.equal(patched.settings.navigation.edgeSwipeShortcuts, false);
-  assert.equal(patched.settings.navigation.compactMobileHud, false);
-  assert.equal(patched.settings.navigation.mobileFocusView, false);
+  assert.equal("edgeSwipeShortcuts" in patched.settings.navigation, false);
+  assert.equal("compactMobileHud" in patched.settings.navigation, false);
+  assert.equal("mobileFocusView" in patched.settings.navigation, false);
+  assert.equal("hudBadgesLocked" in patched.settings.navigation, false);
+  assert.equal("hudBadgePositions" in patched.settings.navigation, false);
 });
 
 test("battlefield model treats noncanonical viewport hints as landscape-safe desktop", () => {
-  const model = createLandscapeBattlefieldModel(createDefaultProfile(), { viewport: "portrait-support" });
+  const model = createLandscapeBattlefieldModel(createDefaultProfile(), { viewport: "invalid-orientation" });
   assert.equal(model.orientation, "landscape-first");
   assert.equal(model.viewport, "desktop");
 });
 
 test("runtime no longer contains portrait wallpaper selection or mobile navigation scaffolding", () => {
   const main = readRepositoryFile("src/main.js");
+  const loadingScreen = readRepositoryFile("src/ui/loadingScreen.js");
   const render = readRepositoryFile("src/ui/render.js");
   const styles = readRepositoryFile("src/styles.css");
   const landscapeModel = readRepositoryFile("src/ui/landscapeBattlefield.js");
+  const index = readRepositoryFile("index.html");
+  const manifest = readRepositoryFile("public/manifest.webmanifest");
+  const androidManifest = readRepositoryFile("android-app/app/src/main/AndroidManifest.xml");
+  const mainActivity = readRepositoryFile("android-app/app/src/main/java/com/boardstate/app/MainActivity.java");
+  const flutter = readRepositoryFile("flutter-app/lib/main.dart");
 
   assert.equal(main.includes("boardstate-bg-portrait"), false);
+  assert.match(main, /requestBoardStateLandscapeLock/);
+  assert.match(main, /globalThis\.screen\?\.orientation/);
+  assert.match(main, /orientation\.lock\(mode\)/);
+  assert.match(loadingScreen, /location\.hash = "#battlefield"/);
+  assert.equal(loadingScreen.includes("#life"), false);
   assert.equal(styles.includes("boardstate-bg-portrait"), false);
   assert.equal(render.includes("orientationchange"), false);
+  assert.equal(render.includes("portrait-allowed"), false);
+  assert.equal(render.includes("MOBILE_LAYOUT_ARCHITECTURE_VERSION"), false);
+  assert.equal(render.includes("LANDSCAPE_VIEWPORT_PAGES"), false);
+  assert.equal(render.includes("isMobilePortrait"), false);
+  assert.equal(render.includes("mobile-bottom-sheet"), false);
+  assert.equal(render.includes("data-draggable-hud"), false);
+  assert.equal(render.includes("HUD_BADGE_DEFAULTS"), false);
+  assert.equal(styles.includes("mobile-bottom-sheet"), false);
+  assert.equal(styles.includes("data-draggable-hud"), false);
+  assert.equal(styles.includes("mobile-hud-column"), false);
+  assert.equal(styles.includes("mobile-focus-view"), false);
   assert.equal(render.includes("data-mobile-nav"), false);
   assert.equal(render.includes("data-edge-zone"), false);
   assert.equal(landscapeModel.includes("portrait-support"), false);
+  assert.match(render, /return allPages\.includes\(rawPage\) \? rawPage : "battlefield";/);
+  assert.match(index, /manifest\.webmanifest/);
+  assert.match(index, /<meta name="screen-orientation" content="landscape"/);
+  assert.match(manifest, /"orientation": "landscape"/);
+  assert.match(manifest, /"start_url": "\.\/#battlefield"/);
+  assert.match(androidManifest, /android:screenOrientation="landscape"/);
+  assert.equal(androidManifest.includes('android:screenOrientation="portrait"'), false);
+  assert.match(mainActivity, /SCREEN_ORIENTATION_LANDSCAPE/);
+  assert.match(flutter, /DeviceOrientation\.landscapeLeft/);
+  assert.match(flutter, /DeviceOrientation\.landscapeRight/);
+  assert.match(flutter, /#battlefield/);
+  assert.equal(flutter.includes("#life"), false);
   assert.match(render, /boardstate-native-game-visual-foundation-0\.1\.0/);
   assert.equal(render.includes("dataset.gameplayComposition = CANONICAL_GAMEPLAY_COMPOSITION"), true);
 });

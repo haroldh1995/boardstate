@@ -130,8 +130,10 @@ const COMMANDER_ACTION_HAND_VERSION = "boardstate-commander-action-hand-0.1.0";
 const COMMAND_DECK_VERSION = "boardstate-rotating-command-deck-0.1.0";
 const TABLETOP_RECONSTRUCTION_VERSION = "boardstate-tabletop-reconstruction-0.1.0";
 const HUD_COMPOSITION_VERSION = "boardstate-hud-composition-0.1.0";
+const LANDSCAPE_VIEWPORT_LOCK_VERSION = "boardstate-landscape-viewport-lock-0.1.0";
 const CANONICAL_GAMEPLAY_COMPOSITION = "landscape";
 const RUNTIME_LAYOUT_COMPOSITION = "widescreen";
+const CANONICAL_GAMEPLAY_ORIENTATION = "landscape";
 const COMMAND_DECK_VISIBLE_RADIUS = 3;
 const COMMAND_DECK_ROTATE_THRESHOLD = 42;
 const COMMAND_DECK_AUTO_CENTER_COOLDOWN_MS = 4200;
@@ -159,7 +161,6 @@ const PERMANENT_DOUBLE_TAP_MS = 260;
 const PERMANENT_VERTICAL_SWIPE_THRESHOLD = 42;
 const PERMANENT_DRAG_REORDER_THRESHOLD = 46;
 const ATTACK_DRAG_TOP_RATIO = 0.34;
-const HUD_DRAG_THRESHOLD = 7;
 const OUTSIDE_DISMISS_DRAG_THRESHOLD = 10;
 const TEMPORARY_SCROLL_SELECTORS = [
   ".floating-overlay",
@@ -217,12 +218,6 @@ const BACKGROUND_SCROLL_LOCK_SELECTORS = [
   ".guided-tutorial-panel",
   ".local-saves-panel",
 ];
-const HUD_BADGE_DEFAULTS = {
-  utility: { x: 98, y: 520 },
-  helper: { x: 14, y: 420 },
-  simulation: { x: 14, y: 182 },
-  floatingMana: { x: 14, y: 332 },
-};
 const DEFAULT_TRACKER_MODIFIER = {
   kind: "delta",
   value: 1,
@@ -377,9 +372,6 @@ export function mountApp(root, store) {
   let commandDeckSuppressClickUntil = 0;
   let toolContextOverride = "";
   let quickPanelOpen = "";
-  let hudBadgePositions = cloneHudBadgePositions(HUD_BADGE_DEFAULTS);
-  let hudBadgeDrag = null;
-  let hudBadgesLocked = false;
   let manaAutoCloseTimer = null;
   const expandedStackIds = new Set();
   const permanentGestureState = new Map();
@@ -496,10 +488,8 @@ export function mountApp(root, store) {
     ) {
       manualChoicePanelCollapsed = false;
     }
-    const navigationSettings = profile.settings?.navigation || {};
-    hudBadgePositions = mergeHudBadgePositions(navigationSettings.hudBadgePositions);
     const resolvedCompositionMode = resolveCompositionMode(profile);
-    hudBadgesLocked = Boolean(navigationSettings.hudBadgesLocked);
+    const viewportContract = resolveApplicationViewport(activePage);
     helperMessage = resolveHelperSpriteMessage(profile, activePage);
     if (castActionPopup) {
       const popupIndex = searchResults.findIndex(
@@ -537,6 +527,10 @@ export function mountApp(root, store) {
     document.body.dataset.commandDeckVersion = COMMAND_DECK_VERSION;
     document.body.dataset.tabletopReconstructionVersion = TABLETOP_RECONSTRUCTION_VERSION;
     document.body.dataset.hudCompositionVersion = HUD_COMPOSITION_VERSION;
+    document.body.dataset.landscapeViewportLockVersion = LANDSCAPE_VIEWPORT_LOCK_VERSION;
+    document.body.dataset.gameViewport = viewportContract.viewport;
+    document.body.dataset.gameplayOrientation = viewportContract.orientation;
+    document.body.dataset.deviceClass = viewportContract.deviceClass;
     document.body.dataset.page = activePage;
     document.body.dataset.uiLayer = uiLayerState.current;
     document.body.dataset.simulationActive = profile.activeSession?.simulation?.enabled ? "true" : "false";
@@ -586,9 +580,6 @@ export function mountApp(root, store) {
       simulationSelectedDeckSnapshotId,
       simulationSetupError,
       simulationStatsOpen,
-      isMobilePortrait: false,
-      hudBadgePositions,
-      hudBadgesLocked,
       syncedTurnOrderSetupOpen,
       syncedTurnOrderError,
       syncedTurnOrderPlayers,
@@ -610,6 +601,7 @@ export function mountApp(root, store) {
         optionsOpen,
         keepSearchInputFocus,
       }),
+      viewportContract,
       manualChoicePanelCollapsed,
     });
     bind(root, profile);
@@ -1299,7 +1291,6 @@ export function mountApp(root, store) {
         render(store.getState());
       })
     );
-    bindDraggableHudBadges(container);
     container.querySelectorAll("[data-game-options]").forEach((button) =>
       button.addEventListener("click", () => {
         closeAllTemporaryUi({ renderAfter: false });
@@ -2157,16 +2148,6 @@ export function mountApp(root, store) {
       if (!confirm(`${incomplete ? `${incomplete} player(s) have not completed a 1v1. ` : ""}End tournament and announce Top 3?`)) return;
       store.dispatch({ type: "TOURNAMENT_END" });
     });
-    container.querySelectorAll("[data-reset-hud-layout]").forEach((button) =>
-      button.addEventListener("click", () => {
-        openConfirmation({
-          id: "reset-hud-layout",
-          title: "Reset HUD layout?",
-          message: "Floating badge positions return to their safe defaults.",
-          confirmLabel: "Reset Layout",
-        });
-      })
-    );
     container.querySelector("[data-helper-remind]")?.addEventListener("click", () => {
       const messages = collectHelperCandidateMessages(store.getState(), activePage)
         .slice(0, 8)
@@ -3677,13 +3658,11 @@ export function mountApp(root, store) {
       return;
     }
     const inside = isInsideLayer(event.target, topLayer);
-    const draggable = Boolean(event.target?.closest?.("[data-draggable-hud]"));
     outsideDismissPointerStart = {
       x: event.clientX,
       y: event.clientY,
       layerName: topLayer.name,
       inside,
-      draggable,
       moved: false,
     };
   }
@@ -3709,7 +3688,7 @@ export function mountApp(root, store) {
     }
     const pointerStart = outsideDismissPointerStart;
     outsideDismissPointerStart = null;
-    if (hudBadgeDrag || pointerStart.draggable || pointerStart.moved) {
+    if (pointerStart.moved) {
       return;
     }
     const dx = Math.abs(event.clientX - pointerStart.x);
@@ -3901,100 +3880,6 @@ export function mountApp(root, store) {
     if (renderAfter) {
       render(store.getState());
     }
-  }
-
-  function bindDraggableHudBadges(container) {
-    container.querySelectorAll("[data-draggable-hud]").forEach((node) => {
-      const hudId = node.dataset.draggableHud;
-      if (!hudId || hudId === "tools") {
-        return;
-      }
-      const lockState = node.dataset.hudLockState;
-      if (lockState === "locked") {
-        return;
-      }
-      node.addEventListener("pointerdown", (event) => {
-        if (!isTouchGestureMode()) {
-          return;
-        }
-        node.setPointerCapture?.(event.pointerId);
-        const current = hudBadgePositions[hudId] || HUD_BADGE_DEFAULTS[hudId] || { x: 12, y: 180 };
-        hudBadgeDrag = {
-          id: hudId,
-          startX: event.clientX,
-          startY: event.clientY,
-          originalX: current.x,
-          originalY: current.y,
-          moved: false,
-        };
-      });
-      node.addEventListener("pointermove", (event) => {
-        if (!hudBadgeDrag || hudBadgeDrag.id !== hudId || hudBadgesLocked) {
-          return;
-        }
-        const dx = event.clientX - hudBadgeDrag.startX;
-        const dy = event.clientY - hudBadgeDrag.startY;
-        hudBadgeDrag.moved = hudBadgeDrag.moved || Math.abs(dx) > HUD_DRAG_THRESHOLD || Math.abs(dy) > HUD_DRAG_THRESHOLD;
-        const next = clampHudBadgePosition(hudId, hudBadgeDrag.originalX + dx, hudBadgeDrag.originalY + dy);
-        hudBadgePositions = {
-          ...hudBadgePositions,
-          [hudId]: next,
-        };
-        node.style.left = `${next.x}px`;
-        node.style.top = `${next.y}px`;
-      });
-      node.addEventListener("pointerup", () => {
-        if (!hudBadgeDrag || hudBadgeDrag.id !== hudId) {
-          return;
-        }
-        const moved = Boolean(hudBadgeDrag.moved);
-        hudBadgeDrag = null;
-        if (moved) {
-          persistHudBadgePositions(hudBadgePositions);
-          render(store.getState());
-        }
-      });
-      ["pointercancel", "pointerleave"].forEach((eventName) =>
-        node.addEventListener(eventName, () => {
-          if (hudBadgeDrag?.id === hudId) {
-            hudBadgeDrag = null;
-          }
-        })
-      );
-    });
-  }
-
-  function clampHudBadgePosition(id, x, y) {
-    const widthMap = {
-      utility: 110,
-      helper: 220,
-      simulation: 300,
-      floatingMana: 250,
-    };
-    const heightMap = {
-      utility: 52,
-      helper: 68,
-      simulation: 128,
-      floatingMana: 188,
-    };
-    const width = widthMap[id] || 160;
-    const height = heightMap[id] || 80;
-    const maxX = Math.max(8, window.innerWidth - width - 8);
-    const maxY = Math.max(8, window.innerHeight - height - 8);
-    const snappedX = x < window.innerWidth / 2 ? Math.max(8, x) : Math.min(maxX, x);
-    return {
-      x: Math.round(Math.max(8, Math.min(maxX, snappedX))),
-      y: Math.round(Math.max(8, Math.min(maxY, y))),
-    };
-  }
-
-  function persistHudBadgePositions(nextPositions) {
-    store.dispatch({ type: "SET_SETTING", path: "navigation.hudBadgePositions", value: cloneHudBadgePositions(nextPositions) });
-  }
-
-  function resetHudLayout() {
-    store.dispatch({ type: "SET_SETTING", path: "navigation.hudBadgePositions", value: cloneHudBadgePositions(HUD_BADGE_DEFAULTS) });
-    store.dispatch({ type: "SET_SETTING", path: "navigation.hudBadgesLocked", value: false });
   }
 
   function closeSimulationSetup() {
@@ -4346,7 +4231,7 @@ export function mountApp(root, store) {
       .split(/[?&/]/)[0]
       .trim()
       .toLowerCase();
-    return allPages.includes(rawPage) ? rawPage : "home";
+    return allPages.includes(rawPage) ? rawPage : "battlefield";
   }
 
   function normalizeCurrentHash() {
@@ -5031,10 +4916,6 @@ export function mountApp(root, store) {
         endActiveGame();
         showNotice("Active game ended.");
         break;
-      case "reset-hud-layout":
-        resetHudLayout();
-        showNotice("HUD layout reset.");
-        break;
       case "rules-waived-mode":
         store.dispatch({ type: "SET_ENFORCEMENT_MODE", mode: "waived" });
         showNotice("Rules Waived mode enabled with waiver history logging.");
@@ -5713,8 +5594,12 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
   const session = profile.activeSession;
   const tabs = uiState.visiblePages || getVisiblePages(profile);
   const uiLayer = uiState.uiLayerState || resolveUiLayerState(profile, page, uiState);
+  const viewportContract = uiState.viewportContract || resolveApplicationViewport(page);
   const appLayerClasses = [
     `app-shell--${page}`,
+    `app-shell--viewport-${viewportContract.viewport}`,
+    `app-shell--orientation-${viewportContract.orientation}`,
+    `app-shell--device-${viewportContract.deviceClass}`,
     `ui-layer-${uiLayer.current}`,
     uiLayer.passive ? "ui-layer-passive" : "",
     uiLayer.active ? "ui-layer-active" : "",
@@ -5725,7 +5610,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
     .filter(Boolean)
     .join(" ");
   return `
-    <main class="app-shell ${appLayerClasses}" data-ui-layer="${escapeAttribute(uiLayer.current)}" data-app-shell>
+    <main class="app-shell ${appLayerClasses}" data-ui-layer="${escapeAttribute(uiLayer.current)}" data-game-viewport="${escapeAttribute(viewportContract.viewport)}" data-gameplay-orientation="${escapeAttribute(viewportContract.orientation)}" data-device-class="${escapeAttribute(viewportContract.deviceClass)}" data-landscape-viewport-lock-version="${escapeAttribute(viewportContract.version)}" data-app-shell>
       <header class="app-header glass">
         <div class="app-header-top">
           <div>
@@ -5746,14 +5631,14 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       </header>
       ${page === "home" ? renderBoardStateHome(profile) : ""}
       ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier, uiState) : ""}
-      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", isMobilePortrait: Boolean(uiState.isMobilePortrait), manualChoicePanelCollapsed: Boolean(uiState.manualChoicePanelCollapsed), utilityDockOpen: Boolean(uiState.utilityDockOpen), castActionPopup: uiState.castActionPopup, toolMenuOpen: Boolean(uiState.toolMenuOpen), activeToolPanel: uiState.activeToolPanel || "", activeOptionsCategory: uiState.activeOptionsCategory || "", commandDeckRotationIndex: uiState.commandDeckRotationIndex || 0, commandDeckLastManualRotationAt: uiState.commandDeckLastManualRotationAt || 0, sensoryDebugSnapshot: uiState.sensoryDebugSnapshot, learningDebugSnapshot: uiState.learningDebugSnapshot, assistanceDebugSnapshot: uiState.assistanceDebugSnapshot }) : ""}
+      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", manualChoicePanelCollapsed: Boolean(uiState.manualChoicePanelCollapsed), utilityDockOpen: Boolean(uiState.utilityDockOpen), castActionPopup: uiState.castActionPopup, toolMenuOpen: Boolean(uiState.toolMenuOpen), activeToolPanel: uiState.activeToolPanel || "", activeOptionsCategory: uiState.activeOptionsCategory || "", commandDeckRotationIndex: uiState.commandDeckRotationIndex || 0, commandDeckLastManualRotationAt: uiState.commandDeckLastManualRotationAt || 0, sensoryDebugSnapshot: uiState.sensoryDebugSnapshot, learningDebugSnapshot: uiState.learningDebugSnapshot, assistanceDebugSnapshot: uiState.assistanceDebugSnapshot }) : ""}
       ${page === "tournament" ? renderTournamentPage(profile) : ""}
       ${page === "profile" ? renderProfile(profile) : ""}
       ${page === "archive" ? renderArchive(profile) : ""}
       ${page === "decks" ? renderDecks(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery) : ""}
       ${page === "leaderboards" ? renderLeaderboards(profile) : ""}
-      ${page === "battlefield" ? renderBattlefieldToolBadge(profile, uiState.toolMenuOpen, uiState.floatingManaOpen, uiState.activeToolPanel, uiState.hudBadgePositions || HUD_BADGE_DEFAULTS, uiState.toolContext, Boolean(uiState.isMobilePortrait), Boolean(uiState.hudBadgesLocked), Boolean(uiState.simulationLogOpen)) : ""}
-      ${page === "battlefield" ? renderUtilityDock(profile, uiState.utilityDockOpen, uiState.activeUtilityPanel, uiState.hudBadgePositions || HUD_BADGE_DEFAULTS, Boolean(uiState.isMobilePortrait), Boolean(uiState.hudBadgesLocked), searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.castActionPopup, {
+      ${page === "battlefield" ? renderBattlefieldToolBadge(profile, uiState.toolMenuOpen, uiState.floatingManaOpen, uiState.activeToolPanel, uiState.toolContext, Boolean(uiState.simulationLogOpen)) : ""}
+      ${page === "battlefield" ? renderUtilityDock(profile, uiState.utilityDockOpen, uiState.activeUtilityPanel, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.castActionPopup, {
         question: uiState.rulesAssistantQuestion,
         answer: uiState.rulesAssistantAnswer,
         searchQuery: uiState.rulesAssistantSearchQuery,
@@ -5775,7 +5660,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       ${renderFirstLaunchOnboarding(profile)}
       ${renderGuidedTutorialPanel(profile)}
       ${renderAdhdAssistPanel(profile, page, uiLayer.current)}
-      ${renderHelperSprite(profile, uiState.helperMessage, uiState.hudBadgePositions || HUD_BADGE_DEFAULTS, Boolean(uiState.isMobilePortrait), Boolean(uiState.hudBadgesLocked))}
+      ${renderHelperSprite(profile, uiState.helperMessage)}
       ${renderCardPresentation(profile.activeSession?.presentation)}
       ${renderRecoveryToasts(profile, uiState.uiNotice, page)}
       ${uiState.activeNotification ? renderFullWindowNotification(uiState.activeNotification) : ""}
@@ -5789,6 +5674,40 @@ function resolveCompositionMode(profile = {}) {
   return RUNTIME_LAYOUT_COMPOSITION;
 }
 
+function resolveApplicationViewport(page = "", viewport = globalThis) {
+  return {
+    version: LANDSCAPE_VIEWPORT_LOCK_VERSION,
+    viewport: "fixed",
+    orientation: CANONICAL_GAMEPLAY_ORIENTATION,
+    deviceClass: resolveGameDeviceClass(viewport),
+  };
+}
+
+function resolveGameDeviceClass(viewport = globalThis) {
+  const width = Number(viewport?.innerWidth) || 1280;
+  const height = Number(viewport?.innerHeight) || 720;
+  const shortSide = Math.min(width, height);
+  const longSide = Math.max(width, height);
+  const aspect = shortSide > 0 ? longSide / shortSide : 1;
+
+  if (longSide >= 1680 && shortSide >= 900) {
+    return "desktop";
+  }
+  if (longSide >= 1180 && shortSide >= 760) {
+    return "large-tablet";
+  }
+  if (longSide >= 900 && shortSide >= 600) {
+    return "tablet";
+  }
+  if (shortSide >= 540 && aspect >= 1.25) {
+    return "foldable";
+  }
+  if (longSide >= 700 && shortSide <= 560) {
+    return "landscape-phone";
+  }
+  return shortSide <= 560 ? "landscape-phone" : "tablet";
+}
+
 function renderRulesStatusPill(profile = {}) {
   const rules = getRulesControlSummary(profile);
   return `<button class="pill rules-status-pill ${rules.mode === "waived" ? "is-waived" : "is-enforced"}" data-home-action="rules">${escapeHtml(rules.label)}</button>`;
@@ -5797,7 +5716,7 @@ function renderRulesStatusPill(profile = {}) {
 function renderBoardStateHome(profile = {}) {
   const model = getBoardStateHomeModel(profile);
   return `
-    <section class="boardstate-home-page">
+    <section class="boardstate-home-page landscape-entry-dashboard" data-landscape-viewport-lock-version="${escapeAttribute(LANDSCAPE_VIEWPORT_LOCK_VERSION)}" data-home-dashboard="landscape-fixed">
       <div class="home-hero glass">
         <div>
           <p class="eyebrow">Authoritative rules control</p>
@@ -6414,7 +6333,6 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
   const session = profile.activeSession;
   const panels = getPagePanels(profile);
   const adhdMode = getAdhdMode(profile);
-  const isMobilePortrait = false;
   const detailMode = profile.settings?.battlefield?.detailMode || "standard";
   const compressionMode = profile.settings?.battlefield?.compressionMode || "adaptive";
   const selectedIds = new Set(session.selectedIds || []);
@@ -6864,9 +6782,9 @@ function renderLandscapeCommandCenter(model = {}, profile = {}, options = {}) {
   `;
 }
 
-function renderLandscapeContextActionsRail(model = {}, searchResults, searchMessage, searchLoading, searchQuery, activeUtilityPanel, uiState = {}, isMobilePortrait = false, panels = {}) {
+function renderLandscapeContextActionsRail(model = {}, searchResults, searchMessage, searchLoading, searchQuery, activeUtilityPanel, uiState = {}, panels = {}) {
   return `
-    <aside class="landscape-actions-rail search-panel glass ${isMobilePortrait ? "mobile-hud-column" : ""}" aria-label="Context actions">
+    <aside class="landscape-actions-rail search-panel glass" aria-label="Context actions">
       <div class="landscape-rail-header">
         <p class="eyebrow">Context Actions</p>
         <strong>Battlefield Tools</strong>
@@ -6883,7 +6801,7 @@ function renderLandscapeContextActionsRail(model = {}, searchResults, searchMess
           return "";
         }).join("")}
       </div>
-      ${!isMobilePortrait && panels.archiveQuickAdd && activeUtilityPanel !== "search" ? `
+      ${panels.archiveQuickAdd && activeUtilityPanel !== "search" ? `
         <section class="landscape-quick-add">
           <h2>Battlefield Quick Add</h2>
           ${renderSearch(searchResults, searchMessage, searchLoading, searchQuery, "battlefield", uiState.castActionPopup)}
@@ -8042,9 +7960,6 @@ function renderUtilityDock(
   profile,
   open,
   activeUtilityPanel,
-  hudBadgePositions = HUD_BADGE_DEFAULTS,
-  isMobilePortrait = false,
-  hudBadgesLocked = false,
   searchResults = [],
   searchMessage = "",
   searchLoading = false,
@@ -8057,7 +7972,7 @@ function renderUtilityDock(
   }
   return `
     <section class="utility-dock action-hand-overlay-host ${open ? "open" : ""}">
-      ${renderUtilityPanel(profile, activeUtilityPanel, isMobilePortrait, searchResults, searchMessage, searchLoading, searchQuery, castActionPopup, rulesAssistantUi)}
+      ${renderUtilityPanel(profile, activeUtilityPanel, searchResults, searchMessage, searchLoading, searchQuery, castActionPopup, rulesAssistantUi)}
     </section>
   `;
 }
@@ -8593,7 +8508,7 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
   `;
 }
 
-function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResults = [], searchMessage = "", searchLoading = false, searchQuery = "", castActionPopup = null, rulesAssistantUi = {}) {
+function renderUtilityPanel(profile, panel, searchResults = [], searchMessage = "", searchLoading = false, searchQuery = "", castActionPopup = null, rulesAssistantUi = {}) {
   if (!panel || panel === "history" || panel === "triggers") {
     return "";
   }
@@ -8603,9 +8518,8 @@ function renderUtilityPanel(profile, panel, isMobilePortrait = false, searchResu
   const calcValue = profile.settings?.utility?.calculator || "";
   const rulesText = (getSelectedPermanents(session)[0]?.rulesText || getSelectedPermanents(session)[0]?.oracleText || "Select a permanent to inspect rules.");
   const utilityTitle = panel === "utilities" ? "Command Utilities" : panel === "search" ? "Search/Add Card" : panel === "stack" ? "Stack & Priority" : panel === "rules-assistant" ? "Rules Assistant" : panel === "remind-me" ? "Remind Me" : panel === "ai-analysis" ? "AI Analysis" : formatLabel(panel);
-  const mobileSheetClass = isMobilePortrait ? "mobile-bottom-sheet" : "";
   return `
-    <section class="utility-overlay glass ${mobileSheetClass}" data-no-swipe data-visual-material="${escapeAttribute(VISUAL_MATERIALS.polishedGlass)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.overlay)}" data-visual-elevation="overlay" data-visual-shadow="overlay" data-visual-glow="subtle">
+    <section class="utility-overlay glass" data-no-swipe data-visual-material="${escapeAttribute(VISUAL_MATERIALS.polishedGlass)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.overlay)}" data-visual-elevation="overlay" data-visual-shadow="overlay" data-visual-glow="subtle">
       <div class="overlay-header compact">
         <h2>${escapeHtml(utilityTitle)}</h2>
         <button data-close-utility-panel>Close</button>
@@ -9237,7 +9151,7 @@ function renderCastActionPopup(results = [], popup = null) {
   `;
 }
 
-function renderBattlefieldToolBadge(profile, menuOpen, floatingManaOpen, activeToolPanel, positions, toolContext, isMobilePortrait = false, hudBadgesLocked = false, simulationLogOpen = false) {
+function renderBattlefieldToolBadge(profile, menuOpen, floatingManaOpen, activeToolPanel, toolContext, simulationLogOpen = false) {
   const manaPinned = Boolean(profile.settings?.battlefield?.manaPinned);
   const radialActions = getContextualRadialActions(toolContext, floatingManaOpen || manaPinned);
   const simulation = profile.activeSession?.simulation || {};
@@ -9256,8 +9170,8 @@ function renderBattlefieldToolBadge(profile, menuOpen, floatingManaOpen, activeT
         ${radialActions.map((entry) => renderRadialAction(entry)).join("")}
       </section>
       ` : ""}
-      ${activeToolPanel ? renderBattlefieldToolPanel(profile, activeToolPanel, toolContext, isMobilePortrait, simulationLogOpen) : ""}
-      ${floatingManaOpen || manaPinned ? renderFloatingManaControls(profile, manaPinned, positions, isMobilePortrait, hudBadgesLocked) : ""}
+      ${activeToolPanel ? renderBattlefieldToolPanel(profile, activeToolPanel, toolContext, simulationLogOpen) : ""}
+      ${floatingManaOpen || manaPinned ? renderFloatingManaControls(profile, manaPinned) : ""}
     </div>
   `;
 }
@@ -9325,16 +9239,11 @@ function renderRadialAction(entry) {
   return `<button data-open-floating-mana>${escapeHtml(entry.label)}</button>`;
 }
 
-function renderFloatingManaControls(profile, pinned, positions = HUD_BADGE_DEFAULTS, isMobilePortrait = false, hudBadgesLocked = false) {
+function renderFloatingManaControls(profile, pinned) {
   const session = profile.activeSession;
   const colors = Object.entries(session.manaPool);
-  const position = positions.floatingMana || HUD_BADGE_DEFAULTS.floatingMana;
-  const inlineStyle = isMobilePortrait && !pinned ? `style="left:${Math.round(position.x)}px;top:${Math.round(position.y)}px;"` : "";
-  const draggableAttrs = isMobilePortrait && !pinned
-    ? `data-draggable-hud="floatingMana" data-hud-lock-state="${hudBadgesLocked ? "locked" : "unlocked"}"`
-    : "";
   return `
-    <section class="floating-mana glass ${pinned ? "pinned" : ""} ${isMobilePortrait ? "mobile-bottom-sheet" : ""}" ${inlineStyle} ${draggableAttrs}>
+    <section class="floating-mana glass ${pinned ? "pinned" : ""}">
       <div class="overlay-header compact">
         <h2>Floating Mana</h2>
         ${pinned ? `<span class="eyebrow">Pinned</span>` : ""}
@@ -9357,7 +9266,7 @@ function renderFloatingManaControls(profile, pinned, positions = HUD_BADGE_DEFAU
   `;
 }
 
-function renderBattlefieldToolPanel(profile, panel, toolContext = "empty", isMobilePortrait = false, simulationLogOpen = false) {
+function renderBattlefieldToolPanel(profile, panel, toolContext = "empty", simulationLogOpen = false) {
   const titleMap = {
     tokens: "Token Controls",
     permanents: "Permanent Controls",
@@ -9368,7 +9277,7 @@ function renderBattlefieldToolPanel(profile, panel, toolContext = "empty", isMob
     simulation: "Dry Run Controls",
   };
   return `
-    <section class="floating-tool-panel glass ${isMobilePortrait ? "mobile-bottom-sheet" : ""}" data-floating-tool-panel data-tool-context="${escapeAttribute(toolContext)}">
+    <section class="floating-tool-panel glass" data-floating-tool-panel data-tool-context="${escapeAttribute(toolContext)}">
       <div class="overlay-header compact">
         <h2>${titleMap[panel] || "Battlefield Tool"}</h2>
         <button data-close-tool-panel>Close</button>
@@ -11695,8 +11604,6 @@ function renderHudOptionsSubpage(profile) {
         <p>Device view: ${escapeHtml(compositionLabel)}</p>
         ${renderToggle("Life total panel", "pagePanels.lifeTrackerLife", panels.lifeTrackerLife)}
         ${renderToggle("Show Profile in Main UI", "navigation.showProfileInMainUi", Boolean(profile.settings?.navigation?.showProfileInMainUi))}
-        ${renderToggle("Lock HUD Badges", "navigation.hudBadgesLocked", Boolean(profile.settings?.navigation?.hudBadgesLocked))}
-        <button class="wide" data-reset-hud-layout>Reset HUD Layout</button>
         <p>Floating mana lives in the Battlefield tools menu as a floating widget with pin/unpin support.</p>
         ${renderToggle("Opponent board panel", "pagePanels.boardOpponent", panels.boardOpponent)}
         ${renderToggle("Combat controls", "pagePanels.boardCombat", panels.boardCombat)}
@@ -11967,8 +11874,6 @@ function renderGameOptions(profile, page = "life") {
             <p>Device view: ${escapeHtml(compositionLabel)}</p>
             ${renderToggle("Life total panel", "pagePanels.lifeTrackerLife", panels.lifeTrackerLife)}
             ${renderToggle("Show Profile in Main UI", "navigation.showProfileInMainUi", Boolean(profile.settings?.navigation?.showProfileInMainUi))}
-            ${renderToggle("Lock HUD Badges", "navigation.hudBadgesLocked", Boolean(profile.settings?.navigation?.hudBadgesLocked))}
-            <button class="wide" data-reset-hud-layout>Reset HUD Layout</button>
             <p>Floating mana now lives in the Battlefield tools menu as a floating widget with pin/unpin support.</p>
             ${renderToggle("Opponent board panel", "pagePanels.boardOpponent", panels.boardOpponent)}
             ${renderToggle("Combat controls", "pagePanels.boardCombat", panels.boardCombat)}
@@ -12655,7 +12560,7 @@ function renderAdhdAssistPanel(profile, page, uiLayer) {
   `;
 }
 
-function renderHelperSprite(profile, helperMessage, positions = HUD_BADGE_DEFAULTS, isMobilePortrait = false, hudBadgesLocked = false) {
+function renderHelperSprite(profile, helperMessage) {
   if (!profile.settings?.helperSprite?.enabled || !helperMessage) {
     return "";
   }
@@ -12664,17 +12569,10 @@ function renderHelperSprite(profile, helperMessage, positions = HUD_BADGE_DEFAUL
     : helperMessage.source === "contextual-assistance"
       ? "Table Assist"
       : "Helper Sprite";
-  const position = positions.helper || HUD_BADGE_DEFAULTS.helper;
   const styleParts = [`--helper-ttl:${Math.round(Number(helperMessage.ttlMs) || 5200)}ms`];
-  if (isMobilePortrait) {
-    styleParts.push(`left:${Math.round(position.x)}px`, `top:${Math.round(position.y)}px`);
-  }
   const inlineStyle = `style="${styleParts.join(";")};"`;
-  const draggableAttrs = isMobilePortrait
-    ? `data-draggable-hud="helper" data-hud-lock-state="${hudBadgesLocked ? "locked" : "unlocked"}"`
-    : "";
   return `
-    <section class="helper-sprite-widget ${helperMessage.fading ? "is-fading" : ""} glass" data-no-swipe ${inlineStyle} ${draggableAttrs} role="status" aria-live="polite">
+    <section class="helper-sprite-widget ${helperMessage.fading ? "is-fading" : ""} glass" data-no-swipe ${inlineStyle} role="status" aria-live="polite">
       <button class="helper-sprite-avatar" data-helper-dismiss title="Dismiss helper sprite">*</button>
       <button class="helper-sprite-bubble" data-helper-open aria-label="Open Helper Sprite prompt">
         <strong>${escapeHtml(helperLabel)}</strong>
@@ -12683,33 +12581,6 @@ function renderHelperSprite(profile, helperMessage, positions = HUD_BADGE_DEFAUL
       ${helperMessage.source === "guided-tutorial" ? `<div class="helper-sprite-actions"><button data-tutorial-repeat>Repeat</button><button data-tutorial-pause>Pause</button></div>` : ""}
     </section>
   `;
-}
-
-function cloneHudBadgePositions(positions = HUD_BADGE_DEFAULTS) {
-  return Object.fromEntries(
-    Object.entries(positions || {}).map(([key, value]) => [
-      key,
-      {
-        x: Number(value?.x ?? HUD_BADGE_DEFAULTS[key]?.x ?? 12),
-        y: Number(value?.y ?? HUD_BADGE_DEFAULTS[key]?.y ?? 12),
-      },
-    ])
-  );
-}
-
-function mergeHudBadgePositions(rawPositions = {}) {
-  return Object.fromEntries(
-    Object.entries(HUD_BADGE_DEFAULTS).map(([key, defaults]) => {
-      const incoming = rawPositions?.[key] || {};
-      return [
-        key,
-        {
-          x: Number.isFinite(Number(incoming.x)) ? Number(incoming.x) : defaults.x,
-          y: Number.isFinite(Number(incoming.y)) ? Number(incoming.y) : defaults.y,
-        },
-      ];
-    })
-  );
 }
 
 function summarizeRecordEntries(record = {}, limit = 5) {

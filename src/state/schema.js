@@ -178,17 +178,6 @@ export function createDefaultProfile() {
       },
       navigation: {
         showProfileInMainUi: false,
-        edgeSwipeShortcuts: false,
-        compactMobileHud: false,
-        mobileFocusView: false,
-        hudBadgesLocked: false,
-        hudBadgePositions: {
-          tools: { x: 18, y: 520 },
-          utility: { x: 98, y: 520 },
-          helper: { x: 14, y: 420 },
-          simulation: { x: 14, y: 182 },
-          floatingMana: { x: 14, y: 332 },
-        },
       },
       gestures: {
         advanced: true,

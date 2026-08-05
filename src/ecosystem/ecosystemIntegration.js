@@ -266,7 +266,6 @@ export function createSharedPreferenceSnapshot(profile = {}, input = {}) {
       confirmAmbiguousEffects: settings.confirmAmbiguousEffects !== false,
       manualStackConfirmation: Boolean(settings.manualStackConfirmation),
       strictPhaseEnforcement: Boolean(settings.strictPhaseEnforcement),
-      edgeSwipeShortcuts: false,
     },
     animation: {
       compositionMode: "landscape",
@@ -683,12 +682,7 @@ export function applySharedPreferencePatch(profile = {}, patch = {}) {
         ...(settings.adhdMode || {}),
         reducedNoise: safePatch.accessibility.reducedNoise ?? settings.adhdMode?.reducedNoise,
       },
-      navigation: {
-        ...(settings.navigation || {}),
-        edgeSwipeShortcuts: false,
-        compactMobileHud: false,
-        mobileFocusView: false,
-      },
+      navigation: normalizeBoardStateNavigationSettings(settings.navigation || {}),
       appearance: {
         ...(settings.appearance || {}),
         compositionMode: "landscape",
@@ -1230,6 +1224,14 @@ function uniqueById(entries = []) {
 
 function sanitizeText(value = "") {
   return String(value || "").replace(/[<>]/g, "").trim().slice(0, 500);
+}
+
+function normalizeBoardStateNavigationSettings(navigation = {}) {
+  const normalized = {};
+  if (typeof navigation?.showProfileInMainUi === "boolean") {
+    normalized.showProfileInMainUi = navigation.showProfileInMainUi;
+  }
+  return cloneSafe(normalized);
 }
 
 function cloneSafe(value) {

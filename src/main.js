@@ -4,6 +4,7 @@ import { mountApp } from "./ui/render.js";
 import loadingDragonUrl from "../assets/boardstate-loading-dragon.jpg";
 import landscapeWallpaperUrl from "../assets/boardstate-bg-landscape.png";
 
+const LANDSCAPE_LOCK_MODES = Object.freeze(["landscape", "landscape-primary"]);
 const root = document.querySelector("#app");
 const loading = createLoadingScreenController({
   assets: [loadingDragonUrl, landscapeWallpaperUrl],
@@ -13,6 +14,7 @@ bootstrap();
 
 async function bootstrap() {
   try {
+    requestBoardStateLandscapeLock();
     await loading.waitForFirstPaint();
     await loading.runStep(12, "Awakening the board...", () => Promise.resolve());
     await loading.runStep(26, "Loading dragon wards...", () => loading.preloadVisualAssets());
@@ -37,6 +39,26 @@ async function bootstrap() {
     console.error("BoardState startup failed", error);
     loading.fail(error);
   }
+}
+
+async function requestBoardStateLandscapeLock() {
+  document.documentElement.dataset.boardstateOrientation = "landscape";
+  document.body.dataset.requestedOrientation = "landscape";
+  const orientation = globalThis.screen?.orientation;
+  if (typeof orientation?.lock !== "function") {
+    return false;
+  }
+  for (const mode of LANDSCAPE_LOCK_MODES) {
+    try {
+      await orientation.lock(mode);
+      document.body.dataset.orientationLock = "landscape";
+      return true;
+    } catch {
+      // Browser and PWA support varies; CSS/native wrappers still enforce landscape presentation.
+    }
+  }
+  document.body.dataset.orientationLock = "css-landscape";
+  return false;
 }
 
 function preloadAfterStartup(assetUrl = "") {

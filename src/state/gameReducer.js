@@ -1121,6 +1121,9 @@ function updateSetting(profile, path, value) {
   if (!keys.length) {
     return profile;
   }
+  if (isUnsupportedBoardStateNavigationSetting(path)) {
+    return profile;
+  }
   const normalizedValue = normalizeLandscapeOnlySetting(path, value);
   const settings = { ...(profile.settings || {}) };
   let cursor = settings;
@@ -1145,14 +1148,12 @@ function normalizeLandscapeOnlySetting(path, value) {
   if (path === "appearance.compositionMode") {
     return "landscape";
   }
-  if (
-    path === "navigation.edgeSwipeShortcuts" ||
-    path === "navigation.compactMobileHud" ||
-    path === "navigation.mobileFocusView"
-  ) {
-    return false;
-  }
   return value;
+}
+
+function isUnsupportedBoardStateNavigationSetting(path = "") {
+  const keys = String(path || "").split(".").filter(Boolean);
+  return keys[0] === "navigation" && keys[1] !== "showProfileInMainUi";
 }
 
 function addNotification(profile, notification = {}) {
