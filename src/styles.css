@@ -8742,6 +8742,7 @@ body[data-page="battlefield"] .gameplay-context-dock {
 }
 
 .commander-action-hand__fan {
+  --command-deck-drag-progress: 0;
   position: relative;
   z-index: 3;
   display: flex;
@@ -8752,7 +8753,14 @@ body[data-page="battlefield"] .gameplay-context-dock {
   min-width: 0;
   padding: 1.24rem 0.4rem 0.18rem;
   pointer-events: none;
+  transform: translate3d(calc(var(--command-deck-drag-progress) * 0.42rem), 0, 0);
   transform-style: preserve-3d;
+  transition: transform var(--motion-duration-micro) var(--motion-ease-inertia);
+  will-change: transform;
+}
+
+.commander-action-hand__fan.is-dragging {
+  transition: none;
 }
 
 .action-card {
@@ -8781,22 +8789,21 @@ body[data-page="battlefield"] .gameplay-context-dock {
   text-align: left;
   clip-path: polygon(8% 0, 92% 0, 100% 9%, 100% 88%, 92% 100%, 8% 100%, 0 88%, 0 9%);
   transform:
-    translateX(calc(var(--hand-offset) * 0.08rem))
+    translate3d(calc(var(--hand-offset) * 0.08rem), 0, 0)
     rotate(var(--hand-angle))
     translateY(calc(0px - var(--hand-rise)))
     translateZ(calc(var(--hand-prominence) * 12px));
   transform-origin: 50% 135%;
+  backface-visibility: hidden;
+  contain: layout paint style;
   transition:
     transform var(--motion-duration-quick) var(--motion-ease-inertia),
     border-color var(--motion-duration-micro) ease,
     box-shadow var(--motion-duration-micro) ease,
-    filter var(--motion-duration-micro) ease,
     opacity var(--motion-duration-micro) ease;
   cursor: grab;
   pointer-events: auto;
-  touch-action: manipulation;
-  animation: action-card-draw var(--motion-duration-standard) var(--motion-ease-emphasis) both;
-  animation-delay: calc(var(--hand-index) * var(--motion-delay-command-card-stagger));
+  touch-action: pan-y;
 }
 
 .action-card[data-visual-material="premium-card-stock"] {
@@ -8926,7 +8933,7 @@ body[data-page="battlefield"] .gameplay-context-dock {
     0 0 32px rgba(236, 200, 122, 0.32),
     inset 0 1px 0 rgba(255, 246, 211, 0.38);
   transform:
-    translateX(calc(var(--hand-offset) * 0.08rem))
+    translate3d(calc(var(--hand-offset) * 0.08rem), 0, 0)
     rotate(calc(var(--hand-angle) * 0.42))
     translateY(calc(-22px - var(--hand-rise)))
     translateZ(44px)
@@ -8943,7 +8950,7 @@ body[data-page="battlefield"] .gameplay-context-dock {
 
 .action-card:active {
   transform:
-    translateX(calc(var(--hand-offset) * 0.08rem))
+    translate3d(calc(var(--hand-offset) * 0.08rem), 0, 0)
     rotate(calc(var(--hand-angle) * 0.3))
     translateY(calc(-10px - var(--hand-rise)))
     translateZ(20px)
@@ -8957,13 +8964,13 @@ body[data-page="battlefield"] .gameplay-context-dock {
 
 .commander-action-hand__fan:has(.action-card:hover) .action-card:not(:hover),
 .commander-action-hand__fan:has(.action-card:focus-visible) .action-card:not(:focus-visible) {
-  filter: saturate(0.82) brightness(0.9);
+  opacity: 0.76;
 }
 
 .action-card:hover + .action-card,
 .action-card:focus-visible + .action-card {
   transform:
-    translateX(calc(var(--motion-physics-neighbor-displacement) + (var(--hand-offset) * 0.08rem)))
+    translate3d(calc(var(--motion-physics-neighbor-displacement) + (var(--hand-offset) * 0.08rem)), 0, 0)
     rotate(var(--hand-angle))
     translateY(calc(-4px - var(--hand-rise)))
     translateZ(8px);
@@ -8972,7 +8979,7 @@ body[data-page="battlefield"] .gameplay-context-dock {
 .action-card:has(+ .action-card:hover),
 .action-card:has(+ .action-card:focus-visible) {
   transform:
-    translateX(calc((var(--hand-offset) * 0.08rem) - var(--motion-physics-neighbor-displacement)))
+    translate3d(calc((var(--hand-offset) * 0.08rem) - var(--motion-physics-neighbor-displacement)), 0, 0)
     rotate(var(--hand-angle))
     translateY(calc(-4px - var(--hand-rise)))
     translateZ(8px);
@@ -8997,7 +9004,6 @@ body[data-page="battlefield"] .gameplay-context-dock {
 
 .action-card-state-waiting {
   border-color: rgba(143, 211, 255, 0.84);
-  filter: saturate(1.04);
 }
 
 .action-card-state-promoted {
@@ -9016,7 +9022,6 @@ body[data-page="battlefield"] .gameplay-context-dock {
 .action-card-state-demoted,
 .action-card-state-disabled {
   opacity: 0.5;
-  filter: saturate(0.58);
   cursor: not-allowed;
 }
 
@@ -9027,7 +9032,7 @@ body[data-page="battlefield"] .gameplay-context-dock {
     0 18px 34px rgba(0, 0, 0, 0.34),
     inset 0 1px 0 rgba(255, 246, 211, 0.16);
   transform:
-    translateX(calc(var(--hand-offset) * 0.08rem))
+    translate3d(calc(var(--hand-offset) * 0.08rem), 0, 0)
     rotate(var(--hand-angle))
     translateY(calc(0px - var(--hand-rise)))
     translateZ(0);
@@ -9035,11 +9040,12 @@ body[data-page="battlefield"] .gameplay-context-dock {
 
 .action-card-state-appearing,
 .action-card-entering {
-  animation-name: action-card-draw;
+  animation: action-card-draw var(--motion-duration-standard) var(--motion-ease-emphasis) both;
+  animation-delay: calc(var(--hand-index) * var(--motion-delay-command-card-stagger));
 }
 
 .action-card-state-leaving {
-  animation-name: action-card-discard;
+  animation: action-card-discard var(--motion-duration-standard) var(--motion-ease-emphasis) both;
 }
 
 .action-card-family-commander,
@@ -10149,12 +10155,11 @@ body[data-page="battlefield"] .command-deck__fan:active {
 }
 
 body[data-page="battlefield"] .command-deck .action-card {
-  will-change: transform, opacity, filter;
+  will-change: transform, opacity;
 }
 
 body[data-page="battlefield"] .command-deck .action-card[data-command-deck-center="true"] {
   border-color: rgba(255, 239, 182, 0.98);
-  filter: none;
   opacity: 1;
 }
 
@@ -10188,7 +10193,6 @@ body[data-page="battlefield"] .command-deck .action-card[data-command-deck-conte
 body[data-page="battlefield"] .command-deck .action-card[data-command-deck-slot="-3"],
 body[data-page="battlefield"] .command-deck .action-card[data-command-deck-slot="3"] {
   opacity: 0.58;
-  filter: saturate(0.64) brightness(0.78);
 }
 
 body[data-page="battlefield"] .command-deck .action-card[data-command-deck-slot="-2"],
@@ -10199,7 +10203,6 @@ body[data-page="battlefield"] .command-deck .action-card[data-command-deck-slot=
 body[data-page="battlefield"] .command-deck .action-card:hover,
 body[data-page="battlefield"] .command-deck .action-card:focus-visible {
   opacity: 1;
-  filter: none;
 }
 
 body[data-page="battlefield"] .command-deck__rotator,

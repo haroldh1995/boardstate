@@ -136,8 +136,11 @@ const RUNTIME_LAYOUT_COMPOSITION = "widescreen";
 const CANONICAL_GAMEPLAY_ORIENTATION = "landscape";
 const COMMAND_DECK_VISIBLE_RADIUS = 3;
 const COMMAND_DECK_ROTATE_THRESHOLD = 42;
+const COMMAND_DECK_WHEEL_ROTATE_THRESHOLD = 54;
+const COMMAND_DECK_MAX_STEPS_PER_FRAME = 3;
 const COMMAND_DECK_AUTO_CENTER_COOLDOWN_MS = 4200;
 const COMMAND_DECK_MAX_FAVORITES = 4;
+const COMMAND_DECK_FEEDBACK_THROTTLE_MS = 140;
 const COMMAND_DECK_CORE_ORDER = [
   "phase",
   "commander",
@@ -370,6 +373,9 @@ export function mountApp(root, store) {
   let commandDeckLastManualRotationAt = 0;
   let commandDeckPointer = null;
   let commandDeckSuppressClickUntil = 0;
+  let commandDeckWheelDelta = 0;
+  let commandDeckWheelFrame = 0;
+  let commandDeckLastFeedbackAt = 0;
   let toolContextOverride = "";
   let quickPanelOpen = "";
   let manaAutoCloseTimer = null;
@@ -700,6 +706,64 @@ export function mountApp(root, store) {
     }
   }
 
+  function getCommandDeckRenderOptions() {
+    return {
+      activeUtilityPanel,
+      utilityDockOpen,
+      toolMenuOpen,
+      activeToolPanel,
+      includeCombat: true,
+      combatResolving,
+      commandDeckRotationIndex,
+      commandDeckLastManualRotationAt,
+      activeOptionsCategory,
+    };
+  }
+
+  function renderCommandDeckOnly() {
+    if (activePage !== "battlefield") {
+      render(store.getState());
+      return;
+    }
+    const currentDeck = root.querySelector("[data-command-deck]");
+    if (!currentDeck) {
+      render(store.getState());
+      return;
+    }
+    const activeElement = document.activeElement;
+    const deckHadFocus = Boolean(activeElement && currentDeck.contains(activeElement));
+    const focusedCardId = activeElement?.closest?.("[data-action-card]")?.dataset.actionCardId || "";
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = renderCommanderActionHand(store.getState(), getCommandDeckRenderOptions()).trim();
+    const nextDeck = wrapper.firstElementChild;
+    if (!nextDeck) {
+      render(store.getState());
+      return;
+    }
+    currentDeck.replaceWith(nextDeck);
+    bind(nextDeck, store.getState());
+    if (deckHadFocus) {
+      const nextFocusedCard = focusedCardId
+        ? [...nextDeck.querySelectorAll("[data-action-card]")].find((card) => card.dataset.actionCardId === focusedCardId)
+        : null;
+      (nextFocusedCard || nextDeck).focus?.({ preventScroll: true });
+    }
+  }
+
+  function playCommandDeckRotationFeedback() {
+    const now = Date.now();
+    if (now - commandDeckLastFeedbackAt < COMMAND_DECK_FEEDBACK_THROTTLE_MS) {
+      return;
+    }
+    commandDeckLastFeedbackAt = now;
+    playSensoryFeedback(store.getState(), {
+      audioTokenId: AUDIO_TOKEN_IDS.commandDeckRotate,
+      hapticTokenId: HAPTIC_TOKEN_IDS.commandDeckRotate,
+      priority: SENSORY_PRIORITY.backgroundFeedback,
+      volumeCategory: "uiVolume",
+    });
+  }
+
   function rotateCommandDeckFromElement(deck, direction = 1) {
     const size = Math.max(0, Number(deck?.dataset.commandDeckSize || 0));
     if (size <= 1) {
@@ -708,31 +772,62 @@ export function mountApp(root, store) {
     const current = Number.isFinite(Number(deck?.dataset.commandDeckRotation))
       ? Number(deck.dataset.commandDeckRotation)
       : commandDeckRotationIndex;
-    commandDeckRotationIndex = normalizeCommandDeckIndex(current + Number(direction || 1), size);
+    const rawDirection = Number(direction || 1);
+    const step = Number.isFinite(rawDirection) && rawDirection !== 0 ? Math.trunc(rawDirection) || Math.sign(rawDirection) : 1;
+    commandDeckRotationIndex = normalizeCommandDeckIndex(current + step, size);
     commandDeckLastManualRotationAt = Date.now();
-    playSensoryFeedback(store.getState(), {
-      audioTokenId: AUDIO_TOKEN_IDS.commandDeckRotate,
-      hapticTokenId: HAPTIC_TOKEN_IDS.commandDeckRotate,
-      priority: SENSORY_PRIORITY.backgroundFeedback,
-      volumeCategory: "uiVolume",
+    playCommandDeckRotationFeedback();
+    renderCommandDeckOnly();
+  }
+
+  function flushCommandDeckWheel(deck) {
+    commandDeckWheelFrame = 0;
+    const delta = commandDeckWheelDelta;
+    commandDeckWheelDelta = 0;
+    if (Math.abs(delta) < 10) {
+      return;
+    }
+    const direction = Math.sign(delta) || 1;
+    const steps = Math.min(
+      COMMAND_DECK_MAX_STEPS_PER_FRAME,
+      Math.max(1, Math.round(Math.abs(delta) / COMMAND_DECK_WHEEL_ROTATE_THRESHOLD))
+    );
+    const liveDeck = deck?.isConnected ? deck : root.querySelector("[data-command-deck]");
+    rotateCommandDeckFromElement(liveDeck, direction * steps);
+  }
+
+  function findCommandDeckCardForPoint(deck, clientX = 0, clientY = 0) {
+    const cards = [...(deck?.querySelectorAll?.("[data-action-card]") || [])];
+    if (!cards.length) {
+      return null;
+    }
+    const hitPaddingX = 18;
+    const hitPaddingY = 16;
+    const directHit = cards.find((card) => {
+      const rect = card.getBoundingClientRect();
+      return (
+        clientX >= rect.left - hitPaddingX &&
+        clientX <= rect.right + hitPaddingX &&
+        clientY >= rect.top - hitPaddingY &&
+        clientY <= rect.bottom + hitPaddingY
+      );
     });
-    queueMicrotask(() =>
-      store.dispatch({
-        type: "LEARNING_RECORD_INTERACTION",
-        interactionType: "command-deck-rotate",
-        featureId: "commandHand",
-        internalOnly: true,
-      })
-    );
-    queueMicrotask(() =>
-      store.dispatch({
-        type: "ASSISTANCE_RECORD_INTERACTION",
-        interactionType: "command-deck-rotate",
-        workflowId: "commandHand",
-        internalOnly: true,
-      })
-    );
-    render(store.getState());
+    if (directHit) {
+      return directHit;
+    }
+    let nearest = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    cards.forEach((card) => {
+      const rect = card.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const distance = Math.hypot(centerX - clientX, centerY - clientY);
+      if (distance < nearestDistance) {
+        nearest = card;
+        nearestDistance = distance;
+      }
+    });
+    return nearestDistance <= 56 ? nearest : null;
   }
 
   function toggleCommandDeckFavorite(cardId = "") {
@@ -749,7 +844,7 @@ export function mountApp(root, store) {
   }
 
   function bindCommandDeck(container) {
-    const deck = container.querySelector("[data-command-deck]");
+    const deck = container.matches?.("[data-command-deck]") ? container : container.querySelector("[data-command-deck]");
     if (!deck) {
       commandDeckPointer = null;
       return;
@@ -789,9 +884,22 @@ export function mountApp(root, store) {
     deck.addEventListener(
       "click",
       (event) => {
-        if (Date.now() < commandDeckSuppressClickUntil && event.target?.closest?.("[data-action-card]")) {
+        if (event.target?.closest?.("[data-command-deck-rotate], [data-command-deck-favorite], .action-hand-queue")) {
+          return;
+        }
+        const actionCard = event.target?.closest?.("[data-action-card]");
+        if (Date.now() < commandDeckSuppressClickUntil && actionCard) {
           event.preventDefault();
           event.stopPropagation();
+          return;
+        }
+        if (!actionCard) {
+          const nearestCard = findCommandDeckCardForPoint(deck, event.clientX, event.clientY);
+          if (nearestCard && !nearestCard.disabled) {
+            event.preventDefault();
+            event.stopPropagation();
+            nearestCard.click();
+          }
         }
       },
       true
@@ -815,7 +923,10 @@ export function mountApp(root, store) {
         }
         event.preventDefault();
         const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-        rotateCommandDeckFromElement(deck, Math.sign(delta) || 1);
+        commandDeckWheelDelta += delta;
+        if (!commandDeckWheelFrame) {
+          commandDeckWheelFrame = requestAnimationFrame(() => flushCommandDeckWheel(deck));
+        }
       },
       { passive: false }
     );
@@ -828,8 +939,25 @@ export function mountApp(root, store) {
         id: event.pointerId,
         x: event.clientX,
         y: event.clientY,
+        moved: false,
       };
+      fan.classList.add("is-dragging");
+      fan.style.setProperty("--command-deck-drag-progress", "0");
       fan.setPointerCapture?.(event.pointerId);
+    });
+    fan.addEventListener("pointermove", (event) => {
+      if (!commandDeckPointer || commandDeckPointer.id !== event.pointerId) {
+        return;
+      }
+      const dx = event.clientX - commandDeckPointer.x;
+      const dy = event.clientY - commandDeckPointer.y;
+      if (Math.abs(dx) > 6 && Math.abs(dx) > Math.abs(dy) * 0.7) {
+        commandDeckPointer.moved = true;
+        commandDeckSuppressClickUntil = Date.now() + 260;
+        event.preventDefault();
+      }
+      const dragProgress = Math.max(-1, Math.min(1, dx / (COMMAND_DECK_ROTATE_THRESHOLD * 2)));
+      fan.style.setProperty("--command-deck-drag-progress", dragProgress.toFixed(3));
     });
     fan.addEventListener("pointerup", (event) => {
       if (!commandDeckPointer || commandDeckPointer.id !== event.pointerId) {
@@ -838,16 +966,24 @@ export function mountApp(root, store) {
       const dx = event.clientX - commandDeckPointer.x;
       const dy = event.clientY - commandDeckPointer.y;
       commandDeckPointer = null;
+      fan.classList.remove("is-dragging");
+      fan.style.setProperty("--command-deck-drag-progress", "0");
       fan.releasePointerCapture?.(event.pointerId);
       if (Math.abs(dx) < COMMAND_DECK_ROTATE_THRESHOLD || Math.abs(dx) < Math.abs(dy) * 1.15) {
         return;
       }
       commandDeckSuppressClickUntil = Date.now() + 260;
-      rotateCommandDeckFromElement(deck, dx < 0 ? 1 : -1);
+      const steps = Math.min(
+        COMMAND_DECK_MAX_STEPS_PER_FRAME,
+        Math.max(1, Math.round(Math.abs(dx) / COMMAND_DECK_ROTATE_THRESHOLD))
+      );
+      rotateCommandDeckFromElement(deck, dx < 0 ? steps : -steps);
     });
     fan.addEventListener("pointercancel", (event) => {
       if (commandDeckPointer?.id === event.pointerId) {
         commandDeckPointer = null;
+        fan.classList.remove("is-dragging");
+        fan.style.setProperty("--command-deck-drag-progress", "0");
       }
     });
   }
@@ -8396,10 +8532,11 @@ function resolveCommandDeckCenterIndex(cards = [], requestedIndex = 0, priorityC
   const priorityIndex = priorityCard ? cards.findIndex((card) => card.id === priorityCard.id) : -1;
   const priorityShouldAssist = Boolean(
     priorityCard &&
+      !manualRecent &&
       (
         priorityCard.contextual ||
         ["expanded", "selected", "resolving", "waiting"].includes(priorityCard.state) ||
-        !manualRecent
+        priorityCard.priority >= 100
       )
   );
   if (priorityIndex >= 0 && priorityShouldAssist) {
@@ -8473,9 +8610,10 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
   const disabled = card.disabled ? "disabled aria-disabled=\"true\"" : "";
   const visualMaterial = resolveActionCardVisualMaterial(card);
   const sensory = resolveSensoryTokenForAction(card);
+  const enteringClass = card.contextual || card.state === "appearing" ? " action-card-entering" : "";
   return `
     <button
-      class="action-card action-card--${escapeAttribute(card.id)} action-card-family-${escapeAttribute(card.family || "general")} action-card-state-${escapeAttribute(card.state || "idle")} action-card-entering"
+      class="action-card action-card--${escapeAttribute(card.id)} action-card-family-${escapeAttribute(card.family || "general")} action-card-state-${escapeAttribute(card.state || "idle")}${enteringClass}"
       style="--hand-index: ${index}; --hand-offset: ${offset.toFixed(2)}; --hand-angle: ${fanTilt.toFixed(2)}deg; --hand-rise: ${fanRise.toFixed(2)}px; --hand-scale: ${fanScale.toFixed(3)}; --hand-depth: ${fanDepth}; --hand-overlap-adjust: ${overlapAdjust}; --hand-prominence: ${prominence.toFixed(3)};"
       ${attrs}
       ${disabled}
