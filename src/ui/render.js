@@ -8567,6 +8567,28 @@ function resolveActionCardVisualMaterial(card = {}) {
   return VISUAL_MATERIALS.cardStock;
 }
 
+function resolveActionCardFrame(card = {}) {
+  const family = String(card.family || "general");
+  const frameByFamily = {
+    combat: { symbol: "B", type: "BoardState Command - Combat", tone: "martial" },
+    commander: { symbol: "C", type: "Legendary Command - Commander", tone: "legendary" },
+    judge: { symbol: "J", type: "BoardState Command - Judge", tone: "crystal" },
+    knowledge: { symbol: "S", type: "BoardState Command - Search", tone: "archive" },
+    memory: { symbol: "M", type: "BoardState Command - Memory", tone: "memory" },
+    safety: { symbol: "U", type: "BoardState Command - Recovery", tone: "ward" },
+    selection: { symbol: "X", type: "BoardState Command - Selection", tone: "focus" },
+    stack: { symbol: "R", type: "BoardState Command - Stack", tone: "arcane" },
+    table: { symbol: "T", type: "BoardState Command - Table", tone: "utility" },
+    turn: { symbol: "P", type: "BoardState Command - Phase", tone: "phase" },
+  };
+  const frame = frameByFamily[family] || { symbol: "A", type: "BoardState Command - Action", tone: "command" };
+  return {
+    ...frame,
+    rules: card.intent || card.detail || "Use this command when it becomes relevant to the current game state.",
+    subtype: card.detail || card.eyebrow || "Available decision",
+  };
+}
+
 function renderCommanderActionCard(card, index, count, deckEntry = {}) {
   const midpoint = (count - 1) / 2;
   const offset = Number.isFinite(deckEntry.slotOffset) ? deckEntry.slotOffset : index - midpoint;
@@ -8581,6 +8603,7 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
   const attrs = (card.attrs || []).join(" ");
   const disabled = card.disabled ? "disabled aria-disabled=\"true\"" : "";
   const visualMaterial = resolveActionCardVisualMaterial(card);
+  const frame = resolveActionCardFrame(card);
   const sensory = resolveSensoryTokenForAction(card);
   const enteringClass = card.contextual || card.state === "appearing" ? " action-card-entering" : "";
   return `
@@ -8600,6 +8623,8 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
       data-command-deck-slot="${escapeAttribute(String(deckEntry.slotOffset ?? offset))}"
       data-command-deck-index="${escapeAttribute(String(deckEntry.deckIndex ?? index))}"
       data-command-deck-center="${deckEntry.isCenter ? "true" : "false"}"
+      data-command-card-frame="boardstate-command-card"
+      data-command-card-tone="${escapeAttribute(frame.tone)}"
       data-visual-material="${escapeAttribute(visualMaterial)}"
       data-visual-layer="${escapeAttribute(VISUAL_LAYERS.commandHand)}"
       data-visual-elevation="${deckEntry.isCenter ? "command-card-center" : "command-card"}"
@@ -8618,10 +8643,19 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
     >
       <span class="action-card__rim" aria-hidden="true"></span>
       <span class="action-card__glint" aria-hidden="true"></span>
-      <span class="action-card__eyebrow">${escapeHtml(card.eyebrow || "Decision")}</span>
-      <span class="action-card__label">${escapeHtml(card.label || "Action")}</span>
-      <span class="action-card__detail">${escapeHtml(card.detail || "")}</span>
-      <span class="action-card__signal">${escapeHtml(card.signal || "Ready")}</span>
+      <span class="action-card__title-row">
+        <span class="action-card__label">${escapeHtml(card.label || "Action")}</span>
+        <span class="action-card__rune" aria-hidden="true">${escapeHtml(frame.symbol)}</span>
+      </span>
+      <span class="action-card__art" aria-hidden="true">
+        <span class="action-card__sigil">${escapeHtml(frame.symbol)}</span>
+      </span>
+      <span class="action-card__type-line">${escapeHtml(frame.type)}</span>
+      <span class="action-card__rules-text">${escapeHtml(frame.rules)}</span>
+      <span class="action-card__footer">
+        <span class="action-card__eyebrow">${escapeHtml(card.eyebrow || frame.subtype)}</span>
+        <span class="action-card__signal">${escapeHtml(card.signal || "Ready")}</span>
+      </span>
       <span class="action-card__intent">${escapeHtml(card.intent || "Available decision")}</span>
     </button>
   `;

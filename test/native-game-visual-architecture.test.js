@@ -185,6 +185,13 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.match(render, /function normalizeCommandDeckIndex/);
   assert.match(render, /function bindCommandDeck/);
   assert.match(render, /function renderCommanderActionCard/);
+  assert.match(render, /function resolveActionCardFrame/);
+  assert.match(render, /data-command-card-frame="boardstate-command-card"/);
+  assert.match(render, /data-command-card-tone/);
+  assert.match(render, /action-card__title-row/);
+  assert.match(render, /action-card__art/);
+  assert.match(render, /action-card__type-line/);
+  assert.match(render, /action-card__rules-text/);
   assert.match(render, /data-commander-action-hand-version/);
   assert.match(render, /data-command-deck-version/);
   assert.match(render, /data-command-deck-rotation/);
@@ -254,6 +261,12 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.match(styles, /data-command-deck-slot="-3"/);
   assert.match(styles, /\.action-card\b/);
   assert.match(styles, /\.action-card--commander\b/);
+  assert.match(styles, /\.action-card__title-row\b/);
+  assert.match(styles, /\.action-card__rune\b/);
+  assert.match(styles, /\.action-card__art\b/);
+  assert.match(styles, /\.action-card__type-line\b/);
+  assert.match(styles, /\.action-card__rules-text\b/);
+  assert.match(styles, /data-command-card-tone/);
   assert.match(styles, /\.commander-action-hand__fan:has\(\.action-card:hover\)/);
   assert.match(styles, /\.action-card:has\(\+ \.action-card:hover\)/);
   assert.match(styles, /\.action-card-state-resting\b/);
@@ -359,7 +372,8 @@ test("battlefield runtime uses the tabletop reconstruction instead of idle dashb
   assert.match(styles, /pointer-events: none/);
   assert.match(styles, /pointer-events: auto/);
   assert.match(styles, /action-card-state-idle/);
-  assert.match(styles, /saturate\(0\.76\)/);
+  assert.match(styles, /\.action-card-state-idle\s*{\s*opacity: 0\.9;/);
+  assert.equal(styles.includes("filter: saturate(0.76) brightness(0.86)"), false);
   assert.match(styles, /action-card-state-idle\.action-card-entering/);
   assert.match(styles, /animation-fill-mode: none/);
   assert.match(visualDoc, /Battlefield Reconstruction Standard/);

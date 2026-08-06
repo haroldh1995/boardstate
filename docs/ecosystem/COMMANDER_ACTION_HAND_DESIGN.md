@@ -35,6 +35,8 @@ The selected model combines the curved fan and layered fan:
 - Cards overlap instead of occupying equal-width toolbar cells.
 - Hovered or focused cards lift toward the player and move neighbors aside.
 - The hand remains bottom-centered, compact, and smaller than the battlefield.
+- Action Cards use BoardState's own full-card command frame: title band, rune, abstract art well, type line, rules text, and status footer.
+- Command Cards must read as game cards, but they must remain visibly distinct from real Magic cards shown during Dry Run or full in-app play.
 
 ## Visual Mockups
 
@@ -53,6 +55,7 @@ The accepted prototype requirements were:
 - `renderCommanderActionHand()` uses existing action attributes rather than a second action system.
 - `createCommanderActionCards()` filters unavailable actions and orders visible cards by priority.
 - `renderCommanderActionCard()` exposes action identity, state, priority, and accessible labels.
+- `renderCommanderActionCard()` renders a complete BoardState command-card face instead of a translucent placeholder slot.
 - CSS uses overlapped fan layout, priority-based scale/lift, focus-visible states, neighbor displacement, subtle idle breathing, and reduced-motion fallbacks.
 
 ## Internal Design Critique
@@ -78,3 +81,5 @@ The production implementation lives in:
 - `src/styles.css`: `.commander-action-hand`, `.action-card`, action-card states, fan physics, neighbor focus behavior, and reduced-motion handling.
 
 The Commander Action Hand is presentation and action entry only. It does not own gameplay state, bypass the Rules Engine, duplicate the State Engine, create another save format, or expose hidden information.
+
+Action Cards should never regress to generic transparent buttons, toolbar tiles, or empty card slots. They should feel like BoardState-native command cards: physical, readable, card-shaped, and clearly separate from actual MTG card objects.

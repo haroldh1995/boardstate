@@ -8646,15 +8646,15 @@ body[data-page="battlefield"] .gameplay-context-dock {
 .commander-action-hand {
   --action-hand-gold: rgba(236, 200, 122, 0.92);
   --action-hand-cyan: rgba(143, 211, 255, 0.78);
-  --action-card-width: clamp(5.65rem, 8.1vw, 7.85rem);
-  --action-card-height: clamp(4.65rem, 9svh, 6.15rem);
+  --action-card-width: clamp(4.72rem, 6.6vw, 6.12rem);
+  --action-card-height: clamp(6.64rem, 14.2svh, 8.62rem);
   position: fixed;
   right: auto;
   bottom: max(0.18rem, env(safe-area-inset-bottom));
   left: 50%;
   z-index: 126;
   width: min(58rem, calc(100vw - 1.2rem));
-  min-height: clamp(6.45rem, 14svh, 8.15rem);
+  min-height: clamp(7.35rem, 17svh, 9.35rem);
   display: grid;
   place-items: end center;
   padding: 0.32rem clamp(0.35rem, 1vw, 0.85rem) 0.3rem;
@@ -8767,27 +8767,38 @@ body[data-page="battlefield"] .gameplay-context-dock {
   --action-card-material: var(--visual-material-card-stock);
   --action-card-border-color: rgba(236, 200, 122, calc(0.42 + (var(--hand-prominence) * 0.34)));
   --action-card-glow: rgba(236, 200, 122, calc(0.08 + (var(--hand-prominence) * 0.18)));
+  --action-card-frame-dark: rgba(7, 7, 12, 0.96);
+  --action-card-paper: rgba(239, 225, 187, 0.9);
+  --action-card-ink: rgba(34, 24, 20, 0.96);
+  --action-card-title-bg: rgba(233, 210, 151, 0.86);
+  --action-card-title-ink: rgba(32, 23, 17, 0.98);
+  --action-card-art-a: rgba(95, 63, 169, 0.92);
+  --action-card-art-b: rgba(14, 17, 42, 0.98);
+  --action-card-art-c: rgba(236, 200, 122, 0.38);
   position: relative;
   z-index: var(--hand-depth);
   flex: 0 0 calc(var(--action-card-width) * var(--hand-scale));
   width: calc(var(--action-card-width) * var(--hand-scale));
   height: calc(var(--action-card-height) * var(--hand-scale));
   display: grid;
-  grid-template-rows: auto minmax(1rem, auto) auto auto 0fr;
+  grid-template-rows: auto minmax(2.15rem, 1fr) auto minmax(1.85rem, auto) auto 0fr;
   align-content: start;
-  gap: 0.1rem;
-  padding: 0.56rem 0.62rem 0.48rem;
-  border: 1px solid var(--action-card-border-color);
-  border-radius: var(--visual-radius-card);
-  color: #fff7dc;
-  background: var(--action-card-material);
+  gap: 0.16rem;
+  padding: 0.34rem;
+  border: 2px solid rgba(4, 4, 8, 0.96);
+  border-radius: clamp(0.46rem, 0.82vw, 0.68rem);
+  color: var(--action-card-ink);
+  background:
+    linear-gradient(180deg, rgba(255, 244, 203, 0.2), transparent 18%, rgba(0, 0, 0, 0.24) 100%),
+    var(--action-card-material),
+    linear-gradient(160deg, rgba(10, 9, 17, 0.98), rgba(3, 4, 10, 0.98));
   box-shadow:
-    0 calc(14px + (var(--hand-prominence) * 12px)) calc(28px + (var(--hand-prominence) * 20px)) rgba(0, 0, 0, 0.36),
+    0 calc(16px + (var(--hand-prominence) * 12px)) calc(28px + (var(--hand-prominence) * 18px)) rgba(0, 0, 0, 0.46),
     0 0 calc(10px + (var(--hand-prominence) * 18px)) var(--action-card-glow),
-    inset 0 1px 0 rgba(255, 246, 211, 0.24),
-    inset 0 -1px 0 rgba(143, 211, 255, 0.12);
+    inset 0 0 0 2px rgba(255, 244, 204, 0.09),
+    inset 0 0 0 4px rgba(19, 13, 28, 0.92);
   text-align: left;
-  clip-path: polygon(8% 0, 92% 0, 100% 9%, 100% 88%, 92% 100%, 8% 100%, 0 88%, 0 9%);
+  clip-path: none;
   transform:
     translate3d(calc(var(--hand-offset) * 0.08rem), 0, 0)
     rotate(var(--hand-angle))
@@ -8808,29 +8819,77 @@ body[data-page="battlefield"] .gameplay-context-dock {
 
 .action-card[data-visual-material="premium-card-stock"] {
   --action-card-material: var(--visual-material-card-stock);
+  --action-card-title-bg: rgba(222, 205, 160, 0.88);
+  --action-card-art-a: rgba(87, 54, 151, 0.9);
+  --action-card-art-b: rgba(11, 13, 34, 0.98);
+  --action-card-art-c: rgba(236, 200, 122, 0.32);
 }
 
 .action-card[data-visual-material="gold-accent"] {
   --action-card-material: var(--visual-material-legendary-gold);
   --action-card-border-color: rgba(255, 225, 138, 0.94);
   --action-card-glow: rgba(236, 200, 122, 0.24);
+  --action-card-title-bg: rgba(255, 224, 139, 0.92);
+  --action-card-art-a: rgba(149, 99, 43, 0.95);
+  --action-card-art-b: rgba(31, 15, 34, 0.98);
+  --action-card-art-c: rgba(255, 232, 155, 0.5);
 }
 
 .action-card[data-visual-material="magical-crystal"] {
   --action-card-material: var(--visual-material-crystal);
   --action-card-border-color: rgba(143, 211, 255, 0.72);
   --action-card-glow: rgba(143, 211, 255, 0.24);
+  --action-card-title-bg: rgba(192, 226, 246, 0.9);
+  --action-card-art-a: rgba(46, 114, 176, 0.92);
+  --action-card-art-b: rgba(8, 16, 41, 0.98);
+  --action-card-art-c: rgba(143, 211, 255, 0.48);
 }
 
 .action-card[data-visual-material="energy"] {
   --action-card-material: var(--visual-material-energy);
   --action-card-border-color: rgba(143, 211, 255, 0.82);
   --action-card-glow: rgba(143, 211, 255, 0.22);
+  --action-card-title-bg: rgba(190, 225, 247, 0.9);
+  --action-card-art-a: rgba(42, 122, 196, 0.92);
+  --action-card-art-b: rgba(10, 14, 42, 0.98);
+  --action-card-art-c: rgba(143, 211, 255, 0.46);
 }
 
 .action-card[data-visual-material="parchment"] {
   --action-card-material: var(--visual-material-parchment);
   --action-card-border-color: rgba(236, 200, 122, 0.56);
+  --action-card-title-bg: rgba(225, 198, 142, 0.9);
+  --action-card-art-a: rgba(119, 73, 42, 0.92);
+  --action-card-art-b: rgba(26, 17, 20, 0.98);
+  --action-card-art-c: rgba(255, 215, 149, 0.36);
+}
+
+.action-card[data-command-card-tone="martial"] {
+  --action-card-title-bg: rgba(238, 176, 124, 0.9);
+  --action-card-art-a: rgba(166, 54, 40, 0.95);
+  --action-card-art-b: rgba(33, 12, 22, 0.98);
+  --action-card-art-c: rgba(255, 148, 92, 0.44);
+}
+
+.action-card[data-command-card-tone="phase"] {
+  --action-card-title-bg: rgba(246, 220, 149, 0.92);
+  --action-card-art-a: rgba(223, 158, 57, 0.92);
+  --action-card-art-b: rgba(30, 17, 50, 0.98);
+  --action-card-art-c: rgba(255, 228, 138, 0.5);
+}
+
+.action-card[data-command-card-tone="archive"] {
+  --action-card-title-bg: rgba(190, 228, 215, 0.9);
+  --action-card-art-a: rgba(31, 126, 121, 0.92);
+  --action-card-art-b: rgba(7, 25, 42, 0.98);
+  --action-card-art-c: rgba(121, 238, 223, 0.38);
+}
+
+.action-card[data-command-card-tone="ward"] {
+  --action-card-title-bg: rgba(224, 216, 164, 0.92);
+  --action-card-art-a: rgba(111, 128, 70, 0.92);
+  --action-card-art-b: rgba(17, 23, 22, 0.98);
+  --action-card-art-c: rgba(203, 242, 150, 0.34);
 }
 
 .action-card:not(:first-child) {
@@ -8843,37 +8902,187 @@ body[data-page="battlefield"] .gameplay-context-dock {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  clip-path: inherit;
   pointer-events: none;
 }
 
 .action-card__rim {
-  border: 1px solid rgba(255, 246, 204, 0.12);
-  box-shadow: inset 0 0 0 2px rgba(4, 6, 16, 0.34);
+  border: 1px solid var(--action-card-border-color);
+  box-shadow:
+    inset 0 0 0 0.24rem rgba(6, 6, 12, 0.82),
+    inset 0 0 0 0.32rem rgba(236, 200, 122, 0.12),
+    inset 0 0 22px rgba(0, 0, 0, 0.42);
 }
 
 .action-card__glint {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), transparent 30%, rgba(0, 0, 0, 0.18));
+  background:
+    linear-gradient(112deg, transparent 0 36%, rgba(255, 255, 255, 0.14) 45%, transparent 55% 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 28%, rgba(0, 0, 0, 0.16));
   mix-blend-mode: screen;
-  opacity: 0.66;
+  opacity: calc(0.36 + (var(--hand-prominence) * 0.24));
 }
 
 .action-card::before {
   content: "";
   position: absolute;
-  inset: 0.22rem;
-  border: 1px solid rgba(236, 200, 122, 0.27);
-  border-radius: inherit;
-  clip-path: inherit;
+  inset: 0.3rem;
+  border: 1px solid rgba(255, 241, 196, 0.22);
+  border-radius: calc(clamp(0.46rem, 0.82vw, 0.68rem) - 0.16rem);
   background:
-    linear-gradient(90deg, rgba(236, 200, 122, 0.12), transparent 16%, transparent 84%, rgba(236, 200, 122, 0.12)),
+    radial-gradient(circle at 18% 0%, rgba(255, 245, 207, 0.14), transparent 32%),
+    linear-gradient(90deg, rgba(236, 200, 122, 0.11), transparent 16%, transparent 84%, rgba(143, 211, 255, 0.08)),
     repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.026) 0 1px, transparent 1px 7px);
   pointer-events: none;
 }
 
+.action-card__title-row,
+.action-card__art,
+.action-card__type-line,
+.action-card__rules-text,
+.action-card__footer {
+  position: relative;
+  z-index: 1;
+}
+
+.action-card__title-row {
+  min-height: 1.04rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.22rem;
+  padding: 0.16rem 0.18rem 0.16rem 0.28rem;
+  border: 1px solid rgba(48, 34, 23, 0.38);
+  border-radius: 0.38rem;
+  background:
+    linear-gradient(180deg, rgba(255, 250, 225, 0.5), rgba(255, 255, 255, 0.04) 42%, rgba(0, 0, 0, 0.12)),
+    var(--action-card-title-bg);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 1px 0 rgba(0, 0, 0, 0.38);
+}
+
+.action-card__rune {
+  width: clamp(0.82rem, 1.15vw, 1.04rem);
+  height: clamp(0.82rem, 1.15vw, 1.04rem);
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 241, 196, 0.52);
+  border-radius: 999px;
+  color: #fff6ce;
+  background:
+    radial-gradient(circle at 35% 24%, rgba(255, 246, 210, 0.42), transparent 28%),
+    linear-gradient(160deg, rgba(23, 18, 28, 0.96), rgba(5, 6, 12, 0.98));
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.34),
+    0 1px 4px rgba(0, 0, 0, 0.42);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(0.48rem, 0.66vw, 0.66rem);
+  font-weight: 900;
+  line-height: 1;
+}
+
+.action-card__art {
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(10, 8, 12, 0.78);
+  border-radius: 0.28rem;
+  background:
+    radial-gradient(circle at 50% 42%, var(--action-card-art-c), transparent 22%),
+    radial-gradient(circle at 24% 20%, rgba(255, 245, 206, 0.2), transparent 19%),
+    radial-gradient(circle at 78% 84%, rgba(143, 211, 255, 0.18), transparent 24%),
+    linear-gradient(145deg, var(--action-card-art-a), transparent 48%),
+    linear-gradient(315deg, rgba(0, 0, 0, 0.34), transparent 45%),
+    var(--action-card-art-b);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 242, 198, 0.08),
+    inset 0 -24px 34px rgba(0, 0, 0, 0.26);
+}
+
+.action-card__art::before,
+.action-card__art::after {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.action-card__art::before {
+  width: 122%;
+  height: 52%;
+  border: 1px solid rgba(255, 232, 150, 0.24);
+  transform: rotate(calc(var(--hand-angle) * -0.12));
+}
+
+.action-card__art::after {
+  width: 54%;
+  height: 142%;
+  border: 1px solid rgba(143, 211, 255, 0.16);
+  transform: rotate(38deg);
+}
+
+.action-card__sigil {
+  position: relative;
+  z-index: 1;
+  width: clamp(1.42rem, 2vw, 2.05rem);
+  height: clamp(1.42rem, 2vw, 2.05rem);
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 232, 150, 0.44);
+  border-radius: 50%;
+  color: rgba(255, 244, 204, 0.92);
+  background:
+    radial-gradient(circle, rgba(255, 240, 181, 0.18), transparent 58%),
+    rgba(5, 6, 16, 0.48);
+  box-shadow:
+    0 0 18px rgba(236, 200, 122, 0.16),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.3);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(0.72rem, 1.02vw, 1rem);
+  font-weight: 900;
+}
+
+.action-card__type-line {
+  min-height: 0.82rem;
+  padding: 0.12rem 0.22rem;
+  border: 1px solid rgba(48, 34, 23, 0.32);
+  border-radius: 0.18rem;
+  color: rgba(39, 27, 21, 0.96);
+  background:
+    linear-gradient(90deg, rgba(255, 246, 214, 0.32), rgba(225, 202, 150, 0.86), rgba(255, 246, 214, 0.24));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(0.42rem, 0.56vw, 0.56rem);
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.action-card__rules-text {
+  padding: 0.28rem 0.3rem;
+  border: 1px solid rgba(55, 42, 28, 0.22);
+  border-radius: 0.26rem;
+  color: rgba(35, 25, 20, 0.94);
+  background:
+    linear-gradient(180deg, rgba(255, 251, 232, 0.92), rgba(226, 208, 170, 0.88));
+  box-shadow: inset 0 0 16px rgba(82, 55, 28, 0.12);
+  font-size: clamp(0.43rem, 0.58vw, 0.58rem);
+  font-weight: 650;
+  line-height: 1.12;
+  white-space: normal;
+}
+
+.action-card__footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.18rem;
+  padding-inline: 0.04rem;
+}
+
 .action-card__eyebrow,
 .action-card__label,
-.action-card__detail,
+.action-card__type-line,
 .action-card__signal,
 .action-card__intent {
   position: relative;
@@ -8886,32 +9095,28 @@ body[data-page="battlefield"] .gameplay-context-dock {
 
 .action-card__eyebrow,
 .action-card__signal {
-  color: rgba(236, 200, 122, 0.82);
-  font-size: clamp(0.48rem, 0.6vw, 0.62rem);
+  color: rgba(255, 235, 172, 0.84);
+  font-size: clamp(0.4rem, 0.54vw, 0.54rem);
   font-weight: 850;
-  letter-spacing: 0.13em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
 .action-card__label {
-  color: #fff9e8;
-  font-size: clamp(0.72rem, 0.88vw, 1rem);
+  color: var(--action-card-title-ink);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(0.62rem, 0.82vw, 0.88rem);
   font-weight: 880;
-  letter-spacing: 0.03em;
+  letter-spacing: -0.01em;
   line-height: 1.04;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.9), 0 0 12px rgba(236, 200, 122, 0.14);
-}
-
-.action-card__detail {
-  color: rgba(247, 239, 255, 0.74);
-  font-size: clamp(0.55rem, 0.66vw, 0.72rem);
-  line-height: 1.08;
+  text-shadow: 0 1px 0 rgba(255, 252, 225, 0.35);
 }
 
 .action-card__signal {
   align-self: end;
-  color: rgba(143, 211, 255, 0.76);
-  font-size: clamp(0.48rem, 0.58vw, 0.62rem);
+  justify-self: end;
+  color: rgba(143, 211, 255, 0.82);
+  text-align: right;
 }
 
 .action-card__intent {
@@ -8997,9 +9202,7 @@ body[data-page="battlefield"] .gameplay-context-dock {
 .action-card-state-selected,
 .action-card-state-focused {
   border-color: rgba(143, 211, 255, 0.76);
-  background:
-    radial-gradient(circle at 18% 10%, rgba(143, 211, 255, 0.2), transparent 38%),
-    linear-gradient(160deg, rgba(32, 37, 84, 0.94), rgba(8, 10, 26, 0.94));
+  --action-card-glow: rgba(143, 211, 255, 0.28);
 }
 
 .action-card-state-waiting {
@@ -9051,7 +9254,8 @@ body[data-page="battlefield"] .gameplay-context-dock {
 .action-card-family-commander,
 .action-card--commander {
   border-color: rgba(255, 225, 138, 0.94);
-  background: var(--visual-material-legendary-gold);
+  --action-card-material: var(--visual-material-legendary-gold);
+  --action-card-glow: rgba(255, 225, 138, 0.28);
 }
 
 .action-hand-utility-grid {
@@ -9098,7 +9302,7 @@ body.phase-advance-celebration .action-card--phase {
   0% {
     opacity: 0;
     transform:
-      translateX(calc(var(--hand-offset) * 0.22rem))
+      translate3d(calc(var(--hand-offset) * 0.22rem), 0, 0)
       rotate(calc(var(--hand-angle) * 1.35))
       translateY(28px)
       translateZ(-24px)
@@ -9107,7 +9311,7 @@ body.phase-advance-celebration .action-card--phase {
   100% {
     opacity: 1;
     transform:
-      translateX(calc(var(--hand-offset) * 0.08rem))
+      translate3d(calc(var(--hand-offset) * 0.08rem), 0, 0)
       rotate(var(--hand-angle))
       translateY(calc(0px - var(--hand-rise)))
       translateZ(calc(var(--hand-prominence) * 12px))
@@ -9157,7 +9361,7 @@ body.phase-advance-celebration .action-card--phase {
 
 @media (max-width: 1040px), (orientation: landscape) and (max-height: 520px) {
   body[data-page="battlefield"] .battlefield-page {
-    padding-bottom: calc(5.55rem + env(safe-area-inset-bottom));
+    padding-bottom: calc(6.2rem + env(safe-area-inset-bottom));
   }
 
   body[data-page="battlefield"] .gameplay-context-dock {
@@ -9165,11 +9369,11 @@ body.phase-advance-celebration .action-card--phase {
   }
 
   .commander-action-hand {
-    --action-card-width: clamp(4.28rem, 10.8vw, 5.15rem);
-    --action-card-height: clamp(3.62rem, 10.8svh, 4.35rem);
+    --action-card-width: clamp(3.58rem, 8vw, 4.38rem);
+    --action-card-height: clamp(5.05rem, 16svh, 6.08rem);
     width: min(100vw, calc(100vw - 0.35rem));
-    min-height: clamp(4.95rem, 14svh, 5.75rem);
-    bottom: max(0.78rem, env(safe-area-inset-bottom));
+    min-height: clamp(5.75rem, 18.5svh, 6.74rem);
+    bottom: calc(env(safe-area-inset-bottom) - 0.42rem);
     padding-inline: 0.22rem;
   }
 
@@ -9204,23 +9408,32 @@ body.phase-advance-celebration .action-card--phase {
   }
 
   .action-card {
-    padding: 0.4rem 0.42rem 0.34rem;
+    grid-template-rows: auto minmax(2.24rem, 1fr) auto auto 0fr;
+    padding: 0.24rem;
     animation-name: action-card-draw-compact;
-    transform: translateX(calc(var(--hand-offset) * 0.04rem)) translateY(calc(0px - var(--hand-rise))) rotate(calc(var(--hand-angle) * 0.5));
+    transform: translate3d(calc(var(--hand-offset) * 0.04rem), 0, 0) translateY(calc(0px - var(--hand-rise))) rotate(calc(var(--hand-angle) * 0.5));
   }
 
   .action-card:hover,
   .action-card:focus-visible {
-    transform: translateX(calc(var(--hand-offset) * 0.04rem)) translateY(calc(-8px - var(--hand-rise))) rotate(calc(var(--hand-angle) * 0.16)) scale(var(--motion-physics-card-compact-hover-scale));
+    transform: translate3d(calc(var(--hand-offset) * 0.04rem), 0, 0) translateY(calc(-8px - var(--hand-rise))) rotate(calc(var(--hand-angle) * 0.16)) scale(var(--motion-physics-card-compact-hover-scale));
   }
 
-  .action-card__detail,
+  .action-card__rules-text,
   .action-card__intent {
     display: none;
   }
 
+  .action-card__art {
+    min-height: 2.24rem;
+  }
+
+  .action-card__type-line {
+    font-size: 0.38rem;
+  }
+
   .action-card__label {
-    font-size: 0.68rem;
+    font-size: 0.58rem;
   }
 
   .action-card__eyebrow,
@@ -9236,7 +9449,7 @@ body.phase-advance-celebration .action-card--phase {
     0% {
       opacity: 0;
       transform:
-        translateX(calc(var(--hand-offset) * 0.08rem))
+        translate3d(calc(var(--hand-offset) * 0.08rem), 0, 0)
         rotate(calc(var(--hand-angle) * 0.78))
         translateY(8px)
         translateZ(-12px)
@@ -9245,7 +9458,7 @@ body.phase-advance-celebration .action-card--phase {
     100% {
       opacity: 1;
       transform:
-        translateX(calc(var(--hand-offset) * 0.04rem))
+        translate3d(calc(var(--hand-offset) * 0.04rem), 0, 0)
         translateY(calc(0px - var(--hand-rise)))
         rotate(calc(var(--hand-angle) * 0.5))
         translateZ(calc(var(--hand-prominence) * 8px))
@@ -9895,14 +10108,14 @@ body[data-page="battlefield"] .tabletop-battlefield-page .landscape-floating-not
 
 body[data-page="battlefield"] .tabletop-battlefield-page .gameplay-context-dock {
   right: clamp(0.75rem, 1.4vw, 1.35rem);
-  bottom: calc(7.8rem + env(safe-area-inset-bottom));
+  bottom: calc(9.05rem + env(safe-area-inset-bottom));
   width: min(28rem, 34vw);
 }
 
 @media (orientation: landscape) and (max-height: 560px) {
   body[data-page="battlefield"] .tabletop-battlefield-page {
     padding-top: 0.45rem;
-    padding-bottom: calc(5.35rem + env(safe-area-inset-bottom));
+    padding-bottom: calc(6.35rem + env(safe-area-inset-bottom));
   }
 
   body[data-page="battlefield"] .app-shell--battlefield .app-header-top {
@@ -9932,7 +10145,7 @@ body[data-page="battlefield"] .tabletop-battlefield-page .gameplay-context-dock 
   }
 
   body[data-page="battlefield"] .commander-action-hand {
-    height: clamp(4.95rem, 15svh, 5.8rem);
+    min-height: clamp(5.8rem, 18svh, 6.65rem);
   }
 }
 
@@ -10024,11 +10237,11 @@ body[data-page="battlefield"] .tabletop-battlefield-page .phase-next-chip {
 }
 
 body[data-page="battlefield"] .commander-action-hand {
-  --action-card-width: clamp(5.25rem, 7.4vw, 7.05rem);
-  --action-card-height: clamp(4.12rem, 7.8svh, 5.35rem);
-  width: min(42rem, calc(100vw - 2.4rem));
-  min-height: clamp(5.5rem, 12svh, 6.75rem);
-  bottom: max(0.06rem, env(safe-area-inset-bottom));
+  --action-card-width: clamp(4.74rem, 6.15vw, 5.92rem);
+  --action-card-height: clamp(6.7rem, 15.6svh, 8.28rem);
+  width: min(46rem, calc(100vw - 2.4rem));
+  min-height: clamp(7.35rem, 18svh, 9.05rem);
+  bottom: calc(env(safe-area-inset-bottom) - 0.68rem);
 }
 
 body[data-page="battlefield"] .commander-action-hand__aura {
@@ -10075,15 +10288,14 @@ body[data-page="battlefield"] .commander-action-hand__fan {
 
 body[data-page="battlefield"] .action-card {
   box-shadow:
-    0 calc(10px + (var(--hand-prominence) * 10px)) calc(20px + (var(--hand-prominence) * 16px)) rgba(0, 0, 0, 0.32),
-    0 0 calc(6px + (var(--hand-prominence) * 14px)) rgba(236, 200, 122, calc(0.05 + (var(--hand-prominence) * 0.12))),
-    inset 0 1px 0 rgba(255, 246, 211, 0.2),
-    inset 0 -1px 0 rgba(143, 211, 255, 0.09);
+    0 calc(14px + (var(--hand-prominence) * 12px)) calc(26px + (var(--hand-prominence) * 16px)) rgba(0, 0, 0, 0.42),
+    0 0 calc(8px + (var(--hand-prominence) * 16px)) rgba(236, 200, 122, calc(0.08 + (var(--hand-prominence) * 0.14))),
+    inset 0 0 0 2px rgba(255, 244, 204, 0.09),
+    inset 0 0 0 4px rgba(19, 13, 28, 0.92);
 }
 
 body[data-page="battlefield"] .action-card-state-idle {
-  opacity: 0.72;
-  filter: saturate(0.76) brightness(0.86);
+  opacity: 0.9;
 }
 
 body[data-page="battlefield"] .action-card-state-idle.action-card-entering {
@@ -10098,22 +10310,20 @@ body[data-page="battlefield"] .action-card-state-focused,
 body[data-page="battlefield"] .action-card-state-waiting,
 body[data-page="battlefield"] .action-card-state-resolving {
   opacity: 0.96;
-  filter: none;
 }
 
 body[data-page="battlefield"] .action-card:hover,
 body[data-page="battlefield"] .action-card:focus-visible {
   opacity: 1;
-  filter: none;
 }
 
 @media (orientation: landscape) and (max-height: 560px) {
   body[data-page="battlefield"] .commander-action-hand {
-    --action-card-width: clamp(4rem, 9.5vw, 4.62rem);
-    --action-card-height: clamp(3.22rem, 9.2svh, 3.84rem);
+    --action-card-width: clamp(3.46rem, 7.4vw, 4.18rem);
+    --action-card-height: clamp(4.92rem, 16.6svh, 5.86rem);
     width: min(100vw, calc(100vw - 0.9rem));
-    min-height: clamp(4.35rem, 12.4svh, 5.02rem);
-    bottom: max(0.5rem, env(safe-area-inset-bottom));
+    min-height: clamp(5.45rem, 18.4svh, 6.35rem);
+    bottom: calc(env(safe-area-inset-bottom) - 0.52rem);
   }
 
   body[data-page="battlefield"] .commander-action-hand__status {
@@ -10140,8 +10350,12 @@ body[data-page="battlefield"] .commander-action-hand.command-deck {
 }
 
 body[data-page="battlefield"] .command-deck:focus-visible {
-  outline: 2px solid rgba(143, 211, 255, 0.58);
-  outline-offset: 0.35rem;
+  outline: none;
+}
+
+body[data-page="battlefield"] .command-deck:focus-visible .action-card[data-command-deck-center="true"] {
+  outline: 2px solid rgba(143, 211, 255, 0.68);
+  outline-offset: 0.18rem;
 }
 
 body[data-page="battlefield"] .command-deck__fan {
@@ -10161,29 +10375,18 @@ body[data-page="battlefield"] .command-deck .action-card {
 body[data-page="battlefield"] .command-deck .action-card[data-command-deck-center="true"] {
   border-color: rgba(255, 239, 182, 0.98);
   opacity: 1;
+  box-shadow:
+    0 28px 54px rgba(0, 0, 0, 0.5),
+    0 0 30px rgba(236, 200, 122, 0.28),
+    inset 0 0 0 2px rgba(255, 244, 204, 0.12),
+    inset 0 0 0 4px rgba(19, 13, 28, 0.92);
 }
 
-body[data-page="battlefield"] .command-deck .action-card[data-command-deck-center="true"]::after {
-  content: "Center";
-  position: absolute;
-  right: 0.36rem;
-  bottom: 0.28rem;
-  z-index: 2;
-  max-width: 50%;
-  overflow: hidden;
-  color: rgba(255, 246, 208, 0.58);
-  font-size: 0.46rem;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
-body[data-page="battlefield"] .command-deck .action-card[data-command-deck-card-favorite="true"]::after {
-  content: "Pinned";
-  color: rgba(255, 232, 158, 0.72);
+body[data-page="battlefield"] .command-deck .action-card[data-command-deck-card-favorite="true"] .action-card__rune {
+  border-color: rgba(255, 232, 158, 0.8);
+  box-shadow:
+    0 0 12px rgba(236, 200, 122, 0.24),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.34);
 }
 
 body[data-page="battlefield"] .command-deck .action-card[data-command-deck-contextual="true"] {
@@ -10192,12 +10395,12 @@ body[data-page="battlefield"] .command-deck .action-card[data-command-deck-conte
 
 body[data-page="battlefield"] .command-deck .action-card[data-command-deck-slot="-3"],
 body[data-page="battlefield"] .command-deck .action-card[data-command-deck-slot="3"] {
-  opacity: 0.58;
+  opacity: 0.68;
 }
 
 body[data-page="battlefield"] .command-deck .action-card[data-command-deck-slot="-2"],
 body[data-page="battlefield"] .command-deck .action-card[data-command-deck-slot="2"] {
-  opacity: 0.7;
+  opacity: 0.78;
 }
 
 body[data-page="battlefield"] .command-deck .action-card:hover,
@@ -10325,7 +10528,7 @@ body[data-game-viewport="fixed"] .app-shell {
   --game-safe-right: max(0.65rem, env(safe-area-inset-right));
   --game-safe-bottom: max(0.55rem, env(safe-area-inset-bottom));
   --game-safe-left: max(0.65rem, env(safe-area-inset-left));
-  --game-command-hand-space: calc(clamp(5.45rem, 14svh, 7.35rem) + var(--game-safe-bottom));
+  --game-command-hand-space: calc(clamp(6.75rem, 18svh, 9.05rem) + var(--game-safe-bottom));
   position: fixed;
   inset: 0;
   width: 100vw;
@@ -10625,7 +10828,7 @@ body[data-page="battlefield"] .commander-action-hand {
 
 @media (orientation: landscape) and (max-height: 560px) {
   body[data-game-viewport="fixed"] .app-shell {
-    --game-command-hand-space: calc(clamp(4.72rem, 15svh, 5.55rem) + var(--game-safe-bottom));
+    --game-command-hand-space: calc(clamp(5.78rem, 18svh, 6.62rem) + var(--game-safe-bottom));
   }
 
   body[data-page="home"] .app-shell {

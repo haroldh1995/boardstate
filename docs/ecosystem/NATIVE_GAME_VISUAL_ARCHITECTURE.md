@@ -83,6 +83,8 @@ Permanent standards:
 - Inactive or irrelevant actions are not kept as permanent disabled toolbar items. Combat, resolve, selected-card inspection, and undo cards appear only when state makes them useful.
 - The highest-priority Action Card migrates toward the center of the fan. Secondary cards alternate left and right from center.
 - Action Cards overlap, fan, lift on hover/focus, move neighboring cards aside, and retain reduced-motion-safe equivalents.
+- Action Cards use BoardState-native full-card anatomy: title band, rune marker, abstract art well, type line, rules text, and status footer.
+- The Action Hand should feel like a digital hand of available decisions while remaining visually distinct from actual MTG cards rendered during Dry Run or fully in-app play.
 - Utility, Rules Assistant, Remind Me, AI Analysis, and history surfaces open as contextual overlays while the battlefield remains visible.
 - The Action Hand preserves BoardState's cosmic, gold-accented, glass-treated identity and must not copy Arena's cards, hand layout, artwork, animation, branding, or protected interface details.
 
