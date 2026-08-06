@@ -190,8 +190,11 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.match(render, /data-command-card-tone/);
   assert.match(render, /action-card__title-row/);
   assert.match(render, /action-card__art/);
+  assert.match(render, /action-card__art-blank/);
   assert.match(render, /action-card__type-line/);
   assert.match(render, /action-card__rules-text/);
+  assert.match(render, /action-card__flavor-text/);
+  assert.match(render, /Legendary Command - Commander/);
   assert.match(render, /data-commander-action-hand-version/);
   assert.match(render, /data-command-deck-version/);
   assert.match(render, /data-command-deck-rotation/);
@@ -264,6 +267,7 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.match(styles, /\.action-card__title-row\b/);
   assert.match(styles, /\.action-card__rune\b/);
   assert.match(styles, /\.action-card__art\b/);
+  assert.match(styles, /\.action-card__art-blank\b/);
   assert.match(styles, /\.action-card__type-line\b/);
   assert.match(styles, /\.action-card__rules-text\b/);
   assert.match(styles, /data-command-card-tone/);

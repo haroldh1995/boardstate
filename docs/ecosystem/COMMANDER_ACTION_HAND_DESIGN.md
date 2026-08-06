@@ -35,7 +35,7 @@ The selected model combines the curved fan and layered fan:
 - Cards overlap instead of occupying equal-width toolbar cells.
 - Hovered or focused cards lift toward the player and move neighbors aside.
 - The hand remains bottom-centered, compact, and smaller than the battlefield.
-- Action Cards use BoardState's own full-card command frame: title band, rune, abstract art well, type line, rules text, and status footer.
+- Action Cards use BoardState's own full-card command frame: title/name band, rune, intentionally blank image box, type line, flavor text, and status footer.
 - Command Cards must read as game cards, but they must remain visibly distinct from real Magic cards shown during Dry Run or full in-app play.
 
 ## Visual Mockups
@@ -83,3 +83,15 @@ The production implementation lives in:
 The Commander Action Hand is presentation and action entry only. It does not own gameplay state, bypass the Rules Engine, duplicate the State Engine, create another save format, or expose hidden information.
 
 Action Cards should never regress to generic transparent buttons, toolbar tiles, or empty card slots. They should feel like BoardState-native command cards: physical, readable, card-shaped, and clearly separate from actual MTG card objects.
+
+## Command Card Face Standard
+
+Command Cards should use the same interaction psychology as a trading-card hand without copying any protected card frame, asset, or brand identity. Each card face must include:
+
+- A readable title/name strip using the command name.
+- A blank image box that feels like card art stock without implying missing content.
+- A type line that classifies the command, such as `Command - Phase` or `Legendary Command - Commander`.
+- Brief flavor text that tells the player what the command does in gameplay language.
+- A compact footer for current status or context.
+
+The frame should be opaque enough to feel like premium physical card stock. Translucent placeholder slots, empty glass tiles, or toolbar-like command cells are not acceptable for the production Command Hand.

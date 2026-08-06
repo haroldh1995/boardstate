@@ -8570,21 +8570,76 @@ function resolveActionCardVisualMaterial(card = {}) {
 function resolveActionCardFrame(card = {}) {
   const family = String(card.family || "general");
   const frameByFamily = {
-    combat: { symbol: "B", type: "BoardState Command - Combat", tone: "martial" },
-    commander: { symbol: "C", type: "Legendary Command - Commander", tone: "legendary" },
-    judge: { symbol: "J", type: "BoardState Command - Judge", tone: "crystal" },
-    knowledge: { symbol: "S", type: "BoardState Command - Search", tone: "archive" },
-    memory: { symbol: "M", type: "BoardState Command - Memory", tone: "memory" },
-    safety: { symbol: "U", type: "BoardState Command - Recovery", tone: "ward" },
-    selection: { symbol: "X", type: "BoardState Command - Selection", tone: "focus" },
-    stack: { symbol: "R", type: "BoardState Command - Stack", tone: "arcane" },
-    table: { symbol: "T", type: "BoardState Command - Table", tone: "utility" },
-    turn: { symbol: "P", type: "BoardState Command - Phase", tone: "phase" },
+    combat: {
+      symbol: "B",
+      type: "Command - Combat",
+      tone: "martial",
+      flavor: "Guide attackers, blockers, and combat resolution while the battlefield stays in view.",
+    },
+    commander: {
+      symbol: "C",
+      type: "Legendary Command - Commander",
+      tone: "legendary",
+      flavor: "Manage tax, damage, and command-zone choices for the centerpiece of the game.",
+    },
+    judge: {
+      symbol: "J",
+      type: "Command - Rules",
+      tone: "crystal",
+      flavor: "Ask why a play is legal, illegal, or changing the current game state.",
+    },
+    knowledge: {
+      symbol: "S",
+      type: "Command - Library",
+      tone: "archive",
+      flavor: "Find cards, Oracle text, and public references without leaving the match.",
+    },
+    memory: {
+      symbol: "M",
+      type: "Command - Memory",
+      tone: "memory",
+      flavor: "Record table context, reminders, and replay history for this Commander game.",
+    },
+    safety: {
+      symbol: "U",
+      type: "Instant Command - Recovery",
+      tone: "ward",
+      flavor: "Reverse the latest safe action using the recorded authoritative event chain.",
+    },
+    selection: {
+      symbol: "X",
+      type: "Command - Selection",
+      tone: "focus",
+      flavor: "Inspect the selected object and reveal the details that matter right now.",
+    },
+    stack: {
+      symbol: "R",
+      type: "Command - Stack",
+      tone: "arcane",
+      flavor: "Resolve priority, triggers, and stack objects without hiding the table.",
+    },
+    table: {
+      symbol: "T",
+      type: "Command - Table",
+      tone: "utility",
+      flavor: "Open practical table tools for dice, notes, counters, mana, and display control.",
+    },
+    turn: {
+      symbol: "P",
+      type: "Command - Phase",
+      tone: "phase",
+      flavor: "Advance the turn structure when the table is ready for the next step.",
+    },
   };
-  const frame = frameByFamily[family] || { symbol: "A", type: "BoardState Command - Action", tone: "command" };
+  const frame = frameByFamily[family] || {
+    symbol: "A",
+    type: "Command - Action",
+    tone: "command",
+    flavor: "Use this command when it becomes relevant to the current game state.",
+  };
   return {
     ...frame,
-    rules: card.intent || card.detail || "Use this command when it becomes relevant to the current game state.",
+    flavor: card.flavor || frame.flavor || card.intent || card.detail || "Use this command when it becomes relevant to the current game state.",
     subtype: card.detail || card.eyebrow || "Available decision",
   };
 }
@@ -8648,10 +8703,10 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
         <span class="action-card__rune" aria-hidden="true">${escapeHtml(frame.symbol)}</span>
       </span>
       <span class="action-card__art" aria-hidden="true">
-        <span class="action-card__sigil">${escapeHtml(frame.symbol)}</span>
+        <span class="action-card__art-blank"></span>
       </span>
       <span class="action-card__type-line">${escapeHtml(frame.type)}</span>
-      <span class="action-card__rules-text">${escapeHtml(frame.rules)}</span>
+      <span class="action-card__rules-text action-card__flavor-text">${escapeHtml(frame.flavor)}</span>
       <span class="action-card__footer">
         <span class="action-card__eyebrow">${escapeHtml(card.eyebrow || frame.subtype)}</span>
         <span class="action-card__signal">${escapeHtml(card.signal || "Ready")}</span>
