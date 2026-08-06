@@ -141,6 +141,7 @@ const COMMAND_DECK_MAX_STEPS_PER_FRAME = 3;
 const COMMAND_DECK_AUTO_CENTER_COOLDOWN_MS = 4200;
 const COMMAND_DECK_MAX_FAVORITES = 4;
 const COMMAND_DECK_FEEDBACK_THROTTLE_MS = 140;
+const COMMAND_DECK_SETTLE_HOVER_SUPPRESS_MS = 220;
 const COMMAND_DECK_CORE_ORDER = [
   "phase",
   "commander",
@@ -732,7 +733,6 @@ export function mountApp(root, store) {
     }
     const activeElement = document.activeElement;
     const deckHadFocus = Boolean(activeElement && currentDeck.contains(activeElement));
-    const focusedCardId = activeElement?.closest?.("[data-action-card]")?.dataset.actionCardId || "";
     const wrapper = document.createElement("div");
     wrapper.innerHTML = renderCommanderActionHand(store.getState(), getCommandDeckRenderOptions()).trim();
     const nextDeck = wrapper.firstElementChild;
@@ -741,13 +741,15 @@ export function mountApp(root, store) {
       return;
     }
     currentDeck.replaceWith(nextDeck);
+    nextDeck.classList.add("is-rotating");
+    window.setTimeout(() => {
+      if (nextDeck.isConnected) {
+        nextDeck.classList.remove("is-rotating");
+      }
+    }, COMMAND_DECK_SETTLE_HOVER_SUPPRESS_MS);
     bind(nextDeck, store.getState());
-    if (deckHadFocus) {
-      const nextFocusedCard = focusedCardId
-        ? [...nextDeck.querySelectorAll("[data-action-card]")].find((card) => card.dataset.actionCardId === focusedCardId)
-        : null;
-      (nextFocusedCard || nextDeck).focus?.({ preventScroll: true });
-    }
+    const centerCard = nextDeck.querySelector('[data-action-card][data-command-deck-center="true"]');
+    (centerCard || (deckHadFocus ? nextDeck : null))?.focus?.({ preventScroll: true });
   }
 
   function playCommandDeckRotationFeedback() {
@@ -933,6 +935,7 @@ export function mountApp(root, store) {
         y: event.clientY,
         moved: false,
       };
+      deck.classList.add("is-dragging");
       fan.classList.add("is-dragging");
       fan.style.setProperty("--command-deck-drag-progress", "0");
       fan.setPointerCapture?.(event.pointerId);
@@ -958,6 +961,7 @@ export function mountApp(root, store) {
       const dx = event.clientX - commandDeckPointer.x;
       const dy = event.clientY - commandDeckPointer.y;
       commandDeckPointer = null;
+      deck.classList.remove("is-dragging");
       fan.classList.remove("is-dragging");
       fan.style.setProperty("--command-deck-drag-progress", "0");
       fan.releasePointerCapture?.(event.pointerId);
@@ -974,6 +978,7 @@ export function mountApp(root, store) {
     fan.addEventListener("pointercancel", (event) => {
       if (commandDeckPointer?.id === event.pointerId) {
         commandDeckPointer = null;
+        deck.classList.remove("is-dragging");
         fan.classList.remove("is-dragging");
         fan.style.setProperty("--command-deck-drag-progress", "0");
       }
@@ -8694,7 +8699,7 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
       data-sensory-priority="${escapeAttribute(sensory.priority)}"
       data-sensory-channel="${escapeAttribute(sensory.volumeCategory === "gameplayVolume" ? SENSORY_CHANNELS.gameplay : SENSORY_CHANNELS.ui)}"
       aria-label="${escapeAttribute(`${card.label}: ${card.detail || card.signal || "decision"}`)}"
-      aria-pressed="${card.state === "expanded" || card.state === "selected" ? "true" : "false"}"
+      aria-pressed="${deckEntry.isCenter && (card.state === "expanded" || card.state === "selected") ? "true" : "false"}"
     >
       <span class="action-card__rim" aria-hidden="true"></span>
       <span class="action-card__glint" aria-hidden="true"></span>

@@ -184,6 +184,10 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.match(render, /function getVisibleCommandDeckCards/);
   assert.match(render, /function normalizeCommandDeckIndex/);
   assert.match(render, /function bindCommandDeck/);
+  assert.match(render, /COMMAND_DECK_SETTLE_HOVER_SUPPRESS_MS/);
+  assert.match(render, /nextDeck\.classList\.add\("is-rotating"\)/);
+  assert.match(render, /querySelector\('\[data-action-card\]\[data-command-deck-center="true"\]'\)/);
+  assert.match(render, /aria-pressed="\$\{deckEntry\.isCenter && \(card\.state === "expanded" \|\| card\.state === "selected"\) \? "true" : "false"\}"/);
   assert.match(render, /function renderCommanderActionCard/);
   assert.match(render, /function resolveActionCardFrame/);
   assert.match(render, /data-command-card-frame="boardstate-command-card"/);
@@ -262,6 +266,9 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.match(styles, /\.command-deck__favorite-toggle\b/);
   assert.match(styles, /data-command-deck-center="true"/);
   assert.match(styles, /data-command-deck-slot="-3"/);
+  assert.match(styles, /\.command-deck:not\(\.is-rotating\):not\(\.is-dragging\) \.action-card\[data-command-deck-center="true"\]:hover/);
+  assert.match(styles, /\.action-card:not\(\[data-command-deck-center="true"\]\)\.action-card-state-expanded/);
+  assert.match(styles, /\.action-card:not\(\[data-command-deck-center="true"\]\)\[data-command-deck-contextual="true"\]/);
   assert.match(styles, /\.action-card\b/);
   assert.match(styles, /\.action-card--commander\b/);
   assert.match(styles, /\.action-card__title-row\b/);
@@ -271,8 +278,8 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.match(styles, /\.action-card__type-line\b/);
   assert.match(styles, /\.action-card__rules-text\b/);
   assert.match(styles, /data-command-card-tone/);
-  assert.match(styles, /\.commander-action-hand__fan:has\(\.action-card:hover\)/);
-  assert.match(styles, /\.action-card:has\(\+ \.action-card:hover\)/);
+  assert.match(styles, /\.commander-action-hand__fan:has\(\.action-card\[data-command-deck-center="true"\]:hover\)/);
+  assert.match(styles, /\.action-card:has\(\+ \.action-card\[data-command-deck-center="true"\]:hover\)/);
   assert.match(styles, /\.action-card-state-resting\b/);
   assert.match(styles, /\.action-card-state-idle\b/);
   assert.match(styles, /\.action-card-state-focused\b/);

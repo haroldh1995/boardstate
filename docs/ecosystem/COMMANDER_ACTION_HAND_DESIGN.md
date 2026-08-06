@@ -37,6 +37,7 @@ The selected model combines the curved fan and layered fan:
 - The hand remains bottom-centered, compact, and smaller than the battlefield.
 - Action Cards use BoardState's own full-card command frame: title/name band, rune, intentionally blank image box, type line, flavor text, and status footer.
 - Command Cards must read as game cards, but they must remain visibly distinct from real Magic cards shown during Dry Run or full in-app play.
+- The snapped center card is the only card allowed to carry selected emphasis after rotation. Side cards may remain visible and clickable, but hover/focus cannot get stuck looking selected.
 
 ## Visual Mockups
 
@@ -56,7 +57,7 @@ The accepted prototype requirements were:
 - `createCommanderActionCards()` filters unavailable actions and orders visible cards by priority.
 - `renderCommanderActionCard()` exposes action identity, state, priority, and accessible labels.
 - `renderCommanderActionCard()` renders a complete BoardState command-card face instead of a translucent placeholder slot.
-- CSS uses overlapped fan layout, priority-based scale/lift, focus-visible states, neighbor displacement, subtle idle breathing, and reduced-motion fallbacks.
+- CSS uses overlapped fan layout, priority-based scale/lift, center-only focus-visible states, neighbor displacement, subtle idle breathing, and reduced-motion fallbacks.
 
 ## Internal Design Critique
 

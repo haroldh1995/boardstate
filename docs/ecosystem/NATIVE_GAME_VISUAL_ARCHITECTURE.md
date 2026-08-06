@@ -83,6 +83,7 @@ Permanent standards:
 - Inactive or irrelevant actions are not kept as permanent disabled toolbar items. Combat, resolve, selected-card inspection, and undo cards appear only when state makes them useful.
 - The highest-priority Action Card migrates toward the center of the fan. Secondary cards alternate left and right from center.
 - Action Cards overlap, fan, lift on hover/focus, move neighboring cards aside, and retain reduced-motion-safe equivalents.
+- The snapped center Action Card owns selected emphasis. Rotation must suppress stale hover/focus during settling so side cards never appear selected after the deck snaps.
 - Action Cards use BoardState-native full-card anatomy: title/name band, rune marker, blank image box, type line, flavor text, and status footer.
 - Command Cards must feel like premium physical game cards rather than translucent placeholders. The frame may borrow the universal trading-card grammar of title, art window, type, and text, but it must not copy protected Magic or Arena card-frame assets.
 - The Action Hand should feel like a digital hand of available decisions while remaining visually distinct from actual MTG cards rendered during Dry Run or fully in-app play.

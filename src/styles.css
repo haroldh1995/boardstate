@@ -9137,8 +9137,8 @@ body[data-page="battlefield"] .gameplay-context-dock {
   transition: opacity 150ms ease, height 150ms ease;
 }
 
-.action-card:hover,
-.action-card:focus-visible {
+.commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:hover,
+.commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:focus-visible {
   z-index: 999;
   border-color: rgba(255, 236, 174, 0.98);
   box-shadow:
@@ -9155,8 +9155,8 @@ body[data-page="battlefield"] .gameplay-context-dock {
   outline: none;
 }
 
-.action-card:hover .action-card__intent,
-.action-card:focus-visible .action-card__intent {
+.commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:hover .action-card__intent,
+.commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:focus-visible .action-card__intent {
   height: 1.3rem;
   opacity: 1;
 }
@@ -9170,18 +9170,18 @@ body[data-page="battlefield"] .gameplay-context-dock {
     scale(var(--motion-physics-card-active-scale));
 }
 
-.action-card:focus-visible {
+.commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:focus-visible {
   outline: 2px solid rgba(143, 211, 255, 0.72);
   outline-offset: 4px;
 }
 
-.commander-action-hand__fan:has(.action-card:hover) .action-card:not(:hover),
-.commander-action-hand__fan:has(.action-card:focus-visible) .action-card:not(:focus-visible) {
+.commander-action-hand:not(.is-rotating):not(.is-dragging) .commander-action-hand__fan:has(.action-card[data-command-deck-center="true"]:hover) .action-card:not([data-command-deck-center="true"]),
+.commander-action-hand:not(.is-rotating):not(.is-dragging) .commander-action-hand__fan:has(.action-card[data-command-deck-center="true"]:focus-visible) .action-card:not([data-command-deck-center="true"]) {
   opacity: 0.76;
 }
 
-.action-card:hover + .action-card,
-.action-card:focus-visible + .action-card {
+.commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:hover + .action-card,
+.commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:focus-visible + .action-card {
   transform:
     translate3d(calc(var(--motion-physics-neighbor-displacement) + (var(--hand-offset) * 0.08rem)), 0, 0)
     rotate(var(--hand-angle))
@@ -9189,8 +9189,8 @@ body[data-page="battlefield"] .gameplay-context-dock {
     translateZ(8px);
 }
 
-.action-card:has(+ .action-card:hover),
-.action-card:has(+ .action-card:focus-visible) {
+.commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card:has(+ .action-card[data-command-deck-center="true"]:hover),
+.commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card:has(+ .action-card[data-command-deck-center="true"]:focus-visible) {
   transform:
     translate3d(calc((var(--hand-offset) * 0.08rem) - var(--motion-physics-neighbor-displacement)), 0, 0)
     rotate(var(--hand-angle))
@@ -9422,8 +9422,8 @@ body.phase-advance-celebration .action-card--phase {
     transform: translate3d(calc(var(--hand-offset) * 0.04rem), 0, 0) translateY(calc(0px - var(--hand-rise))) rotate(calc(var(--hand-angle) * 0.5));
   }
 
-  .action-card:hover,
-  .action-card:focus-visible {
+  .commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:hover,
+  .commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:focus-visible {
     transform: translate3d(calc(var(--hand-offset) * 0.04rem), 0, 0) translateY(calc(-8px - var(--hand-rise))) rotate(calc(var(--hand-angle) * 0.16)) scale(var(--motion-physics-card-compact-hover-scale));
   }
 
@@ -10328,8 +10328,8 @@ body[data-page="battlefield"] .action-card-state-resolving {
   opacity: 0.96;
 }
 
-body[data-page="battlefield"] .action-card:hover,
-body[data-page="battlefield"] .action-card:focus-visible {
+body[data-page="battlefield"] .command-deck:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:hover,
+body[data-page="battlefield"] .command-deck:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:focus-visible {
   opacity: 1;
 }
 
@@ -10398,6 +10398,21 @@ body[data-page="battlefield"] .command-deck .action-card[data-command-deck-cente
     inset 0 0 0 4px rgba(19, 13, 28, 0.92);
 }
 
+body[data-page="battlefield"] .command-deck .action-card:not([data-command-deck-center="true"]).action-card-state-expanded,
+body[data-page="battlefield"] .command-deck .action-card:not([data-command-deck-center="true"]).action-card-state-selected,
+body[data-page="battlefield"] .command-deck .action-card:not([data-command-deck-center="true"]).action-card-state-focused,
+body[data-page="battlefield"] .command-deck .action-card:not([data-command-deck-center="true"]).action-card-state-promoted,
+body[data-page="battlefield"] .command-deck .action-card:not([data-command-deck-center="true"]).action-card-state-waiting,
+body[data-page="battlefield"] .command-deck .action-card:not([data-command-deck-center="true"]).action-card-state-resolving {
+  border-color: rgba(236, 200, 122, 0.42);
+  --action-card-glow: rgba(236, 200, 122, 0.1);
+  box-shadow:
+    0 calc(14px + (var(--hand-prominence) * 12px)) calc(26px + (var(--hand-prominence) * 16px)) rgba(0, 0, 0, 0.42),
+    0 0 calc(8px + (var(--hand-prominence) * 16px)) rgba(236, 200, 122, calc(0.08 + (var(--hand-prominence) * 0.14))),
+    inset 0 0 0 2px rgba(255, 244, 204, 0.09),
+    inset 0 0 0 4px rgba(19, 13, 28, 0.92);
+}
+
 body[data-page="battlefield"] .command-deck .action-card[data-command-deck-card-favorite="true"] .action-card__rune {
   border-color: rgba(255, 232, 158, 0.8);
   box-shadow:
@@ -10407,6 +10422,11 @@ body[data-page="battlefield"] .command-deck .action-card[data-command-deck-card-
 
 body[data-page="battlefield"] .command-deck .action-card[data-command-deck-contextual="true"] {
   border-color: rgba(143, 211, 255, 0.78);
+}
+
+body[data-page="battlefield"] .command-deck .action-card:not([data-command-deck-center="true"])[data-command-deck-contextual="true"] {
+  border-color: rgba(236, 200, 122, 0.42);
+  --action-card-glow: rgba(236, 200, 122, 0.1);
 }
 
 body[data-page="battlefield"] .command-deck .action-card[data-command-deck-slot="-3"],
@@ -10419,8 +10439,8 @@ body[data-page="battlefield"] .command-deck .action-card[data-command-deck-slot=
   opacity: 0.78;
 }
 
-body[data-page="battlefield"] .command-deck .action-card:hover,
-body[data-page="battlefield"] .command-deck .action-card:focus-visible {
+body[data-page="battlefield"] .command-deck:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:hover,
+body[data-page="battlefield"] .command-deck:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:focus-visible {
   opacity: 1;
 }
 
