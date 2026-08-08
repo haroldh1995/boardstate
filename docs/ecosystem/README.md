@@ -27,6 +27,7 @@ Prompt 1 output files:
 - `SENSORY_LANGUAGE_ARCHITECTURE.md`
 - `ADAPTIVE_LEARNING_ONBOARDING.md`
 - `CONTEXTUAL_ASSISTANCE_SYSTEM.md`
+- `CANONICAL_GAMEPLAY_ARCHITECTURE.md`
 
 These files document the preparation baseline, permanent Constitution, architecture inventory, rules-engine extraction risks, shared contracts, migration plan, handoff risks, future navigation, and future test matrix.
 
@@ -69,3 +70,5 @@ The Commander session architecture document records the Prompt 2 canonical sessi
 `ADAPTIVE_LEARNING_ONBOARDING.md` records the Prompt 13.1 first-time user experience, progressive onboarding philosophy, Adaptive Learning Engine, Onboarding Tokens, Help and Learning Center, profile-scoped learning memory, accessibility requirements, and development-only Learning Debug Overlay contract.
 
 `CONTEXTUAL_ASSISTANCE_SYSTEM.md` records the Prompt 13.2 contextual assistance standard, Assistance Priority Levels, Assistance Tokens, profile-scoped assistance memory, natural-pause timing rules, Helper Sprite presentation contract, safe ecosystem preference summaries, and development-only Assistance Debug Overlay contract.
+
+`CANONICAL_GAMEPLAY_ARCHITECTURE.md` records the Prompt 13.2.6 Part 1 canonical gameplay laws, physical tabletop battlefield geography, fixed gameplay viewport, protected gameplay corridor, Live Tracking Assumption Engine, and Single Resolve law. It supersedes earlier gameplay architecture documents wherever they conflict.

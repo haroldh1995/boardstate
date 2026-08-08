@@ -18,6 +18,13 @@ import {
 } from "../onboarding/tutorialSystem.js";
 import { exportLocalSave } from "../storage/saveState.js";
 import { canBeCommander } from "../game/commanderSystem.js";
+import {
+  CANONICAL_GAMEPLAY_ARCHITECTURE_VERSION,
+  createCanonicalGameplayRuntimeContract,
+  createProtectedGameplayCorridorState,
+  createSingleResolvePlan,
+  shouldAutoProgressLiveTrackingStack,
+} from "../gameplay/canonicalGameplay.js";
 import { calculateLegalTargets, getPermanentManaOptions } from "../rules-engine/index.js";
 import { createPermanent, PHASES } from "../state/schema.js";
 import { buildPredictiveActions } from "../game/predictiveActions.js";
@@ -497,6 +504,7 @@ export function mountApp(root, store) {
     }
     const resolvedCompositionMode = resolveCompositionMode(profile);
     const viewportContract = resolveApplicationViewport(activePage);
+    const gameplayContract = createCanonicalGameplayRuntimeContract(activePage);
     helperMessage = resolveHelperSpriteMessage(profile, activePage);
     if (castActionPopup) {
       const popupIndex = searchResults.findIndex(
@@ -520,7 +528,12 @@ export function mountApp(root, store) {
         })
       );
     }
-    const activeNotification = getActiveFullWindowNotification(profile);
+    const activeNotification = getActiveFullWindowNotification(profile, activePage);
+    const protectedCorridorState = createProtectedGameplayCorridorState({
+      notificationCount: activePage === "battlefield" ? getNotificationToastEntries(profile, activePage).length : 0,
+      helperVisible: activePage === "battlefield" && Boolean(profile.settings?.helperSprite?.enabled && helperMessage),
+      overlayActive: activePage === "battlefield" && Boolean(activeUtilityPanel || activeToolPanel || optionsOpen || confirmationDialog),
+    });
     document.body.dataset.composition = resolvedCompositionMode;
     document.body.dataset.compositionPreference = CANONICAL_GAMEPLAY_COMPOSITION;
     document.body.dataset.gameplayComposition = CANONICAL_GAMEPLAY_COMPOSITION;
@@ -534,6 +547,11 @@ export function mountApp(root, store) {
     document.body.dataset.commandDeckVersion = COMMAND_DECK_VERSION;
     document.body.dataset.tabletopReconstructionVersion = TABLETOP_RECONSTRUCTION_VERSION;
     document.body.dataset.hudCompositionVersion = HUD_COMPOSITION_VERSION;
+    document.body.dataset.canonicalGameplayArchitectureVersion = CANONICAL_GAMEPLAY_ARCHITECTURE_VERSION;
+    document.body.dataset.protectedGameplayCorridor = gameplayContract.protectedGameplayCorridor;
+    document.body.dataset.protectedGameplayCorridorClear = protectedCorridorState.clearForGameplay ? "true" : "false";
+    document.body.dataset.liveTrackingAssumptionEngine = gameplayContract.liveTrackingAssumptionEngine;
+    document.body.dataset.tacticalCommandHand = gameplayContract.tacticalCommandHand;
     document.body.dataset.landscapeViewportLockVersion = LANDSCAPE_VIEWPORT_LOCK_VERSION;
     document.body.dataset.gameViewport = viewportContract.viewport;
     document.body.dataset.gameplayOrientation = viewportContract.orientation;
@@ -641,14 +659,8 @@ export function mountApp(root, store) {
     clearTimeout(autoStackTimer);
     const session = profile.activeSession;
     const top = session?.stack?.[0];
-    const hasPendingChoice = (session?.pendingEffects || []).some(
-      (entry) => entry.stackObjectId === top?.id && !["resolved", "skipped", "ignored"].includes(entry.status)
-    );
-    if (!top || hasPendingChoice || profile.settings?.manualStackConfirmation) {
-      return;
-    }
-    const userHasPriority = session.priority?.waiting && ["local-player", "player"].includes(session.priority?.activePlayerId);
-    if (userHasPriority && top.controller !== "player" && top.controller !== "local-player") {
+    const autoProgress = shouldAutoProgressLiveTrackingStack(session, profile.settings || {});
+    if (!top || !autoProgress.allowed) {
       return;
     }
     const delay = session.simulation?.enabled && session.simulation?.speed === "fast" ? 180 : 620;
@@ -2745,8 +2757,16 @@ export function mountApp(root, store) {
         const hasCombatToResolve = Boolean((session.combat?.attackerIds || []).length || session.combat?.damagePreview);
         if (button.dataset.commandAction === "resolve") {
           if (spellStack.length) {
-            store.dispatch({ type: "RESOLVE_TOP_SPELL", stackId: spellStack[0].id });
-            showNotice("Resolving the top spell on the stack.", "info");
+            const resolvePlan = createSingleResolvePlan(session, { stackId: spellStack[0].id });
+            if (!resolvePlan.canResolve || resolvePlan.requiresPlayerDecision) {
+              activeUtilityPanel = "stack";
+              utilityDockOpen = false;
+              showNotice("A player decision is required before this object can resolve.", "warning");
+              render(store.getState());
+              return;
+            }
+            store.dispatch({ type: "RESOLVE_TOP_SPELL", stackId: resolvePlan.stackObjectId });
+            showNotice("Resolved the top stack object and advanced all uncontested effects.", "info");
             return;
           }
           if (queued.length) {
@@ -5707,6 +5727,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
   const tabs = uiState.visiblePages || getVisiblePages(profile);
   const uiLayer = uiState.uiLayerState || resolveUiLayerState(profile, page, uiState);
   const viewportContract = uiState.viewportContract || resolveApplicationViewport(page);
+  const gameplayContract = createCanonicalGameplayRuntimeContract(page);
   const appLayerClasses = [
     `app-shell--${page}`,
     `app-shell--viewport-${viewportContract.viewport}`,
@@ -5722,7 +5743,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
     .filter(Boolean)
     .join(" ");
   return `
-    <main class="app-shell ${appLayerClasses}" data-ui-layer="${escapeAttribute(uiLayer.current)}" data-game-viewport="${escapeAttribute(viewportContract.viewport)}" data-gameplay-orientation="${escapeAttribute(viewportContract.orientation)}" data-device-class="${escapeAttribute(viewportContract.deviceClass)}" data-landscape-viewport-lock-version="${escapeAttribute(viewportContract.version)}" data-app-shell>
+    <main class="app-shell ${appLayerClasses}" data-ui-layer="${escapeAttribute(uiLayer.current)}" data-game-viewport="${escapeAttribute(viewportContract.viewport)}" data-gameplay-orientation="${escapeAttribute(viewportContract.orientation)}" data-device-class="${escapeAttribute(viewportContract.deviceClass)}" data-canonical-gameplay-architecture-version="${escapeAttribute(gameplayContract.version)}" data-protected-gameplay-corridor="${escapeAttribute(gameplayContract.protectedGameplayCorridor)}" data-live-tracking-assumption-engine="${escapeAttribute(gameplayContract.liveTrackingAssumptionEngine)}" data-landscape-viewport-lock-version="${escapeAttribute(viewportContract.version)}" data-app-shell>
       <header class="app-header glass">
         <div class="app-header-top">
           <div>
@@ -12209,9 +12230,12 @@ function renderTournamentInviteModal(profile, invite = {}) {
   `;
 }
 
-function getActiveFullWindowNotification(profile = {}) {
+function getActiveFullWindowNotification(profile = {}, page = "") {
   const preferences = getNotificationPreferences(profile);
   const dismissed = new Set(profile.notifications?.dismissedIds || []);
+  if (page === "battlefield") {
+    return null;
+  }
   if (!preferences.master) {
     return null;
   }

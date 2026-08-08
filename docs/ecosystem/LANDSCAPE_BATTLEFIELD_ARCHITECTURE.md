@@ -4,6 +4,8 @@ Date: 2026-07-20
 
 Prompt 5 modernizes the existing gameplay interface into a landscape-first Commander battlefield while preserving BoardState's existing cosmic background, gold HUD accents, glass panels, card rendering, rules engine, State Engine, Event Knowledge Engine, persistence, synchronization, tutorials, Dry Run, and AI behavior.
 
+Prompt 13.2.6 Part 1 supersedes this document wherever gameplay laws conflict. The permanent source for physical tabletop geography, protected gameplay space, fixed viewport behavior, Live Tracking assumptions, and the Single Resolve law is `docs/ecosystem/CANONICAL_GAMEPLAY_ARCHITECTURE.md`.
+
 ## Continuity Findings
 
 BoardState already had reusable battlefield foundations in `src/ui/render.js`, `src/styles.css`, `src/shared-session/perspective.js`, `src/state/schema.js`, and the existing reducer/rules-engine action path.

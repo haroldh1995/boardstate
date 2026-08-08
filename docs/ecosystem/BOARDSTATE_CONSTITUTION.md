@@ -100,6 +100,8 @@ The battlefield is the application. Gameplay must feel like a premium native dig
 
 BoardState gameplay is permanently landscape-only. Portrait gameplay, portrait navigation, portrait layout switching, and portrait-specific optimization belong to BoardState Lite. BoardState remains responsive by revealing more battlefield, table, atmosphere, or contextual information across display sizes without changing into a separate portrait composition.
 
+Prompt 13.2.6 Part 1 is the canonical gameplay architecture and supersedes earlier gameplay presentation artifacts wherever they conflict. The permanent contract is documented in `docs/ecosystem/CANONICAL_GAMEPLAY_ARCHITECTURE.md` and implemented through `src/gameplay/canonicalGameplay.js`, `src/ui/landscapeBattlefield.js`, `src/ui/render.js`, and `src/styles.css`.
+
 The Prompt 12.1 visual foundation is documented in `docs/ecosystem/NATIVE_GAME_VISUAL_ARCHITECTURE.md` and implemented through `src/main.js`, `src/state/schema.js`, `src/storage/localDatabase.js`, `src/state/gameReducer.js`, `src/ui/render.js`, and `src/ecosystem/ecosystemIntegration.js`.
 
 The Prompt 12.5 visual language foundation is documented in `docs/ecosystem/VISUAL_LANGUAGE_MATERIAL_SYSTEM.md` and implemented through `src/ui/visualTokens.js`, `src/ui/render.js`, and `src/styles.css`. Future gameplay UI must consume centralized visual materials, layers, elevation, shadows, glows, and accessibility-safe focus treatment instead of adding unversioned one-off styling.

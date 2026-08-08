@@ -4,6 +4,8 @@ Date: 2026-07-23
 
 Prompt 12.1 establishes BoardState's permanent visual and interaction foundation. This is not a feature layer, alternate gameplay surface, or Arena clone. It is the repository-owned standard that future BoardState work must use when changing gameplay presentation.
 
+Prompt 13.2.6 Part 1 now owns the canonical gameplay architecture. This document remains the native-game visual standard, but `docs/ecosystem/CANONICAL_GAMEPLAY_ARCHITECTURE.md` takes precedence for gameplay laws, battlefield geography, the fixed gameplay viewport, protected gameplay corridor, Live Tracking assumptions, and the Single Resolve law.
+
 ## Foundational Principle
 
 The battlefield is the application.

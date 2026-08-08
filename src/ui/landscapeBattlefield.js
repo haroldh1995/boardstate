@@ -5,6 +5,15 @@ import { createAiGameplayState } from "../authoritative-core/aiGameplayEngine.js
 import { createProactiveAssistantState } from "../authoritative-core/proactiveAssistant.js";
 import { createRulesAssistantState } from "../authoritative-core/rulesAssistant.js";
 import {
+  CANONICAL_BATTLEFIELD_GEOGRAPHY,
+  CANONICAL_GAMEPLAY_ARCHITECTURE_VERSION,
+  CANONICAL_GAMEPLAY_LAWS,
+  LIVE_TRACKING_ASSUMPTIONS,
+  PROTECTED_GAMEPLAY_CORRIDOR,
+  SINGLE_RESOLVE_LAW,
+  createCanonicalGameplayRuntimeContract,
+} from "../gameplay/canonicalGameplay.js";
+import {
   BOARDSTATE_MOTION_LANGUAGE_VERSION,
   MOTION_OWNERS,
   MOTION_STATE_CATALOG,
@@ -263,6 +272,17 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
   return {
     version: LANDSCAPE_BATTLEFIELD_VERSION,
     orientation: "landscape-first",
+    canonicalGameplay: {
+      version: CANONICAL_GAMEPLAY_ARCHITECTURE_VERSION,
+      laws: CANONICAL_GAMEPLAY_LAWS,
+      runtimeContract: createCanonicalGameplayRuntimeContract("battlefield"),
+      battlefieldGeography: CANONICAL_BATTLEFIELD_GEOGRAPHY,
+      protectedGameplayCorridor: PROTECTED_GAMEPLAY_CORRIDOR,
+      liveTrackingAssumptions: LIVE_TRACKING_ASSUMPTIONS,
+      singleResolveLaw: SINGLE_RESOLVE_LAW,
+      mtgArenaRole: "digital-presentation-reference-only",
+      physicalCommanderRole: "battlefield-geography-and-gameplay-flow-authority",
+    },
     regions: LANDSCAPE_BATTLEFIELD_REGIONS,
     viewport,
     density,

@@ -992,9 +992,9 @@ body[data-composition="widescreen"] .landscape-battlefield-groups .permanent {
   }
 
   .landscape-battlefield-page {
-    height: auto;
-    min-height: calc(100svh - 5rem);
-    overflow: visible;
+    height: calc(100svh - 5rem);
+    min-height: 0;
+    overflow: hidden;
   }
 
   .landscape-table-ribbon {
@@ -5112,6 +5112,29 @@ textarea {
 
 .recovery-toast.error {
   border-color: rgba(255, 105, 132, 0.72);
+}
+
+body[data-page="battlefield"] .recovery-toast-stack {
+  top: auto;
+  right: max(0.72rem, env(safe-area-inset-right));
+  bottom: calc(var(--game-command-hand-space, 8rem) + 0.48rem);
+  width: min(20rem, 28vw);
+  max-height: min(30svh, 13rem);
+  overflow: hidden;
+  z-index: 112;
+}
+
+body[data-page="battlefield"] .recovery-toast {
+  padding: 0.52rem 0.62rem;
+  border-radius: 0.86rem;
+}
+
+body[data-page="battlefield"] .recovery-toast p,
+body[data-page="battlefield"] .recovery-toast span {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .confirm-backdrop {
