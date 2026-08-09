@@ -188,6 +188,10 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.match(render, /nextDeck\.classList\.add\("is-rotating"\)/);
   assert.match(render, /querySelector\('\[data-action-card\]\[data-command-deck-center="true"\]'\)/);
   assert.match(render, /aria-pressed="\$\{deckEntry\.isCenter && \(card\.state === "expanded" \|\| card\.state === "selected"\) \? "true" : "false"\}"/);
+  assert.match(render, /const fanStack = deckEntry\.isCenter \? 2000/);
+  assert.match(render, /const fanLiftZ = deckEntry\.isCenter \? 36/);
+  assert.match(render, /--hand-z-index: \$\{fanStack\}/);
+  assert.match(render, /--hand-lift-z: \$\{fanLiftZ\}px/);
   assert.match(render, /function renderCommanderActionCard/);
   assert.match(render, /function resolveActionCardFrame/);
   assert.match(render, /data-command-card-frame="boardstate-command-card"/);
@@ -266,6 +270,9 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.match(styles, /\.command-deck__favorite-toggle\b/);
   assert.match(styles, /data-command-deck-center="true"/);
   assert.match(styles, /data-command-deck-slot="-3"/);
+  assert.match(styles, /z-index: var\(--hand-z-index, var\(--hand-depth\)\)/);
+  assert.match(styles, /translateZ\(var\(--hand-lift-z, calc\(var\(--hand-prominence\) \* 12px\)\)\)/);
+  assert.match(styles, /\.command-deck \.action-card\[data-command-deck-center="true"\]\s*{\s*z-index: var\(--hand-z-index, 2000\);/);
   assert.match(styles, /\.command-deck:not\(\.is-rotating\):not\(\.is-dragging\) \.action-card\[data-command-deck-center="true"\]:hover/);
   assert.match(styles, /\.action-card:not\(\[data-command-deck-center="true"\]\)\.action-card-state-expanded/);
   assert.match(styles, /\.action-card:not\(\[data-command-deck-center="true"\]\)\[data-command-deck-contextual="true"\]/);

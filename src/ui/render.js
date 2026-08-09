@@ -8677,9 +8677,12 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
   const fanTilt = offset * 5.2;
   const centerLift = deckEntry.isCenter ? 4 : 0;
   const fanRise = Math.max(0, 18 - distance * 4.2) + Math.max(0, Number(card.priority || 0) - 90) * 0.12 + centerLift;
-  const prominence = Math.max(0, Math.min(1, Number(card.priority || 0) / 128));
+  const priorityProminence = Math.max(0, Math.min(1, Number(card.priority || 0) / 128));
+  const prominence = deckEntry.isCenter ? 1 : priorityProminence;
   const fanScale = 0.94 + prominence * 0.11 + (deckEntry.isCenter ? 0.025 : 0);
   const fanDepth = Math.round((count - distance) * 10 + prominence * 24);
+  const fanStack = deckEntry.isCenter ? 2000 : Math.max(1, Math.round(900 - distance * 100 + priorityProminence * 24));
+  const fanLiftZ = deckEntry.isCenter ? 36 : Math.round(prominence * 12);
   const overlapAdjust = `${Math.round((distance % 2) * 4 - distance * 1.5)}px`;
   const attrs = (card.attrs || []).join(" ");
   const disabled = card.disabled ? "disabled aria-disabled=\"true\"" : "";
@@ -8690,7 +8693,7 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
   return `
     <button
       class="action-card action-card--${escapeAttribute(card.id)} action-card-family-${escapeAttribute(card.family || "general")} action-card-state-${escapeAttribute(card.state || "idle")}${enteringClass}"
-      style="--hand-index: ${index}; --hand-offset: ${offset.toFixed(2)}; --hand-angle: ${fanTilt.toFixed(2)}deg; --hand-rise: ${fanRise.toFixed(2)}px; --hand-scale: ${fanScale.toFixed(3)}; --hand-depth: ${fanDepth}; --hand-overlap-adjust: ${overlapAdjust}; --hand-prominence: ${prominence.toFixed(3)};"
+      style="--hand-index: ${index}; --hand-offset: ${offset.toFixed(2)}; --hand-angle: ${fanTilt.toFixed(2)}deg; --hand-rise: ${fanRise.toFixed(2)}px; --hand-scale: ${fanScale.toFixed(3)}; --hand-depth: ${fanDepth}; --hand-z-index: ${fanStack}; --hand-lift-z: ${fanLiftZ}px; --hand-overlap-adjust: ${overlapAdjust}; --hand-prominence: ${prominence.toFixed(3)};"
       ${attrs}
       ${disabled}
       data-action-card

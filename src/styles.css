@@ -8800,7 +8800,7 @@ body[data-page="battlefield"] .gameplay-context-dock {
   --action-card-art-b: rgba(183, 169, 136, 0.95);
   --action-card-art-c: rgba(112, 95, 68, 0.18);
   position: relative;
-  z-index: var(--hand-depth);
+  z-index: var(--hand-z-index, var(--hand-depth));
   flex: 0 0 calc(var(--action-card-width) * var(--hand-scale));
   width: calc(var(--action-card-width) * var(--hand-scale));
   height: calc(var(--action-card-height) * var(--hand-scale));
@@ -8829,7 +8829,7 @@ body[data-page="battlefield"] .gameplay-context-dock {
     translate3d(calc(var(--hand-offset) * 0.08rem), 0, 0)
     rotate(var(--hand-angle))
     translateY(calc(0px - var(--hand-rise)))
-    translateZ(calc(var(--hand-prominence) * 12px));
+    translateZ(var(--hand-lift-z, calc(var(--hand-prominence) * 12px)));
   transform-origin: 50% 135%;
   backface-visibility: hidden;
   contain: layout paint style;
@@ -9162,7 +9162,7 @@ body[data-page="battlefield"] .gameplay-context-dock {
 
 .commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:hover,
 .commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:focus-visible {
-  z-index: 999;
+  z-index: var(--hand-z-index, 2000);
   border-color: rgba(255, 236, 174, 0.98);
   box-shadow:
     0 28px 52px rgba(0, 0, 0, 0.44),
@@ -10412,6 +10412,7 @@ body[data-page="battlefield"] .command-deck .action-card {
 }
 
 body[data-page="battlefield"] .command-deck .action-card[data-command-deck-center="true"] {
+  z-index: var(--hand-z-index, 2000);
   border-color: rgba(255, 239, 182, 0.98);
   opacity: 1;
   box-shadow:
