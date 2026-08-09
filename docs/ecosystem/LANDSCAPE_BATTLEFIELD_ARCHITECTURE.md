@@ -74,6 +74,18 @@ Permanents are grouped for readability into Commander-native battlefield lanes:
 
 Existing permanent identity, stack quantity, counters, tapped state, targeting data, and surface actions are preserved.
 
+## Prompt 13.2.6 Part 2 Canonical Tabletop Restoration
+
+Prompt 13.2.6 Part 2 restores physical Commander geography as the active battlefield contract while preserving the premium digital presentation layers from Prompts 8 through 12. The authoritative source remains `docs/ecosystem/CANONICAL_GAMEPLAY_ARCHITECTURE.md`.
+
+- `src/gameplay/battlefieldGeometry.js` owns the portable tabletop geometry model, density state, overflow order, zone-local scroll contract, and gesture ownership rules.
+- `src/ui/landscapeBattlefield.js` exposes tabletop geometry and presentation state without moving zone scroll, opponent focus, Command Hand rotation, or animation state into authoritative gameplay state.
+- `src/ui/render.js` renders canonical creature and land/support zones instead of document-style permanent lanes during active battlefield play.
+- `src/styles.css` keeps active gameplay inside one fixed landscape viewport, hides global gameplay overflow, and permits horizontal movement only inside overflowing tabletop zones.
+- `src/gameplay/commandDeckModel.js` owns the single Command Hand focus calculation and projection z-order so the centered card, visual focus, hit target, preview source, and activation target cannot disagree.
+
+The density strategy escalates from normal placement to adaptive spacing, controlled overlap, duplicate/equivalent stacking, nonland support stacking, adaptive scaling, expandable grouping, and only then zone-local horizontal scrolling. Planeswalkers remain far-right creature-zone permanents. Noncreature nonland permanents remain far-right lower-zone support permanents. Opponent navigation and zone overflow scrolling remain separate gesture systems.
+
 ## Commander Presentation
 
 Commander HUD summaries now remain close to each battlefield region and display Commander zone, tax, cast count, and Commander damage when available. Commander permanents continue using the existing `commander-spotlight` styling.

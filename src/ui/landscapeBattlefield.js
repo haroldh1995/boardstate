@@ -14,6 +14,15 @@ import {
   createCanonicalGameplayRuntimeContract,
 } from "../gameplay/canonicalGameplay.js";
 import {
+  CANONICAL_BATTLEFIELD_GEOMETRY_VERSION,
+  BATTLEFIELD_DENSITY_STATES,
+  BATTLEFIELD_GESTURE_OWNERS,
+  BATTLEFIELD_OVERFLOW_ORDER,
+  createCanonicalBattlefieldGeometry,
+  getPermanentLaneKey as getCanonicalPermanentLaneKey,
+  resolveBattlefieldGestureOwner,
+} from "../gameplay/battlefieldGeometry.js";
+import {
   BOARDSTATE_MOTION_LANGUAGE_VERSION,
   MOTION_OWNERS,
   MOTION_STATE_CATALOG,
@@ -181,7 +190,7 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
       life: session.life ?? 40,
     },
     "local",
-    { selectedIds, session }
+    { selectedIds, session, viewport, playerCount: perspective.playerCount || opponentCarousel.totalPlayerCount || 1 }
   );
   const focusedOpponent =
     (perspective.opponentBoards || []).find((board) => getBoardId(board) === opponentCarousel.focusedOpponentId) ||
@@ -190,7 +199,7 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
     (perspective.opponentBoards || [])[0] ||
     null;
   const opponentBoard = focusedOpponent
-    ? createBattlefieldRegion(focusedOpponent, "opponent", { selectedIds, session, readonly: true })
+    ? createBattlefieldRegion(focusedOpponent, "opponent", { selectedIds, session, readonly: true, viewport, playerCount: perspective.playerCount || opponentCarousel.totalPlayerCount || 1 })
     : createEmptyBattlefieldRegion("opponent");
   const selectedCard = createSelectedCardDetails(session, {
     selectedIds,
@@ -235,6 +244,8 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
     commandCenter,
     opponentCarousel,
     density,
+    densityStates: BATTLEFIELD_DENSITY_STATES,
+    battlefieldGeometryVersion: CANONICAL_BATTLEFIELD_GEOMETRY_VERSION,
     viewport,
   });
   const gameplayFlow = createGameplayFlowModel({
@@ -286,6 +297,8 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
     regions: LANDSCAPE_BATTLEFIELD_REGIONS,
     viewport,
     density,
+    densityStates: BATTLEFIELD_DENSITY_STATES,
+    battlefieldGeometryVersion: CANONICAL_BATTLEFIELD_GEOMETRY_VERSION,
     perspective: {
       viewMode: perspective.viewMode || "solo-advanced",
       localPlayerId: perspective.localPlayerId || "local-player",
@@ -1562,21 +1575,17 @@ export function createSelectedCardDetails(session = {}, options = {}) {
 }
 
 export function getPermanentLaneKey(permanent = {}) {
-  const typeLine = String(permanent.typeLine || permanent.baseCharacteristics?.typeLine || "").toLowerCase();
-  if (permanent.isCommander || permanent.commanderId || permanent.metadata?.commanderId) return "commanders";
-  if (permanent.isToken || permanent.tokenStack?.token) return "tokens";
-  if (permanent.isLand || /\bland\b/.test(typeLine)) return "lands";
-  if (permanent.isCreature || /\bcreature\b/.test(typeLine)) return "creatures";
-  if (permanent.isArtifact || /\bartifact\b/.test(typeLine)) return "artifacts";
-  if (permanent.isEnchantment || /\benchantment\b/.test(typeLine)) return "enchantments";
-  if (permanent.isPlaneswalker || /\bplaneswalker\b/.test(typeLine)) return "planeswalkers";
-  if (/\bbattle\b/.test(typeLine)) return "battles";
-  return "other";
+  return getCanonicalPermanentLaneKey(permanent);
 }
 
 function createBattlefieldRegion(board = {}, role, options = {}) {
   const allPermanents = clonePlain(board.permanents || []);
   const lanes = organizePermanentsByLane(allPermanents, { selectedIds: options.selectedIds || [] });
+  const tabletop = createCanonicalBattlefieldGeometry(allPermanents, {
+    role,
+    viewport: options.viewport || "desktop",
+    playerCount: options.playerCount || 1,
+  });
   const totalPermanentCount = lanes.reduce((sum, lane) => sum + lane.count, 0);
   return {
     role,
@@ -1591,6 +1600,7 @@ function createBattlefieldRegion(board = {}, role, options = {}) {
     readonly: Boolean(options.readonly),
     allPermanents,
     lanes,
+    tabletop,
     laneOrder: PERMANENT_LANE_ORDER,
     totalPermanentCount,
     creatureCount: board.creatureCount ?? lanes.find((lane) => lane.key === "creatures")?.count ?? 0,
@@ -1601,6 +1611,14 @@ function createBattlefieldRegion(board = {}, role, options = {}) {
       hiddenZonesExcluded: role === "opponent",
       publicOnly: Boolean(role === "opponent" || board.publicOnly),
       detailsLimited: Boolean(board.detailsLimited),
+    },
+    presentationState: {
+      zoneScrollMemory: tabletop.zones.map((zone) => zone.scrollMemoryKey),
+      gestureOwners: BATTLEFIELD_GESTURE_OWNERS,
+      gestureOwnership: tabletop.gestureOwnership,
+      opponentNavigationGestureOwner: resolveBattlefieldGestureOwner({ opponentBackground: role === "opponent" }),
+      overflowOrder: BATTLEFIELD_OVERFLOW_ORDER,
+      authoritativeStateSeparated: true,
     },
   };
 }
@@ -1619,6 +1637,7 @@ function createEmptyBattlefieldRegion(role) {
     readonly: role === "opponent",
     allPermanents: [],
     lanes: organizePermanentsByLane([]),
+    tabletop: createCanonicalBattlefieldGeometry([], { role }),
     laneOrder: PERMANENT_LANE_ORDER,
     totalPermanentCount: 0,
     creatureCount: 0,
@@ -1629,6 +1648,14 @@ function createEmptyBattlefieldRegion(role) {
       hiddenZonesExcluded: role === "opponent",
       publicOnly: role === "opponent",
       detailsLimited: true,
+    },
+    presentationState: {
+      zoneScrollMemory: [],
+      gestureOwners: BATTLEFIELD_GESTURE_OWNERS,
+      gestureOwnership: createCanonicalBattlefieldGeometry([], { role }).gestureOwnership,
+      opponentNavigationGestureOwner: resolveBattlefieldGestureOwner({ opponentBackground: role === "opponent" }),
+      overflowOrder: BATTLEFIELD_OVERFLOW_ORDER,
+      authoritativeStateSeparated: true,
     },
   };
 }

@@ -44,7 +44,7 @@ It provides:
 - Fetch, IndexedDB, crypto, timer, text encoding, and base64 hooks.
 - Native-testable defaults that do not require DOM access.
 
-Native shells should provide platform equivalents through this adapter instead of modifying gameplay modules.
+Native shells should provide platform equivalents through this adapter instead of modifying gameplay modules. Any future platform-specific behavior must remain behind explicit platform adapters, not embedded in gameplay, rules, state, or presentation-intent modules.
 
 ## Command Deck Model
 

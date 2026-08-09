@@ -164,14 +164,85 @@ BoardState must immediately communicate:
 
 A first-time Commander player should recognize the battlefield as a natural digital evolution of a physical tabletop rather than a webpage.
 
+## Part 2 Battlefield Geography
+
+Prompt 13.2.6 Part 2 restores the active battlefield as a fixed digital Commander tabletop. The battlefield is one fixed gameplay viewport with three conceptual territories: focused opponent territory at the top, protected shared gameplay corridor in the middle, and local player territory plus the Tactical Command Hand at the bottom.
+
+The canonical permanent geography is implemented through `src/gameplay/battlefieldGeometry.js` and consumed by `src/ui/landscapeBattlefield.js`:
+
+- Creatures, creature commanders, creature tokens, and planeswalkers occupy the creature zone.
+- Planeswalkers are deterministic far-right creature-zone permanents and organize inward from the right.
+- Lands occupy the lower land/support zone nearest the owning player edge.
+- Noncreature nonland permanents occupy the far-right support portion of the lower zone.
+- Library, graveyard, and exile remain side-zone concepts and must not become vertical webpage sections.
+
+The renderer must not turn permanent types into a vertical document. `src/ui/render.js` renders tabletop zones instead of arbitrary stacked lane panels, and `src/styles.css` prevents global battlefield scrolling.
+
+## Part 2 Density And Overflow
+
+Battlefield density uses five explicit states:
+
+- Empty.
+- Sparse.
+- Normal.
+- Busy.
+- Extreme.
+
+The mandatory overflow order is:
+
+1. Normal placement.
+2. Adaptive spacing.
+3. Controlled overlap.
+4. Duplicate stacking.
+5. Equivalent-object grouping.
+6. Permitted nonland-permanent stacking.
+7. Adaptive scaling within readability limits.
+8. Expandable grouped presentation.
+9. Zone-local horizontal scrolling.
+
+Zone-local horizontal scrolling is the last major capacity mechanism. Only the overflowing zone may move. The gameplay viewport, local battlefield, opponent territory, life, Command Hand, and other zones must remain anchored.
+
+## Part 2 Multiplayer Navigation And Gestures
+
+Opponent switching and zone overflow scrolling are separate systems.
+
+- A horizontal gesture beginning inside the Tactical Command Hand belongs to the Command Hand.
+- A horizontal gesture beginning inside an overflowing battlefield zone scrolls that zone only.
+- A horizontal gesture beginning on usable opponent battlefield background may switch focused opponents.
+- Reaching a zone edge must not transfer the active gesture to opponent navigation.
+- Opponent arrows remain available whenever multiple opponents exist and navigation remains circular.
+
+Gesture ownership is modeled in `src/gameplay/battlefieldGeometry.js` so native shells can preserve the same behavior without depending on DOM event rules.
+
+## Part 2 Command Hand Focus Law
+
+The Tactical Command Hand has exactly one focus owner. The focused card is the card nearest the mathematical center anchor and must also be the logical focus, visual focus, frontmost card, highest z-order card, strongest highlight, preview source, hit-test owner, and activation target.
+
+`src/gameplay/commandDeckModel.js` owns the platform-neutral focus and projection math. `src/ui/render.js` applies that focus to DOM/CSS. No future implementation may allow CSS order, hover state, stale preview state, or render order to override the canonical focused command.
+
+## Part 2 Resolve And Animation Rules
+
+The Single Resolve Law remains mandatory. An uncontested spell requires one Resolve action. Deterministic post-resolution work completes automatically. Genuine post-resolution choices appear as the next contextual interaction without replaying the casting animation or asking for another Resolve on the same stack object.
+
+Casting and resolution animation space belongs to the protected gameplay corridor. Low-priority notifications, helpers, reminders, friend activity, and assistant messages must yield to gameplay animation.
+
+## Part 2 Platform Portability
+
+Part 2 continues the permanent cross-platform development law. Gameplay state, rules state, interaction intent, navigation state, battlefield geometry, command-deck projection, and business logic must remain platform-independent wherever practical.
+
+Browser-specific behavior belongs in the current web shell or explicit runtime adapters. New gameplay or presentation models must not depend exclusively on DOM, browser storage, browser navigation, CSS layout behavior, hover, or URL state.
+
 ## Implementation Boundary
 
 This Part 1 contract is implemented by:
 
 - `src/gameplay/canonicalGameplay.js`
+- `src/gameplay/battlefieldGeometry.js`
+- `src/gameplay/commandDeckModel.js`
 - `src/ui/landscapeBattlefield.js`
 - `src/ui/render.js`
 - `src/styles.css`
 - `test/canonical-gameplay-architecture.test.js`
+- `test/canonical-gameplay-part2.test.js`
 
 Future parts must continue from this architecture without redefining these concepts.

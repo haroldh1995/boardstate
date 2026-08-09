@@ -30,6 +30,7 @@ import {
   COMMAND_DECK_VISIBLE_RADIUS,
   COMMAND_DECK_WHEEL_IDLE_SNAP_MS,
   resolveCommandDeckCardProjection,
+  resolveCommandDeckFocusedCard,
   resolveCommandDeckPointerOffsetPx,
   resolveCommandDeckPointerSnapSteps,
   resolveCommandDeckScrollStepsFromOffsetPx,
@@ -811,9 +812,16 @@ export function mountApp(root, store) {
     const scrollSteps = resolveCommandDeckScrollStepsFromOffsetPx(offsetPx);
     fan.style.setProperty("--command-deck-scroll-steps", scrollSteps.toFixed(3));
     fan.dataset.commandDeckFreeScrolling = Math.abs(scrollSteps) > 0.01 ? "true" : "false";
-    fan.querySelectorAll("[data-action-card]").forEach((card) => {
+    const cards = [...fan.querySelectorAll("[data-action-card]")];
+    const focused = resolveCommandDeckFocusedCard(cards.map((card) => ({
+      id: card.dataset.actionCardId || "",
+      slotOffset: Number(card.dataset.commandDeckSlot || 0) + scrollSteps,
+      priority: Number(card.dataset.actionPriority || 0),
+    })));
+    cards.forEach((card) => {
       const baseSlot = Number(card.dataset.commandDeckSlot || 0);
-      applyCommandDeckCardProjection(card, baseSlot + scrollSteps);
+      const liveSlot = baseSlot + scrollSteps;
+      applyCommandDeckCardProjection(card, liveSlot, card.dataset.actionCardId === focused?.id);
     });
   }
 
@@ -827,7 +835,7 @@ export function mountApp(root, store) {
     fan.dataset.commandDeckFreeScrolling = "false";
     fan.querySelectorAll("[data-action-card]").forEach((card) => {
       const baseSlot = Number(card.dataset.commandDeckSlot || 0);
-      applyCommandDeckCardProjection(card, baseSlot);
+      applyCommandDeckCardProjection(card, baseSlot, card.dataset.commandDeckCenter === "true");
     });
   }
 
@@ -7014,18 +7022,34 @@ function renderLandscapeContextActionsRail(model = {}, searchResults, searchMess
 }
 
 function renderLandscapeBattlefieldGroups(region = {}, options = {}) {
-  const lanes = (region.lanes || []).filter((lane) => !lane.empty);
-  if (!lanes.length) {
+  const tabletop = region.tabletop || {};
+  const tabletopZones = (tabletop.zones || []).filter((zone) => zone.count > 0 || zone.key);
+  const hasPermanents = Number(region.totalPermanentCount || 0) > 0;
+  if (!hasPermanents) {
     return `
-      <div class="tabletop-empty-board" aria-label="${escapeAttribute(options.emptyText || "No permanents yet")}">
+      <div class="battlefield-groups landscape-battlefield-groups tabletop-zone-layout density-state-empty" data-battlefield-geometry-version="${escapeAttribute(tabletop.version || "")}" data-density-state="empty" data-global-vertical-scroll="false">
+        <div class="tabletop-empty-board" aria-label="${escapeAttribute(options.emptyText || "No permanents yet")}">
         <span aria-hidden="true">&#10022;</span>
         <p>${escapeHtml(options.emptyText || "No permanents yet")}</p>
+        </div>
       </div>
     `;
   }
+  const zones = tabletopZones.length
+    ? tabletopZones
+    : (region.lanes || []).filter((lane) => !lane.empty).map((lane) => ({
+        key: lane.key,
+        label: lane.label,
+        permanents: lane.permanents,
+        count: lane.count,
+        densityState: tabletop.densityState || "normal",
+        overflowMode: "none",
+        horizontalScrollAllowed: false,
+        verticalScrollAllowed: false,
+      }));
   return `
-    <div class="battlefield-groups landscape-battlefield-groups">
-      ${lanes.map((lane) => renderPermanentGroup(lane.label, lane.permanents, { ...options, zoneKey: lane.key, lane })).join("")}
+    <div class="battlefield-groups landscape-battlefield-groups tabletop-zone-layout density-state-${escapeAttribute(tabletop.densityState || "normal")}" data-battlefield-geometry-version="${escapeAttribute(tabletop.version || "")}" data-density-state="${escapeAttribute(tabletop.densityState || "normal")}" data-global-vertical-scroll="false">
+      ${zones.map((zone) => renderPermanentGroup(zone.label, zone.permanents, { ...options, zoneKey: zone.key, zoneModel: zone, lane: zone })).join("")}
     </div>
   `;
 }
@@ -7485,11 +7509,14 @@ function renderPermanentGroup(label, permanents, options = {}) {
   if (!permanents.length) {
     return "";
   }
+  const zoneModel = options.zoneModel || options.lane || {};
   const count = permanents.reduce((total, permanent) => total + (Number(permanent.quantity) || 1), 0);
   const untappedCount = permanents.filter((permanent) => !permanent.tapped).reduce((total, permanent) => total + (Number(permanent.quantity) || 1), 0);
   const tappedCount = Math.max(0, count - untappedCount);
+  const overflowMode = zoneModel.overflowMode || "none";
+  const densityState = zoneModel.densityState || "normal";
   return `
-    <section class="battlefield-group battlefield-zone-${escapeAttribute(options.zoneKey || "other")}" aria-label="${escapeAttribute(`${label}: ${count} permanents, ${untappedCount} ready, ${tappedCount} tapped`)}">
+    <section class="battlefield-group battlefield-zone-${escapeAttribute(options.zoneKey || "other")} tabletop-zone-${escapeAttribute(options.zoneKey || "other")} density-state-${escapeAttribute(densityState)} overflow-${escapeAttribute(overflowMode)}" aria-label="${escapeAttribute(`${label}: ${count} permanents, ${untappedCount} ready, ${tappedCount} tapped`)}" data-tabletop-zone="${escapeAttribute(options.zoneKey || "other")}" data-zone-overflow="${escapeAttribute(overflowMode)}" data-horizontal-scroll="${zoneModel.horizontalScrollAllowed ? "true" : "false"}" data-vertical-scroll="false" data-scroll-memory-key="${escapeAttribute(zoneModel.scrollMemoryKey || "")}">
       <div class="battlefield-group-header">
         <span>${escapeHtml(label)}</span>
         <span class="battlefield-zone-summary">
@@ -7499,7 +7526,7 @@ function renderPermanentGroup(label, permanents, options = {}) {
           ${options.lane?.tokenStacks?.length ? `<i>${escapeHtml(options.lane.tokenStacks.length)} token stack${options.lane.tokenStacks.length === 1 ? "" : "s"}</i>` : ""}
         </span>
       </div>
-      <div class="tile-grid ${options.readonly ? "readonly" : ""} ${options.compressionMode === "compact" ? "density-high" : ""}">
+      <div class="tile-grid ${options.readonly ? "readonly" : ""} ${options.compressionMode === "compact" ? "density-high" : ""}" data-zone-scroll-surface="${zoneModel.horizontalScrollAllowed ? "true" : "false"}">
         ${permanents.map((permanent) => renderPermanent(permanent, options)).join("")}
       </div>
     </section>
@@ -7551,7 +7578,7 @@ function renderPermanent(permanent, options = {}) {
       : ""
     : `data-permanent="${permanent.id}"`;
   return `
-    <article class="permanent detail-${detailMode} ${stateClasses}" data-permanent-card data-permanent-id="${permanent.id}" data-readonly="${options.readonly ? "true" : "false"}" data-target-valid="${targetVisual?.valid ? "true" : targetVisual ? "false" : "unknown"}" data-motion-card-kind="${escapeAttribute(motionKind || "stable")}">
+    <article class="permanent detail-${detailMode} ${stateClasses}" data-permanent-card data-permanent-id="${permanent.id}" data-readonly="${options.readonly ? "true" : "false"}" data-target-valid="${targetVisual?.valid ? "true" : targetVisual ? "false" : "unknown"}" data-motion-card-kind="${escapeAttribute(motionKind || "stable")}" data-tabletop-zone="${escapeAttribute(permanent.tabletopZoneKey || "")}" data-placement-role="${escapeAttribute(permanent.placementRole || "")}" data-tabletop-order="${escapeAttribute(String(permanent.tabletopOrder ?? ""))}">
       <div class="permanent-art-layer ${fallbackClass} ${imageUrl ? "has-card-art" : "uses-fallback"}" ${imageUrl ? `style="--card-image:url(&quot;${escapeAttribute(imageUrl)}&quot;)"` : ""} data-card-image="${imageUrl ? "available" : "fallback"}" aria-hidden="true"></div>
       <div class="permanent-readability-layer" aria-hidden="true"></div>
       ${permanent.quantity > 1 ? `<i class="stack-silhouette stack-silhouette--one" aria-hidden="true"></i><i class="stack-silhouette stack-silhouette--two" aria-hidden="true"></i>` : ""}
@@ -8729,13 +8756,14 @@ function resolveActionCardFrame(card = {}) {
   };
 }
 
-function applyCommandDeckCardProjection(card, slotOffset = 0) {
+function applyCommandDeckCardProjection(card, slotOffset = 0, focused = false) {
   if (!card?.style) {
     return;
   }
-  const projection = resolveCommandDeckCardProjection(slotOffset, Number(card.dataset.actionPriority || 0), card.dataset.commandDeckCenter === "true");
+  const projection = resolveCommandDeckCardProjection(slotOffset, Number(card.dataset.actionPriority || 0), Boolean(focused));
   card.dataset.commandDeckLiveSlot = projection.offset.toFixed(3);
-  card.dataset.commandDeckLiveCenter = Math.abs(projection.offset) < 0.5 ? "true" : "false";
+  card.dataset.commandDeckLiveCenter = focused ? "true" : "false";
+  card.dataset.commandDeckFocused = focused ? "true" : "false";
   card.style.setProperty("--hand-live-x", `${projection.xPx.toFixed(2)}px`);
   card.style.setProperty("--hand-live-angle", `${projection.angle.toFixed(2)}deg`);
   card.style.setProperty("--hand-live-rise", `${projection.rise.toFixed(2)}px`);
@@ -8782,7 +8810,8 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
       data-command-deck-card-favorite="${card.favorite ? "true" : "false"}"
       data-command-deck-slot="${escapeAttribute(String(deckEntry.slotOffset ?? offset))}"
       data-command-deck-live-slot="${escapeAttribute(offset.toFixed(3))}"
-      data-command-deck-live-center="${Math.abs(offset) < 0.5 ? "true" : "false"}"
+      data-command-deck-live-center="${deckEntry.isCenter ? "true" : "false"}"
+      data-command-deck-focused="${deckEntry.isCenter ? "true" : "false"}"
       data-command-deck-index="${escapeAttribute(String(deckEntry.deckIndex ?? index))}"
       data-command-deck-center="${deckEntry.isCenter ? "true" : "false"}"
       data-command-card-frame="boardstate-command-card"

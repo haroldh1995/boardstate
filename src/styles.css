@@ -10028,6 +10028,137 @@ body[data-page="battlefield"] .tabletop-battlefield-page .permanent {
     0 0 0 1px rgba(236, 200, 122, 0.04);
 }
 
+/* Prompt 13.2.6 Part 2: fixed tabletop geography with zone-local-horizontal-scroll as the final overflow mode. */
+body[data-page="battlefield"],
+body[data-page="battlefield"] #app,
+body[data-page="battlefield"] .app-shell,
+body[data-page="battlefield"] .tabletop-battlefield-page,
+body[data-page="battlefield"] .tabletop-battlefield-page .landscape-arena,
+body[data-page="battlefield"] .tabletop-battlefield-page .landscape-board-region {
+  overflow: hidden;
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) minmax(0, 0.86fr);
+  align-content: stretch;
+  gap: clamp(0.24rem, 0.78vh, 0.58rem);
+  padding: clamp(0.15rem, 0.6vh, 0.42rem) clamp(0.2rem, 0.8vw, 0.56rem);
+  overflow: hidden;
+  scrollbar-width: none;
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout::-webkit-scrollbar,
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .tile-grid::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .battlefield-group {
+  position: relative;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .battlefield-group-header {
+  min-height: 0.86rem;
+  padding-inline: clamp(0.14rem, 0.8vw, 0.72rem);
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .tile-grid {
+  --tabletop-card-width: clamp(4.35rem, 6.2vw, 6.65rem);
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(0.22rem, 0.54vw, 0.48rem);
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  touch-action: pan-x;
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .landscape-board-region--opponent .tabletop-zone-layout {
+  grid-template-rows: minmax(0, 0.86fr) minmax(0, 1fr);
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .landscape-board-region--opponent .tabletop-zone-layout .tile-grid {
+  align-items: end;
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .landscape-board-region--local .tabletop-zone-layout .tile-grid {
+  align-items: start;
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .permanent {
+  flex: 0 0 var(--tabletop-card-width);
+  width: var(--tabletop-card-width);
+  min-width: var(--tabletop-card-width);
+  min-height: clamp(5.65rem, 12.8vh, 8.45rem);
+  scroll-snap-align: center;
+  transform: translateZ(0);
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout.density-state-busy .tile-grid,
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout.density-state-extreme .tile-grid {
+  justify-content: flex-start;
+  gap: 0;
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout.density-state-busy .permanent {
+  --tabletop-card-width: clamp(3.95rem, 5.25vw, 5.78rem);
+  margin-right: clamp(-1.05rem, -1.05vw, -0.45rem);
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout.density-state-extreme .permanent {
+  --tabletop-card-width: clamp(3.25rem, 4.2vw, 4.88rem);
+  margin-right: clamp(-1.55rem, -1.55vw, -0.7rem);
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-land-support-zone .permanent[data-placement-role="support-far-right"] {
+  margin-left: clamp(0.35rem, 2vw, 1.8rem);
+  border-color: rgba(143, 211, 255, 0.18);
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-creature-zone .permanent[data-placement-role="planeswalker-far-right"] {
+  border-color: rgba(236, 200, 122, 0.34);
+  box-shadow:
+    0 16px 34px rgba(0, 0, 0, 0.36),
+    0 0 18px rgba(236, 200, 122, 0.09);
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .battlefield-group[data-horizontal-scroll="true"]::before,
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .battlefield-group[data-horizontal-scroll="true"]::after {
+  position: absolute;
+  top: 1rem;
+  bottom: 0;
+  z-index: 5;
+  width: clamp(1rem, 3vw, 2.8rem);
+  pointer-events: none;
+  content: "";
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .battlefield-group[data-horizontal-scroll="true"]::before {
+  left: 0;
+  background: linear-gradient(90deg, rgba(6, 4, 16, 0.62), transparent);
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .battlefield-group[data-horizontal-scroll="true"]::after {
+  right: 0;
+  background: linear-gradient(270deg, rgba(6, 4, 16, 0.62), transparent);
+}
+
 body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-empty-board {
   display: grid;
   place-items: center;
@@ -10440,6 +10571,16 @@ body[data-page="battlefield"] .command-deck .action-card[data-command-deck-live-
 body[data-page="battlefield"] .command-deck.is-free-scrolling .action-card[data-command-deck-center="true"]:not([data-command-deck-live-center="true"]),
 body[data-page="battlefield"] .command-deck .commander-action-hand__fan.is-dragging .action-card[data-command-deck-center="true"]:not([data-command-deck-live-center="true"]) {
   border-color: rgba(236, 200, 122, 0.42);
+}
+
+body[data-page="battlefield"] .command-deck.is-free-scrolling .action-card[data-command-deck-focused="false"],
+body[data-page="battlefield"] .command-deck .commander-action-hand__fan.is-dragging .action-card[data-command-deck-focused="false"] {
+  border-color: rgba(4, 4, 8, 0.96);
+  box-shadow:
+    0 calc(16px + (var(--hand-prominence) * 12px)) calc(28px + (var(--hand-prominence) * 18px)) rgba(0, 0, 0, 0.46),
+    0 0 calc(10px + (var(--hand-prominence) * 18px)) var(--action-card-glow),
+    inset 0 0 0 2px rgba(255, 244, 204, 0.09),
+    inset 0 0 0 4px rgba(19, 13, 28, 0.92);
 }
 
 body[data-page="battlefield"] .command-deck .action-card:not([data-command-deck-center="true"]).action-card-state-expanded,
