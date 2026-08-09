@@ -63,6 +63,7 @@ The deck supports:
 - Wheel, drag, keyboard, and controller-ready rotation paths.
 - Mouse wheel rotation.
 - Touch or pointer drag rotation.
+- Wheel and pointer movement free-scroll the visible hand first, then snap once to the nearest Command Card when the gesture ends.
 - Keyboard rotation through Arrow Left, Arrow Right, Page Up, Page Down, Q, and E.
 - Controller-ready key aliases for D-pad and shoulder-button style input.
 - Favorite pinning through `data-command-deck-favorite`.

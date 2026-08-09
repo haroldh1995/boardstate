@@ -142,9 +142,10 @@ const CANONICAL_GAMEPLAY_COMPOSITION = "landscape";
 const RUNTIME_LAYOUT_COMPOSITION = "widescreen";
 const CANONICAL_GAMEPLAY_ORIENTATION = "landscape";
 const COMMAND_DECK_VISIBLE_RADIUS = 3;
-const COMMAND_DECK_ROTATE_THRESHOLD = 42;
-const COMMAND_DECK_WHEEL_ROTATE_THRESHOLD = 54;
-const COMMAND_DECK_MAX_STEPS_PER_FRAME = 3;
+const COMMAND_DECK_SCROLL_PX_PER_CARD = 74;
+const COMMAND_DECK_WHEEL_DELTA_PER_CARD = 220;
+const COMMAND_DECK_MAX_FREE_SCROLL_STEPS = 3;
+const COMMAND_DECK_WHEEL_IDLE_SNAP_MS = 150;
 const COMMAND_DECK_AUTO_CENTER_COOLDOWN_MS = 4200;
 const COMMAND_DECK_MAX_FAVORITES = 4;
 const COMMAND_DECK_FEEDBACK_THROTTLE_MS = 140;
@@ -383,6 +384,7 @@ export function mountApp(root, store) {
   let commandDeckSuppressClickUntil = 0;
   let commandDeckWheelDelta = 0;
   let commandDeckWheelFrame = 0;
+  let commandDeckWheelSnapTimer = null;
   let commandDeckLastFeedbackAt = 0;
   let toolContextOverride = "";
   let quickPanelOpen = "";
@@ -794,20 +796,52 @@ export function mountApp(root, store) {
     renderCommandDeckOnly();
   }
 
-  function flushCommandDeckWheel(deck) {
-    commandDeckWheelFrame = 0;
-    const delta = commandDeckWheelDelta;
-    commandDeckWheelDelta = 0;
-    if (Math.abs(delta) < 10) {
+  function clampCommandDeckFreeScrollSteps(steps = 0) {
+    return Math.max(-COMMAND_DECK_MAX_FREE_SCROLL_STEPS, Math.min(COMMAND_DECK_MAX_FREE_SCROLL_STEPS, steps));
+  }
+
+  function setCommandDeckFreeScrollOffset(deck, offsetPx = 0) {
+    const liveDeck = deck?.isConnected ? deck : root.querySelector("[data-command-deck]");
+    const fan = liveDeck?.querySelector?.("[data-command-deck-fan]");
+    if (!fan) {
       return;
     }
-    const direction = Math.sign(delta) || 1;
-    const steps = Math.min(
-      COMMAND_DECK_MAX_STEPS_PER_FRAME,
-      Math.max(1, Math.round(Math.abs(delta) / COMMAND_DECK_WHEEL_ROTATE_THRESHOLD))
-    );
+    fan.style.setProperty("--command-deck-scroll-px", `${Number(offsetPx || 0).toFixed(2)}px`);
+    fan.dataset.commandDeckFreeScrolling = Math.abs(Number(offsetPx || 0)) > 0.5 ? "true" : "false";
+  }
+
+  function clearCommandDeckFreeScroll(deck) {
     const liveDeck = deck?.isConnected ? deck : root.querySelector("[data-command-deck]");
-    rotateCommandDeckFromElement(liveDeck, direction * steps);
+    const fan = liveDeck?.querySelector?.("[data-command-deck-fan]");
+    if (!fan) {
+      return;
+    }
+    fan.style.setProperty("--command-deck-scroll-px", "0px");
+    fan.dataset.commandDeckFreeScrolling = "false";
+  }
+
+  function flushCommandDeckWheelScroll(deck) {
+    commandDeckWheelFrame = 0;
+    if (Math.abs(commandDeckWheelDelta) < 1) {
+      return;
+    }
+    const freeScrollSteps = clampCommandDeckFreeScrollSteps(commandDeckWheelDelta / COMMAND_DECK_WHEEL_DELTA_PER_CARD);
+    setCommandDeckFreeScrollOffset(deck, -freeScrollSteps * COMMAND_DECK_SCROLL_PX_PER_CARD);
+  }
+
+  function settleCommandDeckWheelScroll(deck) {
+    if (commandDeckWheelFrame) {
+      cancelAnimationFrame(commandDeckWheelFrame);
+      commandDeckWheelFrame = 0;
+    }
+    const delta = commandDeckWheelDelta;
+    commandDeckWheelDelta = 0;
+    clearCommandDeckFreeScroll(deck);
+    const steps = clampCommandDeckFreeScrollSteps(Math.round(delta / COMMAND_DECK_WHEEL_DELTA_PER_CARD));
+    if (steps) {
+      commandDeckSuppressClickUntil = Date.now() + 220;
+      rotateCommandDeckFromElement(deck?.isConnected ? deck : root.querySelector("[data-command-deck]"), steps);
+    }
   }
 
   function findCommandDeckCardForPoint(deck, clientX = 0, clientY = 0) {
@@ -930,9 +964,21 @@ export function mountApp(root, store) {
         event.preventDefault();
         const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
         commandDeckWheelDelta += delta;
+        deck.classList.add("is-free-scrolling");
+        const fan = deck.querySelector("[data-command-deck-fan]");
+        fan?.classList.add("is-free-scrolling");
         if (!commandDeckWheelFrame) {
-          commandDeckWheelFrame = requestAnimationFrame(() => flushCommandDeckWheel(deck));
+          commandDeckWheelFrame = requestAnimationFrame(() => flushCommandDeckWheelScroll(deck));
         }
+        if (commandDeckWheelSnapTimer) {
+          clearTimeout(commandDeckWheelSnapTimer);
+        }
+        commandDeckWheelSnapTimer = window.setTimeout(() => {
+          commandDeckWheelSnapTimer = null;
+          deck.classList.remove("is-free-scrolling");
+          fan?.classList.remove("is-free-scrolling");
+          settleCommandDeckWheelScroll(deck);
+        }, COMMAND_DECK_WHEEL_IDLE_SNAP_MS);
       },
       { passive: false }
     );
@@ -946,10 +992,11 @@ export function mountApp(root, store) {
         x: event.clientX,
         y: event.clientY,
         moved: false,
+        scrollPx: 0,
       };
       deck.classList.add("is-dragging");
       fan.classList.add("is-dragging");
-      fan.style.setProperty("--command-deck-drag-progress", "0");
+      setCommandDeckFreeScrollOffset(deck, 0);
       fan.setPointerCapture?.(event.pointerId);
     });
     fan.addEventListener("pointermove", (event) => {
@@ -963,36 +1010,41 @@ export function mountApp(root, store) {
         commandDeckSuppressClickUntil = Date.now() + 260;
         event.preventDefault();
       }
-      const dragProgress = Math.max(-1, Math.min(1, dx / (COMMAND_DECK_ROTATE_THRESHOLD * 2)));
-      fan.style.setProperty("--command-deck-drag-progress", dragProgress.toFixed(3));
+      const scrollPx = Math.max(
+        -COMMAND_DECK_SCROLL_PX_PER_CARD * COMMAND_DECK_MAX_FREE_SCROLL_STEPS,
+        Math.min(COMMAND_DECK_SCROLL_PX_PER_CARD * COMMAND_DECK_MAX_FREE_SCROLL_STEPS, dx)
+      );
+      commandDeckPointer.scrollPx = scrollPx;
+      setCommandDeckFreeScrollOffset(deck, scrollPx);
     });
     fan.addEventListener("pointerup", (event) => {
       if (!commandDeckPointer || commandDeckPointer.id !== event.pointerId) {
         return;
       }
-      const dx = event.clientX - commandDeckPointer.x;
-      const dy = event.clientY - commandDeckPointer.y;
+      const finishedPointer = commandDeckPointer;
+      const dx = event.clientX - finishedPointer.x;
+      const dy = event.clientY - finishedPointer.y;
       commandDeckPointer = null;
       deck.classList.remove("is-dragging");
       fan.classList.remove("is-dragging");
-      fan.style.setProperty("--command-deck-drag-progress", "0");
       fan.releasePointerCapture?.(event.pointerId);
-      if (Math.abs(dx) < COMMAND_DECK_ROTATE_THRESHOLD || Math.abs(dx) < Math.abs(dy) * 1.15) {
+      const scrollPx = Number(finishedPointer.scrollPx || dx || 0);
+      const steps = clampCommandDeckFreeScrollSteps(Math.round(-scrollPx / COMMAND_DECK_SCROLL_PX_PER_CARD));
+      clearCommandDeckFreeScroll(deck);
+      if (!finishedPointer.moved || Math.abs(scrollPx) < 4 || Math.abs(dx) < Math.abs(dy) * 1.15) {
         return;
       }
       commandDeckSuppressClickUntil = Date.now() + 260;
-      const steps = Math.min(
-        COMMAND_DECK_MAX_STEPS_PER_FRAME,
-        Math.max(1, Math.round(Math.abs(dx) / COMMAND_DECK_ROTATE_THRESHOLD))
-      );
-      rotateCommandDeckFromElement(deck, dx < 0 ? steps : -steps);
+      if (steps) {
+        rotateCommandDeckFromElement(deck, steps);
+      }
     });
     fan.addEventListener("pointercancel", (event) => {
       if (commandDeckPointer?.id === event.pointerId) {
         commandDeckPointer = null;
         deck.classList.remove("is-dragging");
         fan.classList.remove("is-dragging");
-        fan.style.setProperty("--command-deck-drag-progress", "0");
+        clearCommandDeckFreeScroll(deck);
       }
     });
   }

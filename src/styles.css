@@ -8765,7 +8765,7 @@ body[data-page="battlefield"] .gameplay-context-dock {
 }
 
 .commander-action-hand__fan {
-  --command-deck-drag-progress: 0;
+  --command-deck-scroll-px: 0px;
   position: relative;
   z-index: 3;
   display: flex;
@@ -8776,13 +8776,17 @@ body[data-page="battlefield"] .gameplay-context-dock {
   min-width: 0;
   padding: 1.24rem 0.4rem 0.18rem;
   pointer-events: none;
-  transform: translate3d(calc(var(--command-deck-drag-progress) * 0.42rem), 0, 0);
+  transform: translate3d(var(--command-deck-scroll-px), 0, 0);
   transform-style: preserve-3d;
   transition: transform var(--motion-duration-micro) var(--motion-ease-inertia);
   will-change: transform;
 }
 
 .commander-action-hand__fan.is-dragging {
+  transition: none;
+}
+
+.commander-action-hand__fan.is-free-scrolling {
   transition: none;
 }
 

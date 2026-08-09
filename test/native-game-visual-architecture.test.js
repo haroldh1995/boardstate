@@ -184,6 +184,10 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.match(render, /function getVisibleCommandDeckCards/);
   assert.match(render, /function normalizeCommandDeckIndex/);
   assert.match(render, /function bindCommandDeck/);
+  assert.match(render, /COMMAND_DECK_SCROLL_PX_PER_CARD/);
+  assert.match(render, /COMMAND_DECK_WHEEL_IDLE_SNAP_MS/);
+  assert.match(render, /function setCommandDeckFreeScrollOffset/);
+  assert.match(render, /function settleCommandDeckWheelScroll/);
   assert.match(render, /COMMAND_DECK_SETTLE_HOVER_SUPPRESS_MS/);
   assert.match(render, /nextDeck\.classList\.add\("is-rotating"\)/);
   assert.match(render, /querySelector\('\[data-action-card\]\[data-command-deck-center="true"\]'\)/);
@@ -270,6 +274,9 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.match(styles, /\.command-deck__favorite-toggle\b/);
   assert.match(styles, /data-command-deck-center="true"/);
   assert.match(styles, /data-command-deck-slot="-3"/);
+  assert.match(styles, /--command-deck-scroll-px: 0px/);
+  assert.match(styles, /transform: translate3d\(var\(--command-deck-scroll-px\), 0, 0\)/);
+  assert.match(styles, /\.commander-action-hand__fan\.is-free-scrolling/);
   assert.match(styles, /z-index: var\(--hand-z-index, var\(--hand-depth\)\)/);
   assert.match(styles, /translateZ\(var\(--hand-lift-z, calc\(var\(--hand-prominence\) \* 12px\)\)\)/);
   assert.match(styles, /\.command-deck \.action-card\[data-command-deck-center="true"\]\s*{\s*z-index: var\(--hand-z-index, 2000\);/);
