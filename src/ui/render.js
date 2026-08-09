@@ -26,6 +26,14 @@ import {
   shouldAutoProgressLiveTrackingStack,
 } from "../gameplay/canonicalGameplay.js";
 import {
+  CANONICAL_CARD_LIFECYCLE_VERSION,
+  NOTIFICATION_PRIORITY_LEVELS,
+  classifyNotificationPriority,
+  createModeInteractionPolicy,
+  resolveGameplayAttentionOwner,
+  shouldDeferNotification,
+} from "../gameplay/cardLifecycle.js";
+import {
   COMMAND_DECK_RENDER_RADIUS,
   COMMAND_DECK_VISIBLE_RADIUS,
   COMMAND_DECK_WHEEL_IDLE_SNAP_MS,
@@ -515,6 +523,12 @@ export function mountApp(root, store) {
     const viewportContract = resolveApplicationViewport(activePage);
     const gameplayContract = createCanonicalGameplayRuntimeContract(activePage);
     helperMessage = resolveHelperSpriteMessage(profile, activePage);
+    const gameplayModePolicy = createModeInteractionPolicy(profile.activeSession || {});
+    const gameplayAttention = resolveGameplayAttentionOwner({
+      session: profile.activeSession || {},
+      helper: activePage === "battlefield" && Boolean(helperMessage),
+      commandHandActive: activePage === "battlefield",
+    });
     if (castActionPopup) {
       const popupIndex = searchResults.findIndex(
         (card) => (card.cardId || card.name) === castActionPopup.cardId
@@ -538,8 +552,11 @@ export function mountApp(root, store) {
       );
     }
     const activeNotification = getActiveFullWindowNotification(profile, activePage);
+    const battlefieldToastCount = activePage === "battlefield"
+      ? getNotificationToastEntries(profile, activePage, { commandHandActive: true }).length
+      : 0;
     const protectedCorridorState = createProtectedGameplayCorridorState({
-      notificationCount: activePage === "battlefield" ? getNotificationToastEntries(profile, activePage).length : 0,
+      notificationCount: battlefieldToastCount,
       helperVisible: activePage === "battlefield" && Boolean(profile.settings?.helperSprite?.enabled && helperMessage),
       overlayActive: activePage === "battlefield" && Boolean(activeUtilityPanel || activeToolPanel || optionsOpen || confirmationDialog),
     });
@@ -557,6 +574,9 @@ export function mountApp(root, store) {
     document.body.dataset.tabletopReconstructionVersion = TABLETOP_RECONSTRUCTION_VERSION;
     document.body.dataset.hudCompositionVersion = HUD_COMPOSITION_VERSION;
     document.body.dataset.canonicalGameplayArchitectureVersion = CANONICAL_GAMEPLAY_ARCHITECTURE_VERSION;
+    document.body.dataset.cardLifecycleVersion = CANONICAL_CARD_LIFECYCLE_VERSION;
+    document.body.dataset.gameplayMode = gameplayModePolicy.mode;
+    document.body.dataset.gameplayAttentionOwner = gameplayAttention.owner;
     document.body.dataset.protectedGameplayCorridor = gameplayContract.protectedGameplayCorridor;
     document.body.dataset.protectedGameplayCorridorClear = protectedCorridorState.clearForGameplay ? "true" : "false";
     document.body.dataset.liveTrackingAssumptionEngine = gameplayContract.liveTrackingAssumptionEngine;
@@ -5795,6 +5815,12 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
   const uiLayer = uiState.uiLayerState || resolveUiLayerState(profile, page, uiState);
   const viewportContract = uiState.viewportContract || resolveApplicationViewport(page);
   const gameplayContract = createCanonicalGameplayRuntimeContract(page);
+  const gameplayModePolicy = createModeInteractionPolicy(session || {});
+  const gameplayAttention = resolveGameplayAttentionOwner({
+    session: session || {},
+    helper: page === "battlefield" && Boolean(uiState.helperMessage),
+    commandHandActive: page === "battlefield",
+  });
   const appLayerClasses = [
     `app-shell--${page}`,
     `app-shell--viewport-${viewportContract.viewport}`,
@@ -5810,7 +5836,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
     .filter(Boolean)
     .join(" ");
   return `
-    <main class="app-shell ${appLayerClasses}" data-ui-layer="${escapeAttribute(uiLayer.current)}" data-game-viewport="${escapeAttribute(viewportContract.viewport)}" data-gameplay-orientation="${escapeAttribute(viewportContract.orientation)}" data-device-class="${escapeAttribute(viewportContract.deviceClass)}" data-canonical-gameplay-architecture-version="${escapeAttribute(gameplayContract.version)}" data-protected-gameplay-corridor="${escapeAttribute(gameplayContract.protectedGameplayCorridor)}" data-live-tracking-assumption-engine="${escapeAttribute(gameplayContract.liveTrackingAssumptionEngine)}" data-landscape-viewport-lock-version="${escapeAttribute(viewportContract.version)}" data-app-shell>
+    <main class="app-shell ${appLayerClasses}" data-ui-layer="${escapeAttribute(uiLayer.current)}" data-game-viewport="${escapeAttribute(viewportContract.viewport)}" data-gameplay-orientation="${escapeAttribute(viewportContract.orientation)}" data-device-class="${escapeAttribute(viewportContract.deviceClass)}" data-canonical-gameplay-architecture-version="${escapeAttribute(gameplayContract.version)}" data-card-lifecycle-version="${escapeAttribute(CANONICAL_CARD_LIFECYCLE_VERSION)}" data-gameplay-mode="${escapeAttribute(gameplayModePolicy.mode)}" data-gameplay-attention-owner="${escapeAttribute(gameplayAttention.owner)}" data-protected-gameplay-corridor="${escapeAttribute(gameplayContract.protectedGameplayCorridor)}" data-live-tracking-assumption-engine="${escapeAttribute(gameplayContract.liveTrackingAssumptionEngine)}" data-landscape-viewport-lock-version="${escapeAttribute(viewportContract.version)}" data-app-shell>
       <header class="app-header glass">
         <div class="app-header-top">
           <div>
@@ -7205,7 +7231,7 @@ function renderCardPresentation(presentation) {
     ? `${controller} casts ${card.name || "a spell"}`
     : `${card.name || "Card"} enters the battlefield`;
   return `
-    <aside class="card-presentation" aria-live="polite" aria-label="${escapeAttribute(label)}" data-motion-role="card-presentation" data-motion-card-kind="${escapeAttribute(presentation.kind || "enter")}">
+    <aside class="card-presentation" aria-live="polite" aria-label="${escapeAttribute(label)}" data-motion-role="card-presentation" data-motion-card-kind="${escapeAttribute(presentation.kind || "enter")}" data-card-lifecycle-version="${escapeAttribute(CANONICAL_CARD_LIFECYCLE_VERSION)}" data-presentation-event-id="${escapeAttribute(presentation.eventId || "")}" data-presentation-animation-id="${escapeAttribute(presentation.animationId || "")}" data-presentation-role="${escapeAttribute(presentation.presentationRole || "")}" data-presentation-only="${presentation.presentationOnly ? "true" : "false"}" data-should-replay-on-render="${presentation.shouldReplayOnRender ? "true" : "false"}">
       <div class="card-presentation__energy" aria-hidden="true"></div>
       <div class="card-presentation__card ${imageUrl ? "has-card-art" : getBattlefieldCardFallbackClass(card)}" ${imageUrl ? `style="--card-image:url(&quot;${escapeAttribute(imageUrl)}&quot;)"` : ""}>
         <span>${escapeHtml(label)}</span>
@@ -12379,7 +12405,7 @@ function renderFullWindowNotification(notification) {
   `;
 }
 
-function getNotificationToastEntries(profile = {}, page = "") {
+function getNotificationToastEntries(profile = {}, page = "", context = {}) {
   const preferences = getNotificationPreferences(profile);
   if (!preferences.master || !preferences.toast) {
     return [];
@@ -12390,14 +12416,21 @@ function getNotificationToastEntries(profile = {}, page = "") {
       if (entry.toast === false || entry.acknowledged || dismissed.has(entry.id)) {
         return false;
       }
-      return page !== "battlefield" || entry.critical || entry.category !== "friend";
+      if (page !== "battlefield") {
+        return true;
+      }
+      const priority = classifyNotificationPriority(entry);
+      if (!entry.critical && priority > NOTIFICATION_PRIORITY_LEVELS.importantGameplay) {
+        return false;
+      }
+      return !shouldDeferNotification(entry, { session: profile.activeSession || {}, ...context }).defer;
     })
     .slice(0, 2);
 }
 
 function renderRecoveryToasts(profile, notice = null, page = "") {
   const entries = (profile.activeSession?.recoveryLog || []).filter((entry) => !entry.dismissed).slice(0, 3);
-  const notificationToasts = getNotificationToastEntries(profile, page);
+  const notificationToasts = getNotificationToastEntries(profile, page, { commandHandActive: page === "battlefield" });
   if (!entries.length && !notice && !notificationToasts.length) {
     return "";
   }

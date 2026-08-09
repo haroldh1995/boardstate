@@ -232,17 +232,100 @@ Part 2 continues the permanent cross-platform development law. Gameplay state, r
 
 Browser-specific behavior belongs in the current web shell or explicit runtime adapters. New gameplay or presentation models must not depend exclusively on DOM, browser storage, browser navigation, CSS layout behavior, hover, or URL state.
 
+## Part 3 Card Lifecycle And Event Identity
+
+Prompt 13.2.6 Part 3 establishes the card lifecycle, event identity, stack, resolve, preview, trigger, notification, replay, and gameplay communication architecture. The platform-neutral implementation lives in `src/gameplay/cardLifecycle.js`.
+
+Card and gameplay-object lifecycle is authoritative state. Animation state is presentation state. A card may move through lifecycle states such as in hand, being selected, being cast, on stack, resolving, entering battlefield, battlefield, moving to graveyard, exiled, returning to command zone, returning to hand, moving to library, revealed, copied, token created, and ceasing to exist.
+
+Every meaningful gameplay event must have a stable event identity. Cast, resolve, zone-change, trigger, token-creation, counter-change, life-change, combat, land-play, replacement-effect, inspection, undo, and replay events use event IDs that presentation adapters can consume. A component rerender, trigger queue update, notification receipt, Command Hand rotation, inspection open/close, or opponent switch must not replay an animation for an event that has already played.
+
+Presentation events are idempotent. `createCardPresentationPayload()`, `createPresentationLedger()`, `shouldPlayPresentationEvent()`, and `markPresentationEventPlayed()` define the canonical contract: one authoritative event creates one primary presentation event. Presentation payloads are explicitly `presentationOnly`, must not mutate rules state, and expose `shouldReplayOnRender: false`.
+
+## Part 3 Live Tracking Versus Full Control Policy Separation
+
+Live Tracking and Full Control share the same rules engine, card state, zone state, stack model, trigger model, animation language, card rendering, and interaction architecture. They differ through mode interaction policy, not through separate gameplay engines.
+
+- Live Tracking infers deterministic consequences, avoids redundant digital priority passes, and uses one Resolve per uncontested stack object.
+- Full Control may request more explicit digital choices, priority decisions, costs, modes, targets, and responses because BoardState is acting as the complete digital play surface.
+- Both modes must produce equivalent authoritative rules outcomes for equivalent actions.
+- Neither mode may fabricate hidden information. If hidden information is required, BoardState must ask the smallest safe question or use an appropriate randomization workflow.
+
+Direct deterministic Live Tracking actions do not require Resolve. This includes land play, life changes, counter changes, token creation, static/continuous effect updates, state-based actions, commander tax updates, and commander damage updates.
+
+## Part 3 Stack And Single Resolve Behavior
+
+The stack is authoritative rules state. A stack object resolves independently only when it is an actual Magic stack object. A spell's deterministic internal instructions are not separate stack objects.
+
+For an uncontested Live Tracking spell or ability, one Resolve completes the current stack object and deterministic consequences. After Resolve, BoardState finishes the object, applies deterministic state changes, processes replacement effects, generates triggers, identifies mandatory choices, and either continues automatically or presents the next genuine decision. It must not replay the original cast/resolution animation or ask Resolve again for the same object.
+
+Repeated Resolve interactions are permitted only when actual independent stack objects remain or a genuine player decision is required.
+
+## Part 3 Preview Roles
+
+Battlefield permanents, casting previews, inspection previews, and stack objects are separate presentation roles:
+
+- A battlefield permanent is compact battlefield representation and remains a real card on the tabletop.
+- A casting preview is temporary and belongs to the protected gameplay corridor.
+- An inspection preview is deliberate, presentation-only, and must not mutate authoritative state.
+- A stack object is temporary stack presentation and resolves according to stack order.
+
+Closing inspection must restore the previous gameplay context, including focused opponent, Command Hand focus, selected IDs, zone scroll positions, and expanded stacks where applicable.
+
+## Part 3 Trigger And Replacement Handling
+
+Trigger presentation distinguishes automatic triggers from decision-requiring triggers. Automatic triggers process without meaningless prompts in Live Tracking. Optional triggers, target choices, ordering decisions, and manual effects surface as contextual decisions.
+
+Trigger floods must be grouped or batched visually where practical while preserving exact authoritative trigger data. Replacement effects are not stack objects unless the rules model explicitly marks them as stack objects. Replacement choices appear at the correct point, then the original event continues without replaying from the beginning.
+
+## Part 3 Gameplay Communication Hierarchy
+
+When multiple systems want attention, use this priority order:
+
+1. Mandatory current player decision.
+2. Critical rules state.
+3. Active casting/resolution.
+4. Active combat.
+5. Active stack/priority.
+6. Selected or inspected card.
+7. Relevant contextual command.
+8. Important gameplay notification.
+9. Reminders.
+10. Helper or educational guidance.
+11. Social notifications.
+12. Decorative information.
+
+`resolveGameplayAttentionOwner()` is the platform-neutral model for this hierarchy. Notifications use `classifyNotificationPriority()` and `shouldDeferNotification()` so low-priority communication yields to protected gameplay focus. Full-window notifications are still suppressed on the battlefield, and ordinary toasts must remain edge-safe.
+
+Helper Sprite, Table Assist, educational guidance, friend activity, reminders, and ordinary notifications must yield during casting, resolving, targeting, combat, important card inspection, and stack interaction.
+
+## Part 3 Replay, Undo, And Event History
+
+Replay is observational. It must reference canonical event history and must never cast a spell again, trigger abilities again, change counters, change life, change zones, re-enter permanents, or modify the stack.
+
+Undo may reverse eligible tracked state changes but must not replay the original forward animation after restoration. Unsafe Undo across complex unresolved stack state must be blocked or explained rather than corrupting authoritative state.
+
+Gameplay event history remains separate from rendered animation history. This supports Remind Me, Why explanations, replay, Undo, debugging, and future synchronization.
+
+## Part 3 Native-Portable Event Architecture
+
+Gameplay events are platform-independent data structures. A cast event means an authoritative gameplay event occurred; it does not mean a DOM element started a CSS animation. Web, SwiftUI, and future native presentation adapters may render the same event differently without altering authoritative rules state.
+
+Modified systems must preserve platform portability and avoid DOM-only behavior, browser-only lifecycle assumptions, URL state as gameplay state, CSS layout as rules logic, hover-only functionality, or browser-only persistence/media/permission behavior outside adapter boundaries.
+
 ## Implementation Boundary
 
 This Part 1 contract is implemented by:
 
 - `src/gameplay/canonicalGameplay.js`
 - `src/gameplay/battlefieldGeometry.js`
+- `src/gameplay/cardLifecycle.js`
 - `src/gameplay/commandDeckModel.js`
 - `src/ui/landscapeBattlefield.js`
 - `src/ui/render.js`
 - `src/styles.css`
 - `test/canonical-gameplay-architecture.test.js`
 - `test/canonical-gameplay-part2.test.js`
+- `test/canonical-gameplay-part3.test.js`
 
 Future parts must continue from this architecture without redefining these concepts.

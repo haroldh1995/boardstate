@@ -14,6 +14,15 @@ import {
   createCanonicalGameplayRuntimeContract,
 } from "../gameplay/canonicalGameplay.js";
 import {
+  CANONICAL_CARD_LIFECYCLE_VERSION,
+  CARD_PRESENTATION_ROLES,
+  createModeInteractionPolicy,
+  createPostResolveDecisionPipeline,
+  createResolveInteractionPlan,
+  resolveGameplayAttentionOwner,
+  resolveGameplayMode,
+} from "../gameplay/cardLifecycle.js";
+import {
   CANONICAL_BATTLEFIELD_GEOMETRY_VERSION,
   BATTLEFIELD_DENSITY_STATES,
   BATTLEFIELD_GESTURE_OWNERS,
@@ -293,6 +302,14 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
       singleResolveLaw: SINGLE_RESOLVE_LAW,
       mtgArenaRole: "digital-presentation-reference-only",
       physicalCommanderRole: "battlefield-geography-and-gameplay-flow-authority",
+      cardLifecycle: {
+        version: CANONICAL_CARD_LIFECYCLE_VERSION,
+        mode: resolveGameplayMode(session),
+        modePolicy: createModeInteractionPolicy(session),
+        presentationRoles: CARD_PRESENTATION_ROLES,
+        eventIdentity: "stable-event-id-controls-animation-idempotence",
+        presentationStateIsRulesAuthority: false,
+      },
     },
     regions: LANDSCAPE_BATTLEFIELD_REGIONS,
     viewport,
@@ -1047,9 +1064,18 @@ export function createGameplayFlowModel({
   const priority = createPriorityFlowModel(commandCenter, perspective);
   const workflow = createActiveWorkflowModel(session, commandCenter, perspective);
   const search = createSearchWorkflowModel(session);
+  const mode = resolveGameplayMode(session);
+  const resolvePlan = createResolveInteractionPlan(session, { mode });
+  const postResolve = createPostResolveDecisionPipeline(session);
+  const attention = resolveGameplayAttentionOwner({ session, focusedCommandId: commandCenter.primaryAction?.id || "" });
   return {
     version: GAMEPLAY_FLOW_VERSION,
     mode: "contextual-commander-gameplay",
+    gameplayMode: mode,
+    modePolicy: createModeInteractionPolicy(session, { mode }),
+    resolvePlan,
+    postResolve,
+    attention,
     selected,
     triggerGroups,
     priority,

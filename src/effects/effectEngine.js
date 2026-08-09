@@ -6,6 +6,11 @@ import { applyLayerSystem } from "./layerSystem.js";
 import { createCardDefinition } from "./cardDefinition.js";
 import { RULES_CONFIDENCE } from "../support/debugExport.js";
 import { preparePermanentEntry } from "../game/entrySystem.js";
+import {
+  GAMEPLAY_EVENT_TYPES,
+  createCardPresentationPayload,
+  createGameplayEventIdentity,
+} from "../gameplay/cardLifecycle.js";
 
 export function hydratePermanentEffects(permanent) {
   const definition = createCardDefinition(permanent);
@@ -194,8 +199,15 @@ export function castSpellToStack(session, spell, options = {}) {
   }
   const isPermanentSpell = !source.isInstant && !source.isSorcery;
 
+  const stackObjectId = createId("spell");
+  const stackObjectEventId = createGameplayEventIdentity(GAMEPLAY_EVENT_TYPES.cast, {
+    stackObjectId,
+    card: source,
+    controller: source.controller,
+  });
   const stackObject = {
-    id: createId("spell"),
+    id: stackObjectId,
+    eventId: stackObjectEventId,
     objectType: options.isCopy ? (isPermanentSpell ? "copy-of-permanent-spell" : "copy-of-spell") : isPermanentSpell ? "permanent-spell" : "spell",
     card: source,
     name: source.name,
@@ -229,7 +241,11 @@ export function castSpellToStack(session, spell, options = {}) {
   const nextSession = {
     ...removeKnownZoneCard(session, source.controller, stackObject.sourceZone, source),
     stack: [nextStackObject, ...(session.stack || [])],
-    presentation: createCardPresentation(source, "cast", source.controller),
+    presentation: createCardPresentation(source, "cast", source.controller, {
+      eventId: stackObjectEventId,
+      eventType: GAMEPLAY_EVENT_TYPES.cast,
+      stackObjectId,
+    }),
     priority: {
       activePlayerId: responderIds[0] || source.controller,
       passedPlayerIds: [],
@@ -635,7 +651,15 @@ function finalizePermanentSpellResolution(session, spell) {
   const permanent = hydratePermanentEffects(entry.permanent);
   const entered = emitPermanentEntryEvents({
     ...session,
-    presentation: createCardPresentation(permanent, "resolved-permanent", controller),
+    presentation: createCardPresentation(permanent, "resolved-permanent", controller, {
+      eventId: createGameplayEventIdentity(GAMEPLAY_EVENT_TYPES.resolve, {
+        stackObjectId: spell.id,
+        card: permanent,
+        controller,
+      }),
+      eventType: GAMEPLAY_EVENT_TYPES.resolve,
+      stackObjectId: spell.id,
+    }),
     pendingEffects: entry.choice ? [entry.choice, ...(session.pendingEffects || [])].slice(0, 120) : session.pendingEffects,
     battlefield: {
       ...session.battlefield,
@@ -686,23 +710,14 @@ function getPriorityResponderIds(session, controller) {
   return [];
 }
 
-function createCardPresentation(card, kind, controller = "player") {
+function createCardPresentation(card, kind, controller = "player", options = {}) {
   const now = Date.now();
-  return {
-    id: createId("presentation"),
-    card: {
-      cardId: card.cardId || "",
-      name: card.name || "Card",
-      typeLine: card.typeLine || "",
-      imageUrl: card.imageUrl || "",
-      imageSmall: card.imageSmall || "",
-      imageArt: card.imageArt || "",
-    },
-    kind,
-    controller,
+  return createCardPresentationPayload(card, kind, controller, {
+    presentationId: createId("presentation"),
     createdAt: now,
     expiresAt: now + 1550,
-  };
+    ...options,
+  });
 }
 
 function determineSpellDestination(card = {}, options = {}) {

@@ -69,6 +69,11 @@ import {
 } from "../simulation/commanderSimulation.js";
 import { RULES_CONFIDENCE, createRecoveryEntry } from "../support/debugExport.js";
 import {
+  GAMEPLAY_EVENT_TYPES,
+  createCardPresentationPayload,
+  createGameplayEventIdentity,
+} from "../gameplay/cardLifecycle.js";
+import {
   advanceFiveTurnTutorial,
   acceptAssistanceSuggestion,
   completeTutorialToFreePlay,
@@ -921,7 +926,14 @@ function addPermanent(profile, card, controller) {
   const side = controller === "player" ? "player" : "opponent";
   const session = {
     ...profile.activeSession,
-    presentation: createCardPresentation(permanent, permanent.isLand ? "land-played" : "entered-battlefield", controller),
+    presentation: createCardPresentation(permanent, permanent.isLand ? "land-played" : "entered-battlefield", controller, {
+      eventId: createGameplayEventIdentity(permanent.isLand ? GAMEPLAY_EVENT_TYPES.landPlay : GAMEPLAY_EVENT_TYPES.zoneChange, {
+        objectId: permanent.id,
+        card: permanent,
+        controller,
+      }),
+      eventType: permanent.isLand ? GAMEPLAY_EVENT_TYPES.landPlay : GAMEPLAY_EVENT_TYPES.zoneChange,
+    }),
     pendingEffects: entry.choice ? [entry.choice, ...(profile.activeSession.pendingEffects || [])].slice(0, 120) : profile.activeSession.pendingEffects,
     battlefield: {
       ...profile.activeSession.battlefield,
@@ -964,23 +976,14 @@ function addLandCopy(profile, id) {
   }, source.controller || "player");
 }
 
-function createCardPresentation(card, kind, controller = "player") {
+function createCardPresentation(card, kind, controller = "player", options = {}) {
   const now = Date.now();
-  return {
-    id: createId("presentation"),
-    card: {
-      cardId: card.cardId || "",
-      name: card.name || "Card",
-      typeLine: card.typeLine || "",
-      imageUrl: card.imageUrl || "",
-      imageSmall: card.imageSmall || "",
-      imageArt: card.imageArt || "",
-    },
-    kind,
-    controller,
+  return createCardPresentationPayload(card, kind, controller, {
+    presentationId: createId("presentation"),
     createdAt: now,
     expiresAt: now + 1550,
-  };
+    ...options,
+  });
 }
 
 function emitPermanentEntryTriggerEvents(session, permanent, { instances = 1, cause = "effect", chainId = createId("chain") } = {}) {
