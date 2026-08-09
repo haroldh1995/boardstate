@@ -146,6 +146,7 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   const battlefieldDoc = readRepositoryFile("docs/ecosystem/LANDSCAPE_BATTLEFIELD_ARCHITECTURE.md");
   const actionHandDoc = readRepositoryFile("docs/ecosystem/COMMANDER_ACTION_HAND_DESIGN.md");
   const rotatingDeckDoc = readRepositoryFile("docs/ecosystem/ROTATING_COMMAND_DECK_ARCHITECTURE.md");
+  const commandDeckModel = readRepositoryFile("src/gameplay/commandDeckModel.js");
   const motionDoc = readRepositoryFile("docs/ecosystem/MOTION_LANGUAGE_ARCHITECTURE.md");
   const visualLanguageDoc = readRepositoryFile("docs/ecosystem/VISUAL_LANGUAGE_MATERIAL_SYSTEM.md");
   const motionTokens = readRepositoryFile("src/ui/motionTokens.js");
@@ -184,13 +185,14 @@ test("battlefield runtime uses the Commander Action Hand instead of the former b
   assert.match(render, /function getVisibleCommandDeckCards/);
   assert.match(render, /function normalizeCommandDeckIndex/);
   assert.match(render, /function bindCommandDeck/);
-  assert.match(render, /COMMAND_DECK_SCROLL_PX_PER_CARD/);
-  assert.match(render, /COMMAND_DECK_SLOT_SPACING_PX/);
-  assert.match(render, /COMMAND_DECK_RENDER_RADIUS/);
+  assert.match(commandDeckModel, /COMMAND_DECK_SCROLL_PX_PER_CARD/);
+  assert.match(commandDeckModel, /COMMAND_DECK_SLOT_SPACING_PX/);
+  assert.match(commandDeckModel, /COMMAND_DECK_RENDER_RADIUS/);
   assert.match(render, /COMMAND_DECK_WHEEL_IDLE_SNAP_MS/);
   assert.match(render, /function setCommandDeckFreeScrollOffset/);
   assert.match(render, /function settleCommandDeckWheelScroll/);
-  assert.match(render, /function resolveCommandDeckCardProjection/);
+  assert.match(commandDeckModel, /function resolveCommandDeckCardProjection/);
+  assert.match(render, /resolveCommandDeckCardProjection/);
   assert.match(render, /function applyCommandDeckCardProjection/);
   assert.match(render, /COMMAND_DECK_SETTLE_HOVER_SUPPRESS_MS/);
   assert.match(render, /nextDeck\.classList\.add\("is-rotating"\)/);

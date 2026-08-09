@@ -1,3 +1,5 @@
+import { defaultRuntimeEnvironment } from "../platform/runtimeEnvironment.js";
+
 const SCRYFALL_SEARCH_URL = "https://api.scryfall.com/cards/search";
 const SCRYFALL_CARDS_URL = "https://api.scryfall.com/cards";
 const SEARCH_CACHE_KEY = "boardstate-scryfall-search-cache";
@@ -141,7 +143,11 @@ export async function searchScryfall(query, commanderDeckCards = [], options = {
     order: "name",
     include_extras: "true",
   });
-  const pending = fetch(`${SCRYFALL_SEARCH_URL}?${params.toString()}`, { signal: options.signal })
+  const runtimeFetch = defaultRuntimeEnvironment.fetch;
+  if (!runtimeFetch || defaultRuntimeEnvironment.navigator.online === false) {
+    return dedupe([...deckMatches, ...loadPersistedSearch(trimmed)]);
+  }
+  const pending = runtimeFetch(`${SCRYFALL_SEARCH_URL}?${params.toString()}`, { signal: options.signal })
     .then(async (response) => {
       if (!response.ok) {
         return loadPersistedSearch(trimmed);
@@ -168,10 +174,10 @@ export async function fetchScryfallCardDetails(cardId, includeRulings = true) {
   if (cached) {
     return cached;
   }
-  if (!navigator.onLine) {
+  if (defaultRuntimeEnvironment.navigator.online === false || !defaultRuntimeEnvironment.fetch) {
     return loadPersistedCard(cardId);
   }
-  const response = await fetch(`${SCRYFALL_CARDS_URL}/${encodeURIComponent(cardId)}`);
+  const response = await defaultRuntimeEnvironment.fetch(`${SCRYFALL_CARDS_URL}/${encodeURIComponent(cardId)}`);
   if (!response.ok) {
     return null;
   }
@@ -199,11 +205,11 @@ export async function fetchScryfallCardDetails(cardId, includeRulings = true) {
 }
 
 export async function fetchRulings(rulingsUri) {
-  if (!rulingsUri || !navigator.onLine) {
+  if (!rulingsUri || defaultRuntimeEnvironment.navigator.online === false || !defaultRuntimeEnvironment.fetch) {
     return [];
   }
   try {
-    const response = await fetch(rulingsUri);
+    const response = await defaultRuntimeEnvironment.fetch(rulingsUri);
     if (!response.ok) {
       return [];
     }
@@ -326,9 +332,9 @@ function loadPersistedCard(cardId) {
 
 function persistCache(rootKey, key, payload) {
   try {
-    const cache = JSON.parse(localStorage.getItem(rootKey) || "{}");
+    const cache = JSON.parse(defaultRuntimeEnvironment.localStorage.getItem(rootKey) || "{}");
     cache[key] = payload;
-    localStorage.setItem(rootKey, JSON.stringify(cache));
+    defaultRuntimeEnvironment.localStorage.setItem(rootKey, JSON.stringify(cache));
   } catch {
     // Cache is best-effort only.
   }
@@ -336,7 +342,7 @@ function persistCache(rootKey, key, payload) {
 
 function readPersistedCache(rootKey, key) {
   try {
-    const cache = JSON.parse(localStorage.getItem(rootKey) || "{}");
+    const cache = JSON.parse(defaultRuntimeEnvironment.localStorage.getItem(rootKey) || "{}");
     return cache[key] || null;
   } catch {
     return null;

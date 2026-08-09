@@ -1,4 +1,5 @@
 import { PHASES } from "../state/schema.js";
+import { defaultRuntimeEnvironment } from "../platform/runtimeEnvironment.js";
 
 export const RULES_CONFIDENCE = {
   AUTO_RESOLVED: "auto-resolved",
@@ -109,7 +110,7 @@ export function buildDebugState(profile = {}, currentPage = "life") {
     recentActions: (session.actionHistory || []).slice(0, 80),
     recentEffects: (session.effectLog || []).slice(0, 80),
     scryfall: {
-      online: typeof navigator !== "undefined" ? navigator.onLine : true,
+      online: defaultRuntimeEnvironment.navigator.online,
     },
     storage: {
       profileMode: profile.localAuth?.mode || "guest",
@@ -250,8 +251,8 @@ function getAppVersion() {
 function isLocalStorageAvailable() {
   try {
     const key = "__boardstate_storage_test__";
-    localStorage.setItem(key, "1");
-    localStorage.removeItem(key);
+    defaultRuntimeEnvironment.localStorage.setItem(key, "1");
+    defaultRuntimeEnvironment.localStorage.removeItem(key);
     return true;
   } catch {
     return false;
@@ -259,13 +260,14 @@ function isLocalStorageAvailable() {
 }
 
 function getPlatformInfo() {
-  if (typeof navigator === "undefined") {
+  const runtimeNavigator = defaultRuntimeEnvironment.navigator;
+  if (!runtimeNavigator.userAgent && !runtimeNavigator.platform) {
     return {};
   }
   return {
-    userAgent: navigator.userAgent,
-    platform: navigator.platform,
-    language: navigator.language,
-    online: navigator.onLine,
+    userAgent: runtimeNavigator.userAgent,
+    platform: runtimeNavigator.platform,
+    language: runtimeNavigator.language,
+    online: runtimeNavigator.online,
   };
 }

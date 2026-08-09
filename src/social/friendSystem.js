@@ -1,4 +1,5 @@
 import { createId, normalizeName } from "../state/ids.js";
+import { getRuntimeLocation } from "../platform/runtimeEnvironment.js";
 
 const FRIEND_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const MEMORABLE_CODES = [
@@ -399,7 +400,7 @@ export function sanitizeFriendDiscoveryPayload(profile = {}) {
   };
 }
 
-export function buildFriendInviteLink(invite = {}, locationLike = globalThis.location) {
+export function buildFriendInviteLink(invite = {}, locationLike = getRuntimeLocation()) {
   const type = String(invite.inviteType || invite.type || "game").toLowerCase();
   const sessionId = normalizeName(invite.sessionId || invite.gameSessionId || invite.tournamentSessionId);
   if (!sessionId) {

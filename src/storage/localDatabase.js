@@ -3,6 +3,7 @@ import { normalizeFriendState } from "../social/friendSystem.js";
 import { createOnboardingState } from "../onboarding/tutorialSystem.js";
 import { createLocalSaveCollection } from "./saveState.js";
 import { createEcosystemIntegrationState } from "../ecosystem/ecosystemIntegration.js";
+import { defaultRuntimeEnvironment } from "../platform/runtimeEnvironment.js";
 
 const DB_NAME = "boardstate";
 const STORE_NAME = "profiles";
@@ -15,28 +16,32 @@ const AUTH_FALLBACK_KEY = "boardstate-auth-meta";
 const GUEST_SESSION_KEY = "boardstate-guest-session";
 const LEGACY_FALLBACK_KEYS = ["boardstate-hybrid-profile"];
 const DATABASE_TIMEOUT_MS = 1800;
+const localProfileStorage = defaultRuntimeEnvironment.localStorage;
+const sessionProfileStorage = defaultRuntimeEnvironment.sessionStorage;
+const runtimeIndexedDB = defaultRuntimeEnvironment.indexedDB;
+const runtimeCrypto = defaultRuntimeEnvironment.crypto;
 
 function openDatabase() {
-  if (!("indexedDB" in globalThis)) {
+  if (!runtimeIndexedDB) {
     return Promise.resolve(null);
   }
 
   return new Promise((resolve) => {
     let settled = false;
     let request = null;
-    const timeout = globalThis.setTimeout(() => settle(null), DATABASE_TIMEOUT_MS);
+    const timeout = defaultRuntimeEnvironment.setTimeout(() => settle(null), DATABASE_TIMEOUT_MS);
 
     function settle(value) {
       if (settled) {
         return;
       }
       settled = true;
-      globalThis.clearTimeout(timeout);
+      defaultRuntimeEnvironment.clearTimeout(timeout);
       resolve(value);
     }
 
     try {
-      request = indexedDB.open(DB_NAME, 1);
+      request = runtimeIndexedDB.open(DB_NAME, 1);
     } catch {
       settle(null);
       return;
@@ -94,7 +99,7 @@ export async function loginWithPassword(password) {
 
 export async function loadGuestProfile() {
   try {
-    sessionStorage.removeItem(GUEST_SESSION_KEY);
+    sessionProfileStorage.removeItem(GUEST_SESSION_KEY);
   } catch {
     // Guest/fresh mode should never depend on previous saved history.
   }
@@ -113,7 +118,7 @@ export async function saveProfile(profile) {
     return normalized;
   }
   try {
-    sessionStorage.setItem(GUEST_SESSION_KEY, JSON.stringify(sanitizeGuestProfile(normalized)));
+    sessionProfileStorage.setItem(GUEST_SESSION_KEY, JSON.stringify(sanitizeGuestProfile(normalized)));
   } catch {
     // Guest mode is intentionally non-authoritative; gameplay continues in memory.
   }
@@ -194,9 +199,12 @@ async function writeRecord(key, value) {
 }
 
 async function createPasswordMeta(password) {
-  const salt = crypto.getRandomValues(new Uint8Array(16));
+  if (!runtimeCrypto?.getRandomValues || !runtimeCrypto?.subtle?.digest) {
+    throw new Error("Protected profiles require a runtime crypto adapter.");
+  }
+  const salt = runtimeCrypto.getRandomValues(new Uint8Array(16));
   const hash = await hashPassword(password, salt);
-  const normalized = {
+  return {
     version: 1,
     algorithm: "SHA-256",
     salt: toBase64(salt),
@@ -212,21 +220,20 @@ async function verifyPassword(password, meta) {
 
 async function hashPassword(password, salt) {
   // Local device protection only: this is not cloud authentication and never stores plaintext passwords.
-  const encoded = new TextEncoder().encode(`${toBase64(salt)}:${password}`);
-  const digest = await crypto.subtle.digest("SHA-256", encoded);
+  if (!runtimeCrypto?.subtle?.digest) {
+    throw new Error("Password verification requires a runtime crypto adapter.");
+  }
+  const encoded = defaultRuntimeEnvironment.encodeText(`${toBase64(salt)}:${password}`);
+  const digest = await runtimeCrypto.subtle.digest("SHA-256", encoded);
   return toBase64(new Uint8Array(digest));
 }
 
 function toBase64(bytes) {
-  return btoa(String.fromCharCode(...bytes));
+  return defaultRuntimeEnvironment.encodeBase64Bytes(bytes);
 }
 
 function fromBase64(value) {
-  try {
-    return Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
-  } catch {
-    return new Uint8Array();
-  }
+  return defaultRuntimeEnvironment.decodeBase64Bytes(value);
 }
 
 export function exportProfile(profile) {
@@ -248,7 +255,7 @@ export function parseImportedProfile(text) {
 
 function loadFallbackProfile() {
   try {
-    const raw = localStorage.getItem(FALLBACK_KEY) || LEGACY_FALLBACK_KEYS.map((key) => localStorage.getItem(key)).find(Boolean);
+    const raw = localProfileStorage.getItem(FALLBACK_KEY) || LEGACY_FALLBACK_KEYS.map((key) => localProfileStorage.getItem(key)).find(Boolean);
     return normalizeProfile(raw ? JSON.parse(raw) : createDefaultProfile());
   } catch {
     return createDefaultProfile();
@@ -257,7 +264,7 @@ function loadFallbackProfile() {
 
 function loadLegacyFallbackProfile() {
   try {
-    const raw = localStorage.getItem(FALLBACK_KEY) || LEGACY_FALLBACK_KEYS.map((key) => localStorage.getItem(key)).find(Boolean);
+    const raw = localProfileStorage.getItem(FALLBACK_KEY) || LEGACY_FALLBACK_KEYS.map((key) => localProfileStorage.getItem(key)).find(Boolean);
     return raw ? normalizeProfile(JSON.parse(raw)) : null;
   } catch {
     return null;
@@ -266,7 +273,7 @@ function loadLegacyFallbackProfile() {
 
 function loadProtectedFallback() {
   try {
-    const raw = localStorage.getItem(PROTECTED_FALLBACK_KEY);
+    const raw = localProfileStorage.getItem(PROTECTED_FALLBACK_KEY);
     return raw ? normalizeProfile(JSON.parse(raw)) : null;
   } catch {
     return null;
@@ -275,7 +282,7 @@ function loadProtectedFallback() {
 
 function loadAuthFallback() {
   try {
-    const raw = localStorage.getItem(AUTH_FALLBACK_KEY);
+    const raw = localProfileStorage.getItem(AUTH_FALLBACK_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -583,7 +590,7 @@ function normalizeBoardStateNavigationSettings(navigation = {}, defaults = {}) {
 function createGuestProfile(hasPassword, options = {}) {
   let sessionProfile = null;
   try {
-    sessionProfile = JSON.parse(sessionStorage.getItem(GUEST_SESSION_KEY) || "null");
+    sessionProfile = JSON.parse(sessionProfileStorage.getItem(GUEST_SESSION_KEY) || "null");
   } catch {
     sessionProfile = null;
   }
@@ -616,7 +623,7 @@ function sanitizeGuestProfile(profile) {
 
 function saveProtectedFallback(profile) {
   try {
-    localStorage.setItem(PROTECTED_FALLBACK_KEY, JSON.stringify(profile));
+    localProfileStorage.setItem(PROTECTED_FALLBACK_KEY, JSON.stringify(profile));
   } catch {
     // IndexedDB remains the primary local-first storage layer.
   }
@@ -624,7 +631,7 @@ function saveProtectedFallback(profile) {
 
 function saveAuthFallback(meta) {
   try {
-    localStorage.setItem(AUTH_FALLBACK_KEY, JSON.stringify(meta));
+    localProfileStorage.setItem(AUTH_FALLBACK_KEY, JSON.stringify(meta));
   } catch {
     // A missing fallback only affects older browsers that cannot open IndexedDB.
   }
@@ -632,7 +639,7 @@ function saveAuthFallback(meta) {
 
 function saveFallbackProfile(profile) {
   try {
-    localStorage.setItem(FALLBACK_KEY, JSON.stringify(profile));
+    localProfileStorage.setItem(FALLBACK_KEY, JSON.stringify(profile));
   } catch {
     // Local gameplay still continues in memory if persistent storage is unavailable.
   }

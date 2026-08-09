@@ -25,6 +25,17 @@ import {
   createSingleResolvePlan,
   shouldAutoProgressLiveTrackingStack,
 } from "../gameplay/canonicalGameplay.js";
+import {
+  COMMAND_DECK_RENDER_RADIUS,
+  COMMAND_DECK_VISIBLE_RADIUS,
+  COMMAND_DECK_WHEEL_IDLE_SNAP_MS,
+  resolveCommandDeckCardProjection,
+  resolveCommandDeckPointerOffsetPx,
+  resolveCommandDeckPointerSnapSteps,
+  resolveCommandDeckScrollStepsFromOffsetPx,
+  resolveCommandDeckWheelFreeScrollOffsetPx,
+  resolveCommandDeckWheelSnapSteps,
+} from "../gameplay/commandDeckModel.js";
 import { calculateLegalTargets, getPermanentManaOptions } from "../rules-engine/index.js";
 import { createPermanent, PHASES } from "../state/schema.js";
 import { buildPredictiveActions } from "../game/predictiveActions.js";
@@ -141,13 +152,6 @@ const LANDSCAPE_VIEWPORT_LOCK_VERSION = "boardstate-landscape-viewport-lock-0.1.
 const CANONICAL_GAMEPLAY_COMPOSITION = "landscape";
 const RUNTIME_LAYOUT_COMPOSITION = "widescreen";
 const CANONICAL_GAMEPLAY_ORIENTATION = "landscape";
-const COMMAND_DECK_VISIBLE_RADIUS = 3;
-const COMMAND_DECK_SCROLL_PX_PER_CARD = 74;
-const COMMAND_DECK_SLOT_SPACING_PX = 58;
-const COMMAND_DECK_WHEEL_DELTA_PER_CARD = 220;
-const COMMAND_DECK_MAX_FREE_SCROLL_STEPS = 3;
-const COMMAND_DECK_RENDER_RADIUS = COMMAND_DECK_VISIBLE_RADIUS + COMMAND_DECK_MAX_FREE_SCROLL_STEPS;
-const COMMAND_DECK_WHEEL_IDLE_SNAP_MS = 150;
 const COMMAND_DECK_AUTO_CENTER_COOLDOWN_MS = 4200;
 const COMMAND_DECK_MAX_FAVORITES = 4;
 const COMMAND_DECK_FEEDBACK_THROTTLE_MS = 140;
@@ -798,17 +802,13 @@ export function mountApp(root, store) {
     renderCommandDeckOnly();
   }
 
-  function clampCommandDeckFreeScrollSteps(steps = 0) {
-    return Math.max(-COMMAND_DECK_MAX_FREE_SCROLL_STEPS, Math.min(COMMAND_DECK_MAX_FREE_SCROLL_STEPS, steps));
-  }
-
   function setCommandDeckFreeScrollOffset(deck, offsetPx = 0) {
     const liveDeck = deck?.isConnected ? deck : root.querySelector("[data-command-deck]");
     const fan = liveDeck?.querySelector?.("[data-command-deck-fan]");
     if (!fan) {
       return;
     }
-    const scrollSteps = clampCommandDeckFreeScrollSteps(Number(offsetPx || 0) / COMMAND_DECK_SCROLL_PX_PER_CARD);
+    const scrollSteps = resolveCommandDeckScrollStepsFromOffsetPx(offsetPx);
     fan.style.setProperty("--command-deck-scroll-steps", scrollSteps.toFixed(3));
     fan.dataset.commandDeckFreeScrolling = Math.abs(scrollSteps) > 0.01 ? "true" : "false";
     fan.querySelectorAll("[data-action-card]").forEach((card) => {
@@ -836,8 +836,7 @@ export function mountApp(root, store) {
     if (Math.abs(commandDeckWheelDelta) < 1) {
       return;
     }
-    const freeScrollSteps = clampCommandDeckFreeScrollSteps(commandDeckWheelDelta / COMMAND_DECK_WHEEL_DELTA_PER_CARD);
-    setCommandDeckFreeScrollOffset(deck, -freeScrollSteps * COMMAND_DECK_SCROLL_PX_PER_CARD);
+    setCommandDeckFreeScrollOffset(deck, resolveCommandDeckWheelFreeScrollOffsetPx(commandDeckWheelDelta));
   }
 
   function settleCommandDeckWheelScroll(deck) {
@@ -848,7 +847,7 @@ export function mountApp(root, store) {
     const delta = commandDeckWheelDelta;
     commandDeckWheelDelta = 0;
     clearCommandDeckFreeScroll(deck);
-    const steps = clampCommandDeckFreeScrollSteps(Math.round(delta / COMMAND_DECK_WHEEL_DELTA_PER_CARD));
+    const steps = resolveCommandDeckWheelSnapSteps(delta);
     if (steps) {
       commandDeckSuppressClickUntil = Date.now() + 220;
       rotateCommandDeckFromElement(deck?.isConnected ? deck : root.querySelector("[data-command-deck]"), steps);
@@ -1021,10 +1020,7 @@ export function mountApp(root, store) {
         commandDeckSuppressClickUntil = Date.now() + 260;
         event.preventDefault();
       }
-      const scrollPx = Math.max(
-        -COMMAND_DECK_SCROLL_PX_PER_CARD * COMMAND_DECK_MAX_FREE_SCROLL_STEPS,
-        Math.min(COMMAND_DECK_SCROLL_PX_PER_CARD * COMMAND_DECK_MAX_FREE_SCROLL_STEPS, dx)
-      );
+      const scrollPx = resolveCommandDeckPointerOffsetPx(dx);
       commandDeckPointer.scrollPx = scrollPx;
       setCommandDeckFreeScrollOffset(deck, scrollPx);
     });
@@ -1040,7 +1036,7 @@ export function mountApp(root, store) {
       fan.classList.remove("is-dragging");
       fan.releasePointerCapture?.(event.pointerId);
       const scrollPx = Number(finishedPointer.scrollPx || dx || 0);
-      const steps = clampCommandDeckFreeScrollSteps(Math.round(-scrollPx / COMMAND_DECK_SCROLL_PX_PER_CARD));
+      const steps = resolveCommandDeckPointerSnapSteps(scrollPx);
       clearCommandDeckFreeScroll(deck);
       if (!finishedPointer.moved || Math.abs(scrollPx) < 4 || Math.abs(dx) < Math.abs(dy) * 1.15) {
         return;
@@ -8730,32 +8726,6 @@ function resolveActionCardFrame(card = {}) {
     ...frame,
     flavor: card.flavor || frame.flavor || card.intent || card.detail || "Use this command when it becomes relevant to the current game state.",
     subtype: card.detail || card.eyebrow || "Available decision",
-  };
-}
-
-function resolveCommandDeckCardProjection(slotOffset = 0, priority = 0, isCommittedCenter = false) {
-  const offset = Number(slotOffset || 0);
-  const distance = Math.abs(offset);
-  const priorityProminence = Math.max(0, Math.min(1, Number(priority || 0) / 128));
-  const centerProminence = Math.max(0, Math.min(1, 1 - distance / (COMMAND_DECK_VISIBLE_RADIUS + 0.24)));
-  const prominence = Math.max(centerProminence, priorityProminence * 0.42, isCommittedCenter && distance < 0.45 ? 1 : 0);
-  const fadeStart = COMMAND_DECK_VISIBLE_RADIUS - 0.16;
-  const fadeEnd = COMMAND_DECK_VISIBLE_RADIUS + 0.86;
-  const visibility = distance <= fadeStart ? 1 : Math.max(0, Math.min(1, 1 - (distance - fadeStart) / (fadeEnd - fadeStart)));
-  const scale = 0.9 + prominence * 0.15 + (distance < 0.44 ? 0.025 : 0);
-  const rise = Math.max(0, 18 - distance * 4.2) + Math.max(0, Number(priority || 0) - 90) * 0.12 + (distance < 0.44 ? 4 : 0);
-  const zIndex = Math.round(1800 - distance * 180 + priorityProminence * 24 + (distance < 0.44 ? 180 : 0));
-  return {
-    offset,
-    xPx: offset * COMMAND_DECK_SLOT_SPACING_PX,
-    angle: offset * 5.2,
-    rise,
-    scale,
-    prominence,
-    visibility,
-    zIndex: Math.max(1, zIndex),
-    liftZ: distance < 0.44 ? 36 : Math.round(prominence * 12),
-    interactive: visibility > 0.18,
   };
 }
 

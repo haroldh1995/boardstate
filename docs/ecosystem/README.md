@@ -28,6 +28,7 @@ Prompt 1 output files:
 - `ADAPTIVE_LEARNING_ONBOARDING.md`
 - `CONTEXTUAL_ASSISTANCE_SYSTEM.md`
 - `CANONICAL_GAMEPLAY_ARCHITECTURE.md`
+- `NATIVE_PORTABILITY_AUDIT.md`
 
 These files document the preparation baseline, permanent Constitution, architecture inventory, rules-engine extraction risks, shared contracts, migration plan, handoff risks, future navigation, and future test matrix.
 
@@ -72,3 +73,5 @@ The Commander session architecture document records the Prompt 2 canonical sessi
 `CONTEXTUAL_ASSISTANCE_SYSTEM.md` records the Prompt 13.2 contextual assistance standard, Assistance Priority Levels, Assistance Tokens, profile-scoped assistance memory, natural-pause timing rules, Helper Sprite presentation contract, safe ecosystem preference summaries, and development-only Assistance Debug Overlay contract.
 
 `CANONICAL_GAMEPLAY_ARCHITECTURE.md` records the Prompt 13.2.6 Part 1 canonical gameplay laws, physical tabletop battlefield geography, fixed gameplay viewport, protected gameplay corridor, Live Tracking Assumption Engine, and Single Resolve law. It supersedes earlier gameplay architecture documents wherever they conflict.
+
+`NATIVE_PORTABILITY_AUDIT.md` records the Swift-ready portability boundary. It keeps browser APIs inside platform adapters and the current web shell while preserving gameplay, rules, state, storage, service, bridge, and support modules as reusable non-UI systems.

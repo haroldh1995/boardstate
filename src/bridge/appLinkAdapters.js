@@ -21,6 +21,7 @@ import {
   createPrivacySafeEcosystemBundle,
   validateEcosystemSyncEnvelope,
 } from "../ecosystem/ecosystemIntegration.js";
+import { getRuntimeLocation } from "../platform/runtimeEnvironment.js";
 
 export const APP_LINK_ADAPTER_VERSION = "boardstate-bridge-adapters-0.1.0";
 export const LITE_HANDOFF_BUNDLE_TYPE = "boardstate-lite-session-handoff";
@@ -742,7 +743,7 @@ export function getImportedDataManagementModel(profile = {}) {
   };
 }
 
-export function parseAppLinkHandoffFromLocation(locationLike = globalThis.location) {
+export function parseAppLinkHandoffFromLocation(locationLike = getRuntimeLocation()) {
   const hash = String(locationLike?.hash || "");
   const search = String(locationLike?.search || "");
   const hashRoute = hash.match(/^#\/?(?:import|handoff)\/(session|deck)\/([^?&#]+)/i);
