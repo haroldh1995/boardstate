@@ -143,8 +143,10 @@ const RUNTIME_LAYOUT_COMPOSITION = "widescreen";
 const CANONICAL_GAMEPLAY_ORIENTATION = "landscape";
 const COMMAND_DECK_VISIBLE_RADIUS = 3;
 const COMMAND_DECK_SCROLL_PX_PER_CARD = 74;
+const COMMAND_DECK_SLOT_SPACING_PX = 58;
 const COMMAND_DECK_WHEEL_DELTA_PER_CARD = 220;
 const COMMAND_DECK_MAX_FREE_SCROLL_STEPS = 3;
+const COMMAND_DECK_RENDER_RADIUS = COMMAND_DECK_VISIBLE_RADIUS + COMMAND_DECK_MAX_FREE_SCROLL_STEPS;
 const COMMAND_DECK_WHEEL_IDLE_SNAP_MS = 150;
 const COMMAND_DECK_AUTO_CENTER_COOLDOWN_MS = 4200;
 const COMMAND_DECK_MAX_FAVORITES = 4;
@@ -806,8 +808,13 @@ export function mountApp(root, store) {
     if (!fan) {
       return;
     }
-    fan.style.setProperty("--command-deck-scroll-px", `${Number(offsetPx || 0).toFixed(2)}px`);
-    fan.dataset.commandDeckFreeScrolling = Math.abs(Number(offsetPx || 0)) > 0.5 ? "true" : "false";
+    const scrollSteps = clampCommandDeckFreeScrollSteps(Number(offsetPx || 0) / COMMAND_DECK_SCROLL_PX_PER_CARD);
+    fan.style.setProperty("--command-deck-scroll-steps", scrollSteps.toFixed(3));
+    fan.dataset.commandDeckFreeScrolling = Math.abs(scrollSteps) > 0.01 ? "true" : "false";
+    fan.querySelectorAll("[data-action-card]").forEach((card) => {
+      const baseSlot = Number(card.dataset.commandDeckSlot || 0);
+      applyCommandDeckCardProjection(card, baseSlot + scrollSteps);
+    });
   }
 
   function clearCommandDeckFreeScroll(deck) {
@@ -816,8 +823,12 @@ export function mountApp(root, store) {
     if (!fan) {
       return;
     }
-    fan.style.setProperty("--command-deck-scroll-px", "0px");
+    fan.style.setProperty("--command-deck-scroll-steps", "0");
     fan.dataset.commandDeckFreeScrolling = "false";
+    fan.querySelectorAll("[data-action-card]").forEach((card) => {
+      const baseSlot = Number(card.dataset.commandDeckSlot || 0);
+      applyCommandDeckCardProjection(card, baseSlot);
+    });
   }
 
   function flushCommandDeckWheelScroll(deck) {
@@ -8512,7 +8523,7 @@ function renderCommanderActionHand(profile, options = {}) {
   ], getCommandDeckFavoriteIds(profile));
   const priorityCard = resolveCommandDeckPriorityCard(actionCards);
   const centerIndex = resolveCommandDeckCenterIndex(actionCards, commandDeckRotationIndex, priorityCard, commandDeckLastManualRotationAt);
-  const visibleCards = getVisibleCommandDeckCards(actionCards, centerIndex);
+  const visibleCards = getVisibleCommandDeckCards(actionCards, centerIndex, COMMAND_DECK_RENDER_RADIUS);
   const centerCard = actionCards[centerIndex] || priorityCard || actionCards[0] || null;
   const favoriteIds = getCommandDeckFavoriteIds(profile, actionCards.map((card) => card.id));
   const centerFavorite = centerCard ? favoriteIds.includes(centerCard.id) : false;
@@ -8722,19 +8733,62 @@ function resolveActionCardFrame(card = {}) {
   };
 }
 
+function resolveCommandDeckCardProjection(slotOffset = 0, priority = 0, isCommittedCenter = false) {
+  const offset = Number(slotOffset || 0);
+  const distance = Math.abs(offset);
+  const priorityProminence = Math.max(0, Math.min(1, Number(priority || 0) / 128));
+  const centerProminence = Math.max(0, Math.min(1, 1 - distance / (COMMAND_DECK_VISIBLE_RADIUS + 0.24)));
+  const prominence = Math.max(centerProminence, priorityProminence * 0.42, isCommittedCenter && distance < 0.45 ? 1 : 0);
+  const fadeStart = COMMAND_DECK_VISIBLE_RADIUS - 0.16;
+  const fadeEnd = COMMAND_DECK_VISIBLE_RADIUS + 0.86;
+  const visibility = distance <= fadeStart ? 1 : Math.max(0, Math.min(1, 1 - (distance - fadeStart) / (fadeEnd - fadeStart)));
+  const scale = 0.9 + prominence * 0.15 + (distance < 0.44 ? 0.025 : 0);
+  const rise = Math.max(0, 18 - distance * 4.2) + Math.max(0, Number(priority || 0) - 90) * 0.12 + (distance < 0.44 ? 4 : 0);
+  const zIndex = Math.round(1800 - distance * 180 + priorityProminence * 24 + (distance < 0.44 ? 180 : 0));
+  return {
+    offset,
+    xPx: offset * COMMAND_DECK_SLOT_SPACING_PX,
+    angle: offset * 5.2,
+    rise,
+    scale,
+    prominence,
+    visibility,
+    zIndex: Math.max(1, zIndex),
+    liftZ: distance < 0.44 ? 36 : Math.round(prominence * 12),
+    interactive: visibility > 0.18,
+  };
+}
+
+function applyCommandDeckCardProjection(card, slotOffset = 0) {
+  if (!card?.style) {
+    return;
+  }
+  const projection = resolveCommandDeckCardProjection(slotOffset, Number(card.dataset.actionPriority || 0), card.dataset.commandDeckCenter === "true");
+  card.dataset.commandDeckLiveSlot = projection.offset.toFixed(3);
+  card.dataset.commandDeckLiveCenter = Math.abs(projection.offset) < 0.5 ? "true" : "false";
+  card.style.setProperty("--hand-live-x", `${projection.xPx.toFixed(2)}px`);
+  card.style.setProperty("--hand-live-angle", `${projection.angle.toFixed(2)}deg`);
+  card.style.setProperty("--hand-live-rise", `${projection.rise.toFixed(2)}px`);
+  card.style.setProperty("--hand-live-scale", projection.scale.toFixed(3));
+  card.style.setProperty("--hand-prominence", projection.prominence.toFixed(3));
+  card.style.setProperty("--hand-z-index", String(projection.zIndex));
+  card.style.setProperty("--hand-lift-z", `${projection.liftZ}px`);
+  card.style.opacity = projection.visibility.toFixed(3);
+  card.style.pointerEvents = projection.interactive ? "auto" : "none";
+}
+
 function renderCommanderActionCard(card, index, count, deckEntry = {}) {
   const midpoint = (count - 1) / 2;
   const offset = Number.isFinite(deckEntry.slotOffset) ? deckEntry.slotOffset : index - midpoint;
   const distance = Math.abs(offset);
-  const fanTilt = offset * 5.2;
-  const centerLift = deckEntry.isCenter ? 4 : 0;
-  const fanRise = Math.max(0, 18 - distance * 4.2) + Math.max(0, Number(card.priority || 0) - 90) * 0.12 + centerLift;
-  const priorityProminence = Math.max(0, Math.min(1, Number(card.priority || 0) / 128));
-  const prominence = deckEntry.isCenter ? 1 : priorityProminence;
-  const fanScale = 0.94 + prominence * 0.11 + (deckEntry.isCenter ? 0.025 : 0);
+  const projection = resolveCommandDeckCardProjection(offset, card.priority, deckEntry.isCenter);
+  const fanTilt = projection.angle;
+  const fanRise = projection.rise;
+  const prominence = projection.prominence;
+  const fanScale = projection.scale;
   const fanDepth = Math.round((count - distance) * 10 + prominence * 24);
-  const fanStack = deckEntry.isCenter ? 2000 : Math.max(1, Math.round(900 - distance * 100 + priorityProminence * 24));
-  const fanLiftZ = deckEntry.isCenter ? 36 : Math.round(prominence * 12);
+  const fanStack = projection.zIndex;
+  const fanLiftZ = projection.liftZ;
   const overlapAdjust = `${Math.round((distance % 2) * 4 - distance * 1.5)}px`;
   const attrs = (card.attrs || []).join(" ");
   const disabled = card.disabled ? "disabled aria-disabled=\"true\"" : "";
@@ -8745,7 +8799,7 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
   return `
     <button
       class="action-card action-card--${escapeAttribute(card.id)} action-card-family-${escapeAttribute(card.family || "general")} action-card-state-${escapeAttribute(card.state || "idle")}${enteringClass}"
-      style="--hand-index: ${index}; --hand-offset: ${offset.toFixed(2)}; --hand-angle: ${fanTilt.toFixed(2)}deg; --hand-rise: ${fanRise.toFixed(2)}px; --hand-scale: ${fanScale.toFixed(3)}; --hand-depth: ${fanDepth}; --hand-z-index: ${fanStack}; --hand-lift-z: ${fanLiftZ}px; --hand-overlap-adjust: ${overlapAdjust}; --hand-prominence: ${prominence.toFixed(3)};"
+      style="--hand-index: ${index}; --hand-offset: ${offset.toFixed(2)}; --hand-live-x: ${projection.xPx.toFixed(2)}px; --hand-angle: ${fanTilt.toFixed(2)}deg; --hand-live-angle: ${fanTilt.toFixed(2)}deg; --hand-rise: ${fanRise.toFixed(2)}px; --hand-live-rise: ${fanRise.toFixed(2)}px; --hand-scale: ${fanScale.toFixed(3)}; --hand-live-scale: ${fanScale.toFixed(3)}; --hand-depth: ${fanDepth}; --hand-z-index: ${fanStack}; --hand-lift-z: ${fanLiftZ}px; --hand-overlap-adjust: ${overlapAdjust}; --hand-prominence: ${prominence.toFixed(3)}; opacity: ${projection.visibility.toFixed(3)}; pointer-events: ${projection.interactive ? "auto" : "none"};"
       ${attrs}
       ${disabled}
       data-action-card
@@ -8757,6 +8811,8 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
       data-command-deck-contextual="${card.contextual ? "true" : "false"}"
       data-command-deck-card-favorite="${card.favorite ? "true" : "false"}"
       data-command-deck-slot="${escapeAttribute(String(deckEntry.slotOffset ?? offset))}"
+      data-command-deck-live-slot="${escapeAttribute(offset.toFixed(3))}"
+      data-command-deck-live-center="${Math.abs(offset) < 0.5 ? "true" : "false"}"
       data-command-deck-index="${escapeAttribute(String(deckEntry.deckIndex ?? index))}"
       data-command-deck-center="${deckEntry.isCenter ? "true" : "false"}"
       data-command-card-frame="boardstate-command-card"
