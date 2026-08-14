@@ -45,6 +45,13 @@ import {
   resolveCommandDeckWheelFreeScrollOffsetPx,
   resolveCommandDeckWheelSnapSteps,
 } from "../gameplay/commandDeckModel.js";
+import {
+  CANONICAL_INPUT_INTENT_VERSION,
+  GESTURE_OWNERS,
+  INPUT_INTENTS,
+  INPUT_SURFACES,
+  resolveInputIntent,
+} from "../gameplay/inputIntent.js";
 import { calculateLegalTargets, getPermanentManaOptions } from "../rules-engine/index.js";
 import { createPermanent, PHASES } from "../state/schema.js";
 import { buildPredictiveActions } from "../game/predictiveActions.js";
@@ -571,6 +578,7 @@ export function mountApp(root, store) {
     document.body.dataset.contextualAssistanceVersion = CONTEXTUAL_ASSISTANCE_VERSION;
     document.body.dataset.commanderActionHandVersion = COMMANDER_ACTION_HAND_VERSION;
     document.body.dataset.commandDeckVersion = COMMAND_DECK_VERSION;
+    document.body.dataset.inputIntentVersion = CANONICAL_INPUT_INTENT_VERSION;
     document.body.dataset.tabletopReconstructionVersion = TABLETOP_RECONSTRUCTION_VERSION;
     document.body.dataset.hudCompositionVersion = HUD_COMPOSITION_VERSION;
     document.body.dataset.canonicalGameplayArchitectureVersion = CANONICAL_GAMEPLAY_ARCHITECTURE_VERSION;
@@ -883,7 +891,7 @@ export function mountApp(root, store) {
   }
 
   function findCommandDeckCardForPoint(deck, clientX = 0, clientY = 0) {
-    const cards = [...(deck?.querySelectorAll?.("[data-action-card]") || [])];
+    const cards = [...(deck?.querySelectorAll?.("[data-action-card]") || [])].sort(compareCommandDeckDepth);
     if (!cards.length) {
       return null;
     }
@@ -914,6 +922,22 @@ export function mountApp(root, store) {
       }
     });
     return nearestDistance <= 56 ? nearest : null;
+  }
+
+  function compareCommandDeckDepth(left, right) {
+    const leftFocused = left?.dataset?.commandDeckFocused === "true" || left?.dataset?.commandDeckLiveCenter === "true";
+    const rightFocused = right?.dataset?.commandDeckFocused === "true" || right?.dataset?.commandDeckLiveCenter === "true";
+    if (leftFocused !== rightFocused) {
+      return leftFocused ? -1 : 1;
+    }
+    const leftZ = Number(left?.dataset?.commandDeckHitTestRank || left?.style?.getPropertyValue("--hand-z-index") || 0);
+    const rightZ = Number(right?.dataset?.commandDeckHitTestRank || right?.style?.getPropertyValue("--hand-z-index") || 0);
+    if (leftZ !== rightZ) {
+      return rightZ - leftZ;
+    }
+    const leftDistance = Math.abs(Number(left?.dataset?.commandDeckLiveSlot || left?.dataset?.commandDeckSlot || 0));
+    const rightDistance = Math.abs(Number(right?.dataset?.commandDeckLiveSlot || right?.dataset?.commandDeckSlot || 0));
+    return leftDistance - rightDistance;
   }
 
   function toggleCommandDeckFavorite(cardId = "") {
@@ -983,6 +1007,13 @@ export function mountApp(root, store) {
       true
     );
     deck.addEventListener("keydown", (event) => {
+      const intent = resolveInputIntent({
+        surface: INPUT_SURFACES.commandHand,
+        key: event.key,
+      });
+      if (intent.owner !== GESTURE_OWNERS.commandHand && intent.owner !== GESTURE_OWNERS.mandatoryGameplay) {
+        return;
+      }
       const backwardKeys = new Set(["ArrowLeft", "PageUp", "GamepadDPadLeft", "GamepadLeftShoulder", "q", "Q"]);
       const forwardKeys = new Set(["ArrowRight", "PageDown", "GamepadDPadRight", "GamepadRightShoulder", "e", "E"]);
       if (backwardKeys.has(event.key)) {
@@ -1000,6 +1031,16 @@ export function mountApp(root, store) {
           return;
         }
         event.preventDefault();
+        event.stopPropagation();
+        const intent = resolveInputIntent({
+          surface: INPUT_SURFACES.commandHand,
+          wheel: true,
+          movementX: event.deltaX,
+          movementY: event.deltaY,
+        });
+        if (intent.owner !== GESTURE_OWNERS.commandHand || intent.intent !== INPUT_INTENTS.rotateCommandHand) {
+          return;
+        }
         const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
         commandDeckWheelDelta += delta;
         deck.classList.add("is-free-scrolling");
@@ -1025,6 +1066,7 @@ export function mountApp(root, store) {
       return;
     }
     fan.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
       commandDeckPointer = {
         id: event.pointerId,
         x: event.clientX,
@@ -1047,6 +1089,15 @@ export function mountApp(root, store) {
         commandDeckPointer.moved = true;
         commandDeckSuppressClickUntil = Date.now() + 260;
         event.preventDefault();
+        event.stopPropagation();
+      }
+      const intent = resolveInputIntent({
+        surface: INPUT_SURFACES.commandHand,
+        movementX: dx,
+        movementY: dy,
+      });
+      if (intent.owner !== GESTURE_OWNERS.commandHand) {
+        return;
       }
       const scrollPx = resolveCommandDeckPointerOffsetPx(dx);
       commandDeckPointer.scrollPx = scrollPx;
@@ -1059,6 +1110,7 @@ export function mountApp(root, store) {
       const finishedPointer = commandDeckPointer;
       const dx = event.clientX - finishedPointer.x;
       const dy = event.clientY - finishedPointer.y;
+      event.stopPropagation();
       commandDeckPointer = null;
       deck.classList.remove("is-dragging");
       fan.classList.remove("is-dragging");
@@ -1494,6 +1546,10 @@ export function mountApp(root, store) {
     );
     container.querySelectorAll("[data-opponent-swipe]").forEach((panel) => {
       panel.addEventListener("pointerdown", (event) => {
+        if (event.target?.closest?.("[data-no-swipe], [data-command-deck], [data-zone-scroll-surface=\"true\"], [data-horizontal-scroll=\"true\"], [data-action-card], [data-modal]")) {
+          opponentSwipeStart = null;
+          return;
+        }
         opponentSwipeStart = { x: event.clientX, y: event.clientY };
       });
       panel.addEventListener("pointerup", (event) => {
@@ -1504,6 +1560,15 @@ export function mountApp(root, store) {
         const dy = event.clientY - opponentSwipeStart.y;
         opponentSwipeStart = null;
         if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.2) {
+          return;
+        }
+        const intent = resolveInputIntent({
+          surface: INPUT_SURFACES.opponentBackground,
+          opponentBackground: true,
+          movementX: dx,
+          movementY: dy,
+        });
+        if (intent.owner !== GESTURE_OWNERS.opponentNavigation || intent.intent !== INPUT_INTENTS.switchOpponent) {
           return;
         }
         const boards = getOpponentBoards(store.getState());
@@ -6601,7 +6666,7 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
   const motion = landscapeModel.motion || {};
   const cameraFocusKind = landscapeModel.camera?.activeFocus?.kind || "table";
   return `
-    <section class="battlefield-page battlefield-page--focused landscape-battlefield-page tabletop-battlefield-page landscape-density-${escapeAttribute(landscapeModel.density)} advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} motion-${escapeAttribute(motion.intensity || "full")} camera-focus-${escapeAttribute(cameraFocusKind)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}" data-layout-version="${escapeAttribute(landscapeModel.version)}" data-tabletop-reconstruction-version="${escapeAttribute(TABLETOP_RECONSTRUCTION_VERSION)}" data-hud-composition-version="${escapeAttribute(HUD_COMPOSITION_VERSION)}" data-visual-language-version="${escapeAttribute(VISUAL_LANGUAGE_VERSION)}" data-visual-material="${escapeAttribute(VISUAL_MATERIALS.battlefieldAtmosphere)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.battlefield)}" data-visual-elevation="table" data-visual-shadow="ambient" data-visual-glow="subtle" data-motion-language-version="${escapeAttribute(motion.languageVersion || BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-token-version="${escapeAttribute(motion.tokens?.version || BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-version="${escapeAttribute(motion.version || "")}" data-motion-owner="battlefield" data-motion-state="${escapeAttribute(motion.hudMotion?.state || "quiet")}" data-motion-token="${escapeAttribute(motion.cameraPlan?.tokenName || "standard")}" data-motion-duration="${escapeAttribute(String(motion.cameraPlan?.durationMs ?? 0))}" data-motion-intensity="${escapeAttribute(motion.intensity || "full")}" data-sensory-language-version="${escapeAttribute(SENSORY_LANGUAGE_VERSION)}" data-audio-token="${escapeAttribute(AUDIO_TOKEN_IDS.ambient)}" data-haptic-token="${escapeAttribute(HAPTIC_TOKEN_IDS.lightConfirmation)}" data-sensory-priority="${escapeAttribute(SENSORY_PRIORITY.backgroundFeedback)}" data-sensory-channel="${escapeAttribute(SENSORY_CHANNELS.ambient)}" data-camera-focus="${escapeAttribute(cameraFocusKind)}" data-camera-transition="${escapeAttribute(motion.cameraPlan?.transition || "none")}">
+    <section class="battlefield-page battlefield-page--focused landscape-battlefield-page tabletop-battlefield-page landscape-density-${escapeAttribute(landscapeModel.density)} advanced-view-${escapeAttribute(perspective.viewMode)} ui-layer-surface-${escapeAttribute(uiLayer)} motion-${escapeAttribute(motion.intensity || "full")} camera-focus-${escapeAttribute(cameraFocusKind)} ${adhdMode.enabled && adhdMode.reducedNoise ? "adhd-reduced-noise" : ""}" data-layout-version="${escapeAttribute(landscapeModel.version)}" data-tabletop-reconstruction-version="${escapeAttribute(TABLETOP_RECONSTRUCTION_VERSION)}" data-hud-composition-version="${escapeAttribute(HUD_COMPOSITION_VERSION)}" data-input-intent-version="${escapeAttribute(CANONICAL_INPUT_INTENT_VERSION)}" data-fixed-gameplay-viewport="true" data-global-vertical-scroll="false" data-responsive-landscape-composition="${escapeAttribute(landscapeModel.responsiveComposition?.deviceClass || "desktop-landscape")}" data-visual-language-version="${escapeAttribute(VISUAL_LANGUAGE_VERSION)}" data-visual-material="${escapeAttribute(VISUAL_MATERIALS.battlefieldAtmosphere)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.battlefield)}" data-visual-elevation="table" data-visual-shadow="ambient" data-visual-glow="subtle" data-motion-language-version="${escapeAttribute(motion.languageVersion || BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-token-version="${escapeAttribute(motion.tokens?.version || BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-version="${escapeAttribute(motion.version || "")}" data-motion-owner="battlefield" data-motion-state="${escapeAttribute(motion.hudMotion?.state || "quiet")}" data-motion-token="${escapeAttribute(motion.cameraPlan?.tokenName || "standard")}" data-motion-duration="${escapeAttribute(String(motion.cameraPlan?.durationMs ?? 0))}" data-motion-intensity="${escapeAttribute(motion.intensity || "full")}" data-sensory-language-version="${escapeAttribute(SENSORY_LANGUAGE_VERSION)}" data-audio-token="${escapeAttribute(AUDIO_TOKEN_IDS.ambient)}" data-haptic-token="${escapeAttribute(HAPTIC_TOKEN_IDS.lightConfirmation)}" data-sensory-priority="${escapeAttribute(SENSORY_PRIORITY.backgroundFeedback)}" data-sensory-channel="${escapeAttribute(SENSORY_CHANNELS.ambient)}" data-camera-focus="${escapeAttribute(cameraFocusKind)}" data-camera-transition="${escapeAttribute(motion.cameraPlan?.transition || "none")}">
       <div class="battlefield-state-strip landscape-state-strip">
         <div>
           <strong>Turn ${escapeHtml(session.turn)} · ${escapeHtml(PHASES[session.phaseIndex] || "Beginning")} · ${escapeHtml(resolvePhaseTrackerActorLabel(session).replace(/^Active turn:\s*/i, ""))}</strong>
@@ -7151,8 +7216,8 @@ function renderOpponentCarouselControls(carousel = {}) {
     : "Commander tracked";
   const handLabel = focused.cardsInHand === "unknown" ? "Hand ?" : `Hand ${focused.cardsInHand}`;
   return `
-    <section class="opponent-carousel glass" data-opponent-carousel data-opponent-swipe data-motion-role="opponent-carousel" tabindex="0" role="region" aria-label="Opponent carousel">
-      <button class="opponent-carousel__nav" data-opponent-carousel-step="-1" ${opponents.length > 1 ? "" : "disabled"} aria-label="Previous opponent">&lsaquo;</button>
+    <section class="opponent-carousel glass" data-opponent-carousel data-opponent-swipe data-input-intent-version="${escapeAttribute(CANONICAL_INPUT_INTENT_VERSION)}" data-input-surface="${escapeAttribute(INPUT_SURFACES.opponentBackground)}" data-gesture-owner="${escapeAttribute(GESTURE_OWNERS.opponentNavigation)}" data-input-intent="${escapeAttribute(INPUT_INTENTS.switchOpponent)}" data-opponent-navigation-circular="${carousel.loopNavigation ? "true" : "false"}" data-opponent-arrows-visible="${carousel.arrowsVisible ? "true" : "false"}" data-zone-scroll-competes="false" data-command-hand-competes="false" data-local-battlefield-moves="false" data-motion-role="opponent-carousel" tabindex="0" role="region" aria-label="Opponent carousel">
+      <button class="opponent-carousel__nav" data-opponent-carousel-step="-1" data-gesture-owner="${escapeAttribute(GESTURE_OWNERS.opponentNavigation)}" ${opponents.length > 1 ? "" : "disabled"} aria-label="Previous opponent">&lsaquo;</button>
       <div class="opponent-carousel__focus">
         <p class="eyebrow">Focused Opponent</p>
         <strong>${escapeHtml(focused.name || "Opponent")}</strong>
@@ -7162,7 +7227,7 @@ function renderOpponentCarouselControls(carousel = {}) {
       </div>
       <div class="opponent-carousel__seats" aria-label="Opponent quick jump">
         ${opponents.map((opponent, index) => `
-          <button class="${opponent.focused ? "active" : ""} ${opponent.activeTurn ? "is-active-turn" : ""}" data-opponent-carousel-jump="${escapeAttribute(opponent.playerId)}" aria-label="Focus ${escapeAttribute(opponent.name || "opponent")}">
+          <button class="${opponent.focused ? "active" : ""} ${opponent.activeTurn ? "is-active-turn" : ""}" data-opponent-carousel-jump="${escapeAttribute(opponent.playerId)}" data-table-radar-entry="${escapeAttribute(opponent.playerId)}" aria-label="Focus ${escapeAttribute(opponent.name || "opponent")}">
             <strong>${escapeHtml(String(index + 1))}</strong>
             <span>${escapeHtml(getInitials(opponent.name || "OP"))}</span>
             <b>${escapeHtml(opponent.life ?? 40)}</b>
@@ -7170,7 +7235,7 @@ function renderOpponentCarouselControls(carousel = {}) {
         `).join("")}
       </div>
       ${carousel.followActivePlayer?.available ? `<button class="opponent-carousel__follow" data-opponent-carousel-follow="${escapeAttribute(carousel.followActivePlayer.targetOpponentId || "")}">Follow Active Player</button>` : ""}
-      <button class="opponent-carousel__nav" data-opponent-carousel-step="1" ${opponents.length > 1 ? "" : "disabled"} aria-label="Next opponent">&rsaquo;</button>
+      <button class="opponent-carousel__nav" data-opponent-carousel-step="1" data-gesture-owner="${escapeAttribute(GESTURE_OWNERS.opponentNavigation)}" ${opponents.length > 1 ? "" : "disabled"} aria-label="Next opponent">&rsaquo;</button>
     </section>
   `;
 }
@@ -7542,7 +7607,7 @@ function renderPermanentGroup(label, permanents, options = {}) {
   const overflowMode = zoneModel.overflowMode || "none";
   const densityState = zoneModel.densityState || "normal";
   return `
-    <section class="battlefield-group battlefield-zone-${escapeAttribute(options.zoneKey || "other")} tabletop-zone-${escapeAttribute(options.zoneKey || "other")} density-state-${escapeAttribute(densityState)} overflow-${escapeAttribute(overflowMode)}" aria-label="${escapeAttribute(`${label}: ${count} permanents, ${untappedCount} ready, ${tappedCount} tapped`)}" data-tabletop-zone="${escapeAttribute(options.zoneKey || "other")}" data-zone-overflow="${escapeAttribute(overflowMode)}" data-horizontal-scroll="${zoneModel.horizontalScrollAllowed ? "true" : "false"}" data-vertical-scroll="false" data-scroll-memory-key="${escapeAttribute(zoneModel.scrollMemoryKey || "")}">
+    <section class="battlefield-group battlefield-zone-${escapeAttribute(options.zoneKey || "other")} tabletop-zone-${escapeAttribute(options.zoneKey || "other")} density-state-${escapeAttribute(densityState)} overflow-${escapeAttribute(overflowMode)}" aria-label="${escapeAttribute(`${label}: ${count} permanents, ${untappedCount} ready, ${tappedCount} tapped`)}" data-tabletop-zone="${escapeAttribute(options.zoneKey || "other")}" data-zone-overflow="${escapeAttribute(overflowMode)}" data-horizontal-scroll="${zoneModel.horizontalScrollAllowed ? "true" : "false"}" data-vertical-scroll="false" data-scroll-memory-key="${escapeAttribute(zoneModel.scrollMemoryKey || "")}" data-input-intent-version="${escapeAttribute(CANONICAL_INPUT_INTENT_VERSION)}" data-input-surface="${zoneModel.horizontalScrollAllowed ? escapeAttribute(INPUT_SURFACES.overflowingZone) : escapeAttribute(INPUT_SURFACES.battlefieldBackground)}" data-gesture-owner="${zoneModel.horizontalScrollAllowed ? escapeAttribute(GESTURE_OWNERS.zoneScroll) : escapeAttribute(GESTURE_OWNERS.background)}" data-gesture-transfer="false" data-no-opponent-swipe="${zoneModel.horizontalScrollAllowed ? "true" : "false"}">
       <div class="battlefield-group-header">
         <span>${escapeHtml(label)}</span>
         <span class="battlefield-zone-summary">
@@ -7552,7 +7617,7 @@ function renderPermanentGroup(label, permanents, options = {}) {
           ${options.lane?.tokenStacks?.length ? `<i>${escapeHtml(options.lane.tokenStacks.length)} token stack${options.lane.tokenStacks.length === 1 ? "" : "s"}</i>` : ""}
         </span>
       </div>
-      <div class="tile-grid ${options.readonly ? "readonly" : ""} ${options.compressionMode === "compact" ? "density-high" : ""}" data-zone-scroll-surface="${zoneModel.horizontalScrollAllowed ? "true" : "false"}">
+      <div class="tile-grid ${options.readonly ? "readonly" : ""} ${options.compressionMode === "compact" ? "density-high" : ""}" data-zone-scroll-surface="${zoneModel.horizontalScrollAllowed ? "true" : "false"}" data-gesture-owner="${zoneModel.horizontalScrollAllowed ? escapeAttribute(GESTURE_OWNERS.zoneScroll) : escapeAttribute(GESTURE_OWNERS.background)}" ${zoneModel.horizontalScrollAllowed ? "data-no-swipe" : ""}>
         ${permanents.map((permanent) => renderPermanent(permanent, options)).join("")}
       </div>
     </section>
@@ -8582,7 +8647,7 @@ function renderCommanderActionHand(profile, options = {}) {
     priority: SENSORY_PRIORITY.contextualAction,
   };
   return `
-    <section class="commander-action-hand command-deck" data-command-deck data-commander-action-hand data-commander-action-hand-version="${escapeAttribute(COMMANDER_ACTION_HAND_VERSION)}" data-command-deck-version="${escapeAttribute(COMMAND_DECK_VERSION)}" data-visual-language-version="${escapeAttribute(VISUAL_LANGUAGE_VERSION)}" data-visual-material="${escapeAttribute(VISUAL_MATERIALS.metal)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.commandHand)}" data-visual-elevation="command-hand" data-visual-shadow="raised-card" data-visual-glow="gold-subtle" data-motion-language-version="${escapeAttribute(BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-owner="rotating-command-deck" data-motion-state="${escapeAttribute(priorityCard?.contextual ? "contextual-entry" : "idle")}" data-motion-token="${escapeAttribute(priorityCard?.contextual ? "emphasis" : "standard")}" data-sensory-language-version="${escapeAttribute(SENSORY_LANGUAGE_VERSION)}" data-audio-token="${escapeAttribute(centerSensory.audioTokenId)}" data-haptic-token="${escapeAttribute(centerSensory.hapticTokenId)}" data-sensory-priority="${escapeAttribute(centerSensory.priority)}" data-sensory-channel="${escapeAttribute(SENSORY_CHANNELS.ui)}" data-command-deck-size="${actionCards.length}" data-command-deck-visible-count="${visibleCards.length}" data-command-deck-rotation="${centerIndex}" data-command-deck-center="${escapeAttribute(centerCard?.id || "phase")}" data-command-deck-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" data-command-deck-card-ids="${escapeAttribute(actionCards.map((card) => card.id).join(" "))}" data-command-deck-favorites="${escapeAttribute(favoriteIds.join(" "))}" data-action-count="${actionCards.length}" data-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" tabindex="0" aria-label="Rotating Commander Command Deck" aria-roledescription="infinite rotating command deck" aria-keyshortcuts="ArrowLeft ArrowRight PageUp PageDown Q E" data-no-swipe>
+    <section class="commander-action-hand command-deck" data-command-deck data-commander-action-hand data-commander-action-hand-version="${escapeAttribute(COMMANDER_ACTION_HAND_VERSION)}" data-command-deck-version="${escapeAttribute(COMMAND_DECK_VERSION)}" data-input-intent-version="${escapeAttribute(CANONICAL_INPUT_INTENT_VERSION)}" data-input-surface="${escapeAttribute(INPUT_SURFACES.commandHand)}" data-gesture-owner="${escapeAttribute(GESTURE_OWNERS.commandHand)}" data-input-intent="${escapeAttribute(INPUT_INTENTS.rotateCommandHand)}" data-gesture-transfer="false" data-depth-aware-hit-testing="true" data-command-hand-focus-contract="exactly-one-centered-frontmost-command" data-visual-language-version="${escapeAttribute(VISUAL_LANGUAGE_VERSION)}" data-visual-material="${escapeAttribute(VISUAL_MATERIALS.metal)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.commandHand)}" data-visual-elevation="command-hand" data-visual-shadow="raised-card" data-visual-glow="gold-subtle" data-motion-language-version="${escapeAttribute(BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-owner="rotating-command-deck" data-motion-state="${escapeAttribute(priorityCard?.contextual ? "contextual-entry" : "idle")}" data-motion-token="${escapeAttribute(priorityCard?.contextual ? "emphasis" : "standard")}" data-sensory-language-version="${escapeAttribute(SENSORY_LANGUAGE_VERSION)}" data-audio-token="${escapeAttribute(centerSensory.audioTokenId)}" data-haptic-token="${escapeAttribute(centerSensory.hapticTokenId)}" data-sensory-priority="${escapeAttribute(centerSensory.priority)}" data-sensory-channel="${escapeAttribute(SENSORY_CHANNELS.ui)}" data-command-deck-size="${actionCards.length}" data-command-deck-visible-count="${visibleCards.length}" data-command-deck-rotation="${centerIndex}" data-command-deck-center="${escapeAttribute(centerCard?.id || "phase")}" data-command-deck-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" data-command-deck-card-ids="${escapeAttribute(actionCards.map((card) => card.id).join(" "))}" data-command-deck-favorites="${escapeAttribute(favoriteIds.join(" "))}" data-action-count="${actionCards.length}" data-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" tabindex="0" aria-label="Rotating Commander Command Deck" aria-roledescription="infinite rotating command deck" aria-keyshortcuts="ArrowLeft ArrowRight PageUp PageDown Q E" data-no-swipe>
       <div class="commander-action-hand__aura" aria-hidden="true"></div>
       <button class="command-deck__rotator command-deck__rotator--previous" data-command-deck-rotate="-1" aria-label="Rotate command deck left">&lsaquo;</button>
       <button class="command-deck__rotator command-deck__rotator--next" data-command-deck-rotate="1" aria-label="Rotate command deck right">&rsaquo;</button>
@@ -8790,6 +8855,8 @@ function applyCommandDeckCardProjection(card, slotOffset = 0, focused = false) {
   card.dataset.commandDeckLiveSlot = projection.offset.toFixed(3);
   card.dataset.commandDeckLiveCenter = focused ? "true" : "false";
   card.dataset.commandDeckFocused = focused ? "true" : "false";
+  card.dataset.commandDeckHitTestRank = String(projection.zIndex);
+  card.dataset.inputIntentOwner = GESTURE_OWNERS.commandHand;
   card.style.setProperty("--hand-live-x", `${projection.xPx.toFixed(2)}px`);
   card.style.setProperty("--hand-live-angle", `${projection.angle.toFixed(2)}deg`);
   card.style.setProperty("--hand-live-rise", `${projection.rise.toFixed(2)}px`);
@@ -8830,6 +8897,10 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
       data-action-card-id="${escapeAttribute(card.id)}"
       data-action-card-state="${escapeAttribute(card.state || "idle")}"
       data-action-priority="${escapeAttribute(String(card.priority || 0))}"
+      data-input-intent-version="${escapeAttribute(CANONICAL_INPUT_INTENT_VERSION)}"
+      data-input-surface="${escapeAttribute(INPUT_SURFACES.commandHand)}"
+      data-input-intent="${escapeAttribute(deckEntry.isCenter ? INPUT_INTENTS.confirm : INPUT_INTENTS.tapSelect)}"
+      data-gesture-owner="${escapeAttribute(GESTURE_OWNERS.commandHand)}"
       data-command-deck-card
       data-command-deck-card-permanent="${card.contextual ? "false" : "true"}"
       data-command-deck-contextual="${card.contextual ? "true" : "false"}"
@@ -8838,6 +8909,10 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
       data-command-deck-live-slot="${escapeAttribute(offset.toFixed(3))}"
       data-command-deck-live-center="${deckEntry.isCenter ? "true" : "false"}"
       data-command-deck-focused="${deckEntry.isCenter ? "true" : "false"}"
+      data-command-deck-hit-test-rank="${escapeAttribute(String(projection.zIndex))}"
+      data-command-deck-preview-owner="${deckEntry.isCenter ? escapeAttribute(card.id) : ""}"
+      data-command-deck-activation-owner="${deckEntry.isCenter ? escapeAttribute(card.id) : ""}"
+      data-command-deck-canonical-command-id="${escapeAttribute(card.id)}"
       data-command-deck-index="${escapeAttribute(String(deckEntry.deckIndex ?? index))}"
       data-command-deck-center="${deckEntry.isCenter ? "true" : "false"}"
       data-command-card-frame="boardstate-command-card"

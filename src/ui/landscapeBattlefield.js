@@ -32,6 +32,19 @@ import {
   resolveBattlefieldGestureOwner,
 } from "../gameplay/battlefieldGeometry.js";
 import {
+  CANONICAL_INPUT_INTENT_VERSION,
+  GESTURE_OWNERS,
+  INPUT_INTENTS,
+  INPUT_SURFACES,
+  createAccessibilitySemanticsModel,
+  createInputIntentPolicy,
+  createInteractionPerformanceBudget,
+  createTableRadarModel,
+  resolveGestureOwnership,
+  resolveOpponentFocusNavigation,
+  resolveResponsiveLandscapeComposition,
+} from "../gameplay/inputIntent.js";
+import {
   BOARDSTATE_MOTION_LANGUAGE_VERSION,
   MOTION_OWNERS,
   MOTION_STATE_CATALOG,
@@ -44,6 +57,7 @@ export const BATTLEFIELD_INTELLIGENCE_VERSION = "boardstate-battlefield-intellig
 export const BATTLEFIELD_CAMERA_VERSION = "boardstate-camera-foundation-0.2.0";
 export const GAMEPLAY_FLOW_VERSION = "boardstate-gameplay-flow-0.1.0";
 export const BATTLEFIELD_MOTION_VERSION = "boardstate-battlefield-motion-0.2.0";
+export const INPUT_INTENT_ARCHITECTURE_VERSION = CANONICAL_INPUT_INTENT_VERSION;
 
 export const LANDSCAPE_BATTLEFIELD_REGIONS = Object.freeze([
   "global-info",
@@ -172,6 +186,14 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
   const profile = profileOrSession.activeSession ? profileOrSession : { activeSession: profileOrSession };
   const session = profile.activeSession || {};
   const viewport = resolveViewport(options.viewport);
+  const inputIntentPolicy = createInputIntentPolicy({
+    viewport,
+    width: options.width,
+    height: options.height,
+    safeArea: options.safeArea,
+    reducedMotion: Boolean(profile.settings?.accessibility?.reducedMotion || options.reducedMotion),
+    textScale: profile.settings?.accessibility?.textScale || options.textScale,
+  });
   const perspective = options.perspective || buildAdvancedMultiplayerPerspective(profileOrSession, {
     viewport,
     localPlayerId: options.localPlayerId,
@@ -245,6 +267,42 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
     playerCount: perspective.playerCount || opponentCarousel.totalPlayerCount,
     viewport,
   });
+  const responsiveComposition = resolveResponsiveLandscapeComposition({
+    viewport,
+    width: options.width,
+    height: options.height,
+    safeArea: options.safeArea,
+    playerCount: perspective.playerCount || opponentCarousel.totalPlayerCount,
+    permanentCounts: {
+      local: localBoard.totalPermanentCount,
+      focusedOpponent: opponentBoard.totalPermanentCount,
+    },
+    textScale: profile.settings?.accessibility?.textScale || options.textScale,
+  });
+  const tableRadar = createTableRadarModel(
+    [
+      {
+        id: perspective.localPlayerId || "local-player",
+        playerId: perspective.localPlayerId || "local-player",
+        name: profile.player?.name || "Player",
+        life: session.life ?? 40,
+        commander: session.commander || {},
+        activeTurn:
+          perspective.promptOwnership?.activePlayerId === perspective.localPlayerId ||
+          session.syncedMultiplayer?.currentPlayerId === perspective.localPlayerId,
+      },
+      ...(opponentCarousel.opponents || []),
+    ],
+    {
+      focusedOpponentId: opponentCarousel.focusedOpponentId,
+      activePlayerId:
+        perspective.promptOwnership?.activePlayerId ||
+        session.syncedMultiplayer?.currentPlayerId ||
+        session.simulation?.currentPlayerId ||
+        perspective.localPlayerId ||
+        "local-player",
+    }
+  );
   const intelligence = createBattlefieldIntelligenceModel({
     session,
     perspective,
@@ -264,6 +322,7 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
     opponentBoard,
     commandCenter,
     selectedCard,
+    inputIntentPolicy,
   });
   const camera = createBattlefieldCameraModel({
     session,
@@ -310,9 +369,19 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
         eventIdentity: "stable-event-id-controls-animation-idempotence",
         presentationStateIsRulesAuthority: false,
       },
+      inputIntent: {
+        version: CANONICAL_INPUT_INTENT_VERSION,
+        policy: inputIntentPolicy,
+        intents: INPUT_INTENTS,
+        surfaces: INPUT_SURFACES,
+        owners: GESTURE_OWNERS,
+        gestureOwnership: "exactly-one-owner-per-active-gesture",
+        platformPortable: true,
+      },
     },
     regions: LANDSCAPE_BATTLEFIELD_REGIONS,
     viewport,
+    responsiveComposition,
     density,
     densityStates: BATTLEFIELD_DENSITY_STATES,
     battlefieldGeometryVersion: CANONICAL_BATTLEFIELD_GEOMETRY_VERSION,
@@ -324,6 +393,7 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
       hiddenIndicators: clonePlain(perspective.hiddenIndicators || []),
     },
     opponentCarousel,
+    tableRadar,
     camera,
     intelligence,
     gameplayFlow,
@@ -337,11 +407,18 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
     localBattlefield: localBoard,
     contextActions: createContextActionModel(session, proactiveAssistant, aiGameplay),
     accessibility: {
+      ...createAccessibilitySemanticsModel({
+        keyboardNavigation: true,
+      }),
       touchTargetMinimumPx: 44,
       keyboardNavigableRegions: LANDSCAPE_BATTLEFIELD_REGIONS,
       reducedMotionHonored: true,
       hiddenInformationPolicy: "public-board-projection-only",
     },
+    performance: createInteractionPerformanceBudget({
+      permanentCount: localBoard.totalPermanentCount + opponentBoard.totalPermanentCount,
+      opponentCount: opponentCarousel.totalOpponents,
+    }),
   };
 }
 
@@ -375,9 +452,10 @@ export function createOpponentCarouselModel(session = {}, perspective = {}, opti
   const previousIndex = opponents.length ? (focusedIndex - 1 + opponents.length) % opponents.length : -1;
   const nextIndex = opponents.length ? (focusedIndex + 1) % opponents.length : -1;
   const activeOpponentId = activeOpponent ? getBoardId(activeOpponent) : "";
+  const navigation = resolveOpponentFocusNavigation(opponents, focusedOpponentId, 1);
   return {
     version: "boardstate-opponent-carousel-0.1.0",
-    enabled: opponents.length > 0,
+    enabled: opponents.length > 1,
     focusedOpponentId,
     focusedIndex,
     focusedOpponent: focusedIndex >= 0 ? opponents[focusedIndex] : null,
@@ -386,6 +464,8 @@ export function createOpponentCarouselModel(session = {}, perspective = {}, opti
     totalPlayerCount: Number(perspective.playerCount || opponents.length + 1),
     renderedOpponentBattlefields: focusedIndex >= 0 ? 1 : 0,
     loopNavigation: opponents.length > 1,
+    arrowsVisible: opponents.length > 1,
+    navigation,
     previousOpponentId: previousIndex >= 0 ? opponents[previousIndex]?.playerId || "" : "",
     nextOpponentId: nextIndex >= 0 ? opponents[nextIndex]?.playerId || "" : "",
     activeOpponentId,
@@ -405,6 +485,16 @@ export function createOpponentCarouselModel(session = {}, perspective = {}, opti
     ]),
     seatingOrderPreserved: true,
     publicOnly: true,
+    gestureOwnership: {
+      owner: GESTURE_OWNERS.opponentNavigation,
+      switchIntent: INPUT_INTENTS.switchOpponent,
+      eligibleSurface: INPUT_SURFACES.opponentBackground,
+      zoneScrollCompetes: false,
+      commandHandCompetes: false,
+      cardDragCompetes: false,
+      transferAtZoneEdge: false,
+      localBattlefieldMoves: false,
+    },
     focusReason: selectedFocusReason({ activeOpponentId, focusedOpponentId, requestedFocusId, opponents }),
   };
 }
@@ -1054,6 +1144,7 @@ export function createGameplayFlowModel({
   opponentBoard = {},
   commandCenter = {},
   selectedCard = {},
+  inputIntentPolicy = createInputIntentPolicy(),
 } = {}) {
   const selected = createPermanentInteractionModel(selectedCard.card, session, {
     localBoard,
@@ -1068,6 +1159,12 @@ export function createGameplayFlowModel({
   const resolvePlan = createResolveInteractionPlan(session, { mode });
   const postResolve = createPostResolveDecisionPipeline(session);
   const attention = resolveGameplayAttentionOwner({ session, focusedCommandId: commandCenter.primaryAction?.id || "" });
+  const gestureOwnership = {
+    commandHand: resolveGestureOwnership({ surface: INPUT_SURFACES.commandHand, movementX: 56, movementY: 3 }, inputIntentPolicy),
+    overflowingZone: resolveGestureOwnership({ surface: INPUT_SURFACES.overflowingZone, zoneOverflowing: true, movementX: 56, movementY: 4 }, inputIntentPolicy),
+    opponentNavigation: resolveGestureOwnership({ surface: INPUT_SURFACES.opponentBackground, opponentBackground: true, movementX: 56, movementY: 4 }, inputIntentPolicy),
+    targetingZoneScroll: resolveGestureOwnership({ targetingActive: true, surface: INPUT_SURFACES.overflowingZone, zoneOverflowing: true, movementX: 56, movementY: 4 }, inputIntentPolicy),
+  };
   return {
     version: GAMEPLAY_FLOW_VERSION,
     mode: "contextual-commander-gameplay",
@@ -1076,6 +1173,13 @@ export function createGameplayFlowModel({
     resolvePlan,
     postResolve,
     attention,
+    inputIntent: {
+      version: CANONICAL_INPUT_INTENT_VERSION,
+      policy: inputIntentPolicy,
+      gestureOwnership,
+      activeGestureTransfers: false,
+      platformPortable: true,
+    },
     selected,
     triggerGroups,
     priority,

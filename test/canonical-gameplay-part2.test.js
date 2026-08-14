@@ -107,7 +107,7 @@ test("landscape model exposes Part 2 tabletop geometry without replacing authori
 });
 
 test("Command Hand focus law keeps one centered card as logical, visual, and z-order focus", () => {
-  const commandIds = ["phase", "commander", "library", "rules", "remind", "undo", "battlefield", "history", "notes", "calculator", "dice", "coin", "settings"];
+  const commandIds = ["phase", "commander", "library", "rules", "remind", "undo", "battlefield", "history", "notes", "calculator", "dice", "coin", "settings", "tablecraft"];
   for (let centerIndex = 0; centerIndex < commandIds.length; centerIndex += 1) {
     const candidates = commandIds.map((id, index) => {
       let offset = index - centerIndex;

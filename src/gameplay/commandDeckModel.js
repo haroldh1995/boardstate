@@ -2,7 +2,7 @@ export const COMMAND_DECK_MODEL_VERSION = "boardstate-command-deck-model-0.1.0";
 
 export const COMMAND_DECK_VISIBLE_RADIUS = 3;
 export const COMMAND_DECK_SCROLL_PX_PER_CARD = 74;
-export const COMMAND_DECK_SLOT_SPACING_PX = 58;
+export const COMMAND_DECK_SLOT_SPACING_PX = 66;
 export const COMMAND_DECK_WHEEL_DELTA_PER_CARD = 220;
 export const COMMAND_DECK_MAX_FREE_SCROLL_STEPS = 3;
 export const COMMAND_DECK_RENDER_RADIUS = COMMAND_DECK_VISIBLE_RADIUS + COMMAND_DECK_MAX_FREE_SCROLL_STEPS;
@@ -49,7 +49,8 @@ export function resolveCommandDeckCardProjection(slotOffset = 0, priority = 0, i
   const visibility = distance <= fadeStart ? 1 : Math.max(0, Math.min(1, 1 - (distance - fadeStart) / (fadeEnd - fadeStart)));
   const scale = 0.9 + prominence * 0.15 + (distance < 0.44 ? 0.025 : 0);
   const rise = Math.max(0, 18 - distance * 4.2) + Math.max(0, Number(priority || 0) - 90) * 0.12 + (distance < 0.44 ? 4 : 0);
-  const zIndex = Math.round(1800 - distance * 180 + priorityProminence * 24 + (isCommittedCenter ? 520 : distance < 0.44 ? 180 : 0));
+  const centerLift = isCommittedCenter ? 780 : distance < 0.44 ? 260 : 0;
+  const zIndex = Math.round(1800 - distance * 180 + priorityProminence * 24 + centerLift);
   return {
     offset,
     xPx: offset * COMMAND_DECK_SLOT_SPACING_PX,
@@ -59,7 +60,7 @@ export function resolveCommandDeckCardProjection(slotOffset = 0, priority = 0, i
     prominence,
     visibility,
     zIndex: Math.max(1, zIndex),
-    liftZ: distance < 0.44 ? 36 : Math.round(prominence * 12),
+    liftZ: distance < 0.44 ? 58 : Math.round(prominence * 12),
     interactive: visibility > 0.18,
   };
 }

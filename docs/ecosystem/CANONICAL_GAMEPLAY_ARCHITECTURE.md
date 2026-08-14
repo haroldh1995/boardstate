@@ -313,6 +313,52 @@ Gameplay events are platform-independent data structures. A cast event means an 
 
 Modified systems must preserve platform portability and avoid DOM-only behavior, browser-only lifecycle assumptions, URL state as gameplay state, CSS layout as rules logic, hover-only functionality, or browser-only persistence/media/permission behavior outside adapter boundaries.
 
+## Part 4 Input Intent Architecture
+
+Prompt 13.2.6 Part 4 establishes a platform-neutral input intent layer in `src/gameplay/inputIntent.js`. Presentation input resolves into semantic intents such as tap select, inspect, card drag, zone scroll, Command Hand rotation, opponent switch, target, confirm, cancel, context action, allowed pan, and accessibility activation.
+
+Exactly one owner may control an active gesture. Ownership priority is mandatory gameplay, explicit card drag, active targeting, Command Hand, zone-local overflow scrolling, opponent navigation, card inspection, then background interaction. Once a gesture owner is established, the same gesture must not transfer to another system. Reaching a zone edge does not convert zone scrolling into opponent switching.
+
+Touch, pointer, mouse, trackpad, keyboard, screen-reader, and future controller inputs must resolve into the same semantic intent vocabulary. Hover may enhance usability but must never be required for essential gameplay. Browser events are adapter details; gameplay and interaction policy do not depend on DOM-only behavior.
+
+## Part 4 Multiplayer Focus And Opponent Navigation
+
+The local player battlefield remains the fixed anchor. Only the focused opponent presentation changes during opponent navigation. Opponent switching must never move the local battlefield, Command Hand, or protected gameplay corridor.
+
+Two-player games do not show useless opponent carousel navigation. Three-player and four-player games expose circular opponent navigation through swipe, previous/next arrows, and compact direct selection. Opponent order remains stable and follows table seating. Eliminated opponents remain identifiable without causing remaining opponents to swap identities unexpectedly.
+
+The compact table radar answers who is at the table and who is currently focused. It communicates player identity, life, commander marker where available, active turn, priority/focus, and eliminated state. It must not duplicate every opponent battlefield or shrink cards into unreadable miniatures.
+
+Opponent switching and zone-local scrolling remain separate. Swipes that originate inside an overflowing zone scroll that zone only. Swipes on eligible opponent background may switch opponents. Opponent arrows remain reliable whenever multiple opponents exist, including crowded board states where safe swipe space is limited.
+
+## Part 4 Command Hand Focus And Rotation
+
+The Tactical Command Hand remains a permanent gameplay control surface and must read as a fan of premium TCG command cards, not a toolbar, menu strip, or generic carousel.
+
+At rest exactly one command card is focused. The focused command is mathematically centered, frontmost, highest z-order, most elevated, strongest restrained focus, preview owner, activation owner, hit-test owner, and accessibility focus source. These states derive from one canonical command identity. CSS order, hover state, stale preview state, and visual clones may not override it.
+
+During active swiping the hand moves freely inside its locked wheel. When input ends, it decelerates and snaps to the nearest valid command center. Persistent commands form an infinite circular sequence with no visible beginning or end. If visual clones are used for seamless presentation, every clone maps back to one canonical command identity and must not become an independent command.
+
+Hit testing is depth-aware. The foremost focused card wins overlapping hit regions, while exposed portions of rear cards may remain selectable according to the interaction model. Command Hand gestures never switch opponents, scroll battlefield zones, or drag battlefield permanents.
+
+## Part 4 Responsive Landscape Composition
+
+Active gameplay remains one fixed landscape viewport on phones, tablets, desktops, ultrawide displays, and future native shells. Responsive behavior is semantic: available opponent territory, protected corridor, local battlefield, Command Hand footprint, safe areas, density state, and overflow needs determine composition.
+
+Do not convert active gameplay into a portrait-style vertical document. No active gameplay requires vertical page scrolling. If landscape gameplay space is not available, use the established orientation guidance instead of rendering a broken battlefield.
+
+Phone landscape prioritizes battlefield, current gameplay interaction, Command Hand, life/essential state, opponent navigation, and secondary utilities in that order. Tablets use extra room for readability and reduced overlap without changing conceptual geography. Desktop and ultrawide preserve intentional table composition rather than becoming dashboards or sidebars.
+
+Safe areas, cutouts, rounded corners, home indicators, and system gesture regions are presentation constraints, not gameplay state. Orientation enforcement remains behind platform-compatible adapters.
+
+## Part 4 Accessibility And Performance
+
+Accessibility preserves the canonical tabletop unless an explicit alternate accessibility mode is intentionally invoked. Screen-reader semantics must expose player, opponent, life, card, zone, tap state, counters, commander, focused command, stack object, current turn/phase, and mandatory decisions. Reduced motion simplifies nonessential transitions while preserving state-change clarity. High contrast cannot rely only on subtle color differences.
+
+Performance is part of quality. Command Hand rotation must not rerender the entire battlefield or recompute rules state. Zone scrolling must not rerender unrelated zones. Opponent switching must not recompute the rules engine. Animation timing is presentation state and must never define authoritative rules state.
+
+Large Commander states must remain interactive during Command Hand rotation, zone scrolling, card inspection, opponent switching, targeting, and stack interaction. The architecture tracks these boundaries through `createInteractionPerformanceBudget()` and the landscape model's performance contract.
+
 ## Implementation Boundary
 
 This Part 1 contract is implemented by:
@@ -321,11 +367,13 @@ This Part 1 contract is implemented by:
 - `src/gameplay/battlefieldGeometry.js`
 - `src/gameplay/cardLifecycle.js`
 - `src/gameplay/commandDeckModel.js`
+- `src/gameplay/inputIntent.js`
 - `src/ui/landscapeBattlefield.js`
 - `src/ui/render.js`
 - `src/styles.css`
 - `test/canonical-gameplay-architecture.test.js`
 - `test/canonical-gameplay-part2.test.js`
 - `test/canonical-gameplay-part3.test.js`
+- `test/canonical-gameplay-part4.test.js`
 
 Future parts must continue from this architecture without redefining these concepts.

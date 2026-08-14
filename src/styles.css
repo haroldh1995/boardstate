@@ -5115,11 +5115,12 @@ textarea {
 }
 
 body[data-page="battlefield"] .recovery-toast-stack {
-  top: auto;
-  right: max(0.72rem, env(safe-area-inset-right));
-  bottom: calc(var(--game-command-hand-space, 8rem) + 0.48rem);
-  width: min(20rem, 28vw);
-  max-height: min(30svh, 13rem);
+  top: max(2.1rem, calc(env(safe-area-inset-top) + 0.72rem));
+  right: auto;
+  bottom: auto;
+  left: max(0.72rem, env(safe-area-inset-left));
+  width: min(18rem, 34vw);
+  max-height: min(28svh, 10.5rem);
   overflow: hidden;
   z-index: 112;
 }
@@ -8688,6 +8689,8 @@ body[data-page="battlefield"] .gameplay-context-dock {
   transform: translateX(-50%);
   perspective: 1100px;
   isolation: isolate;
+  contain: layout paint style;
+  touch-action: none;
 }
 
 .commander-action-hand__aura {
@@ -8845,7 +8848,7 @@ body[data-page="battlefield"] .gameplay-context-dock {
     opacity var(--motion-duration-micro) ease;
   cursor: grab;
   pointer-events: auto;
-  touch-action: pan-y;
+  touch-action: none;
 }
 
 .action-card[data-visual-material="premium-card-stock"] {
@@ -10535,7 +10538,7 @@ body[data-page="battlefield"] .command-deck:focus-visible .action-card[data-comm
 
 body[data-page="battlefield"] .command-deck__fan {
   cursor: grab;
-  touch-action: pan-y;
+  touch-action: none;
   user-select: none;
 }
 
