@@ -49,18 +49,18 @@ export function getRuntimeNavigator(navigatorLike = resolveGlobalValue("navigato
 
 export function createRuntimeEnvironment(overrides = {}) {
   return {
-    clearTimeout: overrides.clearTimeout || resolveGlobalValue("clearTimeout") || (() => {}),
+    clearTimeout: overrides.clearTimeout || resolveGlobalFunction("clearTimeout") || (() => {}),
     crypto: overrides.crypto || resolveGlobalValue("crypto") || null,
     decodeBase64Bytes: overrides.decodeBase64Bytes || decodeBase64Bytes,
     encodeBase64Bytes: overrides.encodeBase64Bytes || encodeBase64Bytes,
     encodeText: overrides.encodeText || encodeText,
-    fetch: overrides.fetch || resolveGlobalValue("fetch") || null,
+    fetch: overrides.fetch || resolveGlobalFunction("fetch") || null,
     indexedDB: overrides.indexedDB || resolveGlobalValue("indexedDB") || null,
     localStorage: overrides.localStorage || resolveStorage("localStorage"),
     location: getRuntimeLocation(overrides.location || resolveGlobalValue("location")),
     navigator: getRuntimeNavigator(overrides.navigator || resolveGlobalValue("navigator")),
     sessionStorage: overrides.sessionStorage || resolveStorage("sessionStorage"),
-    setTimeout: overrides.setTimeout || resolveGlobalValue("setTimeout") || ((callback) => {
+    setTimeout: overrides.setTimeout || resolveGlobalFunction("setTimeout") || ((callback) => {
       if (typeof callback === "function") callback();
       return 0;
     }),
@@ -93,6 +93,11 @@ function resolveGlobalValue(name) {
   } catch {
     return undefined;
   }
+}
+
+function resolveGlobalFunction(name) {
+  const value = resolveGlobalValue(name);
+  return typeof value === "function" ? value.bind(globalThis) : undefined;
 }
 
 function encodeBase64Bytes(bytes = new Uint8Array()) {

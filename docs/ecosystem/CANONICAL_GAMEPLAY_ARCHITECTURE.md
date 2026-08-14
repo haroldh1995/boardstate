@@ -359,6 +359,45 @@ Performance is part of quality. Command Hand rotation must not rerender the enti
 
 Large Commander states must remain interactive during Command Hand rotation, zone scrolling, card inspection, opponent switching, targeting, and stack interaction. The architecture tracks these boundaries through `createInteractionPerformanceBudget()` and the landscape model's performance contract.
 
+## Part 5 Release Baseline
+
+Prompt 13.2.6 Part 5 is the master proof-of-correctness baseline for Parts 1 through 4. It does not introduce a competing architecture. It verifies that the canonical gameplay laws, battlefield geography, card lifecycle, input intent, Command Hand, responsive landscape composition, accessibility, performance, and portability contracts work together under realistic Commander conditions.
+
+The Platform-portability law remains active during Part 5. Shared gameplay, rules, state, event, geometry, input-intent, resolve, notification-intent, accessibility, and performance models must stay independent of DOM objects, CSS-driven rules truth, browser storage as sole persistence, browser lifecycle as gameplay lifecycle, hover-only required actions, browser event names as semantic gameplay events, and browser-only orientation behavior. Browser-specific behavior belongs in the web presentation adapter, not authoritative gameplay architecture.
+
+Part 5 validates these release gates:
+
+- Empty, early, normal, busy, extreme, token swarm, superfriends, artifact-heavy, enchantment-heavy, and Voltron battlefield states retain fixed landscape tabletop geography.
+- Creatures remain horizontal, planeswalkers remain far-right in the creature region, lands remain the primary lower region, and noncreature nonland permanents remain far-right in the lower support region.
+- Density escalates through spacing, overlap, duplicate stacking, equivalent grouping, support stacking, scaling, grouped presentation, and only then zone-local horizontal scrolling.
+- Authoritative object identity survives grouping, stacking, token quantities, attachments, counters, tapped state, graveyard/exile movement, preview, replay, Undo, and inspection.
+- Multiplayer keeps exactly one focused opponent battlefield, compact table awareness, circular opponent navigation, stable seating order, local battlefield anchoring, independent zone-scroll memory, and no mid-gesture transfer from zone scrolling to opponent switching.
+- The Tactical Command Hand retains infinite circular navigation, free active motion, post-release snap, exactly one centered focus, frontmost focused card, highest z-order, correct highlight, correct preview, correct activation, depth-aware hit testing, and canonical clone identity.
+- Live Tracking uses one Resolve for an uncontested stack object, while deterministic land, life, counter, token, static, continuous, commander-tax, and commander-damage changes do not create redundant Resolve requirements.
+- Gameplay events own stable identities, animations are idempotent, and render-only updates such as notifications, inspection, opponent switching, zone scrolling, or Command Hand rotation must not replay previous cast or resolution events.
+- Notifications, helpers, reminders, assistant messages, and social messages obey the gameplay communication hierarchy and never permanently obstruct the protected gameplay corridor, focused Command Hand card, casting, resolving, targeting, combat, or active stack work.
+- Phone landscape, tablet, desktop, and ultrawide composition remain fixed, safe-area-aware, and game-like rather than dashboard-like or document-like.
+- Accessibility exposes meaningful semantics and preserves state-change clarity under reduced motion, large text, high contrast, keyboard navigation, screen readers, and future controller-style focus.
+- Shared gameplay, rules, state, event, geometry, input-intent, and performance models remain platform-neutral and suitable for future SwiftUI/native presentation adapters.
+
+The Part 5 automated baseline lives in `test/canonical-gameplay-part5.test.js`. It is intentionally broader than an isolated unit suite: it combines stress board models, multiplayer navigation, gesture-contamination checks, Command Hand focus matrices, Live Tracking resolve behavior, event idempotence, replay/preview separation, notification hierarchy, device composition, accessibility, performance, static renderer/CSS assertions, and shared-code portability scans.
+
+## Regression Blacklist
+
+The following failures are release-blocking for active gameplay:
+
+- Global layout failures: vertical webpage gameplay, global battlefield scrolling, document-style stacked gameplay sections, portrait gameplay after loading, player/opponent battlefield pushed off-screen, Command Hand below scrollable content, dashboard replacement, or permanent center obstruction.
+- Card presentation failures: oversized preview permanents, generic UI tiles, cropped horizontal card banners, text-only permanent replacement, stale cast or inspection previews, lost TCG proportions, misplaced planeswalkers, misplaced support permanents, hidden attachments, or stacking that erases authoritative individuality.
+- Command Hand failures: center card not foremost, wrong z-order, wrong highlight, wrong preview, wrong activation, wrong hit testing, multiple focus owners, focus/center disagreement, rear card dominance, resting between commands, hard active-swipe locking, visible wrap jump, clone identity corruption, temporary command corruption, or gesture leakage into battlefield navigation.
+- Multiplayer failures: missing opponent swipe on manageable boards, missing arrows with multiple opponents, unusable arrows on crowded boards, local battlefield movement during opponent switch, Command Hand reset during opponent switch, lost presentation memory, zone-edge swipe transferring to opponent switch, unstable order, unreadable permanently shrunk opponents, or active player forcibly stealing view focus.
+- Resolution failures: redundant Live Tracking Resolve prompts, lands requiring Resolve without rules need, deterministic ETB/token/counter/static consequences requiring Resolve, spell substeps masquerading as stack objects, replacement effects incorrectly treated as stack objects, animation replay after Resolve, and Resolve UI blocking the resolving object.
+- Communication failures: notifications, helpers, reminders, social messages, or duplicate assistant surfaces covering casting, resolving, combat, targeting, focused Command Hand, or active mandatory gameplay decisions.
+- State failures: inspection, replay, scroll, animation, Command Hand browsing, visual clones, opponent focus, or presentation state mutating authoritative rules state.
+- Performance failures: visible Command Hand hitches, normal zone-scroll hitches, whole-game rebuilds during opponent switches, rules recomputation from presentation-only movement, unusable large boards, trigger-flood loops, memory growth from rapid navigation, delayed long sessions, or stale animation queues.
+- Platform-portability failures: new browser-only authoritative gameplay implementation, DOM objects in gameplay state, CSS as rules truth, browser event names as semantic gameplay events, hover-only required action, browser storage as sole persistence, browser lifecycle as gameplay lifecycle, or any unnecessary block to future SwiftUI adaptation.
+
+Part 5 does not lock the architecture by itself. It proves that the foundation is ready for the next architecture-lock phase only when local implementation, remote repository, and production deployment all represent the same approved gameplay architecture.
+
 ## Implementation Boundary
 
 This Part 1 contract is implemented by:
@@ -375,5 +414,6 @@ This Part 1 contract is implemented by:
 - `test/canonical-gameplay-part2.test.js`
 - `test/canonical-gameplay-part3.test.js`
 - `test/canonical-gameplay-part4.test.js`
+- `test/canonical-gameplay-part5.test.js`
 
 Future parts must continue from this architecture without redefining these concepts.

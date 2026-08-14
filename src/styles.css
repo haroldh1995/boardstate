@@ -7014,13 +7014,14 @@ body[data-composition="widescreen"] .landscape-battlefield-groups .battlefield-g
 }
 
 .manual-choice-panel:not(.manual-choice-panel--collapsed) {
+  --protected-command-hand-clearance: clamp(9.6rem, 28svh, 13rem);
   position: fixed;
   right: max(0.65rem, env(safe-area-inset-right));
-  bottom: calc(0.65rem + env(safe-area-inset-bottom));
+  bottom: calc(var(--protected-command-hand-clearance) + env(safe-area-inset-bottom));
   left: auto;
   z-index: 145;
   width: min(32rem, calc(100vw - 1.3rem));
-  max-height: min(78svh, 43rem);
+  max-height: min(calc(100svh - var(--protected-command-hand-clearance) - 1.35rem), 38rem);
   overflow: auto;
   overscroll-behavior: contain;
   border: 1px solid rgba(255, 213, 105, 0.68);
@@ -10314,12 +10315,28 @@ body[data-page="battlefield"] .tabletop-battlefield-page .gameplay-context-dock 
   }
 
   body[data-page="battlefield"] .tabletop-battlefield-page .landscape-arena {
-    grid-template-rows: minmax(4rem, 0.72fr) minmax(1.8rem, auto) minmax(0, 1.32fr);
-    padding: 2.2rem 0.6rem 0;
+    grid-template-rows: minmax(5.8rem, 1fr) minmax(1.55rem, auto) minmax(5.8rem, 1fr);
+    gap: clamp(0.12rem, 0.32svh, 0.28rem);
+    padding: 1.72rem 0.6rem 0;
   }
 
   body[data-page="battlefield"] .tabletop-battlefield-page .landscape-command-center {
     width: min(42rem, 74vw);
+  }
+
+  body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout {
+    gap: clamp(0.1rem, 0.28svh, 0.2rem);
+    padding-block: 0.04rem;
+  }
+
+  body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .battlefield-group-header {
+    min-height: 0.5rem;
+    font-size: 0.46rem;
+    line-height: 1;
+  }
+
+  body[data-page="battlefield"] .tabletop-battlefield-page .landscape-board-region--opponent .tabletop-zone-layout {
+    grid-template-rows: repeat(2, minmax(0, 1fr));
   }
 
   body[data-page="battlefield"] .commander-action-hand {
@@ -10496,6 +10513,52 @@ body[data-page="battlefield"] .command-deck:not(.is-rotating):not(.is-dragging) 
 }
 
 @media (orientation: landscape) and (max-height: 560px) {
+  body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .tile-grid {
+    --tabletop-card-width: clamp(1.95rem, 8.2svh, 3.35rem);
+    gap: clamp(0.08rem, 0.38vw, 0.22rem);
+  }
+
+  body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .permanent {
+    flex-basis: var(--tabletop-card-width);
+    width: var(--tabletop-card-width);
+    min-width: var(--tabletop-card-width);
+    height: min(100%, calc(var(--tabletop-card-width) * 1.42));
+    min-height: 0;
+    border-radius: 9px;
+  }
+
+  body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout.density-state-busy .permanent,
+  body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout.density-state-extreme .permanent {
+    --tabletop-card-width: clamp(1.82rem, 7.8svh, 3rem);
+    margin-right: clamp(-0.54rem, -1.25vw, -0.18rem);
+  }
+
+  body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .permanent-content {
+    min-height: 0;
+    height: 100%;
+    gap: 0.06rem;
+    padding: 0.22rem 0.25rem;
+    overflow: hidden;
+  }
+
+  body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .permanent-content > button {
+    gap: 0.04rem;
+  }
+
+  body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .permanent.detail-standard strong,
+  body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .permanent.detail-inspect strong {
+    font-size: clamp(0.52rem, 1.7svh, 0.68rem);
+    line-height: 1.04;
+  }
+
+  body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .permanent span,
+  body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .permanent em,
+  body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .permanent b,
+  body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .permanent small {
+    font-size: clamp(0.4rem, 1.25svh, 0.52rem);
+    line-height: 1.02;
+  }
+
   body[data-page="battlefield"] .commander-action-hand {
     --action-card-width: clamp(4.02rem, 8.4vw, 5.05rem);
     --action-card-height: clamp(5.78rem, 18.4svh, 6.96rem);
