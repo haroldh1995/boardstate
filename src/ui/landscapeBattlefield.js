@@ -45,6 +45,10 @@ import {
   resolveResponsiveLandscapeComposition,
 } from "../gameplay/inputIntent.js";
 import {
+  CANONICAL_GAMEPLAY_BASELINE_ID,
+  CANONICAL_GAMEPLAY_LOCKDOWN_VERSION,
+} from "../gameplay/architectureLockdown.js";
+import {
   BOARDSTATE_MOTION_LANGUAGE_VERSION,
   MOTION_OWNERS,
   MOTION_STATE_CATALOG,
@@ -377,6 +381,12 @@ export function createLandscapeBattlefieldModel(profileOrSession = {}, options =
         owners: GESTURE_OWNERS,
         gestureOwnership: "exactly-one-owner-per-active-gesture",
         platformPortable: true,
+      },
+      architectureLock: {
+        version: CANONICAL_GAMEPLAY_LOCKDOWN_VERSION,
+        baselineId: CANONICAL_GAMEPLAY_BASELINE_ID,
+        locked: true,
+        sourceOfTruth: "docs/ecosystem/CANONICAL_GAMEPLAY_ARCHITECTURE.md",
       },
     },
     regions: LANDSCAPE_BATTLEFIELD_REGIONS,

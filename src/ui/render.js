@@ -34,6 +34,10 @@ import {
   shouldDeferNotification,
 } from "../gameplay/cardLifecycle.js";
 import {
+  CANONICAL_GAMEPLAY_BASELINE_ID,
+  CANONICAL_GAMEPLAY_LOCKDOWN_VERSION,
+} from "../gameplay/architectureLockdown.js";
+import {
   COMMAND_DECK_RENDER_RADIUS,
   COMMAND_DECK_VISIBLE_RADIUS,
   COMMAND_DECK_WHEEL_IDLE_SNAP_MS,
@@ -582,6 +586,8 @@ export function mountApp(root, store) {
     document.body.dataset.tabletopReconstructionVersion = TABLETOP_RECONSTRUCTION_VERSION;
     document.body.dataset.hudCompositionVersion = HUD_COMPOSITION_VERSION;
     document.body.dataset.canonicalGameplayArchitectureVersion = CANONICAL_GAMEPLAY_ARCHITECTURE_VERSION;
+    document.body.dataset.canonicalGameplayBaselineId = CANONICAL_GAMEPLAY_BASELINE_ID;
+    document.body.dataset.canonicalGameplayLockdownVersion = CANONICAL_GAMEPLAY_LOCKDOWN_VERSION;
     document.body.dataset.cardLifecycleVersion = CANONICAL_CARD_LIFECYCLE_VERSION;
     document.body.dataset.gameplayMode = gameplayModePolicy.mode;
     document.body.dataset.gameplayAttentionOwner = gameplayAttention.owner;
@@ -5901,7 +5907,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
     .filter(Boolean)
     .join(" ");
   return `
-    <main class="app-shell ${appLayerClasses}" data-ui-layer="${escapeAttribute(uiLayer.current)}" data-game-viewport="${escapeAttribute(viewportContract.viewport)}" data-gameplay-orientation="${escapeAttribute(viewportContract.orientation)}" data-device-class="${escapeAttribute(viewportContract.deviceClass)}" data-canonical-gameplay-architecture-version="${escapeAttribute(gameplayContract.version)}" data-card-lifecycle-version="${escapeAttribute(CANONICAL_CARD_LIFECYCLE_VERSION)}" data-gameplay-mode="${escapeAttribute(gameplayModePolicy.mode)}" data-gameplay-attention-owner="${escapeAttribute(gameplayAttention.owner)}" data-protected-gameplay-corridor="${escapeAttribute(gameplayContract.protectedGameplayCorridor)}" data-live-tracking-assumption-engine="${escapeAttribute(gameplayContract.liveTrackingAssumptionEngine)}" data-landscape-viewport-lock-version="${escapeAttribute(viewportContract.version)}" data-app-shell>
+    <main class="app-shell ${appLayerClasses}" data-ui-layer="${escapeAttribute(uiLayer.current)}" data-game-viewport="${escapeAttribute(viewportContract.viewport)}" data-gameplay-orientation="${escapeAttribute(viewportContract.orientation)}" data-device-class="${escapeAttribute(viewportContract.deviceClass)}" data-canonical-gameplay-architecture-version="${escapeAttribute(gameplayContract.version)}" data-canonical-gameplay-baseline-id="${escapeAttribute(CANONICAL_GAMEPLAY_BASELINE_ID)}" data-canonical-gameplay-lockdown-version="${escapeAttribute(CANONICAL_GAMEPLAY_LOCKDOWN_VERSION)}" data-card-lifecycle-version="${escapeAttribute(CANONICAL_CARD_LIFECYCLE_VERSION)}" data-gameplay-mode="${escapeAttribute(gameplayModePolicy.mode)}" data-gameplay-attention-owner="${escapeAttribute(gameplayAttention.owner)}" data-protected-gameplay-corridor="${escapeAttribute(gameplayContract.protectedGameplayCorridor)}" data-live-tracking-assumption-engine="${escapeAttribute(gameplayContract.liveTrackingAssumptionEngine)}" data-landscape-viewport-lock-version="${escapeAttribute(viewportContract.version)}" data-app-shell>
       <header class="app-header glass">
         <div class="app-header-top">
           <div>

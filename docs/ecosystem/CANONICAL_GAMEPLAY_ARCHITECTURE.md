@@ -398,6 +398,93 @@ The following failures are release-blocking for active gameplay:
 
 Part 5 does not lock the architecture by itself. It proves that the foundation is ready for the next architecture-lock phase only when local implementation, remote repository, and production deployment all represent the same approved gameplay architecture.
 
+## Part 6 Architecture Lock Baseline
+
+Prompt 13.2.6 Part 6 locks the validated Parts 1 through 5 result as the canonical gameplay baseline. The baseline identifier is `boardstate-13.2.6-locked-baseline`, implemented in `src/gameplay/architectureLockdown.js`.
+
+This lock is a development contract, not a feature freeze. Future work may improve visuals, rules support, Full Control, multiplayer, accessibility, performance, and native presentation, but it must extend the validated architecture unless an explicit architecture migration replaces one or more canonical laws.
+
+The canonical lock requires:
+
+- Active gameplay remains spatial, landscape-first, fixed-viewport, and free of global vertical gameplay scroll.
+- Battlefield geography remains playmat-inspired: creatures horizontal, planeswalkers far-right in the creature region, lands primary in the lower region, and noncreature nonland permanents far-right in the lower support region.
+- Cards on the battlefield remain card-shaped battlefield permanents, distinct from casting previews, inspection previews, stack objects, search results, and Command Hand cards.
+- Density management precedes zone-local horizontal overflow; overflow never moves the entire battlefield or another zone.
+- Multiplayer keeps one primary focused opponent, stable circular order, reliable arrows, direct compact selection, local battlefield anchoring, and opponent presentation memory where practical.
+- Command Hand focus, center, z-order, highlight, preview, activation, and hit testing derive from one canonical command identity.
+- Command Hand movement remains free during input, snaps after motion, rotates infinitely, and treats visual clones as presentation aliases only.
+- Live Tracking keeps the one-Resolve default for uncontested stack objects, automatically completes deterministic consequences, and presents genuine choices directly without replaying original resolution.
+- Semantic gameplay event identity owns animation idempotence; presentation rerenders do not recreate authoritative events.
+- Notifications, helpers, reminders, and social surfaces yield to mandatory decisions, casting, resolution, targeting, combat, active stack work, inspection, and focused Command Hand interactions.
+- Presentation state cannot become authoritative rules state.
+- Shared gameplay modules stay platform-neutral and preserve the future Swift Playgrounds / SwiftUI native adaptation path.
+
+## Part 6 Canonical Gameplay Laws
+
+The locked canonical laws are discoverable in `LOCKDOWN_CANONICAL_GAMEPLAY_LAWS`:
+
+- Laws 1-7 protect the spatial fixed landscape battlefield, no global gameplay scroll, anchored local territory, stable tabletop geography, card-shaped permanents, and temporary preview roles.
+- Laws 8-15 protect creature geography, planeswalker placement, lower land/support geography, density-before-scroll, zone-local overflow, separate opponent navigation, reliable arrows, and stable opponent order.
+- Laws 16-24 protect the Command Hand as a TCG hand with exactly one centered frontmost focus, one focus source of truth, free active movement, snap, circular rotation, clone identity, and temporary contextual commands.
+- Laws 25-30 protect Live Tracking speed, one Resolve by default, automatic deterministic consequences, explicit genuine decisions, real stack objects, and hidden-information safety.
+- Laws 31-35 protect semantic event identity, presentation-only animation, animation idempotence, gameplay visual priority, and the protected gameplay corridor.
+- Laws 36-40 protect deterministic gesture ownership, no mid-gesture transfer, authoritative/presentation state separation, shared Live Tracking / Full Control rules truth, and platform portability.
+
+## Part 6 Responsibility Map
+
+The authoritative implementation locations are:
+
+- Battlefield composition: `src/ui/landscapeBattlefield.js`, `src/gameplay/battlefieldGeometry.js`.
+- Battlefield card rendering: `src/ui/render.js`, `src/styles.css`.
+- Card-zone assignment, planeswalker placement, support-permanent placement, density management, stacking/grouping, and zone overflow: `src/gameplay/battlefieldGeometry.js`.
+- Opponent focus, opponent navigation, table radar, input intent, gesture ownership, responsive landscape composition, accessibility semantics, and interaction performance budgets: `src/gameplay/inputIntent.js`, consumed by `src/ui/landscapeBattlefield.js` and `src/ui/render.js`.
+- Command Hand focus math, projection, snap, free rotation, z-order, and infinite rotation: `src/gameplay/commandDeckModel.js`, `src/gameplay/inputIntent.js`, `src/ui/render.js`, and `src/styles.css`.
+- Card lifecycle, stack, resolution, trigger presentation, event identity, presentation ledger, preview roles, replay observation, and notification priority: `src/gameplay/cardLifecycle.js`, `src/gameplay/canonicalGameplay.js`, `src/effects/effectEngine.js`, and `src/state/gameReducer.js`.
+- Persistence, save/restore, replay metadata, checkpoints, canonical saves, and transient presentation sanitization: `src/persistence/canonicalPersistence.js`, `src/storage/saveState.js`, and `src/state/gameReducer.js`.
+- Platform adapters: `src/platform/runtimeEnvironment.js`, `src/storage/localDatabase.js`, and web service adapters such as `src/services/scryfallService.js`.
+- Architecture lock and guardrail metadata: `src/gameplay/architectureLockdown.js`.
+- Regression protection: `test/canonical-gameplay-architecture.test.js`, `test/canonical-gameplay-part2.test.js`, `test/canonical-gameplay-part3.test.js`, `test/canonical-gameplay-part4.test.js`, `test/canonical-gameplay-part5.test.js`, and `test/canonical-gameplay-part6.test.js`.
+
+Do not create duplicate active implementations for these responsibilities. If a legacy path is still needed, quarantine it behind an explicit compatibility boundary and prevent it from activating blacklisted gameplay architecture.
+
+## Part 6 Guardrails
+
+Architecture-critical tests must protect:
+
+- Battlefield invariants: anchored local territory, horizontal creature region, far-right planeswalkers, canonical lower land/support region, no vertical gameplay scroll, card-shaped permanents, zone-local overflow, and grouping that preserves authoritative identity.
+- Command Hand invariants: exactly one focus, center means front, highest z-order, correct highlight, correct preview, correct activation, depth-aware hit testing, snap, infinite wrapping, clone identity, contextual command cleanup, high-speed motion, and direction reversal.
+- Multiplayer invariants: stable circular order, arrows whenever multiple opponents exist, direct compact selection, local battlefield anchoring, independent zone scrolling, no zone-edge transfer, and opponent state restoration.
+- Resolve and event invariants: one Resolve for uncontested Live Tracking objects, deterministic consequences automatic, genuine choices direct, genuine stack objects independent, replacement effects not automatically stack objects, semantic event IDs stable, replay observational, and animations idempotent.
+- Gesture invariants: one active gesture owner, no mid-gesture transfer, Command Hand gestures do not leak, zone scroll does not switch opponents, opponent navigation does not drag cards, and targeting can survive allowed presentation navigation.
+- Notification invariants: low-priority communication cannot cover casting, resolution, targeting, combat, active stack work, or focused Command Hand interaction.
+- Persistence and lifecycle invariants: restore authoritative gameplay first, normalize invalid presentation state, do not restore mid-swipe, active drag, hover, completed toast, or expired helper state, and never replay completed events because a session was restored.
+- Portability invariants: shared gameplay modules must not depend on platform-specific presentation primitives; platform behavior belongs behind adapters.
+- Performance invariants: presentation-only interactions must not recompute authoritative rules or rebuild unrelated battlefield regions.
+
+## Part 6 Future Feature Integration Contract
+
+Any future feature touching active gameplay must identify:
+
+- What authoritative state it modifies.
+- What presentation state it modifies.
+- What semantic interaction intent it introduces.
+- Which canonical gameplay laws it touches.
+- Whether it affects Live Tracking, Full Control, Command Hand behavior, battlefield geography, multiplayer navigation, gesture ownership, mobile landscape, accessibility, performance, or platform portability.
+
+A future feature may intentionally replace a canonical law only through an explicit architecture migration. That migration must identify the law, define replacement behavior, justify the improvement, update this document, update affected tests, and revalidate adjacent systems, Live Tracking, Full Control compatibility, multiplayer, performance, accessibility, and platform portability.
+
+## Part 6 SwiftUI / Native Adaptation Contract
+
+BoardState's shared gameplay architecture must remain copy-adaptable into a Swift Playgrounds / SwiftUI native workflow. Shared modules express gameplay state, card identity, zone state, stack state, trigger state, command focus, opponent focus, interaction intent, animation intent, notification intent, persistence intent, orientation policy, safe-area policy, and accessibility semantics.
+
+Web rendering remains one client. Platform-specific storage, pointer/touch events, orientation enforcement, media, notification behavior, and shell lifecycle handling must remain replaceable at the platform boundary. Browser presentation must not become the definition of BoardState gameplay.
+
+## Part 6 Visual And Performance Baseline
+
+Future visual development is encouraged, but it may not casually destroy spatial battlefield geography, card identity, Command Hand behavior, protected gameplay corridor, fixed landscape composition, opponent navigation, zone-local overflow, touch usability, accessibility semantics, or platform portability.
+
+The reproducible performance baseline covers normal boards, busy boards, 100+ object boards, token floods, counter floods, trigger floods, board wipes, rapid opponent switching, repeated Command Hand rotation and wrap, zone scrolling, targeting, and long sessions. Do not introduce presentation-only work that unnecessarily recomputes authoritative rules, replays completed events, accumulates animation queues, leaks clone state, or degrades long-session interaction.
+
 ## Implementation Boundary
 
 This Part 1 contract is implemented by:
@@ -407,6 +494,7 @@ This Part 1 contract is implemented by:
 - `src/gameplay/cardLifecycle.js`
 - `src/gameplay/commandDeckModel.js`
 - `src/gameplay/inputIntent.js`
+- `src/gameplay/architectureLockdown.js`
 - `src/ui/landscapeBattlefield.js`
 - `src/ui/render.js`
 - `src/styles.css`
@@ -415,5 +503,6 @@ This Part 1 contract is implemented by:
 - `test/canonical-gameplay-part3.test.js`
 - `test/canonical-gameplay-part4.test.js`
 - `test/canonical-gameplay-part5.test.js`
+- `test/canonical-gameplay-part6.test.js`
 
 Future parts must continue from this architecture without redefining these concepts.
