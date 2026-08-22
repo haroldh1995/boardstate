@@ -500,6 +500,7 @@ test("Part 6 static lockdown audit covers docs, renderer markers, portability bo
   assert.match(render, /data-depth-aware-hit-testing="true"/);
   assert.match(render, /data-zone-scroll-competes="false"/);
   assert.match(render, /data-global-vertical-scroll="false"/);
+  assert.doesNotMatch(render, /autoStackTimer[\s\S]{0,900}store\.dispatch\(\{\s*type:\s*"RESOLVE_TOP_SPELL"/);
   assert.doesNotMatch(render, /Resolve notification/i);
 
   assert.match(styles, /body\[data-page="battlefield"\][\s\S]*overflow:\s*hidden/);

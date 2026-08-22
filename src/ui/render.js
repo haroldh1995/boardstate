@@ -443,6 +443,7 @@ export function mountApp(root, store) {
   let lastSimulationVisualSignature = "";
   let presentationRefreshTimer = null;
   let autoStackTimer = null;
+  let stackPresentationRefreshId = "";
 
   normalizeCurrentHash();
   window.addEventListener("hashchange", handleHashChange);
@@ -704,8 +705,15 @@ export function mountApp(root, store) {
     const top = session?.stack?.[0];
     const autoProgress = shouldAutoProgressLiveTrackingStack(session, profile.settings || {});
     if (!top || !autoProgress.allowed) {
+      if (!top) {
+        stackPresentationRefreshId = "";
+      }
       return;
     }
+    if (stackPresentationRefreshId === top.id) {
+      return;
+    }
+    stackPresentationRefreshId = top.id;
     const delay = session.simulation?.enabled && session.simulation?.speed === "fast" ? 180 : 620;
     autoStackTimer = setTimeout(() => {
       const current = store.getState();
@@ -713,7 +721,7 @@ export function mountApp(root, store) {
       if (currentTop?.id !== top.id) {
         return;
       }
-      store.dispatch({ type: "RESOLVE_TOP_SPELL", stackId: top.id, autoChoose: top.controller !== "player" && top.controller !== "local-player" });
+      render(current);
     }, delay);
   }
 
