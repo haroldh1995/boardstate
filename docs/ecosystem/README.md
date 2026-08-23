@@ -74,4 +74,6 @@ The Commander session architecture document records the Prompt 2 canonical sessi
 
 `CANONICAL_GAMEPLAY_ARCHITECTURE.md` records the Prompt 13.2.6 Part 1 canonical gameplay laws, physical tabletop battlefield geography, fixed gameplay viewport, protected gameplay corridor, Live Tracking Assumption Engine, and Single Resolve law. It supersedes earlier gameplay architecture documents wherever they conflict.
 
+The same canonical document now records the Phase 13.3 Lite-derived Scryfall popup contract, predictive request and action identity, critical-animation priority, context restoration, land-play policy, and the platform-neutral ownership boundary used by web and future native clients.
+
 `NATIVE_PORTABILITY_AUDIT.md` records the Swift-ready portability boundary. It keeps browser APIs inside platform adapters and the current web shell while preserving gameplay, rules, state, storage, service, bridge, and support modules as reusable non-UI systems.

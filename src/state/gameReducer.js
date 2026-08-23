@@ -60,6 +60,11 @@ import { createDefaultProfile, createEmptySimulationStats, createGameSession, cr
 import { clone, createId, normalizeCount } from "./ids.js";
 import { drainGameEvents, mapActionTypeToGameEvent, queueGameEvent, runGameEventObservers } from "../game/eventBus.js";
 import { transitionFsm } from "../game/fsm.js";
+import {
+  evaluateLandPlay,
+  recordLandPlay,
+  resetLandPlayStateForTurn,
+} from "../game/landPlaySystem.js";
 import { finalizeAction } from "./actions.js";
 import {
   createNpcPublicSnapshot,
@@ -674,6 +679,9 @@ export function reduceProfile(profile, event) {
     case "ADVANCE_PHASE":
       nextProfile = withSession(baseProfile, advancePhase(withRuntimeSettings(baseProfile.activeSession, baseProfile.settings), baseProfile.settings?.multiplayer || {}));
       break;
+    case "PLAY_LAND":
+      nextProfile = playLand(baseProfile, event);
+      break;
     case "ADD_PERMANENT":
       nextProfile = addPermanent(baseProfile, event.card, event.controller || "player");
       break;
@@ -983,6 +991,63 @@ function createCardPresentation(card, kind, controller = "player", options = {})
     createdAt: now,
     expiresAt: now + 1550,
     ...options,
+  });
+}
+
+function playLand(profile, event = {}) {
+  const controller = event.controller || "player";
+  const sessionWithRuntime = withRuntimeSettings(profile.activeSession, profile.settings);
+  const evaluation = evaluateLandPlay(sessionWithRuntime, event.card || {}, {
+    controller,
+    settings: profile.settings || {},
+  });
+  if (!evaluation.allowed) {
+    const reason = evaluation.reasons.join("; ") || "land play is not legal in the current state";
+    return withSession(profile, {
+      ...profile.activeSession,
+      recoveryLog: [
+        createRecoveryEntry({
+          source: "Land Play",
+          message: `Land play blocked: ${reason}.`,
+          severity: "warning",
+          suggestedAction: "Advance to a main phase, clear the stack, or verify an additional-land permission.",
+        }),
+        ...(profile.activeSession.recoveryLog || []),
+      ].slice(0, 80),
+      rulesConfidenceLog: [
+        {
+          id: createId("rules-confidence"),
+          source: event.card?.name || "Land play",
+          status: "manual-choice-required",
+          summary: reason,
+          at: Date.now(),
+        },
+        ...(profile.activeSession.rulesConfidenceLog || []),
+      ].slice(0, 120),
+    });
+  }
+  const eventId = event.eventId || createGameplayEventIdentity(GAMEPLAY_EVENT_TYPES.landPlay, {
+    objectId: event.card?.cardId || event.card?.id || event.card?.name || "land",
+    card: event.card,
+    controller,
+    turn: profile.activeSession.turn,
+  });
+  const added = addPermanent(profile, event.card, controller);
+  const tracked = recordLandPlay(added.activeSession, event.card, { controller, eventId });
+  return withSession(added, {
+    ...tracked,
+    effectLog: [
+      {
+        id: createId("effect"),
+        source: event.card?.name || "Land",
+        summary: evaluation.trackingOnly && evaluation.reasons.length
+          ? `Tracked land play with tabletop note: ${evaluation.reasons.join("; ")}.`
+          : `Played land ${Number(tracked.landPlayState?.playsByController?.[controller] || 1)} of ${evaluation.allowance}.`,
+        confidence: evaluation.trackingOnly ? RULES_CONFIDENCE.PARTIAL : RULES_CONFIDENCE.AUTO_RESOLVED,
+        at: Date.now(),
+      },
+      ...(tracked.effectLog || []),
+    ].slice(0, 180),
   });
 }
 
@@ -3799,7 +3864,8 @@ function advancePhase(session, multiplayerSettings = {}) {
         }
       : helperState,
   };
-  const withTurnEvent = isNewTurn ? queueGameEvent(nextSession, "TURN_CHANGED", { turn: nextSession.turn }) : nextSession;
+  const withLandReset = isNewTurn ? resetLandPlayStateForTurn(nextSession, nextSession.turn) : nextSession;
+  const withTurnEvent = isNewTurn ? queueGameEvent(withLandReset, "TURN_CHANGED", { turn: withLandReset.turn }) : withLandReset;
   const withReactivated = reactivateDelayedTriggers(withTurnEvent);
   const withPhaseTriggers = traversedPhases.reduce((currentSession, phase, index) =>
     processEventTriggers(currentSession, {

@@ -442,6 +442,8 @@ The authoritative implementation locations are:
 - Card lifecycle, stack, resolution, trigger presentation, event identity, presentation ledger, preview roles, replay observation, and notification priority: `src/gameplay/cardLifecycle.js`, `src/gameplay/canonicalGameplay.js`, `src/effects/effectEngine.js`, and `src/state/gameReducer.js`.
 - Persistence, save/restore, replay metadata, checkpoints, canonical saves, and transient presentation sanitization: `src/persistence/canonicalPersistence.js`, `src/storage/saveState.js`, and `src/state/gameReducer.js`.
 - Platform adapters: `src/platform/runtimeEnvironment.js`, `src/storage/localDatabase.js`, and web service adapters such as `src/services/scryfallService.js`.
+- Canonical Scryfall search intent, predictive request identity, stale-response suppression, animation-aware suspension, and semantic action deduplication: `src/gameplay/scryfallSearchModel.js`, rendered by `src/ui/render.js` through the platform service boundary in `src/services/scryfallService.js`.
+- Land play policy, per-turn allowance, additional-land permissions, and Live Tracking / Full Control timing differences: `src/game/landPlaySystem.js`, integrated through `src/state/gameReducer.js`.
 - Architecture lock and guardrail metadata: `src/gameplay/architectureLockdown.js`.
 - Regression protection: `test/canonical-gameplay-architecture.test.js`, `test/canonical-gameplay-part2.test.js`, `test/canonical-gameplay-part3.test.js`, `test/canonical-gameplay-part4.test.js`, `test/canonical-gameplay-part5.test.js`, and `test/canonical-gameplay-part6.test.js`.
 
@@ -506,3 +508,13 @@ This Part 1 contract is implemented by:
 - `test/canonical-gameplay-part6.test.js`
 
 Future parts must continue from this architecture without redefining these concepts.
+
+## Phase 13.3 Canonical Search And Workflow Baseline
+
+The canonical BoardState card search is a temporary in-scene popup, not a route or full-page gameplay replacement. It opens with a focused search field, debounces predictive lookup, exposes three immediate results by default, rejects stale request identities, preserves battlefield and Command Hand presentation context, supports keyboard and modal dismissal, and degrades safely to the embedded local card reference when Scryfall is unavailable.
+
+Search presentation never owns gameplay event identity. Confirming a card action records one semantic search action, clears the popup before a critical cast or entry presentation begins, and cannot duplicate a cast, land play, token, counter, or trigger through popup rerendering. While casting, resolution, combat, board-wipe, or another protected presentation is active, search opening is deferred or an open search is suspended. Query and selection context may return only after the protected window expires and only when no mandatory decision has superseded it.
+
+The search interaction model is platform-neutral. Web focus, keyboard, backdrop, and network cancellation behavior are presentation/service adapters; query state, request identity, result selection, action identity, critical-attention policy, and restore policy are semantic application state suitable for a native SwiftUI renderer.
+
+Land play uses the same shared-mode policy. Live Tracking records a physical-table land play immediately without creating a stack object or Resolve prompt. Strict Full Control and Dry Run enforce main-phase timing, an empty stack, and current land allowance. Additional-land permissions extend the allowance, and turn transition resets only the per-turn play count. Presentation expiration is never gameplay truth: once a protected animation window expires, stale presentation metadata cannot block later commands or card search.

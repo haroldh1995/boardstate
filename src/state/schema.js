@@ -643,6 +643,14 @@ export function createGameSession() {
     phaseIndex: 0,
     phaseStartedAt: now,
     turnStartedAt: now,
+    landPlayState: {
+      version: "boardstate-land-play-system-13.3.0",
+      turn: 1,
+      playsByController: {},
+      allowanceOverrides: {},
+      lastPlayEventId: "",
+      lastPlayedCardId: "",
+    },
     timer: {
       gameStartedAt: now,
       phaseDurations: {},

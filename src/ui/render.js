@@ -56,6 +56,21 @@ import {
   INPUT_SURFACES,
   resolveInputIntent,
 } from "../gameplay/inputIntent.js";
+import {
+  CANONICAL_SCRYFALL_SEARCH_VERSION,
+  SCRYFALL_SEARCH_STATUS,
+  acceptScryfallSearchResults,
+  beginScryfallSearchAction,
+  beginScryfallSearchRequest,
+  closeScryfallSearch,
+  completeScryfallSearchAction,
+  createScryfallSearchState,
+  failScryfallSearchRequest,
+  reconcileScryfallSearchPresentation,
+  requestScryfallSearchOpen,
+  selectScryfallSearchResult,
+  updateScryfallSearchQuery,
+} from "../gameplay/scryfallSearchModel.js";
 import { calculateLegalTargets, getPermanentManaOptions } from "../rules-engine/index.js";
 import { createPermanent, PHASES } from "../state/schema.js";
 import { buildPredictiveActions } from "../game/predictiveActions.js";
@@ -214,6 +229,7 @@ const TEMPORARY_SCROLL_SELECTORS = [
   ".quick-adjust-panel",
   ".confirm-dialog",
   ".search-results",
+  ".scryfall-popup",
   ".cast-action-popup",
   ".simulation-log",
   ".battlefield-groups",
@@ -245,6 +261,7 @@ const BACKGROUND_SCROLL_LOCK_SELECTORS = [
   ".quick-adjust-panel",
   ".confirm-dialog",
   ".cast-action-popup",
+  ".scryfall-popup",
   ".manual-choice-panel:not(.manual-choice-panel--collapsed)",
   ".trigger-queue-panel",
   ".opponent-battlefield-overlay",
@@ -372,6 +389,7 @@ export function mountApp(root, store) {
   let activeToolPanel = "";
   let utilityDockOpen = false;
   let activeUtilityPanel = "";
+  let scryfallSearchState = createScryfallSearchState();
   let rulesAssistantQuestion = "";
   let rulesAssistantAnswer = null;
   let rulesAssistantSearchQuery = "";
@@ -541,6 +559,26 @@ export function mountApp(root, store) {
       helper: activePage === "battlefield" && Boolean(helperMessage),
       commandHandActive: activePage === "battlefield",
     });
+    const activePresentation = profile.activeSession?.presentation || null;
+    const activePresentationKind = activePresentation && (
+      !activePresentation.expiresAt || Number(activePresentation.expiresAt) > Date.now()
+    ) ? activePresentation.kind || "" : "";
+    scryfallSearchState = reconcileScryfallSearchPresentation(scryfallSearchState, {
+      attentionOwner: gameplayAttention.owner,
+      presentationKind: activePresentationKind,
+      mandatoryDecision: gameplayAttention.owner === "mandatory-current-player-decision",
+      searchStillRelevant: activePage === "battlefield" || activePage === "decks",
+    });
+    if (
+      [SCRYFALL_SEARCH_STATUS.deferred, SCRYFALL_SEARCH_STATUS.suspended, SCRYFALL_SEARCH_STATUS.closed].includes(
+        scryfallSearchState.status
+      ) &&
+      activeUtilityPanel === "search"
+    ) {
+      activeUtilityPanel = "";
+    } else if (scryfallSearchState.status === SCRYFALL_SEARCH_STATUS.open && scryfallSearchState.requestedOpen) {
+      activeUtilityPanel = "search";
+    }
     if (castActionPopup) {
       const popupIndex = searchResults.findIndex(
         (card) => (card.cardId || card.name) === castActionPopup.cardId
@@ -584,6 +622,8 @@ export function mountApp(root, store) {
     document.body.dataset.commanderActionHandVersion = COMMANDER_ACTION_HAND_VERSION;
     document.body.dataset.commandDeckVersion = COMMAND_DECK_VERSION;
     document.body.dataset.inputIntentVersion = CANONICAL_INPUT_INTENT_VERSION;
+    document.body.dataset.scryfallSearchVersion = CANONICAL_SCRYFALL_SEARCH_VERSION;
+    document.body.dataset.scryfallSearchStatus = scryfallSearchState.status;
     document.body.dataset.tabletopReconstructionVersion = TABLETOP_RECONSTRUCTION_VERSION;
     document.body.dataset.hudCompositionVersion = HUD_COMPOSITION_VERSION;
     document.body.dataset.canonicalGameplayArchitectureVersion = CANONICAL_GAMEPLAY_ARCHITECTURE_VERSION;
@@ -634,6 +674,7 @@ export function mountApp(root, store) {
       uiLayerState,
       searchLoading,
       searchQuery,
+      scryfallSearchState,
       combatResolving,
       phaseAdvancePending,
       phaseControlMessage,
@@ -3255,6 +3296,8 @@ export function mountApp(root, store) {
       input.addEventListener("input", (event) => {
         const query = event.target.value;
         searchQuery = String(query || "");
+        scryfallSearchState = updateScryfallSearchQuery(scryfallSearchState, searchQuery);
+        castActionPopup = null;
         keepSearchInputFocus = true;
         searchSelection = {
           start: event.target.selectionStart,
@@ -3288,8 +3331,12 @@ export function mountApp(root, store) {
 
     container.querySelectorAll("[data-add-result]").forEach((button) => {
       button.addEventListener("click", () => {
+        const index = Number(button.dataset.addResult);
+        const action = beginCanonicalSearchAction(index, "add-permanent", "add-to-battlefield");
+        if (!action.accepted) return;
+        completeCanonicalSearchAction(action.actionId);
         dismissSearchInputFocus({ closeSearchPanel: true });
-        store.dispatch({ type: "ADD_PERMANENT", card: searchResults[Number(button.dataset.addResult)] });
+        store.dispatch({ type: "ADD_PERMANENT", card: searchResults[index] });
         showNotice("Card put onto battlefield.");
       });
     });
@@ -3333,47 +3380,66 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-cast-action-put]").forEach((button) => {
       button.addEventListener("click", () => {
-        dismissSearchInputFocus({ closeSearchPanel: true });
         const index = Number(button.dataset.castActionPut);
         const card = searchResults[index];
         const controller = castActionPopup?.opponent ? "opponent" : "player";
-        castActionPopup = null;
         if (!card) {
           showNotice("Card could not be found in the current search results.", "warning");
           return;
         }
+        const action = beginCanonicalSearchAction(index, "put-permanent", controller);
+        if (!action.accepted) return;
+        completeCanonicalSearchAction(action.actionId);
+        dismissSearchInputFocus({ closeSearchPanel: true });
+        castActionPopup = null;
         store.dispatch({ type: "ADD_PERMANENT", card, controller });
         showNotice(`Card put onto ${controller === "opponent" ? "opponent " : ""}battlefield without being cast.`);
       });
     });
     container.querySelectorAll("[data-put-result]").forEach((button) => {
       button.addEventListener("click", () => {
+        const index = Number(button.dataset.putResult);
+        const action = beginCanonicalSearchAction(index, "put-permanent", "player");
+        if (!action.accepted) return;
+        completeCanonicalSearchAction(action.actionId);
         dismissSearchInputFocus({ closeSearchPanel: true });
-        store.dispatch({ type: "ADD_PERMANENT", card: searchResults[Number(button.dataset.putResult)] });
+        store.dispatch({ type: "ADD_PERMANENT", card: searchResults[index] });
         showNotice("Card put onto battlefield without being cast.");
       });
     });
     container.querySelectorAll("[data-commander-result]").forEach((button) => {
       button.addEventListener("click", () => {
-        dismissSearchInputFocus();
-        store.dispatch({ type: "SET_COMMANDER", card: searchResults[Number(button.dataset.commanderResult)] });
+        const index = Number(button.dataset.commanderResult);
+        const action = beginCanonicalSearchAction(index, "set-commander", "commander");
+        if (!action.accepted) return;
+        completeCanonicalSearchAction(action.actionId);
+        dismissSearchInputFocus({ closeSearchPanel: true });
+        store.dispatch({ type: "SET_COMMANDER", card: searchResults[index] });
         showNotice("Commander updated.");
       });
     });
     container.querySelectorAll("[data-deck-result]").forEach((button) => {
       button.addEventListener("click", () => {
-        dismissSearchInputFocus();
-        store.dispatch({ type: "ADD_DECK_CARD", card: searchResults[Number(button.dataset.deckResult)] });
+        const index = Number(button.dataset.deckResult);
+        const action = beginCanonicalSearchAction(index, "add-deck-card", "deck");
+        if (!action.accepted) return;
+        completeCanonicalSearchAction(action.actionId);
+        dismissSearchInputFocus({ closeSearchPanel: true });
+        store.dispatch({ type: "ADD_DECK_CARD", card: searchResults[index] });
         showNotice("Card added to deck.");
       });
     });
     container.querySelectorAll("[data-new-deck-result]").forEach((button) => {
       button.addEventListener("click", () => {
-        dismissSearchInputFocus();
-        const card = searchResults[Number(button.dataset.newDeckResult)];
+        const index = Number(button.dataset.newDeckResult);
+        const card = searchResults[index];
         if (!card) return;
         const name = prompt("Name the new deck.", canBeCommander(card) ? `${card.name} Commander Deck` : "New Deck");
         if (name === null) return;
+        const action = beginCanonicalSearchAction(index, "create-deck", name.trim() || "New Deck");
+        if (!action.accepted) return;
+        completeCanonicalSearchAction(action.actionId);
+        dismissSearchInputFocus({ closeSearchPanel: true });
         store.dispatch({ type: "CREATE_DECK_WITH_CARD", card, name: name.trim() || "New Deck", makeCommander: false });
         showNotice(`Created ${name.trim() || "New Deck"} and added ${card.name}.`);
       });
@@ -3387,10 +3453,16 @@ export function mountApp(root, store) {
         }
         const details = await fetchScryfallCardDetails(card.cardId, true);
         if (!details) {
+          searchMessage = "Card details are unavailable. The selected card remains unchanged.";
+          render(store.getState());
           return;
         }
-        const rulings = (details.rulings || []).slice(0, 3).map((entry) => `- ${entry.comment}`).join("\n") || "- none";
-        alert(`${details.name}\n${details.manaCost} ${details.typeLine}\n\n${details.oracleText || ""}\n\nRulings:\n${rulings}\n\nTokens: ${(details.tokenReferences || []).map((entry) => entry.name).join(", ") || "none"}`);
+        const index = Number(button.dataset.inspectResult);
+        searchResults = searchResults.map((entry, entryIndex) => entryIndex === index ? { ...entry, ...details } : entry);
+        scryfallSearchState = { ...scryfallSearchState, results: searchResults };
+        castActionPopup = { ...(castActionPopup || {}), index, cardId: details.cardId || details.name };
+        searchMessage = "Card details loaded.";
+        render(store.getState());
       });
     });
     container.querySelectorAll("[data-pending-effect]").forEach((button) => {
@@ -3550,9 +3622,72 @@ export function mountApp(root, store) {
     container.querySelectorAll("[data-open-utility]").forEach((button) => {
       button.addEventListener("click", () => {
         closeAllTemporaryUi({ renderAfter: false });
-        activeUtilityPanel = button.dataset.openUtility || "";
+        const requestedPanel = button.dataset.openUtility || "";
+        if (requestedPanel === "search") {
+          const current = store.getState();
+          const attention = resolveGameplayAttentionOwner({
+            session: current.activeSession || {},
+            commandHandActive: activePage === "battlefield",
+          });
+          const presentation = current.activeSession?.presentation || null;
+          const presentationKind = presentation && (
+            !presentation.expiresAt || Number(presentation.expiresAt) > Date.now()
+          ) ? presentation.kind || "" : "";
+          scryfallSearchState = requestScryfallSearchOpen(scryfallSearchState, {
+            searchContext: activePage === "decks" ? "deck" : "battlefield",
+            attentionOwner: attention.owner,
+            presentationKind,
+            mandatoryDecision: attention.owner === "mandatory-current-player-decision",
+          });
+          activeUtilityPanel = scryfallSearchState.status === SCRYFALL_SEARCH_STATUS.open ? "search" : "";
+          keepSearchInputFocus = scryfallSearchState.status === SCRYFALL_SEARCH_STATUS.open;
+          searchSelection = { start: searchQuery.length, end: searchQuery.length, direction: "none" };
+          if (scryfallSearchState.status === SCRYFALL_SEARCH_STATUS.deferred) {
+            showNotice("Card search is queued until the current gameplay presentation is clear.", "info");
+          }
+          utilityDockOpen = false;
+          render(current);
+          return;
+        }
+        activeUtilityPanel = requestedPanel;
         // Open the selected utility panel without forcing the dock menu to stay expanded behind it.
         utilityDockOpen = false;
+        render(store.getState());
+      });
+    });
+    container.querySelectorAll("[data-clear-scryfall-search]").forEach((button) => {
+      button.addEventListener("click", () => {
+        searchAbortController?.abort();
+        searchQuery = "";
+        searchResults = [];
+        searchMessage = "Start typing to search Scryfall.";
+        searchLoading = false;
+        castActionPopup = null;
+        scryfallSearchState = updateScryfallSearchQuery(scryfallSearchState, "");
+        keepSearchInputFocus = true;
+        render(store.getState());
+      });
+    });
+    container.querySelectorAll("[data-select-search-result]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const index = Number(button.dataset.selectSearchResult);
+        const card = searchResults[index];
+        if (!card) return;
+        castActionPopup = {
+          index,
+          cardId: card.cardId || card.name,
+          opponent: false,
+        };
+        scryfallSearchState = selectScryfallSearchResult(scryfallSearchState, card.cardId || card.name);
+        dismissSearchInputFocus();
+        render(store.getState());
+      });
+    });
+    container.querySelectorAll("[data-back-to-search-results]").forEach((button) => {
+      button.addEventListener("click", () => {
+        castActionPopup = null;
+        scryfallSearchState = selectScryfallSearchResult(scryfallSearchState, "");
+        keepSearchInputFocus = true;
         render(store.getState());
       });
     });
@@ -3561,6 +3696,12 @@ export function mountApp(root, store) {
         dismissSearchInputFocus();
         castActionPopup = null;
         activeUtilityPanel = "";
+        render(store.getState());
+      });
+    });
+    container.querySelectorAll("[data-close-scryfall-search]").forEach((button) => {
+      button.addEventListener("click", () => {
+        dismissSearchInputFocus({ closeSearchPanel: true });
         render(store.getState());
       });
     });
@@ -4060,6 +4201,7 @@ export function mountApp(root, store) {
         "floating-mana",
         [".floating-mana"]
       ),
+      renderedLayer(scryfallSearchState.status === SCRYFALL_SEARCH_STATUS.open, "scryfall-search", [".scryfall-popup"]),
       renderedLayer(castActionPopup, "cast-popup", [".cast-action-popup"]),
       renderedLayer(activeUtilityPanel, "utility-panel", [".utility-overlay"]),
       renderedLayer(toolMenuOpen, "radial-menu", [".radial-menu"]),
@@ -4121,6 +4263,9 @@ export function mountApp(root, store) {
       case "floating-mana":
         floatingManaOpen = false;
         return true;
+      case "scryfall-search":
+        dismissSearchInputFocus({ closeSearchPanel: true });
+        return true;
       case "cast-popup":
         dismissSearchInputFocus();
         castActionPopup = null;
@@ -4162,6 +4307,7 @@ export function mountApp(root, store) {
     utilityDockOpen = false;
     activeUtilityPanel = "";
     castActionPopup = null;
+    scryfallSearchState = closeScryfallSearch(scryfallSearchState, { preserveSelection: true });
     simulationLogOpen = false;
     opponentOverlayOpen = false;
     simulationStatsOpen = false;
@@ -5662,17 +5808,22 @@ export function mountApp(root, store) {
   async function runScryfallSearch(query, profile, immediate = false) {
     const trimmed = String(query || "").trim();
     searchQuery = String(query || "");
+    if (scryfallSearchState.query !== searchQuery) {
+      scryfallSearchState = updateScryfallSearchQuery(scryfallSearchState, searchQuery);
+    }
     const token = ++searchRequestToken;
-    if (!trimmed && !immediate) {
+    if (trimmed.length < 2) {
       searchLoading = false;
       searchResults = [];
-      searchMessage = "Start typing to search Scryfall.";
+      searchMessage = trimmed ? "Type at least two characters." : "Start typing to search Scryfall.";
       render(store.getState());
       return;
     }
     const commanderDeck = profile.commanders?.[profile.activeSession.commander?.deckKey]?.cards || [];
     searchAbortController?.abort();
     searchAbortController = new AbortController();
+    scryfallSearchState = beginScryfallSearchRequest(scryfallSearchState);
+    const modelRequestId = scryfallSearchState.requestId;
     searchLoading = true;
     searchMessage = navigator.onLine ? "Searching..." : "Offline: showing commander deck matches only.";
     if (!keepSearchInputFocus) {
@@ -5683,13 +5834,22 @@ export function mountApp(root, store) {
       if (token !== searchRequestToken) {
         return;
       }
-      searchResults = results;
-      searchMessage = searchResults.length ? `${searchResults.length} result(s)` : "No results found.";
+      scryfallSearchState = acceptScryfallSearchResults(scryfallSearchState, {
+        requestId: modelRequestId,
+        results,
+      });
+      searchResults = scryfallSearchState.results;
+      searchMessage = scryfallSearchState.message;
     } catch (error) {
       if (token !== searchRequestToken) {
         return;
       }
-      searchMessage = "Search unavailable right now.";
+      scryfallSearchState = failScryfallSearchRequest(scryfallSearchState, {
+        requestId: modelRequestId,
+        error: error?.message || String(error),
+        fallbackResults: searchResults,
+      });
+      searchMessage = scryfallSearchState.message;
       addRecovery({
         source: "Scryfall Search",
         message: "Scryfall search is unavailable right now.",
@@ -5818,11 +5978,11 @@ export function mountApp(root, store) {
     if (resultList && Number.isFinite(searchResultsScrollTop) && searchResultsScrollTop > 0) {
       resultList.scrollTop = searchResultsScrollTop;
     }
-    if (!snapshot?.shouldFocus) {
+    if (!snapshot?.shouldFocus && !(activeUtilityPanel === "search" && keepSearchInputFocus)) {
       return;
     }
     const input =
-      (activeUtilityPanel === "search" ? container.querySelector(".utility-overlay [data-search-query]") : null) ||
+      (activeUtilityPanel === "search" ? container.querySelector(".scryfall-popup [data-search-query]") : null) ||
       container.querySelector("[data-search-query]");
     if (!input) {
       return;
@@ -5838,14 +5998,17 @@ export function mountApp(root, store) {
   }
 
   function castSearchCard(index, sourceZone = "hand", controller = "player") {
-    dismissSearchInputFocus({ closeSearchPanel: true });
     const card = searchResults[index];
     if (!card) {
       showNotice("Spell could not be found in the current search results.", "warning");
       return;
     }
     if (/\bLand\b/i.test(card.typeLine || "")) {
-      store.dispatch({ type: "ADD_PERMANENT", card, controller });
+      const action = beginCanonicalSearchAction(index, "play-land", sourceZone);
+      if (!action.accepted) return;
+      completeCanonicalSearchAction(action.actionId);
+      dismissSearchInputFocus({ closeSearchPanel: true });
+      store.dispatch({ type: "PLAY_LAND", card, controller, sourceZone });
       showNotice(`${card.name} played as a land.`);
       return;
     }
@@ -5858,6 +6021,10 @@ export function mountApp(root, store) {
       }
       xValue = Math.max(0, Number(answer) || 0);
     }
+    const action = beginCanonicalSearchAction(index, "cast", sourceZone);
+    if (!action.accepted) return;
+    completeCanonicalSearchAction(action.actionId);
+    dismissSearchInputFocus({ closeSearchPanel: true });
     store.dispatch({
       type: "CAST_SPELL",
       card,
@@ -5870,12 +6037,32 @@ export function mountApp(root, store) {
     showNotice(`${controller === "opponent" ? "Opponent " : ""}card cast and placed on the stack from ${formatLabel(sourceZone)}.`);
   }
 
+  function beginCanonicalSearchAction(index, actionType, semanticIntent = actionType) {
+    const card = searchResults[index];
+    if (!card) return { accepted: false, actionId: "", card: null };
+    const actionId = `scryfall:${actionType}:${card.cardId || card.name}:${scryfallSearchState.queryRevision}`;
+    const result = beginScryfallSearchAction(scryfallSearchState, {
+      actionId,
+      actionType,
+      cardId: card.cardId || card.name,
+      semanticIntent,
+    });
+    scryfallSearchState = result.state;
+    return { ...result, card };
+  }
+
+  function completeCanonicalSearchAction(actionId = "") {
+    scryfallSearchState = completeScryfallSearchAction(scryfallSearchState, actionId);
+  }
+
   function dismissSearchInputFocus({ closeSearchPanel = false } = {}) {
     keepSearchInputFocus = false;
     searchSelection = { start: null, end: null, direction: "none" };
     blurScryfallSearchInput();
     if (closeSearchPanel && activeUtilityPanel === "search") {
       activeUtilityPanel = "";
+      castActionPopup = null;
+      scryfallSearchState = closeScryfallSearch(scryfallSearchState, { preserveSelection: true });
     }
   }
 
@@ -5954,6 +6141,14 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
         ruleAmendmentDraft: uiState.ruleAmendmentDraft,
         ruleAmendmentNotice: uiState.ruleAmendmentNotice,
       }) : ""}
+      ${uiState.scryfallSearchState?.status === SCRYFALL_SEARCH_STATUS.open ? renderCanonicalScryfallSearchPopup(
+        searchResults,
+        searchMessage,
+        uiState.searchLoading,
+        uiState.searchQuery,
+        uiState.scryfallSearchState?.context === "deck" || page === "decks" ? "decks" : "battlefield",
+        uiState.castActionPopup
+      ) : ""}
       ${uiState.quickPanelOpen ? renderQuickAdjustmentPanel(profile, uiState.quickPanelOpen) : ""}
       ${uiState.modifierPanelOpen ? renderTrackerModifierPanel(uiState.pendingTrackerModifier) : ""}
       ${uiState.optionsOpen ? renderGameOptionsCommandCenter(profile, page, uiState.activeOptionsCategory || "", uiState.pendingAppLinkHandoff || null) : ""}
@@ -7119,7 +7314,8 @@ function renderLandscapeContextActionsRail(model = {}, searchResults, searchMess
       ${panels.archiveQuickAdd && activeUtilityPanel !== "search" ? `
         <section class="landscape-quick-add">
           <h2>Battlefield Quick Add</h2>
-          ${renderSearch(searchResults, searchMessage, searchLoading, searchQuery, "battlefield", uiState.castActionPopup)}
+          <p>Search opens in a context-preserving card picker.</p>
+          <button class="primary-action" data-open-utility="search">Search Scryfall</button>
         </section>
       ` : ""}
     </aside>
@@ -8301,7 +8497,7 @@ function renderUtilityDock(
   castActionPopup = null,
   rulesAssistantUi = {}
 ) {
-  if (!activeUtilityPanel) {
+  if (!activeUtilityPanel || activeUtilityPanel === "search") {
     return "";
   }
   return `
@@ -9039,7 +9235,6 @@ function renderUtilityPanel(profile, panel, searchResults = [], searchMessage = 
       ${panel === "rules-assistant" ? renderRulesAssistantPanel(profile, rulesAssistantUi) : ""}
       ${panel === "remind-me" ? renderRemindMePanel(profile, rulesAssistantUi) : ""}
       ${panel === "ai-analysis" ? renderAiGameplayPanel(profile) : ""}
-      ${panel === "search" ? renderSearch(searchResults, searchMessage, searchLoading, searchQuery, "battlefield", castActionPopup) : ""}
       ${panel === "simulation" ? `
         <div class="simulation-log scroll-safe">
           ${(session.simulation?.log || [])
@@ -9529,84 +9724,102 @@ function getDensityClass(permanents = [], compressionMode = "adaptive") {
   return "density-low";
 }
 
-function renderSearch(results, message, loading = false, query = "", mode = "battlefield", castActionPopup = null) {
-  const deckMode = mode === "decks";
+function renderCanonicalScryfallSearchPopup(results, message, loading = false, query = "", mode = "battlefield", selection = null) {
   return `
-    <form class="search-box search-box--mockup" data-search-form>
-      <label><span class="search-label-icon" aria-hidden="true">&#128269;</span>Scryfall Search</label>
-      <div class="search-input-row">
-        <input type="search" name="query" data-search-query value="${escapeAttribute(query)}" placeholder="Search for a card..." inputmode="search" enterkeyhint="search" autocomplete="off" />
-        <button type="submit" aria-label="Search Scryfall" ${loading ? "disabled" : ""}>${loading ? "Searching…" : "Search"}</button>
-      </div>
-      <div class="search-tabs" aria-label="Search result categories">
-        <span class="active">Search Results</span>
-        <span>Recent</span>
-        <span>Favorites</span>
-      </div>
-      <p>${escapeHtml(message || "Works offline with saved commander deck matches.")}</p>
-    </form>
-    <div class="search-layout">
-    <div class="search-results scroll-safe" data-no-swipe>
-      ${results
-        .map((card, index) => {
-          const commanderEligible =
-            canBeCommander(card) ||
-            (/\blegendary\b/i.test(card.typeLine || "") &&
-              (/\bcreature\b/i.test(card.typeLine || "") ||
-                (/\bplaneswalker\b/i.test(card.typeLine || "") && /can be your commander/i.test(card.oracleText || ""))));
-          return `
-        <article class="search-result-card">
-          ${card.imageSmall ? `<img class="search-card-thumb" src="${escapeAttribute(card.imageSmall)}" alt="" loading="lazy" />` : `<div class="search-card-thumb placeholder" aria-hidden="true"></div>`}
-          <div class="search-card-copy">
-          <strong>${escapeHtml(card.name)}</strong>
-          <span>${escapeHtml(card.typeLine || "")}</span>
-          <p>${escapeHtml(truncateText(card.oracleText || "", 84))}</p>
+    <div class="scryfall-popup-layer" data-scryfall-popup-backdrop data-no-swipe data-search-presentation="modal" data-search-animation-priority="critical-gameplay-yields-search">
+      <section class="scryfall-popup glass" role="dialog" aria-modal="true" aria-labelledby="scryfall-popup-title" data-scryfall-popup data-scryfall-search-version="${escapeAttribute(CANONICAL_SCRYFALL_SEARCH_VERSION)}">
+        <div class="scryfall-popup__header">
+          <div>
+            <p class="eyebrow">BoardState Library</p>
+            <h2 id="scryfall-popup-title">${mode === "decks" ? "Find a deck card" : "Find a battlefield card"}</h2>
           </div>
-          <div class="row mini search-result-actions">
-            ${deckMode ? `
-              <button data-deck-result="${index}">Add to selected deck</button>
-              <button data-new-deck-result="${index}">Add to new deck</button>
-              ${commanderEligible ? `<button data-commander-result="${index}">Make commander</button>` : ""}
-            ` : `
-              <button class="cast-badge ${castActionPopup?.index === index ? "active" : ""}" data-cast-result="${index}" aria-expanded="${castActionPopup?.index === index ? "true" : "false"}">Cast</button>
-            `}
-          </div>
-        </article>
-      `;
-        })
-        .join("")}
-    </div>
-    ${deckMode ? "" : renderCastActionPopup(results, castActionPopup)}
+          <button type="button" class="scryfall-popup__close" data-close-scryfall-search aria-label="Close Scryfall search">Close</button>
+        </div>
+        ${renderSearch(results, message, loading, query, mode, selection)}
+      </section>
     </div>
   `;
 }
 
-function renderCastActionPopup(results = [], popup = null) {
-  if (!popup || !results[popup.index]) {
-    return "";
-  }
-  const card = results[popup.index];
+function renderSearch(results, message, loading = false, query = "", mode = "battlefield", selection = null) {
+  const deckMode = mode === "decks";
+  const selected = selection && results[selection.index] ? results[selection.index] : null;
+  const predictiveResults = results.slice(0, 3);
   return `
-    <aside class="cast-action-popup glass scroll-safe" data-no-swipe role="dialog" aria-label="Cast options for ${escapeAttribute(card.name)}">
-      <div class="overlay-header compact">
-        <div>
-          <p class="eyebrow">Cast / Action</p>
-          <strong>${escapeHtml(card.name)}</strong>
+    <form class="search-box search-box--canonical" data-search-form role="search">
+      <label for="canonical-scryfall-query">Search Scryfall cards</label>
+      <div class="search-input-row">
+        <span class="search-label-icon" aria-hidden="true">&#128269;</span>
+        <input id="canonical-scryfall-query" type="search" name="query" data-search-query value="${escapeAttribute(query)}" placeholder="Search Scryfall cards" inputmode="search" enterkeyhint="search" autocomplete="off" autofocus aria-describedby="scryfall-search-status" />
+        ${query ? `<button type="button" class="search-clear" data-clear-scryfall-search aria-label="Clear card search">Clear</button>` : ""}
+      </div>
+      <p id="scryfall-search-status" class="scryfall-search-status" role="status" aria-live="polite">${escapeHtml(message || "Type at least two characters. Three close matches appear as you type.")}</p>
+    </form>
+    <div class="search-layout search-layout--canonical">
+      ${selected ? renderScryfallSelectedResult(selected, selection.index, deckMode, selection) : `
+        <div class="search-results search-results--predictive scroll-safe" data-no-swipe role="listbox" aria-label="Scryfall search results" aria-busy="${loading ? "true" : "false"}">
+          ${loading ? `<p class="search-empty-state">Searching Scryfall...</p>` : ""}
+          ${!loading && query.trim().length >= 2 && !predictiveResults.length ? `<p class="search-empty-state">No cards found. Check the name or retry when online.</p>` : ""}
+          ${predictiveResults.map((card, index) => `
+            <button type="button" class="search-result-card" data-select-search-result="${index}" role="option" aria-selected="false" aria-label="${escapeAttribute(`${card.name}, ${card.typeLine || "Magic card"}`)}">
+              ${card.imageSmall ? `<img class="search-card-thumb" src="${escapeAttribute(card.imageSmall)}" alt="" loading="lazy" decoding="async" />` : `<div class="search-card-thumb placeholder" aria-hidden="true"></div>`}
+              <span class="search-card-copy">
+                <strong>${escapeHtml(card.name)}</strong>
+                <span>${escapeHtml(card.typeLine || "")}</span>
+                <small>${escapeHtml(card.manaCost || card.setCode || "")}</small>
+              </span>
+              <span class="search-result-chevron" aria-hidden="true">&#8250;</span>
+            </button>
+          `).join("")}
         </div>
-        <button type="button" data-close-cast-popup aria-label="Close cast options">Close</button>
+      `}
+    </div>
+  `;
+}
+
+function renderScryfallSelectedResult(card = {}, index = 0, deckMode = false, selection = {}) {
+  const commanderEligible =
+    canBeCommander(card) ||
+    (/\blegendary\b/i.test(card.typeLine || "") &&
+      (/\bcreature\b/i.test(card.typeLine || "") ||
+        (/\bplaneswalker\b/i.test(card.typeLine || "") && /can be your commander/i.test(card.oracleText || ""))));
+  const isLand = /(^|\s)land(\s|$)/i.test(card.typeLine || "");
+  return `
+    <article class="scryfall-selected-card" aria-live="polite">
+      <div class="scryfall-selected-card__visual">
+        ${card.imageUrl || card.imageSmall ? `<img src="${escapeAttribute(card.imageUrl || card.imageSmall)}" alt="${escapeAttribute(`${card.name} card`)}" loading="eager" decoding="async" />` : `<div class="scryfall-selected-card__fallback"><strong>${escapeHtml(card.name)}</strong><span>${escapeHtml(card.typeLine || "Magic card")}</span></div>`}
       </div>
-      <div class="cast-action-popup__grid">
-        <button type="button" data-cast-action-zone="hand" data-cast-action-index="${popup.index}"><span aria-hidden="true">&#9995;</span>Cast from Hand</button>
-        <button type="button" data-cast-action-zone="graveyard" data-cast-action-index="${popup.index}"><span aria-hidden="true">&#9760;</span>Cast from Graveyard</button>
-        <button type="button" data-cast-action-zone="exile" data-cast-action-index="${popup.index}"><span aria-hidden="true">&#128274;</span>Cast from Exile</button>
-        <button type="button" data-cast-action-zone="command" data-cast-action-index="${popup.index}"><span aria-hidden="true">&#128737;</span>Cast from Command Zone</button>
-        <button type="button" class="put-battlefield-action" data-cast-action-put="${popup.index}"><span aria-hidden="true">&#10148;</span>Put onto Battlefield <small>Not casting</small></button>
+      <div class="scryfall-selected-card__copy">
+        <button type="button" class="quiet-action" data-back-to-search-results>Back to results</button>
+        <p class="eyebrow">Selected card</p>
+        <h3>${escapeHtml(card.name)}</h3>
+        <span>${escapeHtml(card.manaCost || "")} ${escapeHtml(card.typeLine || "")}</span>
+        <p>${escapeHtml(card.oracleText || "No Oracle text available.")}</p>
+        ${card.rulings?.length ? `<details class="scryfall-rulings"><summary>Recent rulings</summary>${card.rulings.slice(0, 3).map((entry) => `<p>${escapeHtml(entry.comment || "")}</p>`).join("")}</details>` : ""}
+        <div class="scryfall-selected-actions">
+          ${deckMode ? `
+            <button class="primary-action" data-deck-result="${index}">Add to selected deck</button>
+            <button data-new-deck-result="${index}">Add to new deck</button>
+            ${commanderEligible ? `<button data-commander-result="${index}">Make commander</button>` : ""}
+          ` : `
+            <button class="primary-action" data-cast-action-zone="hand" data-cast-action-index="${index}">${isLand ? "Play land" : "Cast from hand"}</button>
+            <button data-cast-action-put="${index}">Put onto battlefield</button>
+            <button data-inspect-result="${index}">Inspect details</button>
+          `}
+        </div>
+        ${deckMode ? "" : `
+          <details class="scryfall-advanced-actions">
+            <summary>Other zones and controller</summary>
+            <div class="button-grid mini">
+              <button type="button" data-cast-action-zone="graveyard" data-cast-action-index="${index}">Cast from graveyard</button>
+              <button type="button" data-cast-action-zone="exile" data-cast-action-index="${index}">Cast from exile</button>
+              <button type="button" data-cast-action-zone="command" data-cast-action-index="${index}">Cast from command zone</button>
+            </div>
+            <label class="cast-action-owner-toggle"><span>Card belongs to opponent</span><input type="checkbox" data-cast-owner-opponent ${selection.opponent ? "checked" : ""} /></label>
+          </details>
+        `}
       </div>
-      <label class="cast-action-owner-toggle">
-        <span>Card belongs to opponent</span>
-        <input type="checkbox" data-cast-owner-opponent ${popup.opponent ? "checked" : ""} />
-      </label>
-    </aside>
+    </article>
   `;
 }
 
@@ -10144,7 +10357,10 @@ function renderDecks(profile, results, message, searchLoading, searchQuery) {
   return `
     <section class="utility-page glass">
       <h2>Commander Decks</h2>
-      ${renderSearch(results, message, searchLoading, searchQuery, "decks")}
+      <article class="deck-search-launcher">
+        <div><p class="eyebrow">Canonical card search</p><strong>Find a card without leaving this deck context.</strong><span>Predictive Scryfall results open in the same BoardState popup used during gameplay.</span></div>
+        <button class="primary-action" data-open-utility="search">Search Scryfall</button>
+      </article>
       ${decks.map((deck) => `
         <article class="log-card">
           <strong>${escapeHtml(deck.commanderName)}</strong>
@@ -12251,7 +12467,7 @@ function getUnreadNotificationCount(profile = {}) {
 }
 
 function getAppVersion() {
-  return "1.41.0";
+  return "1.42.0";
 }
 
 function renderGameOptions(profile, page = "life") {

@@ -2,9 +2,16 @@
 
 ## App
 - Name: BoardState
-- Version: 1.26.0
-- Version code: 41
+- Version: 1.42.0
+- Version code: 42
 - Package: `com.boardstate.app`
+
+## Version 1.42.0
+- Finalizes the Phase 13.3 canonical in-game Scryfall popup with focused predictive search, compact results, stale-response suppression, offline fallback, keyboard/modal dismissal, and preserved battlefield context.
+- Adds semantic search request/action identity and protected-animation handoff so search cannot cover or duplicate critical casting, resolution, combat, or board-wipe presentation.
+- Adds mode-aware land play state with immediate Live Tracking entry, no manufactured Resolve step, strict Full Control timing/allowance checks, additional-land permissions, and safe turn reset.
+- Fixes expired card presentation metadata blocking later Command Hand actions and fixes transparent battlefield tool layers intercepting Command Hand input.
+- Revalidates canonical battlefield, Command Hand, multiplayer, gesture, resolve/event, persistence, portability, and production build guardrails.
 
 ## Version 1.26.0
 - Adds the canonical Commander/Brawl session architecture over the existing shared-session and rules-engine foundations, preserving BoardState as the rules authority.

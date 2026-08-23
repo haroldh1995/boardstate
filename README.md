@@ -19,6 +19,8 @@ It works offline for gameplay, stores profile data locally, and treats Scryfall 
 - Friend discovery/invites use their own namespace so friend messages, gameplay sync, and tournament sync do not process each other's packets.
 - Notification preferences with popup/toast controls plus centralized browser-safe Audio Tokens and Haptic Tokens where supported.
 - Export/import full local player profiles as JSON.
+- Canonical in-game Scryfall popup with focused predictive search, compact results, offline fallback, stale-query protection, and protected-animation handoff.
+- Mode-aware land play tracking with immediate Live Tracking entry and strict Full Control timing/allowance enforcement.
 
 ## Local-First Design
 

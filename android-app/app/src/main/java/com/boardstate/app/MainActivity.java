@@ -5,11 +5,7 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.graphics.Bitmap;
-import android.net.ConnectivityManager;
-import android.net.Network;
-import android.net.NetworkCapabilities;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Message;
 import android.view.View;
@@ -20,6 +16,7 @@ import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -35,13 +32,13 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.webkit.WebSettingsCompat;
+import androidx.webkit.WebViewAssetLoader;
 import androidx.webkit.WebViewFeature;
 
 import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
-    private static final String REMOTE_URL = "https://haroldh1995.github.io/boardstate/#battlefield";
-    private static final String OFFLINE_BUNDLE_URL = "file:///android_asset/www/index.html#battlefield";
+    private static final String APP_BUNDLE_URL = "https://appassets.androidplatform.net/assets/www/index.html#battlefield";
     private static final String STATE_WEBVIEW = "state_webview";
 
     private WebView webView;
@@ -52,8 +49,6 @@ public class MainActivity extends AppCompatActivity {
     private Button offlineButton;
     private ProgressBar loadingSpinner;
     private ValueCallback<Uri[]> filePathCallback;
-    private boolean loadedOnce = false;
-    private boolean forceOfflineMode = false;
 
     private final ActivityResultLauncher<Intent> fileChooserLauncher =
         registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -83,7 +78,6 @@ public class MainActivity extends AppCompatActivity {
 
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState.getBundle(STATE_WEBVIEW));
-            loadedOnce = true;
             hideLoading();
             return;
         }
@@ -103,14 +97,12 @@ public class MainActivity extends AppCompatActivity {
 
     private void configureButtons() {
         retryButton.setOnClickListener(v -> {
-            forceOfflineMode = false;
             loadPreferredSource();
         });
         offlineButton.setOnClickListener(v -> {
-            forceOfflineMode = true;
             hideError();
             showLoading("Opening bundled offline copy...");
-            webView.loadUrl(OFFLINE_BUNDLE_URL);
+            webView.loadUrl(APP_BUNDLE_URL);
         });
     }
 
@@ -134,7 +126,7 @@ public class MainActivity extends AppCompatActivity {
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
         settings.setAllowContentAccess(true);
-        settings.setAllowFileAccess(true); // Required for bundled offline assets and optional file uploads.
+        settings.setAllowFileAccess(false);
         settings.setMediaPlaybackRequiresUserGesture(true);
         settings.setJavaScriptCanOpenWindowsAutomatically(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
@@ -149,9 +141,19 @@ public class MainActivity extends AppCompatActivity {
 
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
-        cookieManager.setAcceptThirdPartyCookies(webView, true);
+        cookieManager.setAcceptThirdPartyCookies(webView, false);
+
+        WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
+            .build();
 
         webView.setWebViewClient(new WebViewClient() {
+            @Nullable
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                return assetLoader.shouldInterceptRequest(request.getUrl());
+            }
+
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 showLoading("Loading BoardState...");
@@ -160,7 +162,6 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                loadedOnce = true;
                 hideLoading();
             }
 
@@ -205,9 +206,7 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onPermissionRequest(PermissionRequest request) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    request.grant(request.getResources());
-                }
+                request.deny();
             }
 
             @Override
@@ -226,15 +225,7 @@ public class MainActivity extends AppCompatActivity {
     private void loadPreferredSource() {
         hideError();
         showLoading("Loading BoardState...");
-        if (forceOfflineMode) {
-            webView.loadUrl(OFFLINE_BUNDLE_URL);
-            return;
-        }
-        if (isNetworkAvailable()) {
-            webView.loadUrl(REMOTE_URL);
-        } else {
-            webView.loadUrl(OFFLINE_BUNDLE_URL);
-        }
+        webView.loadUrl(APP_BUNDLE_URL);
     }
 
     private boolean handleExternalUrl(@NonNull Uri uri) {
@@ -246,8 +237,8 @@ public class MainActivity extends AppCompatActivity {
         }
 
         String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.US);
-        boolean trustedHost = host.endsWith("haroldh1995.github.io") || host.endsWith("scryfall.com") || host.endsWith("api.scryfall.com");
-        if ("file".equals(scheme) || trustedHost) {
+        boolean trustedHost = host.equals("appassets.androidplatform.net") || host.endsWith("api.scryfall.com");
+        if (trustedHost) {
             return false;
         }
 
@@ -257,28 +248,7 @@ public class MainActivity extends AppCompatActivity {
         return true;
     }
 
-    private boolean isNetworkAvailable() {
-        ConnectivityManager connectivityManager = getSystemService(ConnectivityManager.class);
-        if (connectivityManager == null) {
-            return false;
-        }
-        Network network = connectivityManager.getActiveNetwork();
-        if (network == null) {
-            return false;
-        }
-        NetworkCapabilities capabilities = connectivityManager.getNetworkCapabilities(network);
-        if (capabilities == null) {
-            return false;
-        }
-        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
-    }
-
     private void handleLoadFailure(String message) {
-        if (!loadedOnce && !forceOfflineMode) {
-            forceOfflineMode = true;
-            webView.loadUrl(OFFLINE_BUNDLE_URL);
-            return;
-        }
         hideLoading();
         showError(message);
     }

@@ -452,9 +452,13 @@ export function resolveGameplayAttentionOwner(context = {}) {
   const stackActive = Boolean(context.stackActive || (session.stack || []).length);
   const presentation = context.presentation || session.presentation || null;
   const presentationKind = String(presentation?.kind || "");
+  const presentationExpiresAt = Number(presentation?.expiresAt || 0);
+  const presentationActive = Boolean(
+    presentation && (!presentationExpiresAt || presentationExpiresAt > Number(context.now || Date.now()))
+  );
   const castOrResolvePresentation = Boolean(
     context.castingOrResolving ||
-    ["cast", "spell-cast", "resolved-permanent", "entered-battlefield", "land-played"].includes(presentationKind)
+    (presentationActive && ["cast", "spell-cast", "resolved-permanent", "entered-battlefield", "land-played"].includes(presentationKind))
   );
   const combatActive = Boolean(context.combatActive || session.combat?.step && session.combat.step !== "idle");
   const inspectionActive = Boolean(context.inspectionActive || context.previewRole === CARD_PRESENTATION_ROLES.inspectionPreview);

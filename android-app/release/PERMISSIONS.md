@@ -2,16 +2,14 @@
 
 ## Requested
 - `android.permission.INTERNET`
-  - Used to load the production BoardState web app and live Scryfall requests.
+  - Used for live Scryfall requests and explicitly configured multiplayer relay connections. The application shell is bundled in the APK.
 - `android.permission.ACCESS_NETWORK_STATE`
-  - Used to detect connectivity and decide remote vs bundled offline load behavior.
-- `android.permission.READ_MEDIA_IMAGES` (API 33+)
-  - Used only when file/image picking is requested by web content.
-- `android.permission.READ_EXTERNAL_STORAGE` (maxSdkVersion 32)
-  - Legacy image/file selection support on older Android versions.
+  - Used to report network availability without making connectivity authoritative gameplay state.
 
 ## Not requested
 - Camera
 - Location
 - Contacts
 - Microphone
+- Photos/media storage
+- Broad external storage

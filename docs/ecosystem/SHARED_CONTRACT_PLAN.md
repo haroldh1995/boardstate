@@ -68,7 +68,7 @@ Responsibilities:
 | `SET_PHASE` | Missing as canonical action | none | UI uses advance only | Direct phase target and validation |
 | `PASS_PRIORITY` | Implemented | `effectEngine.js`, `gameReducer.js` | Stack UI | Priority round, responder ordering |
 | `CAST_SPELL` | Implemented partially | `effectEngine.js`, `gameReducer.js` | UI builds cast/source options | Card ref, mode, costs, targets, source zone |
-| `PLAY_LAND` | Partial via `ADD_PERMANENT`/land copy | reducer/effect events | Not canonical | Land play count, permissions |
+| `PLAY_LAND` | Implemented through canonical land-play policy | `gameReducer.js`, `landPlaySystem.js`, event pipeline | Shared semantic action | Land play count, additional permissions, mode-aware timing |
 | `PUT_ONTO_BATTLEFIELD` | Implemented as `ADD_PERMANENT` | `gameReducer.js`, `entrySystem.js` | Search/UI driven | Source zone/effect/ref |
 | `ACTIVATE_ABILITY` | Partial/manual | reducer tap/manual trigger paths | UI selected-card menus | Ability ID, costs, targets, modes |
 | `TRIGGER_ABILITY` | Implemented as `ADD_MANUAL_TRIGGER` and event triggers | `effectEngine.js`, `gameReducer.js` | Manual UI | Trigger ID, count, conditions |
@@ -114,7 +114,7 @@ Responsibilities:
 | `PHASE_CHANGED` | Implemented | `eventBus.js`, `fsm.js` | Reducer action | Phase/step IDs |
 | `PRIORITY_CHANGED` | Partial | `effectEngine.js` priority state | Not explicit event | Priority pass/order metadata |
 | `SPELL_CAST` | Implemented | `eventBus.js`, `effectEngine.js` | Stack object state | Cast choices/costs |
-| `LAND_PLAYED` | Partial | land entry events | Not distinct | Land-play action versus ETB |
+| `LAND_PLAYED` | Implemented | semantic land-play identity plus permanent-entry events | Canonical action/event boundary | Distinguishes a land play from entry consequences |
 | `PERMANENT_ENTERED` | Implemented as `ENTER_BATTLEFIELD` | `eventBus.js`, reducer | Event bus | From zone, replacement effects |
 | `PERMANENT_LEFT_BATTLEFIELD` | Implemented as `LEAVE_BATTLEFIELD` | `eventBus.js` | Action mapped | Destination and cause |
 | `SPELL_RESOLVED` | Partial | `effectEngine.js` logs | Not canonical | Stack object result |
