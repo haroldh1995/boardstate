@@ -507,6 +507,8 @@ test("Part 6 static lockdown audit covers docs, renderer markers, portability bo
   assert.match(styles, /zone-local-horizontal-scroll/);
   assert.match(styles, /--protected-command-hand-clearance/);
   assert.match(styles, /touch-action:\s*none/);
+  assert.match(styles, /support-far-right[^}]*:first-child[\s\S]*margin-left:\s*auto/);
+  assert.match(styles, /planeswalker-far-right[^}]*:first-child[\s\S]*margin-left:\s*auto/);
 
   const sourceByPath = Object.fromEntries(sharedFiles.map((filePath) => [filePath, readRepositoryFile(filePath)]));
   const audit = auditPlatformBoundary(sourceByPath);

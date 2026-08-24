@@ -243,8 +243,8 @@ function redactSecrets(key, value) {
 function getAppVersion() {
   return {
     name: "BoardState",
-    version: "1.43.0",
-    build: "timeline-rules-recovery-release",
+    version: "1.43.1",
+    build: "canonical-placement-polish-release",
   };
 }
 

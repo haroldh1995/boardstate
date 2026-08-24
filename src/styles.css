@@ -10379,11 +10379,21 @@ body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-land-sup
   border-color: rgba(143, 211, 255, 0.18);
 }
 
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-land-support-zone .permanent[data-placement-role="support-far-right"]:first-child,
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-land-support-zone .permanent:not([data-placement-role="support-far-right"]) + .permanent[data-placement-role="support-far-right"] {
+  margin-left: auto;
+}
+
 body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-creature-zone .permanent[data-placement-role="planeswalker-far-right"] {
   border-color: rgba(236, 200, 122, 0.34);
   box-shadow:
     0 16px 34px rgba(0, 0, 0, 0.36),
     0 0 18px rgba(236, 200, 122, 0.09);
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-creature-zone .permanent[data-placement-role="planeswalker-far-right"]:first-child,
+body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-creature-zone .permanent:not([data-placement-role="planeswalker-far-right"]) + .permanent[data-placement-role="planeswalker-far-right"] {
+  margin-left: auto;
 }
 
 body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .battlefield-group[data-horizontal-scroll="true"]::before,

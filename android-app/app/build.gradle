@@ -76,8 +76,8 @@ android {
         applicationId "com.boardstate.app"
         minSdk 24
         targetSdk 36
-        versionCode 45
-        versionName "1.43.0"
+        versionCode 46
+        versionName "1.43.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 

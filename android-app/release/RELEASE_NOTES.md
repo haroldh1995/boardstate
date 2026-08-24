@@ -2,9 +2,14 @@
 
 ## App
 - Name: BoardState
-- Version: 1.43.0
-- Version code: 45
+- Version: 1.43.1
+- Version code: 46
 - Package: `com.boardstate.app`
+
+## Version 1.43.1
+- Corrects the final canonical battlefield placement regression so a support-only lower zone anchors its first support permanent to the far-right boundary instead of drifting toward center.
+- Applies the same far-right boundary anchoring to a planeswalker-only creature region while preserving inward expansion, density escalation, and zone-local overflow.
+- Adds static architecture-lock regression checks for both renderer-level placement boundaries and revalidates the release build visually.
 
 ## Version 1.43.0
 - Adds the canonical Timeline and Relationship experience with bounded filtering, pagination, read-only replay observation, public relationship explanations, and guaranteed return to live play without authoritative mutation.

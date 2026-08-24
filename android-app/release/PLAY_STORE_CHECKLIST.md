@@ -1,7 +1,7 @@
 # Google Play Readiness Checklist
 
 - [x] Package name set (`com.boardstate.app`)
-- [x] Version name/code set (`1.43.0` / `45`)
+- [x] Version name/code set (`1.43.1` / `46`)
 - [x] Release APK generated
 - [x] Release AAB generated
 - [ ] Production upload certificate generated (`release/upload_certificate.pem`) after private credentials are supplied
