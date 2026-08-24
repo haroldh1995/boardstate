@@ -57,7 +57,12 @@ jobs:
           cp android-app/app/build/outputs/apk/debug/app-debug.apk release-package/android/
           cp android-app/app/build/outputs/apk/release/app-release.apk release-package/android/
           cp android-app/app/build/outputs/bundle/release/app-release.aab release-package/android/
-          cp android-app/release/upload_certificate.pem release-package/android/
+          if [[ -f android-app/release/upload_certificate.pem ]]; then
+            cp android-app/release/upload_certificate.pem release-package/android/
+            printf 'production-upload-certificate\n' > release-package/android/SIGNING_STATUS.txt
+          else
+            printf 'test-signed: external production signing credentials were not supplied\n' > release-package/android/SIGNING_STATUS.txt
+          fi
           cp -R flutter-app/* release-package/flutter-wrapper/
           cp android-app/release/INSTALL_INSTRUCTIONS.md release-package/
           cp android-app/release/KNOWN_LIMITATIONS.md release-package/
@@ -77,6 +82,6 @@ jobs:
             android-app/app/build/outputs/apk/debug/app-debug.apk
             android-app/app/build/outputs/apk/release/app-release.apk
             android-app/app/build/outputs/bundle/release/app-release.aab
-            android-app/release/upload_certificate.pem
+            android-app/release/upload_certificate*.pem
             BoardState-${{ github.ref_name }}-Flutter-Wrapper.zip
           generate_release_notes: true
