@@ -1,6 +1,6 @@
 {
   "name": "boardstate",
-  "version": "1.42.0",
+  "version": "1.42.1",
   "private": true,
   "type": "module",
   "description": "Local-first hybrid MTG battlefield companion rebuilt with layered gameplay systems.",
@@ -22,7 +22,7 @@
     "android:build:all": "npm run android:prepare && npm run android:gradle -- clean assembleDebug assembleRelease bundleRelease exportReleaseUploadCertificate"
   },
   "devDependencies": {
-    "vite": "^8.0.12",
-    "ws": "^8.18.3"
+    "vite": "^8.2.2",
+    "ws": "^8.21.3"
   }
 }
