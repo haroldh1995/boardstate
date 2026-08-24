@@ -243,7 +243,7 @@ function redactSecrets(key, value) {
 function getAppVersion() {
   return {
     name: "BoardState",
-    version: "1.42.1",
+    version: "1.42.2",
     build: "canonical-search-release",
   };
 }

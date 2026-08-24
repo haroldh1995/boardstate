@@ -2,11 +2,12 @@
 
 ## App
 - Name: BoardState
-- Version: 1.42.1
-- Version code: 43
+- Version: 1.42.2
+- Version code: 44
 - Package: `com.boardstate.app`
 
-## Version 1.42.1
+## Version 1.42.2
+- Adds a dedicated relative-base Android web build so every bundled JavaScript, style, icon, and loading asset resolves through the native asset-loader origin without depending on the GitHub Pages path.
 - Finalizes the Phase 13.3 canonical in-game Scryfall popup with focused predictive search, compact results, stale-response suppression, offline fallback, keyboard/modal dismissal, and preserved battlefield context.
 - Adds semantic search request/action identity and protected-animation handoff so search cannot cover or duplicate critical casting, resolution, combat, or board-wipe presentation.
 - Adds mode-aware land play state with immediate Live Tracking entry, no manufactured Resolve step, strict Full Control timing/allowance checks, additional-land permissions, and safe turn reset.

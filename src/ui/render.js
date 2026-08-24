@@ -12467,7 +12467,7 @@ function getUnreadNotificationCount(profile = {}) {
 }
 
 function getAppVersion() {
-  return "1.42.1";
+  return "1.42.2";
 }
 
 function renderGameOptions(profile, page = "life") {

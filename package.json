@@ -1,6 +1,6 @@
 {
   "name": "boardstate",
-  "version": "1.42.1",
+  "version": "1.42.2",
   "private": true,
   "type": "module",
   "description": "Local-first hybrid MTG battlefield companion rebuilt with layered gameplay systems.",
@@ -14,8 +14,9 @@
     "flutter:sync-assets": "npm run flutter:web && node ./scripts/sync-flutter-assets.mjs",
     "flutter:prepare": "npm run flutter:sync-assets",
     "flutter:create-platforms": "node ./scripts/flutter-create-platforms.mjs",
+    "android:web": "vite build --base ./",
     "android:sync-assets": "node ./scripts/sync-android-assets.mjs",
-    "android:prepare": "npm run build && npm run android:sync-assets",
+    "android:prepare": "npm run android:web && npm run android:sync-assets",
     "android:gradle": "node ./scripts/android-gradle.mjs",
     "android:build:debug": "npm run android:prepare && npm run android:gradle -- clean assembleDebug",
     "android:build:release": "npm run android:prepare && npm run android:gradle -- clean assembleRelease bundleRelease",
