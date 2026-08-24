@@ -174,7 +174,8 @@ body::after {
   position: fixed;
   top: max(0.55rem, env(safe-area-inset-top));
   right: max(0.65rem, env(safe-area-inset-right));
-  z-index: 160;
+  /* Foreground gameplay panels must own the corner and their close controls. */
+  z-index: 117;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4488,6 +4489,136 @@ body[data-page="leaderboards"] .utility-page .wide[data-open-stats] {
   overflow: auto;
 }
 
+.history-timeline {
+  max-height: min(90svh, 760px);
+  overflow: hidden;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+}
+
+.timeline-integrity-note,
+.timeline-live-warning {
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  border-left: 3px solid var(--gold);
+  border-radius: 8px;
+  color: var(--muted);
+  background: rgba(0, 0, 0, 0.18);
+  font-size: 0.76rem;
+}
+
+.timeline-filter-row {
+  display: flex;
+  gap: 0.35rem;
+  overflow-x: auto;
+  padding-block: 0.1rem;
+  scrollbar-width: none;
+}
+
+.timeline-filter-row::-webkit-scrollbar {
+  display: none;
+}
+
+.timeline-filter-row button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0.34rem 0.58rem;
+  font-size: 0.72rem;
+}
+
+.timeline-filter-row button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--gold) 72%, white 28%);
+  color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 16%, transparent);
+}
+
+.timeline-relationships,
+.timeline-observation {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.62rem 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.timeline-relationships p,
+.timeline-observation p,
+.timeline-observation h3 {
+  margin: 0;
+}
+
+.timeline-observation__facts,
+.timeline-event__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.32rem;
+}
+
+.timeline-observation__facts span,
+.timeline-event__tags span {
+  padding: 0.2rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--muted);
+  background: rgba(0, 0, 0, 0.18);
+  font-size: 0.68rem;
+}
+
+.timeline-event {
+  display: grid;
+  gap: 0.35rem;
+  border-left: 3px solid rgba(255, 255, 255, 0.2);
+}
+
+.timeline-event--critical,
+.timeline-event--high {
+  border-left-color: var(--gold);
+}
+
+.timeline-event__heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.timeline-event__heading span,
+.timeline-event > span,
+.timeline-event small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.timeline-event p {
+  margin: 0;
+}
+
+.timeline-pagination {
+  justify-content: space-between;
+  align-items: center;
+}
+
+.timeline-pagination span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+@media (max-height: 520px) {
+  .history-timeline {
+    max-height: calc(100svh - 12px);
+  }
+
+  .history-timeline .timeline-integrity-note,
+  .history-timeline .timeline-relationships {
+    display: none;
+  }
+
+  .timeline-list {
+    max-height: none;
+  }
+}
+
 .pending-trigger {
   border-color: rgba(255, 126, 205, 0.78);
   box-shadow: 0 0 20px rgba(255, 126, 205, 0.16);
@@ -7854,6 +7985,7 @@ body[data-page="battlefield"] .gameplay-flow-section--triggers {
 .remind-me-list,
 .missed-trigger-recovery,
 .assistant-opportunities,
+.rules-recovery-panel,
 .rule-amendment-panel,
 .assistant-memory-panel {
   display: grid;
@@ -7888,6 +8020,110 @@ body[data-page="battlefield"] .gameplay-flow-section--triggers {
 .rule-amendment-list {
   display: grid;
   gap: 0.45rem;
+}
+
+.rules-recovery-panel {
+  padding: 0.68rem;
+  border: 1px solid rgba(236, 200, 122, 0.2);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 6% 0%, rgba(236, 200, 122, 0.1), transparent 34%),
+    rgba(3, 6, 16, 0.5);
+}
+
+.rules-recovery-boundary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.rules-recovery-import-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
+  gap: 0.42rem;
+}
+
+.rules-recovery-import-grid label,
+.rules-recovery-panel > label {
+  display: grid;
+  gap: 0.24rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.rules-recovery-import-grid .wide {
+  grid-column: 1 / -1;
+}
+
+.rules-recovery-effect-list,
+.rules-recovery-case-list,
+.rules-recovery-reference-list {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.rules-recovery-effect-list article,
+.rules-recovery-case-list article,
+.rules-recovery-reference-list article {
+  display: grid;
+  gap: 0.36rem;
+  padding: 0.58rem 0.64rem;
+  border: 1px solid rgba(143, 211, 255, 0.16);
+  border-radius: 14px;
+  background: rgba(3, 7, 18, 0.48);
+}
+
+.rules-recovery-effect-list article {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.rules-recovery-effect-list p,
+.rules-recovery-case-list p,
+.rules-recovery-reference-list p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.rules-recovery-case-heading,
+.rules-recovery-reference-list article > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.rules-recovery-case-heading span,
+.rules-recovery-reference-list span,
+.rules-recovery-case-list small,
+.rules-recovery-reference-list small {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.rules-recovery-reference-list p {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.rules-recovery-reference-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.4rem;
+}
+
+@media (max-width: 680px) {
+  .rules-recovery-import-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rules-recovery-import-grid .wide {
+    grid-column: auto;
+  }
 }
 
 .assistant-notification-stack.is-quiet article,

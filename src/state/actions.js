@@ -1,7 +1,7 @@
 import { createId } from "./ids.js";
 
-const NON_REPLAYABLE = new Set(["SAVE_TICK", "IMPORT_PROFILE"]);
-const NON_UNDOABLE = new Set(["SAVE_TICK", "IMPORT_PROFILE", "UNDO"]);
+const NON_REPLAYABLE = new Set(["SAVE_TICK", "IMPORT_PROFILE", "REPLAY_TO_ACTION"]);
+const NON_UNDOABLE = new Set(["SAVE_TICK", "IMPORT_PROFILE", "UNDO", "REPLAY_TO_ACTION"]);
 
 export function createAction(input, state) {
   if (!input || typeof input !== "object") {

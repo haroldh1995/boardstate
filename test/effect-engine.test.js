@@ -376,14 +376,15 @@ test("trigger queue enqueues and resolves triggers with chain metadata", () => {
   assert.equal(trigger.status, "resolved");
 });
 
-test("replay to action restores deterministic snapshot", () => {
+test("legacy replay action cannot replace the authoritative live session", () => {
   let profile = createDefaultProfile();
   profile = reduceProfile(profile, createAction({ type: "LIFE_DELTA", amount: 5 }, profile));
   const latest = profile.activeSession.actionHistory[0];
   profile = reduceProfile(profile, createAction({ type: "LIFE_DELTA", amount: -10 }, profile));
+  const before = JSON.stringify(profile.activeSession);
   const replayed = reduceProfile(profile, createAction({ type: "REPLAY_TO_ACTION", replayActionId: latest.actionId }, profile));
-  assert.equal(replayed.activeSession.life, latest.snapshot.life);
-  assert.equal(replayed.activeSession.replay.active, true);
+  assert.equal(JSON.stringify(replayed.activeSession), before);
+  assert.equal(replayed.activeSession.life, profile.activeSession.life);
 });
 
 test("dynamic query selectors and legal target helpers resolve board targets", () => {

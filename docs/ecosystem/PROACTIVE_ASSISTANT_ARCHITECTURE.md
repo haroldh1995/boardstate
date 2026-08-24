@@ -61,4 +61,4 @@ Reminders and Rule Amendments are included in normal session state, local saves,
 
 ## Deferred Work
 
-Prompt 10 does not add strategic AI coaching, voice assistance, spectator features, Hub services, external judge search, or a full Rules Recovery import interface. Later prompts must reuse this assistant boundary instead of creating disconnected reminder, confidence, or rule-amendment systems.
+Prompt 15 now provides the separate `RULES_RECOVERY_ARCHITECTURE.md` import and manual-effect recovery boundary while reusing this assistant's confidence and unanimous-amendment systems. Strategic AI coaching, voice assistance, spectator features, Hub services, and automatic external judge search remain outside this assistant.

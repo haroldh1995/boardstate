@@ -156,6 +156,19 @@ import {
   createRuleAmendmentProposal,
 } from "../authoritative-core/proactiveAssistant.js";
 import {
+  TIMELINE_RELATIONSHIP_VERSION,
+  createReplayObservation,
+  createTimelineExperience,
+} from "../authoritative-core/timelineRelationshipEngine.js";
+import {
+  RULE_REFERENCE_KINDS,
+  RULES_RECOVERY_VERSION,
+  createRecoveryContinuation,
+  createRulesRecoveryState,
+  searchRuleReferences,
+  validateRuleReferenceImport,
+} from "../authoritative-core/rulesRecoveryEngine.js";
+import {
   AI_ANALYSIS_VERSION,
   AI_GAMEPLAY_ENGINE_VERSION,
   AI_INFORMATION_MODES,
@@ -399,6 +412,16 @@ export function mountApp(root, store) {
   let remindMeNotice = "";
   let ruleAmendmentDraft = "";
   let ruleAmendmentNotice = "";
+  let rulesRecoverySourceKind = "official-rules";
+  let rulesRecoverySourceTitle = "";
+  let rulesRecoverySourceText = "";
+  let rulesRecoveryCitation = "";
+  let rulesRecoveryQuery = "";
+  let rulesRecoveryNotice = "";
+  let rulesRecoveryCaseInputs = {};
+  let timelineReplayObservation = null;
+  let timelineFilter = "all";
+  let timelinePage = 0;
   let combatResolving = false;
   let phaseAdvancePending = false;
   let simulationSetupOpen = false;
@@ -495,6 +518,16 @@ export function mountApp(root, store) {
       remindMeNotice,
       ruleAmendmentDraft,
       ruleAmendmentNotice,
+      rulesRecoverySourceKind,
+      rulesRecoverySourceTitle,
+      rulesRecoverySourceText,
+      rulesRecoveryCitation,
+      rulesRecoveryQuery,
+      rulesRecoveryNotice,
+      rulesRecoveryCaseInputs,
+      timelineReplayObservation,
+      timelineFilter,
+      timelinePage,
       quickPanelOpen,
       optionsOpen,
       statsOpen,
@@ -665,6 +698,16 @@ export function mountApp(root, store) {
       remindMeNotice,
       ruleAmendmentDraft,
       ruleAmendmentNotice,
+      rulesRecoverySourceKind,
+      rulesRecoverySourceTitle,
+      rulesRecoverySourceText,
+      rulesRecoveryCitation,
+      rulesRecoveryQuery,
+      rulesRecoveryNotice,
+      rulesRecoveryCaseInputs,
+      timelineReplayObservation,
+      timelineFilter,
+      timelinePage,
       quickPanelOpen,
       modifierPanelOpen,
       trackerModifier,
@@ -3559,7 +3602,32 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-replay-action]").forEach((button) => {
       button.addEventListener("click", () => {
-        store.dispatch({ type: "REPLAY_TO_ACTION", replayActionId: button.dataset.replayAction });
+        timelineReplayObservation = createReplayObservation(store.getState().activeSession, {
+          actionId: button.dataset.replayAction || "",
+          eventId: button.dataset.replayEvent || "",
+        });
+        render(store.getState());
+      });
+    });
+    container.querySelectorAll("[data-timeline-filter]").forEach((button) => {
+      button.addEventListener("click", () => {
+        timelineFilter = button.dataset.timelineFilter || "all";
+        timelinePage = 0;
+        timelineReplayObservation = null;
+        render(store.getState());
+      });
+    });
+    container.querySelectorAll("[data-timeline-page]").forEach((button) => {
+      button.addEventListener("click", () => {
+        timelinePage = Math.max(0, Number(button.dataset.timelinePage || 0));
+        timelineReplayObservation = null;
+        render(store.getState());
+      });
+    });
+    container.querySelectorAll("[data-timeline-return-live]").forEach((button) => {
+      button.addEventListener("click", () => {
+        timelineReplayObservation = null;
+        render(store.getState());
       });
     });
     container.querySelectorAll("[data-prediction-apply]").forEach((button) => {
@@ -3693,9 +3761,14 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-close-utility-panel]").forEach((button) => {
       button.addEventListener("click", () => {
+        const closingPanel = activeUtilityPanel;
         dismissSearchInputFocus();
         castActionPopup = null;
         activeUtilityPanel = "";
+        if (closingPanel === "history") {
+          timelineReplayObservation = null;
+          timelinePage = 0;
+        }
         render(store.getState());
       });
     });
@@ -3967,7 +4040,12 @@ export function mountApp(root, store) {
     const dismissNotification = event.target?.closest?.("[data-assistant-notification-dismiss]");
     const proposeAmendment = event.target?.closest?.("[data-rule-amendment-propose]");
     const amendmentVote = event.target?.closest?.("[data-rule-amendment-vote]");
-    if (!addReminder && !reminderStatus && !dismissNotification && !proposeAmendment && !amendmentVote) {
+    const importReference = event.target?.closest?.("[data-rules-recovery-import]");
+    const searchReferences = event.target?.closest?.("[data-rules-recovery-search]");
+    const openRecovery = event.target?.closest?.("[data-rules-recovery-open]");
+    const saveRecovery = event.target?.closest?.("[data-rules-recovery-save]");
+    const resumeRecovery = event.target?.closest?.("[data-rules-recovery-resume]");
+    if (!addReminder && !reminderStatus && !dismissNotification && !proposeAmendment && !amendmentVote && !importReference && !searchReferences && !openRecovery && !saveRecovery && !resumeRecovery) {
       return;
     }
     event.preventDefault();
@@ -4001,6 +4079,65 @@ export function mountApp(root, store) {
       proposeRuleAmendment(current);
       return;
     }
+    if (importReference) {
+      importRulesRecoveryReference(current);
+      return;
+    }
+    if (searchReferences) {
+      rulesRecoveryNotice = rulesRecoveryQuery.trim()
+        ? `${searchRuleReferences(current.activeSession?.rulesRecovery || {}, rulesRecoveryQuery).length} matching reference(s).`
+        : "Showing recently imported references.";
+      activeUtilityPanel = "remind-me";
+      render(current);
+      return;
+    }
+    if (openRecovery) {
+      const pendingEffectId = openRecovery.dataset.rulesRecoveryOpen || "";
+      rulesRecoveryNotice = "Rules Recovery case opened. The effect remains paused until explicit player input is confirmed.";
+      store.dispatch({ type: "RULES_RECOVERY_OPEN_CASE", pendingEffectId });
+      activeUtilityPanel = "remind-me";
+      utilityDockOpen = false;
+      return;
+    }
+    if (saveRecovery) {
+      const recoveryCaseId = saveRecovery.dataset.rulesRecoverySave || "";
+      const proposedInput = String(rulesRecoveryCaseInputs[recoveryCaseId] || "").trim();
+      if (!proposedInput) {
+        rulesRecoveryNotice = "Enter the missing player or table information before continuing.";
+        render(current);
+        return;
+      }
+      rulesRecoveryNotice = "Recovery input recorded for explicit review. No gameplay action has run yet.";
+      store.dispatch({
+        type: "RULES_RECOVERY_REVISE_CASE",
+        recoveryCaseId,
+        operation: "resume-existing-effect",
+        proposedInput,
+        status: "ready-to-resume",
+        playerId: resolveLocalGameplayPlayerId(current),
+      });
+      activeUtilityPanel = "remind-me";
+      utilityDockOpen = false;
+      return;
+    }
+    if (resumeRecovery) {
+      const recoveryCaseId = resumeRecovery.dataset.rulesRecoveryResume || "";
+      const continuation = createRecoveryContinuation(current.activeSession?.rulesRecovery || {}, recoveryCaseId);
+      if (!continuation.valid || !continuation.intent) {
+        rulesRecoveryNotice = continuation.errors[0] || "Recovery case is not ready to continue.";
+        render(current);
+        return;
+      }
+      rulesRecoveryNotice = "Existing manual effect completed from confirmed player input.";
+      store.dispatch({
+        type: continuation.intent.actionType,
+        ...continuation.intent,
+        playerId: resolveLocalGameplayPlayerId(current),
+      });
+      activeUtilityPanel = "remind-me";
+      utilityDockOpen = false;
+      return;
+    }
     if (amendmentVote) {
       store.dispatch({
         type: "RULE_AMENDMENT_VOTE",
@@ -4023,6 +4160,34 @@ export function mountApp(root, store) {
     }
     if (event.target?.matches?.("[data-rule-amendment-input]")) {
       ruleAmendmentDraft = String(event.target.value || "");
+      return;
+    }
+    if (event.target?.matches?.("[data-rules-recovery-kind]")) {
+      rulesRecoverySourceKind = String(event.target.value || "official-rules");
+      return;
+    }
+    if (event.target?.matches?.("[data-rules-recovery-title]")) {
+      rulesRecoverySourceTitle = String(event.target.value || "");
+      return;
+    }
+    if (event.target?.matches?.("[data-rules-recovery-source]")) {
+      rulesRecoverySourceText = String(event.target.value || "");
+      return;
+    }
+    if (event.target?.matches?.("[data-rules-recovery-citation]")) {
+      rulesRecoveryCitation = String(event.target.value || "");
+      return;
+    }
+    if (event.target?.matches?.("[data-rules-recovery-query]")) {
+      rulesRecoveryQuery = String(event.target.value || "");
+      return;
+    }
+    if (event.target?.matches?.("[data-rules-recovery-case-input]")) {
+      const recoveryCaseId = event.target.dataset.rulesRecoveryCaseInput || "";
+      rulesRecoveryCaseInputs = {
+        ...rulesRecoveryCaseInputs,
+        [recoveryCaseId]: String(event.target.value || ""),
+      };
     }
   }
 
@@ -4053,11 +4218,11 @@ export function mountApp(root, store) {
       text: draft,
       createdByPlayerId: resolveLocalGameplayPlayerId(profile),
     }, profile.activeSession);
-    store.dispatch({ type: "REMIND_ME_ADD", reminder });
     remindMeDraft = "";
     remindMeNotice = "Reminder armed.";
     activeUtilityPanel = "remind-me";
     utilityDockOpen = false;
+    store.dispatch({ type: "REMIND_ME_ADD", reminder });
     return true;
   }
 
@@ -4078,11 +4243,40 @@ export function mountApp(root, store) {
       render(profile);
       return false;
     }
-    store.dispatch({ type: "RULE_AMENDMENT_PROPOSE", proposal });
     ruleAmendmentDraft = "";
     ruleAmendmentNotice = "Proposal recorded. Every player must approve before use.";
     activeUtilityPanel = "remind-me";
     utilityDockOpen = false;
+    store.dispatch({ type: "RULE_AMENDMENT_PROPOSE", proposal });
+    return true;
+  }
+
+  function importRulesRecoveryReference(profile) {
+    const validation = validateRuleReferenceImport({
+      kind: rulesRecoverySourceKind,
+      title: rulesRecoverySourceTitle,
+      text: rulesRecoverySourceText,
+      citation: rulesRecoveryCitation,
+    });
+    if (!validation.valid) {
+      rulesRecoveryNotice = validation.errors[0] || "Rules reference needs revision.";
+      render(profile);
+      return false;
+    }
+    const reference = {
+      kind: validation.kind,
+      title: validation.title,
+      text: validation.text,
+      citation: validation.citation,
+      importedByPlayerId: resolveLocalGameplayPlayerId(profile),
+    };
+    rulesRecoverySourceTitle = "";
+    rulesRecoverySourceText = "";
+    rulesRecoveryCitation = "";
+    rulesRecoveryNotice = "Plain-text reference imported for review. It cannot execute or modify gameplay rules.";
+    activeUtilityPanel = "remind-me";
+    utilityDockOpen = false;
+    store.dispatch({ type: "RULES_RECOVERY_IMPORT_REFERENCE", reference });
     return true;
   }
 
@@ -6123,7 +6317,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       </header>
       ${page === "home" ? renderBoardStateHome(profile) : ""}
       ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier, uiState) : ""}
-      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", manualChoicePanelCollapsed: Boolean(uiState.manualChoicePanelCollapsed), utilityDockOpen: Boolean(uiState.utilityDockOpen), castActionPopup: uiState.castActionPopup, toolMenuOpen: Boolean(uiState.toolMenuOpen), activeToolPanel: uiState.activeToolPanel || "", activeOptionsCategory: uiState.activeOptionsCategory || "", commandDeckRotationIndex: uiState.commandDeckRotationIndex || 0, commandDeckLastManualRotationAt: uiState.commandDeckLastManualRotationAt || 0, sensoryDebugSnapshot: uiState.sensoryDebugSnapshot, learningDebugSnapshot: uiState.learningDebugSnapshot, assistanceDebugSnapshot: uiState.assistanceDebugSnapshot }) : ""}
+      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", manualChoicePanelCollapsed: Boolean(uiState.manualChoicePanelCollapsed), utilityDockOpen: Boolean(uiState.utilityDockOpen), castActionPopup: uiState.castActionPopup, toolMenuOpen: Boolean(uiState.toolMenuOpen), activeToolPanel: uiState.activeToolPanel || "", activeOptionsCategory: uiState.activeOptionsCategory || "", commandDeckRotationIndex: uiState.commandDeckRotationIndex || 0, commandDeckLastManualRotationAt: uiState.commandDeckLastManualRotationAt || 0, sensoryDebugSnapshot: uiState.sensoryDebugSnapshot, learningDebugSnapshot: uiState.learningDebugSnapshot, assistanceDebugSnapshot: uiState.assistanceDebugSnapshot, timelineReplayObservation: uiState.timelineReplayObservation, timelineFilter: uiState.timelineFilter || "all", timelinePage: Number(uiState.timelinePage || 0) }) : ""}
       ${page === "tournament" ? renderTournamentPage(profile) : ""}
       ${page === "profile" ? renderProfile(profile) : ""}
       ${page === "archive" ? renderArchive(profile) : ""}
@@ -6140,6 +6334,13 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
         remindMeNotice: uiState.remindMeNotice,
         ruleAmendmentDraft: uiState.ruleAmendmentDraft,
         ruleAmendmentNotice: uiState.ruleAmendmentNotice,
+        rulesRecoverySourceKind: uiState.rulesRecoverySourceKind,
+        rulesRecoverySourceTitle: uiState.rulesRecoverySourceTitle,
+        rulesRecoverySourceText: uiState.rulesRecoverySourceText,
+        rulesRecoveryCitation: uiState.rulesRecoveryCitation,
+        rulesRecoveryQuery: uiState.rulesRecoveryQuery,
+        rulesRecoveryNotice: uiState.rulesRecoveryNotice,
+        rulesRecoveryCaseInputs: uiState.rulesRecoveryCaseInputs,
       }) : ""}
       ${uiState.scryfallSearchState?.status === SCRYFALL_SEARCH_STATUS.open ? renderCanonicalScryfallSearchPopup(
         searchResults,
@@ -6946,7 +7147,11 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
     })}
     ${panels.advancedRulesHelpers || (session.pendingEffects || []).some((entry) => !["resolved", "skipped", "ignored"].includes(entry.status)) ? renderPending(session, Boolean(uiState.manualChoicePanelCollapsed), perspective) : ""}
     ${session.tutorial?.active ? renderTutorialSamplePanel(session) : ""}
-    ${activeUtilityPanel === "history" ? renderActionTimeline(profile) : ""}
+    ${activeUtilityPanel === "history" ? renderActionTimeline(profile, {
+      replayObservation: uiState.timelineReplayObservation,
+      filter: uiState.timelineFilter || "all",
+      page: Number(uiState.timelinePage || 0),
+    }) : ""}
     ${activeUtilityPanel === "triggers" ? renderTriggerQueuePanel(profile) : ""}
     ${uiState.opponentOverlayOpen && mirroredOpponent ? renderOpponentBattlefieldOverlay(profile, mirroredOpponent, mirroredOpponentIndex, perspectiveOpponentBoards.length, detailMode, compressionMode, selectedIds, expandedStackIds) : ""}
     ${session.combat?.step === "declare-blockers" && !session.simulation?.enabled ? renderBlockerDeclaration(profile, perspective) : ""}
@@ -8324,33 +8529,89 @@ function renderPredictiveSuggestions(profile) {
   `;
 }
 
-function renderActionTimeline(profile) {
-  const entries = profile.activeSession.actionHistory || [];
+function renderActionTimeline(profile, options = {}) {
+  const session = profile.activeSession || {};
+  const focusObjectId = getSelectedPermanents(session)[0]?.id || "";
+  const model = createTimelineExperience(session, {
+    filter: options.filter || "all",
+    page: Number(options.page || 0),
+    pageSize: 48,
+    focusObjectId,
+  });
+  const observation = options.replayObservation?.found ? options.replayObservation : null;
+  const liveStateAdvanced = Boolean(observation && observation.liveStateReference !== model.liveStateReference);
   return `
-    <section class="utility-overlay glass history-timeline" data-no-swipe>
+    <section class="utility-overlay glass history-timeline" data-no-swipe data-timeline-version="${escapeAttribute(TIMELINE_RELATIONSHIP_VERSION)}" data-presentation-only="true">
       <div class="overlay-header compact">
-        <h2>Action Timeline</h2>
+        <div>
+          <p class="eyebrow">Event Knowledge</p>
+          <h2>Game Timeline</h2>
+        </div>
         <button data-close-utility-panel>Close</button>
       </div>
-      <div class="timeline-controls row">
+      <div class="timeline-controls row" role="group" aria-label="Timeline recovery actions">
         <button data-undo>Undo</button>
         <button data-redo>Redo</button>
+        ${observation ? `<button data-timeline-return-live>Return to live table</button>` : ""}
       </div>
+      <p class="timeline-integrity-note">Replay inspection is observational. It cannot cast cards, execute rules, alter life, or replace the live session.</p>
+      ${observation ? renderTimelineObservation(observation, liveStateAdvanced) : ""}
+      <div class="timeline-filter-row" role="group" aria-label="Filter game timeline">
+        ${model.filters.map((filter) => `
+          <button data-timeline-filter="${escapeAttribute(filter)}" aria-pressed="${model.filter === filter ? "true" : "false"}">${escapeHtml(formatLabel(filter))}</button>
+        `).join("")}
+      </div>
+      ${model.relationshipSummary.length ? `
+        <section class="timeline-relationships" aria-label="Current battlefield relationships">
+          <p class="eyebrow">Relationships${focusObjectId ? " for selected card" : ""}</p>
+          ${model.relationshipSummary.slice(0, 6).map((entry) => `<p>${escapeHtml(entry.summary)}</p>`).join("")}
+        </section>
+      ` : ""}
       <div class="timeline-list scroll-safe">
-        ${entries
-          .slice(0, 140)
-          .map(
-            (entry) => `
-          <article class="log-card">
-            <strong>${escapeHtml(entry.actionType)}</strong>
-            <span>${new Date(entry.timestamp).toLocaleTimeString()} · ${escapeHtml(entry.playerId || "local-player")}</span>
-            <p>${escapeHtml(JSON.stringify(entry.payload || {}))}</p>
-            <button data-replay-action="${entry.actionId}">Replay To Here</button>
+        ${model.entries.map((entry) => `
+          <article class="log-card timeline-event timeline-event--${escapeAttribute(entry.importance)}" data-timeline-entry-id="${escapeAttribute(entry.id)}">
+            <div class="timeline-event__heading">
+              <strong>${escapeHtml(entry.summary)}</strong>
+              <span>Turn ${entry.turn || 0} · ${escapeHtml(entry.phase || "Untracked phase")}</span>
+            </div>
+            <span>${entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : "Recorded event"} · ${escapeHtml(entry.actorId || "BoardState")}</span>
+            <p>${escapeHtml(entry.changeSummary)}</p>
+            ${entry.objectNames.length ? `<small>${escapeHtml(entry.objectNames.join(", "))}</small>` : ""}
+            <div class="timeline-event__tags">${entry.categories.map((category) => `<span>${escapeHtml(category)}</span>`).join("")}</div>
+            <button data-replay-action="${escapeAttribute(entry.actionId)}" data-replay-event="${escapeAttribute(entry.eventId)}">Inspect recorded state</button>
           </article>
-        `
-          )
-          .join("") || "<p>No actions yet.</p>"}
+        `).join("") || "<p>No events match this timeline filter.</p>"}
       </div>
+      <div class="timeline-pagination row" aria-label="Timeline pages">
+        <button data-timeline-page="${Math.max(0, model.page - 1)}" ${model.page <= 0 ? "disabled" : ""}>Newer</button>
+        <span>Page ${model.page + 1} of ${model.pageCount} · ${model.filteredEntryCount} matching events</span>
+        <button data-timeline-page="${Math.min(model.pageCount - 1, model.page + 1)}" ${model.page >= model.pageCount - 1 ? "disabled" : ""}>Older</button>
+      </div>
+    </section>
+  `;
+}
+
+function renderTimelineObservation(observation, liveStateAdvanced = false) {
+  const entry = observation.entry || {};
+  const snapshot = observation.snapshotSummary || {};
+  return `
+    <section class="timeline-observation" role="status" aria-live="polite">
+      <div>
+        <p class="eyebrow">Read-only replay observation</p>
+        <h3>${escapeHtml(entry.summary || "Recorded event")}</h3>
+        <p>${escapeHtml(entry.changeSummary || "No recorded state delta.")}</p>
+      </div>
+      ${snapshot.available ? `
+        <div class="timeline-observation__facts">
+          <span>Turn ${snapshot.turn}</span>
+          <span>${escapeHtml(snapshot.phase || "Untracked phase")}</span>
+          <span>Life ${snapshot.life ?? "unknown"}</span>
+          <span>${snapshot.playerPermanentCount} local permanents</span>
+          <span>${snapshot.opponentPermanentCount} opponent permanents</span>
+          <span>${snapshot.stackCount} stack objects</span>
+        </div>
+      ` : `<p>The semantic event is available, but this older record has no state snapshot.</p>`}
+      ${liveStateAdvanced ? `<p class="timeline-live-warning">The live game advanced after this observation opened. Return to the live table to see current authoritative state.</p>` : ""}
     </section>
   `;
 }
@@ -9325,6 +9586,12 @@ function renderRemindMePanel(profile = {}, assistantUi = {}) {
   const missed = assistant.missedTriggerRecovery || {};
   const opportunities = assistant.opportunities || [];
   const memory = assistant.playerMemory || {};
+  const rulesRecovery = createRulesRecoveryState(session.rulesRecovery || {});
+  const recoveryReferences = searchRuleReferences(rulesRecovery, assistantUi.rulesRecoveryQuery || "", { limit: 8 });
+  const recoveryCases = rulesRecovery.cases || [];
+  const unresolvedEffects = (session.pendingEffects || []).filter((entry) =>
+    entry && !["resolved", "skipped", "ignored", "cancelled", "completed"].includes(String(entry.status || "").toLowerCase())
+  );
   return `
     <section class="remind-me-panel" data-remind-me-version="${escapeAttribute(REMIND_ME_ENGINE_VERSION)}" data-proactive-assistant-version="${escapeAttribute(assistant.version || PROACTIVE_ASSISTANT_VERSION)}" data-rule-amendment-version="${escapeAttribute(RULE_AMENDMENT_SYSTEM_VERSION)}">
       <div class="remind-me-identity">
@@ -9389,6 +9656,88 @@ function renderRemindMePanel(profile = {}, assistantUi = {}) {
           `).join("")}
         </section>
       ` : ""}
+      <section class="rules-recovery-panel" data-rules-recovery-version="${escapeAttribute(RULES_RECOVERY_VERSION)}">
+        <div class="remind-me-section-title">
+          <p class="eyebrow">Rules Recovery</p>
+          <strong>${rulesRecovery.openCaseCount} open · ${rulesRecovery.references.length} references</strong>
+        </div>
+        <p class="rules-recovery-boundary">Imported references remain inert plain text. BoardState never executes imported text, silently ignores an effect, or invents missing hidden information.</p>
+        <div class="rules-recovery-import-grid">
+          <label>
+            Source type
+            <select data-rules-recovery-kind aria-label="Rules reference source type">
+              ${RULE_REFERENCE_KINDS.map((kind) => `<option value="${escapeAttribute(kind)}" ${assistantUi.rulesRecoverySourceKind === kind ? "selected" : ""}>${escapeHtml(formatLabel(kind))}</option>`).join("")}
+            </select>
+          </label>
+          <label>
+            Reference title
+            <input data-rules-recovery-title value="${escapeAttribute(assistantUi.rulesRecoverySourceTitle || "")}" placeholder="Comprehensive Rules 603.1" />
+          </label>
+          <label class="wide">
+            Citation or HTTPS source
+            <input data-rules-recovery-citation value="${escapeAttribute(assistantUi.rulesRecoveryCitation || "")}" placeholder="CR 603.1 or https://..." />
+          </label>
+        </div>
+        <label>
+          Plain-text reference
+          <textarea data-rules-recovery-source rows="4" placeholder="Paste official rules, Oracle text, rulings, release notes, a trusted judge reference, or the table interpretation for review.">${escapeHtml(assistantUi.rulesRecoverySourceText || "")}</textarea>
+        </label>
+        <button class="wide" data-rules-recovery-import>Import Inert Reference</button>
+        ${assistantUi.rulesRecoveryNotice ? `<p class="remind-me-notice" role="status">${escapeHtml(assistantUi.rulesRecoveryNotice)}</p>` : ""}
+        ${unresolvedEffects.length ? `
+          <div class="rules-recovery-effect-list" aria-label="Effects needing manual information">
+            ${unresolvedEffects.slice(0, 8).map((effect) => {
+              const existingCase = recoveryCases.find((entry) => entry.pendingEffectId === effect.id && !["resolved", "rejected"].includes(entry.status));
+              return `
+                <article>
+                  <div><strong>${escapeHtml(effect.sourceName || effect.name || "Manual effect")}</strong><p>${escapeHtml(effect.reason || effect.summary || effect.effect?.summary || "Player or table information is required.")}</p></div>
+                  ${existingCase ? `<span>${escapeHtml(formatLabel(existingCase.status))}</span>` : `<button data-rules-recovery-open="${escapeAttribute(effect.id)}">Open Recovery Case</button>`}
+                </article>
+              `;
+            }).join("")}
+          </div>
+        ` : ""}
+        ${recoveryCases.length ? `
+          <div class="rules-recovery-case-list" aria-label="Rules Recovery cases">
+            ${recoveryCases.slice(0, 8).map((recoveryCase) => {
+              const inputValue = assistantUi.rulesRecoveryCaseInputs?.[recoveryCase.recoveryCaseId] ?? recoveryCase.proposedInput ?? "";
+              const closed = ["resolved", "rejected"].includes(recoveryCase.status);
+              return `
+                <article data-recovery-case-id="${escapeAttribute(recoveryCase.recoveryCaseId)}">
+                  <div class="rules-recovery-case-heading">
+                    <strong>${escapeHtml(recoveryCase.sourceName)}</strong>
+                    <span>${escapeHtml(formatLabel(recoveryCase.status))}</span>
+                  </div>
+                  <p>${escapeHtml(recoveryCase.question)}</p>
+                  <small>${escapeHtml(recoveryCase.mandatory ? "Mandatory effect" : "Optional effect")} · ${escapeHtml(formatLabel(recoveryCase.confidence))}</small>
+                  ${closed ? `<p>Recovery record closed. Historical input remains auditable and does not rerun the event.</p>` : `
+                    <textarea data-rules-recovery-case-input="${escapeAttribute(recoveryCase.recoveryCaseId)}" rows="2" placeholder="Enter the missing player or table information.">${escapeHtml(inputValue)}</textarea>
+                    <div class="row mini">
+                      <button data-rules-recovery-save="${escapeAttribute(recoveryCase.recoveryCaseId)}">Record Input</button>
+                      <button data-rules-recovery-resume="${escapeAttribute(recoveryCase.recoveryCaseId)}" ${recoveryCase.status !== "ready-to-resume" ? "disabled" : ""}>Confirm & Continue Effect</button>
+                    </div>
+                  `}
+                </article>
+              `;
+            }).join("")}
+          </div>
+        ` : ""}
+        ${rulesRecovery.references.length ? `
+          <div class="rules-recovery-reference-search">
+            <input data-rules-recovery-query value="${escapeAttribute(assistantUi.rulesRecoveryQuery || "")}" placeholder="Search imported references" aria-label="Search imported rules references" />
+            <button data-rules-recovery-search>Search</button>
+          </div>
+          <div class="rules-recovery-reference-list">
+            ${recoveryReferences.map((reference) => `
+              <article>
+                <div><strong>${escapeHtml(reference.title)}</strong><span>${escapeHtml(formatLabel(reference.kind))} · ${escapeHtml(formatLabel(reference.sourceAuthority))}</span></div>
+                <p>${escapeHtml(reference.text)}</p>
+                ${reference.citation ? `<small>${escapeHtml(reference.citation)}</small>` : ""}
+              </article>
+            `).join("") || "<p>No imported references match this query.</p>"}
+          </div>
+        ` : ""}
+      </section>
       <section class="rule-amendment-panel">
         <div class="remind-me-section-title">
           <p class="eyebrow">Rule amendments</p>
@@ -12467,7 +12816,7 @@ function getUnreadNotificationCount(profile = {}) {
 }
 
 function getAppVersion() {
-  return "1.42.2";
+  return "1.43.0";
 }
 
 function renderGameOptions(profile, page = "life") {

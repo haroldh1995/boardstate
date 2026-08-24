@@ -45,7 +45,7 @@ This audit covers the existing BoardState application before the Commander/Brawl
 | --- | --- | --- | --- |
 | Commander battlefield | `src/ui/render.js`, `src/styles.css`, `src/shared-session/perspective.js` | Exists but needs refactoring | Preserve existing background/HUD. Move toward Commander-first static battlefield and opponent carousel without replacing the renderer wholesale. |
 | Live Tracking | Life/counter/commander flows in `src/state/gameReducer.js`, sync in `src/multiplayer/syncManager.js` | Partially exists | Treat physical-table reported actions as another input model over canonical sessions. Track confidence and unknowns. |
-| Full Control | Rules engine actions, battlefield interactions, stack/combat/mana modules | Partially exists | Route direct digital manipulation through engine actions and canonical events. Avoid separate game engine. |
+| Full Control | Rules engine actions, battlefield interactions, stack/combat/mana modules | Canonical shared-core input policy | Direct manipulation routes through engine actions and canonical events; Live Tracking remains a lower-friction policy over the same authority. |
 | Rules engine | `src/rules-engine/engine.js`, `src/rules-engine/boardStateAdapter.js` | Exists and reusable | Harden all gameplay actions to use validation/resolution paths. |
 | Stack | `src/effects/effectEngine.js`, `src/rules-engine/engine.js`, `src/shared-contracts/contracts.js` | Exists and reusable | Add richer provenance and event metadata for replay/explanations. |
 | Priority | `src/rules-engine/engine.js`, `src/game/fsm.js`, `src/shared-session/perspective.js` | Exists and reusable | Continue prompt ownership routing by player ID and sync revision. |

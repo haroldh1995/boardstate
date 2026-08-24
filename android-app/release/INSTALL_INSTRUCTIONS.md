@@ -10,7 +10,7 @@ This generates:
 - `android-app/app/build/outputs/apk/debug/app-debug.apk`
 - `android-app/app/build/outputs/apk/release/app-release.apk`
 - `android-app/app/build/outputs/bundle/release/app-release.aab`
-- `android-app/release/upload_certificate.pem`
+- `android-app/release/upload_certificate.pem` only when production credentials are supplied
 
 ## 2) Install directly on Android device
 1. Copy `app-release.apk` (or `app-debug.apk`) to your device.
@@ -22,6 +22,9 @@ This generates:
 2. Upload `app-release.aab`.
 3. If Play asks for upload certificate details, use:
    - `android-app/release/upload_certificate.pem`
+
+Do not upload a test-signed AAB. Supply private production signing credentials through
+`keystore.properties` or `BOARDSTATE_KEYSTORE_*`, rebuild, and verify the signing report first.
 
 ## 4) Android Studio path (no coding)
 1. Open Android Studio -> `Open` -> choose `android-app`.

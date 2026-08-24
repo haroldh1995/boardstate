@@ -141,7 +141,9 @@ export async function searchScryfall(query, commanderDeckCards = [], options = {
     q: trimmed,
     unique: "cards",
     order: "name",
-    include_extras: "true",
+    // Predictive gameplay search should return canonical cards, not art-series,
+    // oversized, or other non-game extras with duplicate names.
+    include_extras: "false",
   });
   const runtimeFetch = defaultRuntimeEnvironment.fetch;
   if (!runtimeFetch || defaultRuntimeEnvironment.navigator.online === false) {
@@ -265,7 +267,8 @@ export function mapScryfallCard(card) {
 function dedupe(cards) {
   const seen = new Set();
   return cards.filter((card) => {
-    const key = card.cardId || card.name;
+    const normalizedName = String(card.name || "").trim().toLowerCase();
+    const key = normalizedName || card.cardId;
     if (seen.has(key)) {
       return false;
     }

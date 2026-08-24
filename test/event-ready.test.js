@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { castSpellToStack, passStackPriority } from "../src/effects/effectEngine.js";
 import {
   assignBlocker,
@@ -222,6 +223,12 @@ test("embedded Scryfall fallback keeps common deck and battlefield searches usab
   const forest = await searchScryfall("Forest");
   assert.ok(solRing.some((card) => card.name === "Sol Ring" && card.typeLine === "Artifact"));
   assert.ok(forest.some((card) => card.name === "Forest" && /\bLand\b/.test(card.typeLine)));
+});
+
+test("Scryfall gameplay search excludes extra-print duplicates and dedupes canonical names", async () => {
+  const source = await readFile(new URL("../src/services/scryfallService.js", import.meta.url), "utf8");
+  assert.match(source, /include_extras:\s*"false"/);
+  assert.match(source, /normalizedName\s*=\s*String\(card\.name/);
 });
 
 test("Scryfall focus restoration only follows an intentionally focused search input", () => {

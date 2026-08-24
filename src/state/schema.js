@@ -9,6 +9,7 @@ import {
 import { createLegacyMigrationState } from "../migration/legacyMigration.js";
 import { createEventKnowledgeState, EVENT_KNOWLEDGE_ENGINE_VERSION } from "../authoritative-core/eventKnowledgeEngine.js";
 import { createStateEngineMetadata, STATE_ENGINE_VERSION } from "../authoritative-core/stateEngine.js";
+import { createRulesRecoveryState } from "../authoritative-core/rulesRecoveryEngine.js";
 import { createPersistenceState } from "../persistence/canonicalPersistence.js";
 import { createEcosystemIntegrationState } from "../ecosystem/ecosystemIntegration.js";
 
@@ -760,6 +761,7 @@ export function createGameSession() {
       active: [],
       history: [],
     },
+    rulesRecovery: createRulesRecoveryState(),
     aiGameplay: {
       version: "boardstate-ai-gameplay-engine-0.1.0",
       enabled: true,

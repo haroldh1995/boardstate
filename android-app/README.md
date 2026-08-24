@@ -37,13 +37,14 @@ That command chain will:
 
 ## Signing Behavior
 
-- Release builds use `android-app/keystore.properties` if present.
-- If `keystore.properties` does not exist, Gradle auto-generates
-  `android-app/keystore/boardstate-upload.jks` during the first release build.
-- You can copy `android-app/keystore.properties.example` to `android-app/keystore.properties`
-  to customize passwords/alias.
-
-Keep the generated keystore safe. Use the same key for all future updates in Google Play.
+- Release builds use externally supplied `android-app/keystore.properties` or the
+  `BOARDSTATE_KEYSTORE_*` environment variables when all credentials are present.
+- Without production credentials, Gradle creates a minified release artifact signed
+  with the standard Android test key. It is installable for release-candidate testing
+  but must not be uploaded to Google Play.
+- BoardState never generates a predictable production upload key or commits signing
+  passwords. Copy `keystore.properties.example` and supply private values outside Git
+  for a production Play build.
 
 ## WebView Features Included
 

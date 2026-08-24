@@ -1156,7 +1156,10 @@ export function createGameplayFlowModel({
   selectedCard = {},
   inputIntentPolicy = createInputIntentPolicy(),
 } = {}) {
-  const selected = createPermanentInteractionModel(selectedCard.card, session, {
+  // Stack previews are informational; only an explicitly selected battlefield
+  // permanent may expose permanent actions in the contextual dock.
+  const selectedPermanent = selectedCard.mode === "selected-card" ? selectedCard.card : null;
+  const selected = createPermanentInteractionModel(selectedPermanent, session, {
     localBoard,
     opponentBoard,
     perspective,

@@ -2,9 +2,18 @@
 
 ## App
 - Name: BoardState
-- Version: 1.42.2
-- Version code: 44
+- Version: 1.43.0
+- Version code: 45
 - Package: `com.boardstate.app`
+
+## Version 1.43.0
+- Adds the canonical Timeline and Relationship experience with bounded filtering, pagination, read-only replay observation, public relationship explanations, and guaranteed return to live play without authoritative mutation.
+- Adds audited Rules Recovery for inert trusted references, unresolved manual-effect cases, explicit player-supplied information, constrained continuation, and Event Knowledge provenance without silently ignoring or fabricating effects.
+- Adds reproducible ten-player, 360-object, 5,000-event, Command Hand rotation, accessibility, and responsive performance baselines.
+- Hardens Scryfall predictive results against extra-print duplicates while retaining compact, cancellable, stale-safe, context-preserving search.
+- Removes the obsolete placeholder simulated-opponent path in favor of the canonical shared-core Commander simulation engine.
+- Replaces automatically generated predictable release credentials with explicit production signing inputs and a clearly identified safe test-signing fallback for install validation.
+- Revalidates the 13.2.6 architecture lock, full rules/state suite, production web build, Android wrapper, portability boundaries, and release packaging.
 
 ## Version 1.42.2
 - Adds a dedicated relative-base Android web build so every bundled JavaScript, style, icon, and loading asset resolves through the native asset-loader origin without depending on the GitHub Pages path.

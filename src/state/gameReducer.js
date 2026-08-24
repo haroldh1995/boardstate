@@ -149,6 +149,11 @@ import {
   updateReminderStatus,
 } from "../authoritative-core/proactiveAssistant.js";
 import {
+  importRuleReference,
+  openRulesRecoveryCase,
+  reviseRulesRecoveryCase,
+} from "../authoritative-core/rulesRecoveryEngine.js";
+import {
   createAiGameplayState,
   createAiMemoryState,
 } from "../authoritative-core/aiGameplayEngine.js";
@@ -193,8 +198,9 @@ export function reduceProfile(profile, event) {
     case "REDO":
       return popRedo(profile);
     case "REPLAY_TO_ACTION":
-      nextProfile = replayToAction(baseProfile, event.replayActionId || event.payload?.replayActionId || "");
-      break;
+      // Legacy replay commands are presentation-only. The UI timeline projects
+      // historical snapshots without replacing the authoritative live session.
+      return profile;
     case "SET_PLAYER_NAME":
       nextProfile = {
         ...baseProfile,
@@ -792,7 +798,7 @@ export function reduceProfile(profile, event) {
       nextProfile = withSession(baseProfile, chooseEntryResult(baseProfile.activeSession, event.pendingId, Boolean(event.enterUntapped)));
       break;
     case "MARK_PENDING_EFFECT":
-      nextProfile = withSession(baseProfile, updatePendingEffect(baseProfile.activeSession, event.id, event.status));
+      nextProfile = withSession(baseProfile, updatePendingEffect(baseProfile.activeSession, event.id, event.status, event));
       break;
     case "SET_SPELL_TARGET":
       nextProfile = withSession(baseProfile, setSpellTargetChoice(baseProfile.activeSession, event.pendingId, event.targetId));
@@ -839,6 +845,15 @@ export function reduceProfile(profile, event) {
       break;
     case "RULE_AMENDMENT_VOTE":
       nextProfile = withSession(baseProfile, voteRuleAmendment(baseProfile.activeSession, event.ruleAmendmentId || event.id || "", event));
+      break;
+    case "RULES_RECOVERY_IMPORT_REFERENCE":
+      nextProfile = withSession(baseProfile, addRulesRecoveryReference(baseProfile.activeSession, event.reference || event));
+      break;
+    case "RULES_RECOVERY_OPEN_CASE":
+      nextProfile = withSession(baseProfile, addRulesRecoveryCase(baseProfile.activeSession, event.recoveryCase || event));
+      break;
+    case "RULES_RECOVERY_REVISE_CASE":
+      nextProfile = withSession(baseProfile, updateRulesRecoveryCase(baseProfile.activeSession, event.recoveryCaseId || event.id || "", event));
       break;
     case "TRIGGER_QUEUE_RESOLVE":
       nextProfile = withSession(baseProfile, resolveQueuedTrigger(baseProfile.activeSession, { triggerId: event.id, command: "resolve", requestedBy: event.playerId || "player" }));
@@ -4666,7 +4681,7 @@ function reorderPermanent(session, id, direction = 1) {
   };
 }
 
-function updatePendingEffect(session, id, status) {
+function updatePendingEffect(session, id, status, options = {}) {
   const entry = (session.pendingEffects || []).find((effect) => effect.id === id);
   const normalizedStatus = String(status || "pending").toLowerCase();
   const rulesConfidence =
@@ -4685,7 +4700,7 @@ function updatePendingEffect(session, id, status) {
         : normalizedStatus === "ignored"
           ? "ignored"
           : normalizedStatus;
-  return {
+  const updatedSession = {
     ...session,
     pendingEffects: session.pendingEffects.map((effect) =>
       effect.id === id ? { ...effect, status: normalizedStatus, rulesConfidence, updatedAt: Date.now() } : effect
@@ -4715,6 +4730,20 @@ function updatePendingEffect(session, id, status) {
         ].slice(0, 80)
       : session.effectLog,
   };
+  if (!options.rulesRecoveryCaseId) return updatedSession;
+  const recovery = reviseRulesRecoveryCase(
+    updatedSession.rulesRecovery || {},
+    options.rulesRecoveryCaseId,
+    {
+      status: normalizedStatus === "resolved" ? "resolved" : "rejected",
+      proposedInput: options.choiceValue || options.proposedInput || "Player completed the existing manual effect workflow.",
+      operation: options.semanticOperation || "resume-existing-effect",
+      historyType: normalizedStatus === "resolved" ? "recovery-action-completed" : "recovery-action-rejected",
+      playerId: options.playerId || "local-player",
+      updatedAt: Date.now(),
+    }
+  );
+  return recovery.updated ? { ...updatedSession, rulesRecovery: recovery.state } : updatedSession;
 }
 
 function setSpellTargetChoice(session, pendingId, targetId) {
@@ -5239,6 +5268,56 @@ function voteRuleAmendment(session, ruleAmendmentId = "", input = {}) {
   };
 }
 
+function addRulesRecoveryReference(session, input = {}) {
+  const result = importRuleReference(session.rulesRecovery || {}, input);
+  if (!result.accepted) return session;
+  return {
+    ...session,
+    rulesRecovery: result.state,
+    effectLog: [
+      {
+        id: createId("effect"),
+        at: Date.now(),
+        sourceName: "Rules Recovery",
+        summary: `Imported inert ${result.reference.kind} reference: ${result.reference.title}.`,
+        status: "reference-imported",
+        rulesConfidence: RULES_CONFIDENCE.NEEDS_REVIEW,
+      },
+      ...(session.effectLog || []),
+    ].slice(0, 80),
+  };
+}
+
+function addRulesRecoveryCase(session, input = {}) {
+  const result = openRulesRecoveryCase(session.rulesRecovery || {}, input, session);
+  if (!result.created) return session;
+  return {
+    ...session,
+    rulesRecovery: result.state,
+    effectLog: [
+      {
+        id: createId("effect"),
+        at: Date.now(),
+        sourceName: result.recoveryCase.sourceName || "Rules Recovery",
+        summary: "Rules Recovery requested explicit player or table information. The effect was not ignored or executed.",
+        status: result.recoveryCase.status,
+        rulesConfidence: RULES_CONFIDENCE.MANUAL_CHOICE,
+      },
+      ...(session.effectLog || []),
+    ].slice(0, 80),
+  };
+}
+
+function updateRulesRecoveryCase(session, recoveryCaseId = "", input = {}) {
+  if (!recoveryCaseId) return session;
+  const result = reviseRulesRecoveryCase(session.rulesRecovery || {}, recoveryCaseId, input);
+  if (!result.updated) return session;
+  return {
+    ...session,
+    rulesRecovery: result.state,
+  };
+}
+
 function reactivateDelayedTriggers(session) {
   const queue = (session.triggerQueue || []).map((entry) => {
     if (
@@ -5640,26 +5719,6 @@ function popRedo(profile) {
       ...entry.snapshot,
       redoStack: rest,
       undoStack: [{ reason: "REDO", snapshot: createUndoSnapshot(profile.activeSession) }, ...(profile.activeSession.undoStack || [])].slice(0, 50),
-    },
-  };
-}
-
-function replayToAction(profile, actionId) {
-  const history = profile.activeSession.actionHistory || [];
-  const entry = history.find((item) => item.actionId === actionId);
-  if (!entry?.snapshot) {
-    return profile;
-  }
-  return {
-    ...profile,
-    activeSession: {
-      ...createReplaySnapshot(entry.snapshot),
-      replay: {
-        ...(entry.snapshot.replay || {}),
-        active: true,
-        cursor: history.findIndex((item) => item.actionId === actionId),
-        running: false,
-      },
     },
   };
 }

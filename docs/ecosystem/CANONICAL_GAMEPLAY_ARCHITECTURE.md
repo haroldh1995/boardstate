@@ -307,6 +307,8 @@ Undo may reverse eligible tracked state changes but must not replay the original
 
 Gameplay event history remains separate from rendered animation history. This supports Remind Me, Why explanations, replay, Undo, debugging, and future synchronization.
 
+The Prompt 14 timeline baseline is `boardstate-timeline-relationship-1.0.0`. `createTimelineExperience()` derives readable filters, turn/phase groups, bounded pages, and public relationship explanations from Event Knowledge and action envelopes. `createReplayObservation()` returns a frozen sanitized presentation view; the legacy `REPLAY_TO_ACTION` reducer command is a compatibility no-op and can never replace the live session. Returning to live dismisses the observation and reveals the current authoritative synchronized state.
+
 ## Part 3 Native-Portable Event Architecture
 
 Gameplay events are platform-independent data structures. A cast event means an authoritative gameplay event occurred; it does not mean a DOM element started a CSS animation. Web, SwiftUI, and future native presentation adapters may render the same event differently without altering authoritative rules state.
@@ -358,6 +360,8 @@ Accessibility preserves the canonical tabletop unless an explicit alternate acce
 Performance is part of quality. Command Hand rotation must not rerender the entire battlefield or recompute rules state. Zone scrolling must not rerender unrelated zones. Opponent switching must not recompute the rules engine. Animation timing is presentation state and must never define authoritative rules state.
 
 Large Commander states must remain interactive during Command Hand rotation, zone scrolling, card inspection, opponent switching, targeting, and stack interaction. The architecture tracks these boundaries through `createInteractionPerformanceBudget()` and the landscape model's performance contract.
+
+The Prompt 17 reproducible baseline exercises a 360-object battlefield, 500 repeated Command Hand projection cycles, a 5,000-event paged timeline, ten-player opponent metadata, realistic phone safe areas, keyboard semantics, reduced motion, and screen-reader labels in `test/performance-accessibility-baseline.test.js`. These checks protect bounded presentation work without making frame timing or browser primitives authoritative gameplay requirements.
 
 ## Part 5 Release Baseline
 
@@ -440,6 +444,8 @@ The authoritative implementation locations are:
 - Opponent focus, opponent navigation, table radar, input intent, gesture ownership, responsive landscape composition, accessibility semantics, and interaction performance budgets: `src/gameplay/inputIntent.js`, consumed by `src/ui/landscapeBattlefield.js` and `src/ui/render.js`.
 - Command Hand focus math, projection, snap, free rotation, z-order, and infinite rotation: `src/gameplay/commandDeckModel.js`, `src/gameplay/inputIntent.js`, `src/ui/render.js`, and `src/styles.css`.
 - Card lifecycle, stack, resolution, trigger presentation, event identity, presentation ledger, preview roles, replay observation, and notification priority: `src/gameplay/cardLifecycle.js`, `src/gameplay/canonicalGameplay.js`, `src/effects/effectEngine.js`, and `src/state/gameReducer.js`.
+- Event Knowledge timeline, turn/phase grouping, relationship explanations, bounded history presentation, and read-only replay observation: `src/authoritative-core/timelineRelationshipEngine.js`, rendered by `src/ui/render.js`.
+- Inert rule-reference imports, explicit no-silent-effect recovery cases, constrained continuation intent, and immutable recovery audit history: `src/authoritative-core/rulesRecoveryEngine.js`, integrated by `src/state/gameReducer.js` and rendered by `src/ui/render.js`.
 - Persistence, save/restore, replay metadata, checkpoints, canonical saves, and transient presentation sanitization: `src/persistence/canonicalPersistence.js`, `src/storage/saveState.js`, and `src/state/gameReducer.js`.
 - Platform adapters: `src/platform/runtimeEnvironment.js`, `src/storage/localDatabase.js`, and web service adapters such as `src/services/scryfallService.js`.
 - Canonical Scryfall search intent, predictive request identity, stale-response suppression, animation-aware suspension, and semantic action deduplication: `src/gameplay/scryfallSearchModel.js`, rendered by `src/ui/render.js` through the platform service boundary in `src/services/scryfallService.js`.

@@ -11,65 +11,42 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
-def defaultReleaseKeystorePath = keystoreProperties.getProperty("storeFile", "keystore/boardstate-upload.jks")
-def releaseKeystoreFile = rootProject.file(defaultReleaseKeystorePath)
-def releaseStorePassword = keystoreProperties.getProperty("storePassword", System.getenv("BOARDSTATE_KEYSTORE_PASSWORD") ?: "boardstateUpload123!")
-def releaseKeyAlias = keystoreProperties.getProperty("keyAlias", System.getenv("BOARDSTATE_KEY_ALIAS") ?: "boardstateupload")
-def releaseKeyPassword = keystoreProperties.getProperty("keyPassword", System.getenv("BOARDSTATE_KEY_PASSWORD") ?: releaseStorePassword)
-def releaseDName = keystoreProperties.getProperty(
-    "dName",
-    "CN=BoardState Upload,O=BoardState,C=US"
-)
+def configuredKeystorePath = keystoreProperties.getProperty("storeFile", System.getenv("BOARDSTATE_KEYSTORE_FILE"))
+def releaseKeystoreFile = configuredKeystorePath ? rootProject.file(configuredKeystorePath) : null
+def releaseStorePassword = keystoreProperties.getProperty("storePassword", System.getenv("BOARDSTATE_KEYSTORE_PASSWORD"))
+def releaseKeyAlias = keystoreProperties.getProperty("keyAlias", System.getenv("BOARDSTATE_KEY_ALIAS"))
+def releaseKeyPassword = keystoreProperties.getProperty("keyPassword", System.getenv("BOARDSTATE_KEY_PASSWORD"))
+def hasProductionSigning = releaseKeystoreFile != null &&
+    releaseKeystoreFile.exists() &&
+    releaseStorePassword &&
+    releaseKeyAlias &&
+    releaseKeyPassword
 def isWindowsOs = System.getProperty("os.name").toLowerCase().contains("win")
 def bundledKeytool = new File(System.getProperty("java.home"), "bin/${isWindowsOs ? 'keytool.exe' : 'keytool'}")
 def keytoolExecutablePath = bundledKeytool.exists() ? bundledKeytool.absolutePath : (isWindowsOs ? "keytool.exe" : "keytool")
 def uploadCertificatePem = rootProject.file("release/upload_certificate.pem")
 
-tasks.register("ensureReleaseKeystore") {
+tasks.register("verifyReleaseSigning") {
     group = "signing"
-    description = "Ensures a release upload keystore exists. Generates one locally if missing."
-    outputs.file(releaseKeystoreFile)
+    description = "Reports whether the release uses supplied production credentials or the safe Android test key."
 
     doLast {
-        if (releaseKeystoreFile.exists()) {
-            logger.lifecycle("Using existing release keystore at ${releaseKeystoreFile}")
-            return
+        if (hasProductionSigning) {
+            logger.lifecycle("Using externally supplied production release signing credentials.")
+        } else {
+            logger.lifecycle("Production signing credentials are unavailable; release output is test-signed for install validation.")
         }
-
-        releaseKeystoreFile.parentFile.mkdirs()
-
-        def generationArgs = [
-            "-genkeypair",
-            "-v",
-            "-storetype", "JKS",
-            "-keystore", releaseKeystoreFile.absolutePath,
-            "-storepass", releaseStorePassword,
-            "-keypass", releaseKeyPassword,
-            "-alias", releaseKeyAlias,
-            "-keyalg", "RSA",
-            "-keysize", "2048",
-            "-validity", "10000",
-            "-dname", releaseDName
-        ]
-
-        exec {
-            executable keytoolExecutablePath
-            args generationArgs
-        }
-
-        if (!releaseKeystoreFile.exists()) {
-            throw new GradleException("Failed to generate release keystore at ${releaseKeystoreFile}")
-        }
-
-        logger.lifecycle("Generated release keystore at ${releaseKeystoreFile}. Keep this file safe for future app updates.")
     }
 }
 
 tasks.register("exportReleaseUploadCertificate") {
     group = "signing"
     description = "Exports the upload certificate PEM from the configured release keystore."
-    dependsOn("ensureReleaseKeystore")
-    outputs.file(uploadCertificatePem)
+    dependsOn("verifyReleaseSigning")
+    onlyIf { hasProductionSigning }
+    if (hasProductionSigning) {
+        outputs.file(uploadCertificatePem)
+    }
 
     doLast {
         uploadCertificatePem.parentFile.mkdirs()
@@ -99,17 +76,19 @@ android {
         applicationId "com.boardstate.app"
         minSdk 24
         targetSdk 36
-        versionCode 44
-        versionName "1.42.2"
+        versionCode 45
+        versionName "1.43.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
-        release {
-            storeFile releaseKeystoreFile
-            storePassword releaseStorePassword
-            keyAlias releaseKeyAlias
-            keyPassword releaseKeyPassword
+        if (hasProductionSigning) {
+            release {
+                storeFile releaseKeystoreFile
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
         }
     }
 
@@ -121,7 +100,8 @@ android {
         release {
             minifyEnabled true
             shrinkResources true
-            signingConfig signingConfigs.release
+            signingConfig hasProductionSigning ? signingConfigs.release : signingConfigs.debug
+            buildConfigField "String", "SIGNING_STATUS", hasProductionSigning ? '"production"' : '"test-signed"'
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
             buildConfigField "boolean", "RELEASE_BUILD", "true"
         }
@@ -145,7 +125,7 @@ tasks.matching { task ->
         "bundleRelease"
     ]
 }.configureEach {
-    dependsOn("ensureReleaseKeystore")
+    dependsOn("verifyReleaseSigning")
 }
 
 dependencies {

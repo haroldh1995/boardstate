@@ -7,7 +7,7 @@ Prompt 11 adds BoardState's explainable local AI gameplay analysis layer without
 ## Implementation Paths
 
 - `src/authoritative-core/aiGameplayEngine.js` owns AI profiles, AI memory normalization, explainable decision records, threat analysis, board analysis, replay analysis, play-pattern recognition, and decision-comparison scaffolding.
-- `src/simulation/commanderSimulation.js`, `src/simulation/simulatedOpponent.js`, and `src/simulation/decks/` remain the reusable Dry Run and Alpha/Beta/Omega simulation foundations.
+- `src/simulation/commanderSimulation.js` and `src/simulation/decks/` own the reusable Dry Run and Alpha/Beta/Omega simulation foundations. The obsolete unused placeholder-opponent queue was removed so production cannot reactivate fake draw, land, cast, combat, or priority actions.
 - `src/state/gameReducer.js` continues to run simulation actions through existing reducer and rules-engine paths, then refreshes non-authoritative AI analysis metadata.
 - `src/state/schema.js`, `src/storage/localDatabase.js`, `src/storage/saveState.js`, and `src/persistence/canonicalPersistence.js` persist AI preferences, session analysis, memory, and save metadata without replacing canonical game state.
 - `src/ui/landscapeBattlefield.js` exposes an `aiGameplay` projection for the battlefield.

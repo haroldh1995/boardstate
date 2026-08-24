@@ -187,30 +187,41 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 - `src/ui/render.js` routes assistance through the existing Helper Sprite and Help and Learning panel, opens only existing panels when a suggestion is accepted, records low-cost behavior signals, and exposes production-safe contextual assistance version metadata.
 - `src/state/schema.js`, `src/state/gameReducer.js`, `src/storage/localDatabase.js`, and `src/ecosystem/ecosystemIntegration.js` preserve assistance settings and memory without creating a second assistant, rules advisor, AI gameplay path, save format, or Hub dependency.
 
-## Remaining Roadmap
+## Modernization Completion Status
 
 ### Prompt 13: Full Control And Live Tracking Convergence
 
-- Implement Full Control and Live Tracking as two input models over the same authoritative rules engine, canonical game state, event stream, save system, sync foundation, and replay/explanation foundation.
-- Live Tracking accepts physical-table-reported actions with honest unknowns and confidence indicators.
-- Full Control accepts direct digital card and zone manipulation through rules-engine legal action paths.
-- Do not create separate engines or duplicate state authorities.
+Status: Completed through the canonical 13.2.6 Part 3 mode-policy baseline.
+
+- Live Tracking and Full Control are interaction policies over the same authoritative reducer, rules engine, State Engine, Event Knowledge, persistence, stack, trigger, battlefield, and explanation systems.
+- Live Tracking accepts physical-table-reported actions, preserves honest hidden/unknown information, applies deterministic consequences automatically, and retains Single Resolve.
+- Strict Full Control and Dry Run route direct casting, mana, land timing, targets, combat, priority, stack, and zone actions through the existing rules-engine boundary.
+- Mode parity and no-fork guardrails live in `test/canonical-gameplay-part3.test.js`, `test/land-play-system.test.js`, `test/rules-engine-boundary.test.js`, and the Part 5/6 suites.
 
 ### Prompt 14: Timeline And Relationship Experience
 
-- Extend the Remind Me foundation with game history, change summaries, relationship visualization, turn timeline, and replay inspection.
-- Add live battlefield replay, relationship explanations, and phase/turn timeline inspection.
-- Reuse existing event history, replay state, effect logs, tutorial explanations, and saves.
-- Ensure replay always returns safely to the current synchronized state.
+Status: Completed in baseline `boardstate-timeline-relationship-1.0.0`.
+
+- The Event Knowledge timeline presents readable change summaries, turn/phase grouping, category filters, bounded pagination, and public battlefield relationship explanations.
+- Replay inspection is a frozen presentation-only observation. It cannot replace the live session, execute rules, replay animation, or mutate authoritative state.
+- The legacy authoritative `REPLAY_TO_ACTION` path is quarantined as a reducer no-op; returning to live always uses the current synchronized session.
+- Relationship projection covers control, attachment, targeting, combat, stack, and causation while excluding private-zone objects.
+- Architecture and regression protection are recorded in `TIMELINE_RELATIONSHIP_ARCHITECTURE.md` and `test/timeline-relationship.test.js`.
 
 ### Prompt 15: Rules Recovery And Rule Amendments Expansion
 
-- Add Rules Recovery for official rules text, Gatherer rulings, release notes, Oracle text, Scryfall Oracle/rulings, trusted judge references, and table interpretations.
-- Preserve imported source text as non-executable plain text and map it only through constrained approved rule operations.
-- Extend the Prompt 10 confidence and unanimous-amendment foundations into the full Rules Recovery interface.
-- Record every recovery proposal, vote, rejection, revision, accepted amendment, and recovery action in immutable event history.
+Status: Completed in baseline `boardstate-rules-recovery-1.0.0`.
+
+- Rules Recovery imports reviewed official rules, Oracle, Gatherer/Scryfall rulings, release notes, judge references, and table interpretations as bounded inert plain text.
+- Unsupported or conditional effects remain explicit pending effects; recovery cases identify their source, missing information, mandatory status, confidence, and constrained continuation operation.
+- Imported text never executes. A player records the missing information and explicitly confirms continuation through the existing pending-effect action without replaying the original event.
+- Rule amendments retain the Prompt 10 unanimous approval contract and remain clearly non-canonical.
+- Reference imports, recovery cases, revisions, amendment actions, and continuation actions remain auditable through recovery history, action history, and Event Knowledge.
+- Architecture and regression protection are recorded in `RULES_RECOVERY_ARCHITECTURE.md` and `test/rules-recovery.test.js`.
 
 ### Prompt 16: Live Hub, Lite And Deck Nexus Counterpart Verification
+
+Status: Externally blocked; BoardState-side contracts and honest offline adapters are complete.
 
 - Connect the Prompt 12 BoardState-side ecosystem contracts only after Hub, BoardState Lite, and Deck Nexus counterpart apps provide verified production endpoints or handoff workflows.
 - Keep BoardState authoritative for rules, sessions, priority, stack, triggers, replacement effects, continuous effects, layers, legality, combat, state-based actions, Full Control, Live Tracking authority, Dry Runs, simulations, tutorials, replay truth, and game-history causation.
@@ -219,9 +230,13 @@ This roadmap preserves the existing BoardState application and evolves it in pla
 
 ### Prompt 17: Performance And Accessibility
 
-- Audit large Commander board states, ten-player session metadata, opponent carousel projection, event history growth, replay memory, reduced-motion behavior, keyboard/screen-reader access, and mobile landscape constraints.
-- Preserve deterministic rules performance and avoid rendering all opponent battlefields simultaneously.
-- Keep accessibility settings safe and compatible with existing Helper Sprite and tutorial flows.
+Status: Completed and retained as a continuous release gate.
+
+- Reproducible stress coverage validates 360-object battlefield geometry, repeated Command Hand projection, 5,000-event paged timelines, and ten-player Commander metadata while rendering only the focused opponent battlefield.
+- Presentation performance boundaries prohibit Command Hand, zone-scroll, opponent-focus, timeline, and animation state from recomputing authoritative rules or mounting unbounded history rows.
+- Phone, tablet, desktop, and ultrawide models retain fixed landscape composition, safe-area semantics, zone-local overflow, and no global gameplay scroll.
+- Keyboard navigation, screen-reader labels, 44-pixel touch targets, non-color state cues, reduced motion, larger text, and no hover-only essential actions remain part of the canonical accessibility contract.
+- Focused protection lives in `test/performance-accessibility-baseline.test.js` alongside the Part 4 through Part 6 gameplay regression suites.
 
 ### Final Production Audit
 

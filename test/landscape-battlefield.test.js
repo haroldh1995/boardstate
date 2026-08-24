@@ -321,6 +321,17 @@ test("camera focus priority is deterministic and selected permanents outrank sta
   assert.equal(camera.deterministicPriority, true);
 });
 
+test("stack previews never masquerade as selected battlefield permanents", () => {
+  const profile = createLandscapeProfile();
+  profile.activeSession.selectedIds = [];
+  const details = createSelectedCardDetails(profile.activeSession);
+  const model = createLandscapeBattlefieldModel(profile, { viewport: "desktop" });
+
+  assert.equal(details.mode, "stack-top");
+  assert.equal(model.gameplayFlow.selected.active, false);
+  assert.deepEqual(model.gameplayFlow.selected.actions, []);
+});
+
 test("battlefield motion model adds premium presentation without becoming gameplay authority", () => {
   const profile = createLandscapeProfile();
   const model = createLandscapeBattlefieldModel(profile, { viewport: "desktop" });

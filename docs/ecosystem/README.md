@@ -29,6 +29,8 @@ Prompt 1 output files:
 - `CONTEXTUAL_ASSISTANCE_SYSTEM.md`
 - `CANONICAL_GAMEPLAY_ARCHITECTURE.md`
 - `NATIVE_PORTABILITY_AUDIT.md`
+- `TIMELINE_RELATIONSHIP_ARCHITECTURE.md`
+- `RULES_RECOVERY_ARCHITECTURE.md`
 
 These files document the preparation baseline, permanent Constitution, architecture inventory, rules-engine extraction risks, shared contracts, migration plan, handoff risks, future navigation, and future test matrix.
 
@@ -77,3 +79,7 @@ The Commander session architecture document records the Prompt 2 canonical sessi
 The same canonical document now records the Phase 13.3 Lite-derived Scryfall popup contract, predictive request and action identity, critical-animation priority, context restoration, land-play policy, and the platform-neutral ownership boundary used by web and future native clients.
 
 `NATIVE_PORTABILITY_AUDIT.md` records the Swift-ready portability boundary. It keeps browser APIs inside platform adapters and the current web shell while preserving gameplay, rules, state, storage, service, bridge, and support modules as reusable non-UI systems.
+
+`TIMELINE_RELATIONSHIP_ARCHITECTURE.md` records the Prompt 14 Event Knowledge timeline, public relationship graph, bounded history presentation, and read-only replay observation law. Replay inspection is presentation-only and can never replace or execute the live authoritative session.
+
+`RULES_RECOVERY_ARCHITECTURE.md` records the Prompt 15 inert reference-import boundary, no-silent-effects recovery cases, constrained continuation intents, unanimous amendment separation, immutable audit history, and native-portable recovery contract.
