@@ -23,6 +23,7 @@ import {
   createCanonicalGameplayRuntimeContract,
   createProtectedGameplayCorridorState,
   createSingleResolvePlan,
+  getPendingTargetDecision,
   shouldAutoProgressLiveTrackingStack,
 } from "../gameplay/canonicalGameplay.js";
 import {
@@ -31,6 +32,7 @@ import {
   classifyNotificationPriority,
   createModeInteractionPolicy,
   resolveGameplayAttentionOwner,
+  resolveTransientNotificationTiming,
   shouldDeferNotification,
 } from "../gameplay/cardLifecycle.js";
 import {
@@ -485,6 +487,7 @@ export function mountApp(root, store) {
   let presentationRefreshTimer = null;
   let autoStackTimer = null;
   let stackPresentationRefreshId = "";
+  const notificationAutoDismissTimers = new Map();
 
   normalizeCurrentHash();
   window.addEventListener("hashchange", handleHashChange);
@@ -768,6 +771,7 @@ export function mountApp(root, store) {
     restoreSearchInputFocus(root, searchFocusSnapshot, searchResultsScrollTop);
     syncBackgroundScrollLock();
     deliverNotificationFeedback(profile, activeNotification);
+    scheduleNotificationAutoDismiss(profile);
     schedulePresentationRefresh(profile);
     scheduleAutoStackProcessing(profile);
     lastRenderedSearchQuery = searchQuery;
@@ -807,6 +811,54 @@ export function mountApp(root, store) {
       }
       render(current);
     }, delay);
+  }
+
+  function scheduleNotificationAutoDismiss(profile) {
+    const notifications = new Map((profile.notifications?.items || []).map((entry) => [entry.id, entry]));
+    for (const [id, timers] of notificationAutoDismissTimers) {
+      const entry = notifications.get(id);
+      if (entry && !entry.acknowledged) {
+        continue;
+      }
+      clearTimeout(timers.exitTimer);
+      clearTimeout(timers.dismissTimer);
+      notificationAutoDismissTimers.delete(id);
+    }
+    const visibleIds = new Set(
+      [...root.querySelectorAll("[data-auto-dismiss-notification]")]
+        .map((node) => node.dataset.autoDismissNotification)
+        .filter(Boolean)
+    );
+    for (const id of visibleIds) {
+      const notification = notifications.get(id);
+      const timing = resolveTransientNotificationTiming(notification);
+      if (!notification || !timing.autoDismiss || notificationAutoDismissTimers.has(id)) {
+        continue;
+      }
+      const exitTimer = setTimeout(() => {
+        getNotificationPresentationNodes(id).forEach((node) => node.classList.add("is-leaving"));
+      }, timing.exitAtMs);
+      const dismissTimer = setTimeout(() => {
+        notificationAutoDismissTimers.delete(id);
+        store.dispatch({ type: "NOTIFICATION_ACK", id, internalOnly: true });
+      }, timing.totalMs);
+      notificationAutoDismissTimers.set(id, { exitTimer, dismissTimer });
+    }
+  }
+
+  function getNotificationPresentationNodes(id) {
+    return [...root.querySelectorAll("[data-auto-dismiss-notification]")]
+      .filter((node) => node.dataset.autoDismissNotification === id);
+  }
+
+  function cancelNotificationAutoDismiss(id) {
+    const timers = notificationAutoDismissTimers.get(id);
+    if (!timers) {
+      return;
+    }
+    clearTimeout(timers.exitTimer);
+    clearTimeout(timers.dismissTimer);
+    notificationAutoDismissTimers.delete(id);
   }
 
   function shouldDeferSimulationVisualUpdate(profile, action = null) {
@@ -3199,12 +3251,16 @@ export function mountApp(root, store) {
       button.addEventListener("click", () => store.dispatch({ type: "DISMISS_RECOVERY_ENTRY", id: button.dataset.dismissRecovery }))
     );
     container.querySelectorAll("[data-notification-ack]").forEach((button) =>
-      button.addEventListener("click", () => store.dispatch({ type: "NOTIFICATION_ACK", id: button.dataset.notificationAck, internalOnly: true }))
+      button.addEventListener("click", () => {
+        cancelNotificationAutoDismiss(button.dataset.notificationAck);
+        store.dispatch({ type: "NOTIFICATION_ACK", id: button.dataset.notificationAck, internalOnly: true });
+      })
     );
     container.querySelectorAll("[data-notification-open-page]").forEach((button) =>
       button.addEventListener("click", () => {
         const notificationId = button.dataset.notificationId;
         if (notificationId) {
+          cancelNotificationAutoDismiss(notificationId);
           store.dispatch({ type: "NOTIFICATION_ACK", id: notificationId, internalOnly: true });
         }
         const destination = button.dataset.notificationOpenPage || "tournament";
@@ -5663,17 +5719,31 @@ export function mountApp(root, store) {
   }
 
   function showNotice(message, severity = "success") {
+    const timing = resolveTransientNotificationTiming();
     uiNotice = {
       id: `notice-${Date.now()}`,
       message,
       severity,
       timestamp: Date.now(),
+      leaving: false,
     };
+    clearTimeout(showNotice.exitTimer);
     clearTimeout(showNotice.timer);
+    const noticeId = uiNotice.id;
+    showNotice.exitTimer = setTimeout(() => {
+      if (uiNotice?.id !== noticeId) {
+        return;
+      }
+      uiNotice = { ...uiNotice, leaving: true };
+      root.querySelector(`[data-ui-notice-id="${noticeId}"]`)?.classList.add("is-leaving");
+    }, timing.exitAtMs);
     showNotice.timer = setTimeout(() => {
+      if (uiNotice?.id !== noticeId) {
+        return;
+      }
       uiNotice = null;
       render(store.getState());
-    }, 3800);
+    }, timing.totalMs);
     render(store.getState());
   }
 
@@ -7064,9 +7134,21 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
   const mirroredOpponentIndex = perspectiveOpponentIndex >= 0 ? perspectiveOpponentIndex : activeOpponentIndex;
   const mirroredOpponent = perspectiveOpponentBoards[mirroredOpponentIndex] || activeOpponent;
   const showPerspectiveOpponentZone = Boolean(panels.boardOpponent && mirroredOpponent);
-  const sourceForTargets = getSelectedPermanents(session)[0] || session.stack?.[0]?.card || null;
+  const pendingTargetDecision = getPendingTargetDecision(session);
+  const targetStackObject = pendingTargetDecision?.stackObjectId
+    ? (session.stack || []).find((entry) => entry.id === pendingTargetDecision.stackObjectId)
+    : null;
+  const sourceForTargets = pendingTargetDecision
+    ? targetStackObject?.card || targetStackObject || [...(session.battlefield?.player || []), ...(session.battlefield?.opponent || [])]
+        .find((entry) => entry.id === pendingTargetDecision.sourceId) || null
+    : null;
   const legalTargetResult = sourceForTargets ? calculateLegalTargets(session, sourceForTargets, "all-permanents") : null;
-  const targetingVisuals = buildAdvancedTargetingVisualModel(profile, perspective, { legalTargets: legalTargetResult });
+  const targetingVisuals = pendingTargetDecision
+    ? buildAdvancedTargetingVisualModel(profile, perspective, {
+        legalTargets: legalTargetResult,
+        sourceId: pendingTargetDecision.sourceId || sourceForTargets?.id || "",
+      })
+    : null;
   const landscapeModel = createLandscapeBattlefieldModel(profile, {
     perspective,
     focusedOpponentId: mirroredOpponent?.id || mirroredOpponent?.playerId || focusedOpponentId,
@@ -8084,7 +8166,7 @@ function renderPermanent(permanent, options = {}) {
       : ""
     : `data-permanent="${permanent.id}"`;
   return `
-    <article class="permanent detail-${detailMode} ${stateClasses}" data-permanent-card data-permanent-id="${permanent.id}" data-readonly="${options.readonly ? "true" : "false"}" data-target-valid="${targetVisual?.valid ? "true" : targetVisual ? "false" : "unknown"}" data-motion-card-kind="${escapeAttribute(motionKind || "stable")}" data-tabletop-zone="${escapeAttribute(permanent.tabletopZoneKey || "")}" data-placement-role="${escapeAttribute(permanent.placementRole || "")}" data-tabletop-order="${escapeAttribute(String(permanent.tabletopOrder ?? ""))}">
+    <article class="permanent detail-${detailMode} ${imageUrl ? "has-card-art" : "uses-fallback"} ${stateClasses}" data-permanent-card data-permanent-id="${permanent.id}" data-readonly="${options.readonly ? "true" : "false"}" data-target-valid="${targetVisual?.valid ? "true" : targetVisual ? "false" : "unknown"}" data-motion-card-kind="${escapeAttribute(motionKind || "stable")}" data-tabletop-zone="${escapeAttribute(permanent.tabletopZoneKey || "")}" data-placement-role="${escapeAttribute(permanent.placementRole || "")}" data-tabletop-order="${escapeAttribute(String(permanent.tabletopOrder ?? ""))}">
       <div class="permanent-art-layer ${fallbackClass} ${imageUrl ? "has-card-art" : "uses-fallback"}" ${imageUrl ? `style="--card-image:url(&quot;${escapeAttribute(imageUrl)}&quot;)"` : ""} data-card-image="${imageUrl ? "available" : "fallback"}" aria-hidden="true"></div>
       <div class="permanent-readability-layer" aria-hidden="true"></div>
       ${permanent.quantity > 1 ? `<i class="stack-silhouette stack-silhouette--one" aria-hidden="true"></i><i class="stack-silhouette stack-silhouette--two" aria-hidden="true"></i>` : ""}
@@ -12816,7 +12898,7 @@ function getUnreadNotificationCount(profile = {}) {
 }
 
 function getAppVersion() {
-  return "1.43.1";
+  return "1.43.2";
 }
 
 function renderGameOptions(profile, page = "life") {
@@ -13039,8 +13121,9 @@ function getActiveFullWindowNotification(profile = {}, page = "") {
 }
 
 function renderFullWindowNotification(notification) {
+  const timing = resolveTransientNotificationTiming(notification);
   return `
-    <section class="overlay-backdrop" data-no-swipe>
+    <section class="overlay-backdrop notification-presentation" data-no-swipe ${timing.autoDismiss ? `data-auto-dismiss-notification="${escapeAttribute(notification.id)}"` : ""}>
       <div class="floating-overlay glass notification-window ${escapeAttribute(notification.severity || "info")}">
         <div class="notification-window__glyph">${escapeHtml(notification.severity === "warning" ? "!" : notification.severity === "success" ? "OK" : "INFO")}</div>
         <div class="overlay-header">
@@ -13091,13 +13174,15 @@ function renderRecoveryToasts(profile, notice = null, page = "") {
   return `
     <section class="recovery-toast-stack" data-no-swipe>
       ${notice ? `
-        <article class="recovery-toast ${escapeAttribute(notice.severity || "success")}">
+        <article class="recovery-toast transient-notice ${escapeAttribute(notice.severity || "success")} ${notice.leaving ? "is-leaving" : ""}" data-ui-notice-id="${escapeAttribute(notice.id)}">
           <strong>${escapeHtml(notice.severity === "error" ? "Needs attention" : "BoardState")}</strong>
           <p>${escapeHtml(notice.message)}</p>
         </article>
       ` : ""}
-      ${notificationToasts.map((entry) => `
-        <article class="recovery-toast ${escapeAttribute(entry.severity || "info")} notification-toast">
+      ${notificationToasts.map((entry) => {
+        const timing = resolveTransientNotificationTiming(entry);
+        return `
+        <article class="recovery-toast ${escapeAttribute(entry.severity || "info")} notification-toast" ${timing.autoDismiss ? `data-auto-dismiss-notification="${escapeAttribute(entry.id)}"` : ""}>
           <strong>${escapeHtml(entry.title || "BoardState Notification")}</strong>
           <p>${escapeHtml(entry.body || "")}</p>
           <div class="recovery-actions mini">
@@ -13105,7 +13190,7 @@ function renderRecoveryToasts(profile, notice = null, page = "") {
             <button data-notification-ack="${escapeAttribute(entry.id)}">Dismiss</button>
           </div>
         </article>
-      `).join("")}
+      `;}).join("")}
       ${entries.map((entry) => `
         <article class="recovery-toast ${escapeAttribute(entry.severity || "info")}">
           <strong>${escapeHtml(entry.source || "Recovery")}</strong>

@@ -611,7 +611,7 @@ test("Part 5 static release-baseline audit guards renderer, CSS, docs, and share
   assert.match(styles, /commander-action-hand/);
   assert.match(styles, /--protected-command-hand-clearance/);
   assert.match(styles, /grid-template-rows:\s*minmax\(5\.8rem,\s*1fr\)\s*minmax\(1\.55rem,\s*auto\)\s*minmax\(5\.8rem,\s*1fr\)/);
-  assert.match(styles, /--tabletop-card-width:\s*clamp\(1\.95rem,\s*8\.2svh,\s*3\.35rem\)/);
+  assert.match(styles, /--tabletop-card-width:\s*clamp\(4\.2rem,\s*17\.5svh,\s*5\.6rem\)/);
   assert.match(styles, /touch-action:\s*none/);
   assert.match(styles, /recovery-toast-stack/);
 

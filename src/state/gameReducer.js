@@ -75,6 +75,7 @@ import {
 import { RULES_CONFIDENCE, createRecoveryEntry } from "../support/debugExport.js";
 import {
   GAMEPLAY_EVENT_TYPES,
+  TRANSIENT_PRESENTATION_TIMING,
   createCardPresentationPayload,
   createGameplayEventIdentity,
 } from "../gameplay/cardLifecycle.js";
@@ -1004,7 +1005,7 @@ function createCardPresentation(card, kind, controller = "player", options = {})
   return createCardPresentationPayload(card, kind, controller, {
     presentationId: createId("presentation"),
     createdAt: now,
-    expiresAt: now + 1550,
+    expiresAt: now + TRANSIENT_PRESENTATION_TIMING.cardCastMs,
     ...options,
   });
 }
@@ -1273,6 +1274,8 @@ function addNotification(profile, notification = {}) {
     fullWindow: notification.fullWindow !== false,
     toast: notification.toast !== false,
     critical: Boolean(notification.critical),
+    persistent: notification.persistent === true,
+    requiresAcknowledgement: notification.requiresAcknowledgement === true,
     metadata: notification.metadata || {},
   };
   const existing = profile.notifications?.items || [];

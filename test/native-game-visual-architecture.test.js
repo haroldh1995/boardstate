@@ -102,8 +102,10 @@ test("runtime no longer contains portrait wallpaper selection or mobile navigati
   assert.match(main, /boardstate-bg-landscape\.png/);
   assert.equal(main.includes("boardstate-bg-portrait"), false);
   assert.match(main, /requestBoardStateLandscapeLock/);
+  assert.match(main, /activatePostLoadingLandscapeEnforcement/);
   assert.match(main, /globalThis\.screen\?\.orientation/);
   assert.match(main, /orientation\.lock\(mode\)/);
+  assert.match(index, /boardstate-landscape-gate/);
   assert.match(loadingScreen, /location\.hash = "#battlefield"/);
   assert.equal(loadingScreen.includes("#life"), false);
   assert.match(styles, /boardstate-bg-landscape\.png/);
@@ -120,6 +122,7 @@ test("runtime no longer contains portrait wallpaper selection or mobile navigati
   assert.equal(styles.includes("data-draggable-hud"), false);
   assert.equal(styles.includes("mobile-hud-column"), false);
   assert.equal(styles.includes("mobile-focus-view"), false);
+  assert.equal(styles.includes("rotate(90deg)"), false);
   assert.equal(render.includes("data-mobile-nav"), false);
   assert.equal(render.includes("data-edge-zone"), false);
   assert.equal(landscapeModel.includes("portrait-support"), false);

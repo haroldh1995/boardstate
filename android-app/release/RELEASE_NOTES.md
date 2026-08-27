@@ -2,9 +2,17 @@
 
 ## App
 - Name: BoardState
-- Version: 1.43.1
-- Version code: 46
+- Version: 1.43.2
+- Version code: 47
 - Package: `com.boardstate.app`
+
+## Version 1.43.2
+- Enforces landscape-only BoardState after loading without rotating the application shell sideways; portrait browsers now receive a safe rotate-device gate while native wrappers retain platform orientation locks.
+- Restores 1.5-second transient notification dismissal with a smooth 180 ms compositor-only exit and preserves explicit persistent-notification opt-outs.
+- Shortens card casting/entry presentation by 0.5 seconds, aligns authoritative presentation expiry with CSS motion, and removes expensive battlefield filter/shadow transitions that caused animation hitching.
+- Removes permanent art veils, duplicate selected-card overlays, and idle legal-target labels so cards remain visually clear while accessibility names and deliberate contextual controls remain available.
+- Enlarges landscape-phone battlefield cards, lets a single populated zone use its available territory, preserves card proportions with contained art, and keeps crowded two-zone layouts density-aware.
+- Adds focused regression coverage and realistic 844x390/390x844 visual validation for notification timing, portrait gating, card clarity, target-state ownership, and board scale.
 
 ## Version 1.43.1
 - Corrects the final canonical battlefield placement regression so a support-only lower zone anchors its first support permanent to the far-right boundary instead of drifting toward center.

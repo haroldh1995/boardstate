@@ -47,12 +47,12 @@ const BASE_MOTION_TOKENS = Object.freeze({
   durationMs: Object.freeze({
     instant: 0,
     acknowledgement: 70,
-    micro: 120,
-    quick: 180,
-    standard: 260,
-    emphasis: 420,
-    cinematic: 620,
-    resolvingLoop: 1100,
+    micro: 100,
+    quick: 160,
+    standard: 220,
+    emphasis: 340,
+    cinematic: 500,
+    resolvingLoop: 900,
     ambient: 7500,
   }),
   delayMs: Object.freeze({

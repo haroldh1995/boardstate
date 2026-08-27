@@ -5,7 +5,7 @@ const APP_STABLE_TIMEOUT_MS = 6000;
 const APP_SETTLE_MS = 180;
 const PROGRESS_STEP_MS = 16;
 
-export function createLoadingScreenController({ assets = [] } = {}) {
+export function createLoadingScreenController({ assets = [], onComplete = null } = {}) {
   const node = document.querySelector("#boardstate-loader");
   const fill = node?.querySelector("[data-loading-fill]");
   const status = node?.querySelector("[data-loading-status]");
@@ -81,6 +81,7 @@ export function createLoadingScreenController({ assets = [] } = {}) {
     node?.classList.add("is-ready");
     document.body.classList.add("boardstate-app-ready");
     document.querySelector("#app")?.removeAttribute("aria-busy");
+    onComplete?.();
     window.setTimeout(() => {
       node?.remove();
     }, 720);

@@ -340,7 +340,7 @@ test("battlefield motion model adds premium presentation without becoming gamepl
   assert.equal(model.motion.policy, "animation-as-communication");
   assert.equal(model.motion.intensity, "full");
   assert.equal(model.motion.tokens.version, BOARDSTATE_MOTION_LANGUAGE_VERSION);
-  assert.equal(model.motion.tokens.durations.emphasis, 420);
+  assert.equal(model.motion.tokens.durations.emphasis, 340);
   assert.equal(model.motion.cameraPlan.tokenName, "emphasis");
   assert.equal(model.motion.cameraPlan.durationMs, model.motion.tokens.durations.emphasis);
   assert.equal(model.motion.cameraPlan.owner, MOTION_OWNERS.battlefield);
@@ -359,7 +359,7 @@ test("battlefield motion model adds premium presentation without becoming gamepl
 test("motion tokens centralize timing, ownership, states, and debug metadata", () => {
   const full = createMotionTokenSet(1);
   assert.equal(full.version, BOARDSTATE_MOTION_LANGUAGE_VERSION);
-  assert.equal(full.durations.standard, 260);
+  assert.equal(full.durations.standard, 220);
   assert.equal(full.delays.commandCardStagger, 24);
   assert.equal(full.easing.inertia, "cubic-bezier(0.18, 0.84, 0.22, 1)");
   assert.equal(full.physics.commandCardMass, 0.68);
@@ -369,7 +369,7 @@ test("motion tokens centralize timing, ownership, states, and debug metadata", (
   assert.equal(MOTION_OWNERS.commandDeck, "rotating-command-deck");
 
   const reduced = createMotionTokenSet(0.45);
-  assert.equal(reduced.durations.emphasis, 189);
+  assert.equal(reduced.durations.emphasis, 153);
   assert.equal(reduced.delays.commandCardStagger, 11);
 
   const debug = createMotionDebugSnapshot({

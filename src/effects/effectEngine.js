@@ -8,6 +8,7 @@ import { RULES_CONFIDENCE } from "../support/debugExport.js";
 import { preparePermanentEntry } from "../game/entrySystem.js";
 import {
   GAMEPLAY_EVENT_TYPES,
+  TRANSIENT_PRESENTATION_TIMING,
   createCardPresentationPayload,
   createGameplayEventIdentity,
 } from "../gameplay/cardLifecycle.js";
@@ -715,7 +716,7 @@ function createCardPresentation(card, kind, controller = "player", options = {})
   return createCardPresentationPayload(card, kind, controller, {
     presentationId: createId("presentation"),
     createdAt: now,
-    expiresAt: now + 1550,
+    expiresAt: now + TRANSIENT_PRESENTATION_TIMING.cardCastMs,
     ...options,
   });
 }

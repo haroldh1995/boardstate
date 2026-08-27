@@ -1,5 +1,6 @@
 import { createGameSession, createManaPool, createPermanent } from "../state/schema.js";
 import { createId, clone } from "../state/ids.js";
+import { TRANSIENT_PRESENTATION_TIMING } from "../gameplay/cardLifecycle.js";
 
 export const TUTORIAL_VERSION = "five-turn-v1";
 export const ONBOARDING_EXPERIENCE_VERSION = "boardstate-adaptive-learning-0.1.0";
@@ -1888,7 +1889,7 @@ function createTutorialPresentation(name, typeLine, kind) {
     kind,
     controller: "player",
     createdAt: now,
-    expiresAt: now + 1400,
+    expiresAt: now + TRANSIENT_PRESENTATION_TIMING.cardCastMs,
     card: { name, typeLine, imageUrl: "", imageSmall: "", imageArt: "" },
   };
 }

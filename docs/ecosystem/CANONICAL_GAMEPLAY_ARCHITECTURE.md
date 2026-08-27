@@ -1,6 +1,6 @@
 # Canonical Gameplay Architecture
 
-Date: 2026-08-08
+Date: 2026-08-25
 
 Prompt 13.2.6 Part 1 establishes the permanent gameplay architecture for BoardState. This document takes precedence over earlier gameplay, battlefield, HUD, motion, assistance, and layout prompt artifacts wherever they conflict.
 
@@ -59,7 +59,7 @@ Runtime enforcement:
 These laws are permanent:
 
 1. Gameplay is landscape.
-2. Loading and authentication may remain portrait.
+2. Only loading may remain portrait; every post-loading application surface requires landscape.
 3. No global battlefield scrolling.
 4. The battlefield always remains a true tabletop.
 5. Cards always resemble cards.
@@ -107,6 +107,7 @@ Runtime enforcement:
 
 - Full-window notifications are suppressed on the battlefield.
 - Battlefield toast placement is edge-safe and outside the central corridor.
+- Ordinary transient notifications use a 1,500 ms total lifetime with a compositor-only 180 ms exit. Persistent or acknowledgement-required communication must opt out explicitly.
 - Helper Sprite is disabled by default and remains a settings-controlled support surface.
 - Utility overlays remain temporary and must not become permanent battlefield chrome.
 
@@ -297,6 +298,8 @@ When multiple systems want attention, use this priority order:
 
 `resolveGameplayAttentionOwner()` is the platform-neutral model for this hierarchy. Notifications use `classifyNotificationPriority()` and `shouldDeferNotification()` so low-priority communication yields to protected gameplay focus. Full-window notifications are still suppressed on the battlefield, and ordinary toasts must remain edge-safe.
 
+Transient presentation timing is platform-neutral policy in `src/gameplay/cardLifecycle.js`. Ordinary notifications dismiss after 1,500 ms, including their 180 ms exit transition, while recovery actions and acknowledgement-required messages remain available until handled. The canonical cast spotlight lasts 1,050 ms. These durations control presentation only and never delay or complete authoritative gameplay.
+
 Helper Sprite, Table Assist, educational guidance, friend activity, reminders, and ordinary notifications must yield during casting, resolving, targeting, combat, important card inspection, and stack interaction.
 
 ## Part 3 Replay, Undo, And Event History
@@ -347,7 +350,7 @@ Hit testing is depth-aware. The foremost focused card wins overlapping hit regio
 
 Active gameplay remains one fixed landscape viewport on phones, tablets, desktops, ultrawide displays, and future native shells. Responsive behavior is semantic: available opponent territory, protected corridor, local battlefield, Command Hand footprint, safe areas, density state, and overflow needs determine composition.
 
-Do not convert active gameplay into a portrait-style vertical document. No active gameplay requires vertical page scrolling. If landscape gameplay space is not available, use the established orientation guidance instead of rendering a broken battlefield.
+Do not convert active gameplay into a portrait-style vertical document. No post-loading application surface or active gameplay requires vertical page scrolling. If landscape space is not available, the platform adapter must request native landscape where supported and otherwise replace the application with orientation guidance until landscape returns. The web adapter must never rotate the full application with CSS to simulate landscape inside a portrait viewport.
 
 Phone landscape prioritizes battlefield, current gameplay interaction, Command Hand, life/essential state, opponent navigation, and secondary utilities in that order. Tablets use extra room for readability and reduced overlap without changing conceptual geography. Desktop and ultrawide preserve intentional table composition rather than becoming dashboards or sidebars.
 
@@ -358,6 +361,8 @@ Safe areas, cutouts, rounded corners, home indicators, and system gesture region
 Accessibility preserves the canonical tabletop unless an explicit alternate accessibility mode is intentionally invoked. Screen-reader semantics must expose player, opponent, life, card, zone, tap state, counters, commander, focused command, stack object, current turn/phase, and mandatory decisions. Reduced motion simplifies nonessential transitions while preserving state-change clarity. High contrast cannot rely only on subtle color differences.
 
 Performance is part of quality. Command Hand rotation must not rerender the entire battlefield or recompute rules state. Zone scrolling must not rerender unrelated zones. Opponent switching must not recompute the rules engine. Animation timing is presentation state and must never define authoritative rules state.
+
+High-frequency transitions are limited to compositor-friendly transform and opacity changes. Large groups of battlefield cards must not permanently allocate filter, shadow, or layout animation layers. Card art remains unobstructed during normal battlefield presentation: readability veils and duplicate centered selection previews may not cover an available card image. Selection alone does not activate targeting visuals; those visuals require a real pending target decision. A single populated battlefield lane expands into its available region before density reduction or overflow is considered.
 
 Large Commander states must remain interactive during Command Hand rotation, zone scrolling, card inspection, opponent switching, targeting, and stack interaction. The architecture tracks these boundaries through `createInteractionPerformanceBudget()` and the landscape model's performance contract.
 

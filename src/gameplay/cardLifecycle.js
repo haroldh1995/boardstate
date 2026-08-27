@@ -6,6 +6,22 @@ import {
 
 export const CANONICAL_CARD_LIFECYCLE_VERSION = "boardstate-card-lifecycle-13.2.6-part3";
 
+export const TRANSIENT_PRESENTATION_TIMING = Object.freeze({
+  notificationTotalMs: 1500,
+  notificationExitMs: 180,
+  cardCastMs: 1050,
+});
+
+export function resolveTransientNotificationTiming(notification = {}) {
+  const persistent = notification.persistent === true || notification.requiresAcknowledgement === true;
+  return {
+    autoDismiss: !persistent,
+    totalMs: TRANSIENT_PRESENTATION_TIMING.notificationTotalMs,
+    exitMs: TRANSIENT_PRESENTATION_TIMING.notificationExitMs,
+    exitAtMs: TRANSIENT_PRESENTATION_TIMING.notificationTotalMs - TRANSIENT_PRESENTATION_TIMING.notificationExitMs,
+  };
+}
+
 export const GAMEPLAY_MODES = Object.freeze({
   liveTracking: "live-tracking",
   fullControl: "full-control",
@@ -237,7 +253,7 @@ export function createCardPresentationPayload(card = {}, kind = "entered-battlef
     sequence: options.sequence,
   });
   const createdAt = Number(options.createdAt || 0);
-  const durationMs = Math.max(0, Number(options.durationMs ?? 1550));
+  const durationMs = Math.max(0, Number(options.durationMs ?? TRANSIENT_PRESENTATION_TIMING.cardCastMs));
   return {
     id: options.presentationId || `presentation:${eventId}`,
     eventId,

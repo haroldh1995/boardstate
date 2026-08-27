@@ -133,6 +133,13 @@ export function getPendingPlayerDecisions(session = {}, stackObject = null) {
   });
 }
 
+export function getPendingTargetDecision(session = {}) {
+  return (session.pendingEffects || []).find((entry) =>
+    String(entry.status || "").toLowerCase() === "pending" &&
+    entry.effect?.choiceKind === "targets"
+  ) || null;
+}
+
 export function hasMeaningfulGameplayDecision(session = {}, stackObject = null) {
   if (getPendingPlayerDecisions(session, stackObject).length) {
     return true;
