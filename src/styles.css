@@ -2032,7 +2032,8 @@ body[data-composition="widescreen"] .landscape-battlefield-groups .permanent {
   place-items: center;
   pointer-events: none;
   background: radial-gradient(circle, rgba(74, 137, 255, 0.12), transparent 46%);
-  animation: cast-presentation 1.05s cubic-bezier(0.2, 0.78, 0.18, 1) both;
+  animation: cast-presentation var(--card-presentation-duration, 560ms) cubic-bezier(0.2, 0.78, 0.18, 1) both;
+  animation-delay: var(--card-presentation-delay, 0ms);
 }
 
 .card-presentation__energy {
@@ -2042,7 +2043,8 @@ body[data-composition="widescreen"] .landscape-battlefield-groups .permanent {
   border: 1px solid rgba(255, 227, 145, 0.54);
   border-radius: 50%;
   box-shadow: 0 0 56px rgba(83, 166, 255, 0.38), inset 0 0 42px rgba(241, 192, 107, 0.2);
-  animation: presentation-energy 0.95s ease-out both;
+  animation: presentation-energy var(--card-presentation-duration, 560ms) ease-out both;
+  animation-delay: var(--card-presentation-delay, 0ms);
 }
 
 .card-presentation__card {
@@ -2249,13 +2251,13 @@ body[data-composition="widescreen"] .landscape-battlefield-groups .permanent {
 
 @keyframes cast-presentation {
   0% { opacity: 0; }
-  12%, 68% { opacity: 1; }
+  14%, 56% { opacity: 1; }
   100% { opacity: 0; }
 }
 
 @keyframes cast-card-presentation {
   0% { opacity: 0; transform: translate3d(0, 0.8rem, 0) scale(0.94); }
-  14%, 68% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  14%, 56% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
   100% { opacity: 0; transform: translate3d(0, 6vh, 0) scale(0.9); }
 }
 
@@ -5296,6 +5298,41 @@ body[data-page="battlefield"] .recovery-toast span {
   border-radius: 1.2rem;
   background: rgba(18, 8, 35, 0.84);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.confirm-input-field {
+  display: grid;
+  gap: 0.38rem;
+  margin: 0.8rem 0;
+  color: rgba(255, 248, 255, 0.86);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.confirm-input-field input,
+.confirm-input-field select,
+.confirm-input-field textarea {
+  width: 100%;
+  min-height: 2.7rem;
+  padding: 0.58rem 0.72rem;
+  border: 1px solid rgba(227, 184, 94, 0.5);
+  border-radius: 0.72rem;
+  background: rgba(5, 8, 19, 0.78);
+  color: #fff8ff;
+  font: inherit;
+}
+
+.confirm-input-field textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+.confirm-input-field input:focus-visible,
+.confirm-input-field select:focus-visible,
+.confirm-input-field textarea:focus-visible {
+  outline: 2px solid rgba(255, 216, 79, 0.92);
+  outline-offset: 2px;
 }
 
 .danger-soft {
@@ -10313,6 +10350,7 @@ body[data-page="battlefield"] .tabletop-battlefield-page .landscape-board-region
 body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout {
   height: 100%;
   min-height: 0;
+  margin: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr) minmax(0, 0.86fr);
   align-content: stretch;
@@ -10343,7 +10381,7 @@ body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .
 }
 
 body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .tile-grid {
-  --tabletop-card-width: clamp(4.35rem, 6.2vw, 6.65rem);
+  --tabletop-card-width: clamp(5.75rem, 8.8vw, 9.2rem);
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -10377,7 +10415,10 @@ body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .
   flex: 0 0 var(--tabletop-card-width);
   width: var(--tabletop-card-width);
   min-width: var(--tabletop-card-width);
-  min-height: clamp(5.65rem, 12.8vh, 8.45rem);
+  height: min(100%, calc(var(--tabletop-card-width) * 1.4));
+  min-height: 0;
+  max-height: 100%;
+  aspect-ratio: 0.714;
   scroll-snap-align: center;
   transform: translateZ(0);
 }
@@ -10593,9 +10634,14 @@ body[data-page="battlefield"] .tabletop-battlefield-page .gameplay-context-dock 
   }
 
   body[data-page="battlefield"] .tabletop-battlefield-page .landscape-arena {
-    grid-template-rows: minmax(5.8rem, 1fr) minmax(1.55rem, auto) minmax(5.8rem, 1fr);
+    grid-template-rows: minmax(5.2rem, 0.82fr) minmax(1.45rem, auto) minmax(6.35rem, 1.18fr);
     gap: clamp(0.12rem, 0.32svh, 0.28rem);
     padding: 1.72rem 0.6rem 0;
+  }
+
+  body[data-page="battlefield"] .tabletop-battlefield-page .landscape-arena.arena--opponent-hidden,
+  body[data-page="battlefield"] .tabletop-battlefield-page .landscape-arena:has(.landscape-board-region--opponent .tabletop-empty-board) {
+    grid-template-rows: minmax(2.75rem, 0.4fr) minmax(1.45rem, auto) minmax(10.75rem, 1.66fr);
   }
 
   body[data-page="battlefield"] .tabletop-battlefield-page .landscape-command-center {
@@ -10756,7 +10802,9 @@ body[data-page="battlefield"] .commander-action-hand__status:has(.action-hand-qu
 }
 
 body[data-page="battlefield"] .commander-action-hand__fan {
-  padding-top: 0.92rem;
+  height: calc(var(--action-card-height) + 0.55rem);
+  padding-top: 0.35rem;
+  padding-bottom: 0;
 }
 
 body[data-page="battlefield"] .action-card {
@@ -10792,7 +10840,7 @@ body[data-page="battlefield"] .command-deck:not(.is-rotating):not(.is-dragging) 
 
 @media (orientation: landscape) and (max-height: 560px) {
   body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .tile-grid {
-    --tabletop-card-width: clamp(4.2rem, 17.5svh, 5.6rem);
+    --tabletop-card-width: clamp(4.45rem, 20svh, 6.1rem);
     gap: clamp(0.12rem, 0.48vw, 0.32rem);
   }
 
@@ -10889,6 +10937,13 @@ body[data-page="battlefield"] .command-deck__fan:active {
 
 body[data-page="battlefield"] .command-deck .action-card {
   will-change: transform, opacity;
+}
+
+body[data-page="battlefield"] .command-deck.is-dragging .action-card,
+body[data-page="battlefield"] .command-deck.is-free-scrolling .action-card,
+body[data-page="battlefield"] .command-deck .commander-action-hand__fan.is-dragging .action-card,
+body[data-page="battlefield"] .command-deck .commander-action-hand__fan.is-free-scrolling .action-card {
+  transition: none;
 }
 
 body[data-page="battlefield"] .command-deck .action-card[data-command-deck-center="true"] {
@@ -11093,7 +11148,7 @@ body[data-game-viewport="fixed"] .app-shell {
   --game-safe-right: max(0.65rem, env(safe-area-inset-right));
   --game-safe-bottom: max(0.55rem, env(safe-area-inset-bottom));
   --game-safe-left: max(0.65rem, env(safe-area-inset-left));
-  --game-command-hand-space: calc(clamp(6.75rem, 18svh, 9.05rem) + var(--game-safe-bottom));
+  --game-command-hand-space: calc(clamp(8.28rem, 20.8svh, 10.86rem) + 0.65rem + var(--game-safe-bottom));
   position: fixed;
   inset: 0;
   width: 100vw;
@@ -11106,10 +11161,7 @@ body[data-game-viewport="fixed"] .app-shell {
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   transform-origin: center center;
-  transition:
-    width var(--motion-duration-standard) var(--motion-ease-settle),
-    height var(--motion-duration-standard) var(--motion-ease-settle),
-    transform var(--motion-duration-standard) var(--motion-ease-settle);
+  transition: none;
 }
 
 @supports not (height: 100dvh) {
@@ -11356,6 +11408,13 @@ body[data-page="battlefield"] .app-shell.app-shell--battlefield {
   height: 100dvh;
   min-height: 0;
   max-height: 100dvh;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+body[data-page="battlefield"] .battlefield-tool-system {
+  position: fixed;
+  inset: 0;
+  z-index: 129;
 }
 
 body[data-page="battlefield"] .tabletop-battlefield-page {
@@ -11374,7 +11433,7 @@ body[data-page="battlefield"] .commander-action-hand {
 
 @media (orientation: landscape) and (max-height: 560px) {
   body[data-game-viewport="fixed"] .app-shell {
-    --game-command-hand-space: calc(clamp(5.78rem, 18svh, 6.62rem) + var(--game-safe-bottom));
+    --game-command-hand-space: calc(clamp(6.34rem, 20.4svh, 7.58rem) + 0.65rem + var(--game-safe-bottom));
   }
 
   body[data-page="home"] .app-shell {
@@ -11866,15 +11925,22 @@ body.boardstate-app-ready[data-landscape-ready="false"] #app {
   contain: layout paint style;
   backdrop-filter: none;
   animation: boardstate-notification-enter 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--notification-animation-delay, 0ms);
 }
 
 .notification-presentation {
+  background: rgba(3, 2, 9, 0.34);
+  backdrop-filter: none;
   animation: boardstate-notification-backdrop-enter 140ms ease-out both;
+  animation-delay: var(--notification-animation-delay, 0ms);
 }
 
 .notification-presentation .notification-window {
+  background: linear-gradient(180deg, rgba(22, 16, 39, 0.98), rgba(7, 7, 18, 0.98));
+  backdrop-filter: none;
   backface-visibility: hidden;
   animation: boardstate-notification-enter 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--notification-animation-delay, 0ms);
   will-change: transform, opacity;
 }
 
@@ -11883,6 +11949,7 @@ body.boardstate-app-ready[data-landscape-ready="false"] #app {
 .notification-presentation.is-leaving .notification-window {
   pointer-events: none;
   animation: boardstate-notification-exit 180ms cubic-bezier(0.4, 0, 1, 1) both;
+  animation-delay: 0ms;
 }
 
 @keyframes boardstate-notification-enter {
@@ -11903,19 +11970,22 @@ body.boardstate-app-ready[data-landscape-ready="false"] #app {
 body[data-page="battlefield"] .card-presentation {
   contain: layout paint style;
   backface-visibility: hidden;
-  animation: cast-presentation 1.05s cubic-bezier(0.2, 0.78, 0.18, 1) both;
+  animation: cast-presentation var(--card-presentation-duration, 560ms) cubic-bezier(0.2, 0.78, 0.18, 1) both;
+  animation-delay: var(--card-presentation-delay, 0ms);
   will-change: opacity;
 }
 
 body[data-page="battlefield"] .card-presentation__card {
   backface-visibility: hidden;
-  animation: cast-card-presentation 1.05s cubic-bezier(0.2, 0.78, 0.18, 1) both;
+  animation: cast-card-presentation var(--card-presentation-duration, 560ms) cubic-bezier(0.2, 0.78, 0.18, 1) both;
+  animation-delay: var(--card-presentation-delay, 0ms);
   will-change: transform, opacity;
 }
 
 body[data-page="battlefield"] .card-presentation__energy {
   backface-visibility: hidden;
-  animation: presentation-energy 0.95s ease-out both;
+  animation: presentation-energy var(--card-presentation-duration, 560ms) ease-out both;
+  animation-delay: var(--card-presentation-delay, 0ms);
   will-change: transform, opacity;
 }
 
@@ -12041,7 +12111,7 @@ body[data-page="battlefield"] .tabletop-battlefield-page .permanent.has-card-art
 
 @media (orientation: landscape) and (max-height: 560px) {
   body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .tile-grid {
-    --tabletop-card-width: clamp(4.2rem, 17.5svh, 5.6rem);
+    --tabletop-card-width: clamp(4.45rem, 20svh, 6.1rem);
     gap: clamp(0.12rem, 0.48vw, 0.32rem);
   }
 
@@ -12052,7 +12122,19 @@ body[data-page="battlefield"] .tabletop-battlefield-page .permanent.has-card-art
   }
 
   body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout:has(> .battlefield-group:nth-child(2)) .permanent {
-    --tabletop-card-width: clamp(2.35rem, 9svh, 3.35rem);
+    --tabletop-card-width: clamp(3rem, 12.5svh, 4.2rem);
+  }
+
+  body[data-page="battlefield"] .tabletop-battlefield-page .landscape-phase-core,
+  body[data-page="battlefield"] .tabletop-battlefield-page .landscape-selected-card,
+  body[data-page="battlefield"] .tabletop-battlefield-page .landscape-stack-core,
+  body[data-page="battlefield"] .tabletop-battlefield-page .landscape-combat-strip,
+  body[data-page="battlefield"] .tabletop-battlefield-page .landscape-commander-tax-strip,
+  body[data-page="battlefield"] .tabletop-battlefield-page .landscape-floating-notices,
+  body[data-page="battlefield"] .tabletop-battlefield-page .command-deck__rotator,
+  body[data-page="battlefield"] .tabletop-battlefield-page .command-deck__favorite-toggle {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 }
 
@@ -12065,5 +12147,16 @@ body[data-page="battlefield"] .tabletop-battlefield-page .permanent.has-card-art
   body[data-page="battlefield"] .card-presentation__card,
   body[data-page="battlefield"] .card-presentation__energy {
     animation-duration: 1ms;
+  }
+}
+
+@media (orientation: portrait) {
+  body.boardstate-app-ready #app {
+    visibility: hidden !important;
+    pointer-events: none !important;
+  }
+
+  body.boardstate-app-ready .boardstate-landscape-gate {
+    display: grid !important;
   }
 }

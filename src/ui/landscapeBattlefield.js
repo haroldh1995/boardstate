@@ -1998,9 +1998,15 @@ function resolveBattlefieldDensity({ localPermanentCount, opponentPermanentCount
 
 function isCombatRelevant(combat = {}, phaseLabel = "") {
   const phase = String(phaseLabel || "").toLowerCase();
+  const step = String(combat.step || "").trim().toLowerCase();
+  const activeCombatStep = Boolean(
+    step &&
+      !["idle", "none", "not-started", "complete", "completed", "resolved"].includes(step) &&
+      /(combat|attack|block|damage)/.test(step)
+  );
   return Boolean(
     phase.includes("combat") ||
-      combat.step ||
+      activeCombatStep ||
       combat.damagePreview ||
       (combat.attackerIds || []).length ||
       Object.keys(combat.blockersByAttacker || {}).length

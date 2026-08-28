@@ -20,7 +20,13 @@ import {
   resolveCombat as legacyResolveCombat,
 } from "../game/combatSystem.js";
 import { chooseEntryResult, preparePermanentEntry } from "../game/entrySystem.js";
-import { getPermanentManaOptions, parseManaRequirements, planManaPayment } from "../game/manaSystem.js";
+import {
+  getPermanentManaOptions,
+  normalizeCastingXValue,
+  parseManaRequirements,
+  planManaPayment,
+  requiresCastingXChoice,
+} from "../game/manaSystem.js";
 import { transitionFsm } from "../game/fsm.js";
 import { createId } from "../state/ids.js";
 import { createManaPool, createPermanent } from "../state/schema.js";
@@ -344,9 +350,11 @@ export {
   legacyResolveQueuedTrigger as resolveQueuedTrigger,
   legacyResolveSpell as resolveSpell,
   legacyResolveTopOfStack as resolveTopOfStack,
+  normalizeCastingXValue,
   parseManaRequirements,
   planManaPayment,
   preparePermanentEntry,
+  requiresCastingXChoice,
   suggestLegalAttachments,
   suggestLikelyTargets,
 };

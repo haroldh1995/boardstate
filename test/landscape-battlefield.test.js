@@ -293,6 +293,16 @@ test("battlefield intelligence collapses idle HUD and expands relevant stack or 
   assert.equal(activeModel.intelligence.contextualHud.combatControls, "expanded");
 });
 
+test("idle combat state cannot claim camera focus outside a combat phase", () => {
+  const profile = createDefaultProfile();
+  profile.activeSession.phaseIndex = 0;
+  profile.activeSession.combat = { step: "idle", attackerIds: [], blockersByAttacker: {} };
+  const model = createLandscapeBattlefieldModel(profile, { viewport: "desktop" });
+
+  assert.notEqual(model.camera.activeFocus.kind, "combat");
+  assert.equal(model.motion.visualFeedback.combat, "quiet");
+});
+
 test("camera focus priority is deterministic and selected permanents outrank stack and combat", () => {
   const profile = createLandscapeProfile();
   const model = createLandscapeBattlefieldModel(profile, { viewport: "desktop" });

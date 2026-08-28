@@ -9,7 +9,7 @@ export const CANONICAL_CARD_LIFECYCLE_VERSION = "boardstate-card-lifecycle-13.2.
 export const TRANSIENT_PRESENTATION_TIMING = Object.freeze({
   notificationTotalMs: 1500,
   notificationExitMs: 180,
-  cardCastMs: 1050,
+  cardCastMs: 560,
 });
 
 export function resolveTransientNotificationTiming(notification = {}) {
@@ -19,6 +19,23 @@ export function resolveTransientNotificationTiming(notification = {}) {
     totalMs: TRANSIENT_PRESENTATION_TIMING.notificationTotalMs,
     exitMs: TRANSIENT_PRESENTATION_TIMING.notificationExitMs,
     exitAtMs: TRANSIENT_PRESENTATION_TIMING.notificationTotalMs - TRANSIENT_PRESENTATION_TIMING.notificationExitMs,
+  };
+}
+
+export function resolveTransientPresentationPhase({ createdAt = 0, totalMs = 0, exitMs = 0 } = {}, now = Date.now()) {
+  const normalizedTotalMs = Math.max(0, Number(totalMs || 0));
+  const normalizedExitMs = Math.min(normalizedTotalMs, Math.max(0, Number(exitMs || 0)));
+  const normalizedCreatedAt = Math.max(0, Number(createdAt || 0));
+  const ageMs = normalizedCreatedAt
+    ? Math.min(normalizedTotalMs, Math.max(0, Number(now || 0) - normalizedCreatedAt))
+    : 0;
+  const exitAtMs = Math.max(0, normalizedTotalMs - normalizedExitMs);
+  return {
+    ageMs,
+    remainingMs: Math.max(0, normalizedTotalMs - ageMs),
+    exitRemainingMs: Math.max(0, exitAtMs - ageMs),
+    phase: ageMs >= normalizedTotalMs ? "complete" : ageMs >= exitAtMs ? "leaving" : "visible",
+    animationDelayMs: -ageMs,
   };
 }
 

@@ -6,6 +6,7 @@ import { applyLayerSystem } from "./layerSystem.js";
 import { createCardDefinition } from "./cardDefinition.js";
 import { RULES_CONFIDENCE } from "../support/debugExport.js";
 import { preparePermanentEntry } from "../game/entrySystem.js";
+import { requiresCastingXChoice } from "../game/manaSystem.js";
 import {
   GAMEPLAY_EVENT_TYPES,
   TRANSIENT_PRESENTATION_TIMING,
@@ -507,7 +508,7 @@ export function resolveEffect(session, effect, source, event = {}) {
 function collectSpellCastingChoices(spell, session = {}) {
   const text = String(spell.oracleText || "").toLowerCase();
   const choices = [];
-  if ((/\{x\}/i.test(spell.card?.manaCost || "") || /\bx\b/.test(text)) && spell.xValue === null) {
+  if (requiresCastingXChoice(spell.card || spell) && spell.xValue === null) {
     choices.push({ kind: "x-value", summary: "Choose and record X before resolving this spell." });
   }
   if (/\bchoose (?:one|two|one or both|one or more|up to one|up to two)\b/.test(text) && !spell.selectedModes.length) {
@@ -670,9 +671,15 @@ function finalizePermanentSpellResolution(session, spell) {
     instances: permanent.quantity || 1,
     cause: spell.isCopy ? "permanent-spell-copy-resolved" : "permanent-spell-resolved",
   });
-  const remainingStack = (entered.stack || []).filter((entry) => entry.id !== spell.id);
+  const synchronizedEntry = side === "opponent" && entered.simulation?.opponents?.[controller]
+    ? updateControllerZones(entered, controller, (zones) => ({
+        ...zones,
+        battlefield: stackPermanent(zones.battlefield || [], permanent),
+      }))
+    : entered;
+  const remainingStack = (synchronizedEntry.stack || []).filter((entry) => entry.id !== spell.id);
   return recalculateContinuousEffects({
-    ...entered,
+    ...synchronizedEntry,
     stack: remainingStack,
     priority: {
       activePlayerId: controller,
@@ -685,7 +692,7 @@ function finalizePermanentSpellResolution(session, spell) {
         spell.isCopy ? "Permanent spell copy resolved as a token permanent." : "Permanent spell resolved onto the battlefield.",
         RULES_CONFIDENCE.AUTO_RESOLVED
       ),
-      ...(entered.rulesConfidenceLog || []),
+      ...(synchronizedEntry.rulesConfidenceLog || []),
     ].slice(0, 160),
     effectLog: [
       createLog(
@@ -693,7 +700,7 @@ function finalizePermanentSpellResolution(session, spell) {
         spell.isCopy ? "Permanent spell copy resolved as a token permanent." : "Permanent spell resolved onto the battlefield.",
         RULES_CONFIDENCE.AUTO_RESOLVED
       ),
-      ...(entered.effectLog || []),
+      ...(synchronizedEntry.effectLog || []),
     ].slice(0, 120),
   });
 }

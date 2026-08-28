@@ -33,6 +33,7 @@ import {
   createModeInteractionPolicy,
   resolveGameplayAttentionOwner,
   resolveTransientNotificationTiming,
+  resolveTransientPresentationPhase,
   shouldDeferNotification,
 } from "../gameplay/cardLifecycle.js";
 import {
@@ -73,7 +74,12 @@ import {
   selectScryfallSearchResult,
   updateScryfallSearchQuery,
 } from "../gameplay/scryfallSearchModel.js";
-import { calculateLegalTargets, getPermanentManaOptions } from "../rules-engine/index.js";
+import {
+  calculateLegalTargets,
+  getPermanentManaOptions,
+  normalizeCastingXValue,
+  requiresCastingXChoice,
+} from "../rules-engine/index.js";
 import { createPermanent, PHASES } from "../state/schema.js";
 import { buildPredictiveActions } from "../game/predictiveActions.js";
 import { getSimulationDeckById } from "../simulation/decks/index.js";
@@ -832,18 +838,51 @@ export function mountApp(root, store) {
     for (const id of visibleIds) {
       const notification = notifications.get(id);
       const timing = resolveTransientNotificationTiming(notification);
-      if (!notification || !timing.autoDismiss || notificationAutoDismissTimers.has(id)) {
+      if (!notification || !timing.autoDismiss) {
         continue;
       }
+      const existingTimers = notificationAutoDismissTimers.get(id);
+      if (existingTimers) {
+        syncNotificationPresentationPhase(id, existingTimers, timing);
+        continue;
+      }
+      const startedAt = Date.now();
+      const phase = resolveTransientPresentationPhase({
+        createdAt: startedAt,
+        totalMs: timing.totalMs,
+        exitMs: timing.exitMs,
+      });
+      const timerState = {
+        exitTimer: null,
+        dismissTimer: null,
+        leaving: phase.phase === "leaving",
+        startedAt,
+      };
       const exitTimer = setTimeout(() => {
-        getNotificationPresentationNodes(id).forEach((node) => node.classList.add("is-leaving"));
-      }, timing.exitAtMs);
+        timerState.leaving = true;
+        syncNotificationPresentationPhase(id, timerState, timing);
+      }, phase.exitRemainingMs);
       const dismissTimer = setTimeout(() => {
         notificationAutoDismissTimers.delete(id);
         store.dispatch({ type: "NOTIFICATION_ACK", id, internalOnly: true });
-      }, timing.totalMs);
-      notificationAutoDismissTimers.set(id, { exitTimer, dismissTimer });
+      }, phase.remainingMs);
+      timerState.exitTimer = exitTimer;
+      timerState.dismissTimer = dismissTimer;
+      notificationAutoDismissTimers.set(id, timerState);
+      syncNotificationPresentationPhase(id, timerState, timing);
     }
+  }
+
+  function syncNotificationPresentationPhase(id, timerState, timing) {
+    const phase = resolveTransientPresentationPhase({
+      createdAt: timerState.startedAt,
+      totalMs: timing.totalMs,
+      exitMs: timing.exitMs,
+    });
+    getNotificationPresentationNodes(id).forEach((node) => {
+      node.style.setProperty("--notification-animation-delay", `${phase.animationDelayMs}ms`);
+      node.classList.toggle("is-leaving", timerState.leaving || phase.phase === "leaving");
+    });
   }
 
   function getNotificationPresentationNodes(id) {
@@ -1975,7 +2014,7 @@ export function mountApp(root, store) {
       event.preventDefault();
       const password = String(new FormData(event.currentTarget).get("password") || "");
       if (password.length < 4) {
-        alert("Use at least 4 characters for local device protection.");
+        showNotice("Use at least 4 characters for local device protection.", "warning");
         return;
       }
       await store.createPassword(password);
@@ -1986,7 +2025,7 @@ export function mountApp(root, store) {
       try {
         await store.login(password);
       } catch {
-        alert("Password did not match this local profile.");
+        showNotice("Password did not match this local profile.", "warning");
       }
     });
     container.querySelector("[data-guest-mode]")?.addEventListener("click", () => store.continueGuest());
@@ -2015,9 +2054,14 @@ export function mountApp(root, store) {
     container.querySelectorAll("[data-local-save-rename]").forEach((button) =>
       button.addEventListener("click", () => {
         const currentName = button.dataset.localSaveName || "BoardState Save";
-        const nextName = prompt("Rename save", currentName);
-        if (nextName === null) return;
-        store.dispatch({ type: "LOCAL_SAVE_RENAME", saveId: button.dataset.localSaveRename, saveName: nextName });
+        openConfirmation({
+          id: "local-save-rename",
+          title: "Rename local save",
+          message: "Choose a name that makes this table state easy to recognize.",
+          confirmLabel: "Rename Save",
+          payload: { saveId: button.dataset.localSaveRename, currentName },
+          input: { name: "saveName", label: "Save name", type: "text", value: currentName, required: true },
+        });
       })
     );
     container.querySelectorAll("[data-local-save-duplicate]").forEach((button) =>
@@ -2047,32 +2091,26 @@ export function mountApp(root, store) {
     );
     container.querySelectorAll("[data-linked-session-import]").forEach((button) =>
       button.addEventListener("click", () => {
-        const text = prompt("Paste canonical linked-session JSON or BoardState handoff bundle.");
-        if (!text) return;
-        const parsed = parseLinkedSessionSnapshot(text);
-        if (!parsed.valid) {
-          showNotice(parsed.errors?.[0] || "Linked session import failed.", "warning");
-          return;
-        }
-        store.dispatch({ type: "IMPORT_LINKED_SESSION", text, sessionName: button.dataset.linkedSessionName || "" });
-        showNotice("Linked session imported.");
+        openConfirmation({
+          id: "linked-session-import",
+          title: "Import linked session",
+          message: "Paste a canonical linked-session JSON document or BoardState handoff bundle.",
+          confirmLabel: "Validate and Import",
+          payload: { sessionName: button.dataset.linkedSessionName || "" },
+          input: { name: "linkedSession", label: "Session JSON", type: "textarea", value: "", required: true },
+        });
       })
     );
     container.querySelectorAll("[data-import-lite-session]").forEach((button) =>
       button.addEventListener("click", () => {
-        const text = prompt("Paste a BoardState Lite shared-session snapshot or Lite handoff bundle.");
-        if (!text) return;
-        const report = validateBoardStateLiteSnapshot(text);
-        if (!report.valid) {
-          showNotice(report.errors?.[0] || "Lite session import failed validation.", "warning");
-          return;
-        }
-        store.dispatch({
-          type: "IMPORT_LITE_SESSION_SNAPSHOT",
-          payload: text,
-          sessionName: button.dataset.sessionName || "BoardState Lite Imported Session",
+        openConfirmation({
+          id: "lite-session-import",
+          title: "Import BoardState Lite session",
+          message: "Paste a BoardState Lite shared-session snapshot or handoff bundle.",
+          confirmLabel: "Validate and Import",
+          payload: { sessionName: button.dataset.sessionName || "BoardState Lite Imported Session" },
+          input: { name: "liteSession", label: "Lite session JSON", type: "textarea", value: "", required: true },
         });
-        showNotice(report.warnings?.length ? "Lite session imported with compatibility warnings." : "Lite session imported.");
       })
     );
     container.querySelectorAll("[data-lite-session-file]").forEach((input) =>
@@ -2142,16 +2180,14 @@ export function mountApp(root, store) {
     );
     container.querySelectorAll("[data-import-deck-snapshot]").forEach((button) =>
       button.addEventListener("click", () => {
-        const text = prompt("Paste a Deck Nexus deck snapshot JSON payload.");
-        if (!text) return;
-        const report = validateDeckNexusSnapshotPayload(text);
-        if (!report.valid) {
-          showNotice(report.errors?.[0] || "Deck snapshot import failed validation.", "warning");
-          return;
-        }
-        store.dispatch({ type: "IMPORT_DECK_NEXUS_SNAPSHOT", payload: text, overwrite: button.dataset.overwrite === "true" });
-        simulationSelectedDeckSnapshotId = report.deckSnapshot?.deckSnapshotId || simulationSelectedDeckSnapshotId;
-        showNotice(report.warnings?.length ? "Deck snapshot imported with compatibility warnings." : "Deck snapshot imported.");
+        openConfirmation({
+          id: "deck-snapshot-import",
+          title: "Import Deck Nexus snapshot",
+          message: "Paste the canonical Deck Nexus deck snapshot JSON payload.",
+          confirmLabel: "Validate and Import",
+          payload: { overwrite: button.dataset.overwrite === "true" },
+          input: { name: "deckSnapshot", label: "Deck snapshot JSON", type: "textarea", value: "", required: true },
+        });
       })
     );
     container.querySelectorAll("[data-deck-snapshot-file]").forEach((input) =>
@@ -2352,8 +2388,12 @@ export function mountApp(root, store) {
     );
     container.querySelectorAll("[data-regenerate-friend-code]").forEach((button) =>
       button.addEventListener("click", () => {
-        if (!confirm("Regenerate your friend code? Existing friends stay saved locally, but new people will need the new code.")) return;
-        store.dispatch({ type: "FRIEND_REGENERATE_CODE" });
+        openConfirmation({
+          id: "friend-regenerate-code",
+          title: "Regenerate friend code?",
+          message: "Existing friends stay saved locally, but new people will need the new code.",
+          confirmLabel: "Regenerate Code",
+        });
       })
     );
     container.querySelectorAll("[data-refresh-nearby]").forEach((button) =>
@@ -2386,14 +2426,26 @@ export function mountApp(root, store) {
     );
     container.querySelectorAll("[data-friend-remove]").forEach((button) =>
       button.addEventListener("click", () => {
-        if (!confirm("Remove this friend from your local list?")) return;
-        store.dispatch({ type: "FRIEND_REMOVE", friendId: button.dataset.friendRemove });
+        openConfirmation({
+          id: "friend-remove",
+          title: "Remove this friend?",
+          message: "This removes the friend from your local BoardState list.",
+          confirmLabel: "Remove Friend",
+          danger: true,
+          payload: { friendId: button.dataset.friendRemove },
+        });
       })
     );
     container.querySelectorAll("[data-friend-block]").forEach((button) =>
       button.addEventListener("click", () => {
-        if (!confirm("Block this friend code and hide it from normal friend/nearby lists?")) return;
-        store.dispatch({ type: "FRIEND_BLOCK", friendId: button.dataset.friendBlock, friendCode: button.dataset.friendCode });
+        openConfirmation({
+          id: "friend-block",
+          title: "Block this friend?",
+          message: "The friend code will be hidden from normal friend and nearby lists.",
+          confirmLabel: "Block Friend",
+          danger: true,
+          payload: { friendId: button.dataset.friendBlock, friendCode: button.dataset.friendCode },
+        });
       })
     );
     container.querySelectorAll("[data-friend-unblock]").forEach((button) =>
@@ -2511,8 +2563,14 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-tournament-remove-player]").forEach((button) =>
       button.addEventListener("click", () => {
-        if (!confirm("Remove this player before the tournament starts?")) return;
-        store.dispatch({ type: "TOURNAMENT_REMOVE_PLAYER", playerId: button.dataset.tournamentRemovePlayer });
+        openConfirmation({
+          id: "tournament-remove-player",
+          title: "Remove tournament player?",
+          message: "This player will be removed before the tournament starts.",
+          confirmLabel: "Remove Player",
+          danger: true,
+          payload: { playerId: button.dataset.tournamentRemovePlayer },
+        });
       })
     );
     container.querySelectorAll("[data-tournament-pin]").forEach((button) =>
@@ -2552,13 +2610,16 @@ export function mountApp(root, store) {
     container.querySelectorAll("[data-tournament-edit-table]").forEach((button) =>
       button.addEventListener("click", () => {
         const current = button.dataset.players || "";
-        const answer = prompt("Enter player names or IDs for this table, comma-separated. Casual override allowed before the round starts.", current);
-        if (answer === null) return;
-        store.dispatch({
-          type: "TOURNAMENT_EDIT_TABLE",
-          roundNumber: Number(button.dataset.roundNumber || 0),
-          tableId: button.dataset.tournamentEditTable,
-          players: answer,
+        openConfirmation({
+          id: "tournament-edit-table",
+          title: "Edit tournament table",
+          message: "Enter player names or IDs separated by commas. Casual overrides are available before the round starts.",
+          confirmLabel: "Update Table",
+          payload: {
+            roundNumber: Number(button.dataset.roundNumber || 0),
+            tableId: button.dataset.tournamentEditTable,
+          },
+          input: { name: "players", label: "Players", type: "text", value: current, required: true },
         });
       })
     );
@@ -2581,18 +2642,27 @@ export function mountApp(root, store) {
     );
     container.querySelectorAll("[data-tournament-correct]").forEach((button) => {
       button.addEventListener("click", () => {
-        const answer = prompt("Correct total wins for this player.", "0");
-        if (answer === null) return;
-        store.dispatch({ type: "TOURNAMENT_CORRECT", playerId: button.dataset.tournamentCorrect, wins: Math.max(0, Number(answer) || 0) });
-        showNotice("Tournament standings corrected.");
+        openConfirmation({
+          id: "tournament-correct-wins",
+          title: "Correct tournament wins",
+          message: "Set the authoritative total wins for this player.",
+          confirmLabel: "Update Standings",
+          payload: { playerId: button.dataset.tournamentCorrect },
+          input: { name: "wins", label: "Total wins", type: "number", value: "0", min: 0, step: 1, inputMode: "numeric", required: true },
+        });
       });
     });
     container.querySelector("[data-tournament-announce]")?.addEventListener("click", () => store.dispatch({ type: "TOURNAMENT_ANNOUNCE" }));
     container.querySelector("[data-tournament-end]")?.addEventListener("click", () => {
       const tournament = store.getState().tournament || {};
       const incomplete = (tournament.standings || []).filter((entry) => Number(entry.oneVOneGamesPlayed || 0) < 1).length;
-      if (!confirm(`${incomplete ? `${incomplete} player(s) have not completed a 1v1. ` : ""}End tournament and announce Top 3?`)) return;
-      store.dispatch({ type: "TOURNAMENT_END" });
+      openConfirmation({
+        id: "tournament-end",
+        title: "End tournament and announce Top 3?",
+        message: incomplete ? `${incomplete} player(s) have not completed a 1v1.` : "All tracked 1v1 results are complete.",
+        confirmLabel: "End Tournament",
+        danger: true,
+      });
     });
     container.querySelector("[data-helper-remind]")?.addEventListener("click", () => {
       const messages = collectHelperCandidateMessages(store.getState(), activePage)
@@ -2703,7 +2773,8 @@ export function mountApp(root, store) {
           const modeFromPanel = container.querySelector("[data-stack-remove-mode]")?.value || action;
           const countMode = button.dataset.countMode || "custom";
           const removalPayload = resolveStackRemovalRequest(stacked, countMode);
-          if (!removalPayload) {
+          if (removalPayload.requiresChoice) {
+            openStackRemovalConfirmation(removalPayload, modeFromPanel);
             return;
           }
           store.dispatch({
@@ -2728,7 +2799,8 @@ export function mountApp(root, store) {
         const mode = container.querySelector("[data-stack-remove-mode]")?.value || "destroy";
         const countMode = button.dataset.stackRemove || "custom";
         const removalPayload = resolveStackRemovalRequest(stacked, countMode);
-        if (!removalPayload) {
+        if (removalPayload.requiresChoice) {
+          openStackRemovalConfirmation(removalPayload, mode);
           return;
         }
         store.dispatch({
@@ -2849,10 +2921,13 @@ export function mountApp(root, store) {
       bindLongPressRepeat(button, action);
     });
     container.querySelector("[data-life-set]")?.addEventListener("click", () => {
-      const value = prompt("Set life total", String(profile.activeSession.life));
-      if (value !== null) {
-        dispatchWithFeedback({ type: "SET_LIFE", life: value }, true);
-      }
+      openConfirmation({
+        id: "set-life-total",
+        title: "Set life total",
+        message: "Record the current authoritative life total.",
+        confirmLabel: "Set Life",
+        input: { name: "life", label: "Life total", type: "number", value: String(profile.activeSession.life), step: 1, inputMode: "numeric", required: true },
+      });
     });
     container.querySelector("[data-life-reset]")?.addEventListener("click", () =>
       openConfirmation({
@@ -2877,10 +2952,14 @@ export function mountApp(root, store) {
     }
     container.querySelector("[data-commander-damage-set]")?.addEventListener("click", () => {
       const current = profile.activeSession.commander.damageByOpponent?.opponent || 0;
-      const value = prompt("Set commander damage", String(current));
-      if (value !== null) {
-        dispatchWithFeedback({ type: "SET_COMMANDER_DAMAGE", opponentId: "opponent", value }, true);
-      }
+      openConfirmation({
+        id: "set-commander-damage",
+        title: "Set commander damage",
+        message: "Record damage received from the focused opponent's commander.",
+        confirmLabel: "Set Damage",
+        payload: { opponentId: "opponent" },
+        input: { name: "damage", label: "Commander damage", type: "number", value: String(current), min: 0, step: 1, inputMode: "numeric", required: true },
+      });
     });
     container.querySelector("[data-commander-damage-reset]")?.addEventListener("click", () =>
       dispatchWithFeedback({ type: "SET_COMMANDER_DAMAGE", opponentId: "opponent", value: 0 }, true)
@@ -2953,15 +3032,22 @@ export function mountApp(root, store) {
         const manaOptions = permanent && !permanent.tapped ? getPermanentManaOptions(permanent) : [];
         let manaColor = "";
         if (manaOptions.length > 1) {
-          const choice = prompt(`Choose mana for ${permanent.name}: ${manaOptions.join(", ")}`, manaOptions[0]);
-          if (choice === null) {
-            return;
-          }
-          manaColor = String(choice || "").trim().toUpperCase();
-          if (!manaOptions.includes(manaColor)) {
-            showNotice(`${manaColor || "That choice"} is not a supported mana option for ${permanent.name}.`, "warning");
-            return;
-          }
+          openConfirmation({
+            id: "tap-permanent-for-mana",
+            title: `Choose mana for ${permanent.name}`,
+            message: "Select the mana this permanent produces as it taps.",
+            confirmLabel: "Tap for Mana",
+            payload: { permanentId: button.dataset.tap, permanentName: permanent.name, manaOptions },
+            input: {
+              name: "manaColor",
+              label: "Mana produced",
+              type: "select",
+              value: manaOptions[0],
+              options: manaOptions.map((option) => ({ value: option, label: option })),
+              required: true,
+            },
+          });
+          return;
         }
         store.dispatch({ type: "TOGGLE_TAPPED", id: button.dataset.tap, manaColor });
       });
@@ -2983,11 +3069,14 @@ export function mountApp(root, store) {
           store.dispatch({ type: "ADVANCE_MAX_SPEED", id: button.dataset.permanentId, amount: 1 });
           return;
         }
-        const answer = prompt(`Required ${formatLabel(mechanic)} contribution`, "1");
-        if (answer === null) {
-          return;
-        }
-        store.dispatch({ type: "TAP_SELECTED_FOR_COST", mechanic, requiredValue: Math.max(1, Number(answer) || 1) });
+        openConfirmation({
+          id: "permanent-mechanic-contribution",
+          title: `${formatLabel(mechanic)} contribution`,
+          message: "Set the total contribution required from the selected permanents.",
+          confirmLabel: "Confirm Cost",
+          payload: { mechanic },
+          input: { name: "requiredValue", label: "Required value", type: "number", value: "1", min: 1, step: 1, inputMode: "numeric", required: true },
+        });
       });
     });
     container.querySelectorAll("[data-counter]").forEach((button) => {
@@ -3006,12 +3095,25 @@ export function mountApp(root, store) {
             .filter((permanent) => permanent.isPlaneswalker || /\bBattle\b/i.test(permanent.typeLine || ""))
             .map((permanent) => ({ id: permanent.id, name: permanent.name })),
         ];
-        let target = attackTargets[0];
         if (attackTargets.length > 1) {
-          const answer = prompt(`Choose attack target:\n${attackTargets.map((entry, index) => `${index + 1}. ${entry.name}`).join("\n")}`, "1");
-          if (answer === null) return;
-          target = attackTargets[Math.max(0, Math.min(attackTargets.length - 1, Number(answer || 1) - 1))] || attackTargets[0];
+          openConfirmation({
+            id: "declare-attackers-target",
+            title: "Choose attack target",
+            message: "Assign the selected attackers to one defending player, planeswalker, or battle.",
+            confirmLabel: "Declare Attackers",
+            payload: { selectedIds, attackTargets },
+            input: {
+              name: "attackTarget",
+              label: "Defender",
+              type: "select",
+              value: attackTargets[0].id,
+              options: attackTargets.map((entry) => ({ value: entry.id, label: entry.name })),
+              required: true,
+            },
+          });
+          return;
         }
+        const target = attackTargets[0];
         store.dispatch({
           type: "DECLARE_ATTACKERS",
           ids: selectedIds,
@@ -3238,8 +3340,12 @@ export function mountApp(root, store) {
       }
     }));
 
-    container.querySelectorAll("[data-confirm-action]").forEach((button) =>
-      button.addEventListener("click", () => runConfirmationAction(button.dataset.confirmAction))
+    container.querySelectorAll("[data-confirmation-form]").forEach((form) =>
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const input = form.querySelector("[data-confirmation-input]");
+        runConfirmationAction(form.dataset.confirmAction, input?.value);
+      })
     );
     container.querySelectorAll("[data-cancel-confirmation]").forEach((button) =>
       button.addEventListener("click", () => {
@@ -3533,14 +3639,15 @@ export function mountApp(root, store) {
         const index = Number(button.dataset.newDeckResult);
         const card = searchResults[index];
         if (!card) return;
-        const name = prompt("Name the new deck.", canBeCommander(card) ? `${card.name} Commander Deck` : "New Deck");
-        if (name === null) return;
-        const action = beginCanonicalSearchAction(index, "create-deck", name.trim() || "New Deck");
-        if (!action.accepted) return;
-        completeCanonicalSearchAction(action.actionId);
-        dismissSearchInputFocus({ closeSearchPanel: true });
-        store.dispatch({ type: "CREATE_DECK_WITH_CARD", card, name: name.trim() || "New Deck", makeCommander: false });
-        showNotice(`Created ${name.trim() || "New Deck"} and added ${card.name}.`);
+        const suggestedName = canBeCommander(card) ? `${card.name} Commander Deck` : "New Deck";
+        openConfirmation({
+          id: "create-deck-from-search",
+          title: "Name the new deck",
+          message: `${card.name} will be added after the deck is created.`,
+          confirmLabel: "Create Deck",
+          payload: { card },
+          input: { name: "deckName", label: "Deck name", type: "text", value: suggestedName, required: true },
+        });
       });
     });
     container.querySelectorAll("[data-inspect-result]").forEach((button) => {
@@ -3653,7 +3760,13 @@ export function mountApp(root, store) {
         if (!entry) {
           return;
         }
-        alert(`${entry.sourceName}\n${entry.eventType}\nEffects: ${(entry.effectDefinitions || []).map((effect) => effect.action || "effect").join(", ")}\nModifiers: ${(entry.generatedModifiers || []).map((modifier) => `L${modifier.layer}:${modifier.operation}`).join(" | ") || "none"}`);
+        openConfirmation({
+          id: "close-information",
+          title: entry.sourceName || "Layer details",
+          message: `${entry.eventType}. Effects: ${(entry.effectDefinitions || []).map((effect) => effect.action || "effect").join(", ") || "none"}. Modifiers: ${(entry.generatedModifiers || []).map((modifier) => `L${modifier.layer}:${modifier.operation}`).join(" | ") || "none"}.`,
+          confirmLabel: "Close",
+          hideCancel: true,
+        });
       });
     });
     container.querySelectorAll("[data-replay-action]").forEach((button) => {
@@ -5596,13 +5709,34 @@ export function mountApp(root, store) {
       message: dialog.message || "Please confirm this action.",
       confirmLabel: dialog.confirmLabel || "Confirm",
       cancelLabel: dialog.cancelLabel || "Cancel",
+      hideCancel: Boolean(dialog.hideCancel),
       danger: Boolean(dialog.danger),
       payload: dialog.payload || null,
+      input: dialog.input
+        ? {
+            name: dialog.input.name || "confirmationValue",
+            label: dialog.input.label || "Value",
+            type: dialog.input.type || "text",
+            value: String(dialog.input.value ?? ""),
+            min: dialog.input.min,
+            max: dialog.input.max,
+            step: dialog.input.step,
+            inputMode: dialog.input.inputMode || "",
+            required: Boolean(dialog.input.required),
+            options: Array.isArray(dialog.input.options)
+              ? dialog.input.options.map((option) => ({
+                  value: String(option.value ?? ""),
+                  label: String(option.label ?? option.value ?? ""),
+                }))
+              : [],
+          }
+        : null,
     };
     render(store.getState());
+    root.querySelector("[data-confirmation-input]")?.focus({ preventScroll: true });
   }
 
-  function runConfirmationAction(id = "") {
+  function runConfirmationAction(id = "", inputValue = "") {
     const payload = confirmationDialog?.payload || null;
     confirmationDialog = null;
     switch (id) {
@@ -5710,6 +5844,176 @@ export function mountApp(root, store) {
       case "reset-all-local-data":
         store.dispatch({ type: "RESET_ALL_LOCAL_DATA" });
         showNotice("Local data reset.");
+        break;
+      case "friend-regenerate-code":
+        store.dispatch({ type: "FRIEND_REGENERATE_CODE" });
+        showNotice("Friend code regenerated.");
+        break;
+      case "friend-remove":
+        if (payload?.friendId) {
+          store.dispatch({ type: "FRIEND_REMOVE", friendId: payload.friendId });
+          showNotice("Friend removed.");
+        }
+        break;
+      case "friend-block":
+        if (payload?.friendId || payload?.friendCode) {
+          store.dispatch({ type: "FRIEND_BLOCK", friendId: payload.friendId, friendCode: payload.friendCode });
+          showNotice("Friend blocked.");
+        }
+        break;
+      case "tournament-remove-player":
+        if (payload?.playerId) {
+          store.dispatch({ type: "TOURNAMENT_REMOVE_PLAYER", playerId: payload.playerId });
+          showNotice("Tournament player removed.");
+        }
+        break;
+      case "tournament-end":
+        store.dispatch({ type: "TOURNAMENT_END" });
+        break;
+      case "close-information":
+        break;
+      case "local-save-rename": {
+        const saveName = String(inputValue || "").trim() || payload?.currentName || "BoardState Save";
+        if (payload?.saveId) {
+          store.dispatch({ type: "LOCAL_SAVE_RENAME", saveId: payload.saveId, saveName });
+          showNotice("Local save renamed.");
+        }
+        break;
+      }
+      case "linked-session-import": {
+        const text = String(inputValue || "").trim();
+        const parsed = parseLinkedSessionSnapshot(text);
+        if (!parsed.valid) {
+          showNotice(parsed.errors?.[0] || "Linked session import failed.", "warning");
+          break;
+        }
+        store.dispatch({ type: "IMPORT_LINKED_SESSION", text, sessionName: payload?.sessionName || "" });
+        showNotice("Linked session imported.");
+        break;
+      }
+      case "lite-session-import": {
+        const text = String(inputValue || "").trim();
+        const report = validateBoardStateLiteSnapshot(text);
+        if (!report.valid) {
+          showNotice(report.errors?.[0] || "Lite session import failed validation.", "warning");
+          break;
+        }
+        store.dispatch({
+          type: "IMPORT_LITE_SESSION_SNAPSHOT",
+          payload: text,
+          sessionName: payload?.sessionName || "BoardState Lite Imported Session",
+        });
+        showNotice(report.warnings?.length ? "Lite session imported with compatibility warnings." : "Lite session imported.");
+        break;
+      }
+      case "deck-snapshot-import": {
+        const text = String(inputValue || "").trim();
+        const report = validateDeckNexusSnapshotPayload(text);
+        if (!report.valid) {
+          showNotice(report.errors?.[0] || "Deck snapshot import failed validation.", "warning");
+          break;
+        }
+        store.dispatch({ type: "IMPORT_DECK_NEXUS_SNAPSHOT", payload: text, overwrite: Boolean(payload?.overwrite) });
+        simulationSelectedDeckSnapshotId = report.deckSnapshot?.deckSnapshotId || simulationSelectedDeckSnapshotId;
+        showNotice(report.warnings?.length ? "Deck snapshot imported with compatibility warnings." : "Deck snapshot imported.");
+        break;
+      }
+      case "tournament-edit-table":
+        if (payload?.tableId) {
+          store.dispatch({
+            type: "TOURNAMENT_EDIT_TABLE",
+            roundNumber: Number(payload.roundNumber || 0),
+            tableId: payload.tableId,
+            players: String(inputValue || ""),
+          });
+          showNotice("Tournament table updated.");
+        }
+        break;
+      case "tournament-correct-wins":
+        if (payload?.playerId) {
+          store.dispatch({
+            type: "TOURNAMENT_CORRECT",
+            playerId: payload.playerId,
+            wins: normalizeCastingXValue(inputValue),
+          });
+          showNotice("Tournament standings corrected.");
+        }
+        break;
+      case "set-life-total":
+        dispatchWithFeedback({ type: "SET_LIFE", life: Math.floor(Number(inputValue) || 0) }, true);
+        break;
+      case "set-commander-damage":
+        dispatchWithFeedback({
+          type: "SET_COMMANDER_DAMAGE",
+          opponentId: payload?.opponentId || "opponent",
+          value: normalizeCastingXValue(inputValue),
+        }, true);
+        break;
+      case "tap-permanent-for-mana": {
+        const manaColor = String(inputValue || "").trim().toUpperCase();
+        if (!payload?.permanentId || !payload.manaOptions?.includes(manaColor)) {
+          showNotice(`${manaColor || "That choice"} is not a supported mana option for ${payload?.permanentName || "this permanent"}.`, "warning");
+          break;
+        }
+        store.dispatch({ type: "TOGGLE_TAPPED", id: payload.permanentId, manaColor });
+        break;
+      }
+      case "permanent-mechanic-contribution":
+        if (payload?.mechanic) {
+          store.dispatch({
+            type: "TAP_SELECTED_FOR_COST",
+            mechanic: payload.mechanic,
+            requiredValue: Math.max(1, normalizeCastingXValue(inputValue, 1)),
+          });
+        }
+        break;
+      case "declare-attackers-target": {
+        const selectedIds = Array.isArray(payload?.selectedIds) ? payload.selectedIds : [];
+        const target = payload?.attackTargets?.find((entry) => entry.id === inputValue) || payload?.attackTargets?.[0];
+        if (!selectedIds.length || !target) break;
+        store.dispatch({
+          type: "DECLARE_ATTACKERS",
+          ids: selectedIds,
+          defendingPlayerId: "opponent",
+          attackTargetsByAttacker: Object.fromEntries(selectedIds.map((permanentId) => [permanentId, target.id])),
+        });
+        break;
+      }
+      case "create-deck-from-search": {
+        const card = payload?.card;
+        if (!card) break;
+        const name = String(inputValue || "").trim() || "New Deck";
+        const action = beginCanonicalSearchCardAction(card, "create-deck", name);
+        if (!action.accepted) break;
+        completeCanonicalSearchAction(action.actionId);
+        dismissSearchInputFocus({ closeSearchPanel: true });
+        store.dispatch({ type: "CREATE_DECK_WITH_CARD", card, name, makeCommander: false });
+        showNotice(`Created ${name} and added ${card.name}.`);
+        break;
+      }
+      case "remove-stacked-permanents": {
+        const totals = payload?.totals || {};
+        const largestStack = Math.max(1, Number(payload?.largestStack || 1));
+        const removeAll = inputValue === "all";
+        const count = removeAll ? largestStack : Math.max(1, Math.min(largestStack, normalizeCastingXValue(inputValue, 1)));
+        store.dispatch({
+          type: "REMOVE_SELECTED",
+          mode: payload?.mode || "destroy",
+          countMode: removeAll ? "all" : "custom",
+          count,
+          countById: Object.fromEntries(Object.entries(totals).map(([permanentId, total]) => [permanentId, removeAll ? total : Math.min(total, count)])),
+        });
+        break;
+      }
+      case "cast-scryfall-x":
+        if (payload?.card) {
+          completeSearchCast({
+            card: payload.card,
+            sourceZone: payload.sourceZone,
+            controller: payload.controller,
+            xValue: normalizeCastingXValue(inputValue),
+          });
+        }
         break;
       default:
         showNotice("Action cancelled.");
@@ -5968,26 +6272,32 @@ export function mountApp(root, store) {
       };
     }
     const largestStack = Math.max(...Object.values(totals));
-    const answer = prompt(`Remove how many from each selected stack? (1-${largestStack}, or "all")`, "1");
-    if (answer === null) {
-      return null;
-    }
-    const normalized = String(answer).trim().toLowerCase();
-    if (normalized === "all") {
-      return {
-        countMode: "all",
-        count: largestStack,
-        countById: totals,
-      };
-    }
-    const numeric = Math.max(1, Math.floor(Number(normalized) || 1));
     return {
-      countMode: "custom",
-      count: numeric,
-      countById: Object.fromEntries(
-        stackedPermanents.map((permanent) => [permanent.id, Math.min(totals[permanent.id], numeric)])
-      ),
+      requiresChoice: true,
+      largestStack,
+      totals,
     };
+  }
+
+  function openStackRemovalConfirmation(removalRequest, mode) {
+    openConfirmation({
+      id: "remove-stacked-permanents",
+      title: "Choose stack quantity",
+      message: `Remove the same quantity from each selected stack, up to ${removalRequest.largestStack}.`,
+      confirmLabel: "Apply Removal",
+      payload: { mode, totals: removalRequest.totals, largestStack: removalRequest.largestStack },
+      input: {
+        name: "stackQuantity",
+        label: "Quantity per stack",
+        type: "select",
+        value: "1",
+        options: [
+          ...Array.from({ length: removalRequest.largestStack }, (_, index) => ({ value: String(index + 1), label: String(index + 1) })),
+          { value: "all", label: "All copies" },
+        ],
+        required: true,
+      },
+    });
   }
 
   function applyTrackerModifier() {
@@ -6242,7 +6552,7 @@ export function mountApp(root, store) {
     if (resultList && Number.isFinite(searchResultsScrollTop) && searchResultsScrollTop > 0) {
       resultList.scrollTop = searchResultsScrollTop;
     }
-    if (!snapshot?.shouldFocus && !(activeUtilityPanel === "search" && keepSearchInputFocus)) {
+    if (confirmationDialog || (!snapshot?.shouldFocus && !(activeUtilityPanel === "search" && keepSearchInputFocus))) {
       return;
     }
     const input =
@@ -6276,16 +6586,31 @@ export function mountApp(root, store) {
       showNotice(`${card.name} played as a land.`);
       return;
     }
-    let xValue;
-    if (/\{X\}|\bX\b/.test(`${card.manaCost || ""} ${card.oracleText || ""}`)) {
-      const answer = prompt(`Choose X for ${card.name || "this spell"}.`, "0");
-      if (answer === null) {
-        showNotice("Cast cancelled.", "info");
-        return;
-      }
-      xValue = Math.max(0, Number(answer) || 0);
+    if (requiresCastingXChoice(card)) {
+      openConfirmation({
+        id: "cast-scryfall-x",
+        title: `Choose X for ${card.name || "this spell"}`,
+        message: "Set the casting value for X before this spell enters the stack.",
+        confirmLabel: "Cast Spell",
+        payload: { card, sourceZone, controller },
+        input: {
+          name: "xValue",
+          label: "X value",
+          type: "number",
+          value: "0",
+          min: 0,
+          step: 1,
+          inputMode: "numeric",
+          required: true,
+        },
+      });
+      return;
     }
-    const action = beginCanonicalSearchAction(index, "cast", sourceZone);
+    completeSearchCast({ card, sourceZone, controller });
+  }
+
+  function completeSearchCast({ card, sourceZone = "hand", controller = "player", xValue }) {
+    const action = beginCanonicalSearchCardAction(card, "cast", sourceZone);
     if (!action.accepted) return;
     completeCanonicalSearchAction(action.actionId);
     dismissSearchInputFocus({ closeSearchPanel: true });
@@ -6304,6 +6629,10 @@ export function mountApp(root, store) {
   function beginCanonicalSearchAction(index, actionType, semanticIntent = actionType) {
     const card = searchResults[index];
     if (!card) return { accepted: false, actionId: "", card: null };
+    return beginCanonicalSearchCardAction(card, actionType, semanticIntent);
+  }
+
+  function beginCanonicalSearchCardAction(card, actionType, semanticIntent = actionType) {
     const actionId = `scryfall:${actionType}:${card.cardId || card.name}:${scryfallSearchState.queryRevision}`;
     const result = beginScryfallSearchAction(scryfallSearchState, {
       actionId,
@@ -7789,11 +8118,16 @@ function renderCardPresentation(presentation) {
   const card = presentation.card || {};
   const imageUrl = getBattlefieldCardImageUrl(card);
   const controller = presentation.sourcePlayerId || presentation.controller || "Player";
+  const durationMs = Math.max(1, Number(presentation.expiresAt || 0) - Number(presentation.createdAt || 0));
+  const phase = resolveTransientPresentationPhase({
+    createdAt: presentation.createdAt,
+    totalMs: durationMs,
+  });
   const label = presentation.kind === "cast"
     ? `${controller} casts ${card.name || "a spell"}`
     : `${card.name || "Card"} enters the battlefield`;
   return `
-    <aside class="card-presentation" aria-live="polite" aria-label="${escapeAttribute(label)}" data-motion-role="card-presentation" data-motion-card-kind="${escapeAttribute(presentation.kind || "enter")}" data-card-lifecycle-version="${escapeAttribute(CANONICAL_CARD_LIFECYCLE_VERSION)}" data-presentation-event-id="${escapeAttribute(presentation.eventId || "")}" data-presentation-animation-id="${escapeAttribute(presentation.animationId || "")}" data-presentation-role="${escapeAttribute(presentation.presentationRole || "")}" data-presentation-only="${presentation.presentationOnly ? "true" : "false"}" data-should-replay-on-render="${presentation.shouldReplayOnRender ? "true" : "false"}">
+    <aside class="card-presentation" style="--card-presentation-duration:${escapeAttribute(String(durationMs))}ms;--card-presentation-delay:${escapeAttribute(String(phase.animationDelayMs))}ms" aria-live="polite" aria-label="${escapeAttribute(label)}" data-motion-role="card-presentation" data-motion-card-kind="${escapeAttribute(presentation.kind || "enter")}" data-card-lifecycle-version="${escapeAttribute(CANONICAL_CARD_LIFECYCLE_VERSION)}" data-presentation-event-id="${escapeAttribute(presentation.eventId || "")}" data-presentation-animation-id="${escapeAttribute(presentation.animationId || "")}" data-presentation-role="${escapeAttribute(presentation.presentationRole || "")}" data-presentation-only="${presentation.presentationOnly ? "true" : "false"}" data-should-replay-on-render="${presentation.shouldReplayOnRender ? "true" : "false"}">
       <div class="card-presentation__energy" aria-hidden="true"></div>
       <div class="card-presentation__card ${imageUrl ? "has-card-art" : getBattlefieldCardFallbackClass(card)}" ${imageUrl ? `style="--card-image:url(&quot;${escapeAttribute(imageUrl)}&quot;)"` : ""}>
         <span>${escapeHtml(label)}</span>
@@ -8168,7 +8502,7 @@ function renderPermanent(permanent, options = {}) {
   return `
     <article class="permanent detail-${detailMode} ${imageUrl ? "has-card-art" : "uses-fallback"} ${stateClasses}" data-permanent-card data-permanent-id="${permanent.id}" data-readonly="${options.readonly ? "true" : "false"}" data-target-valid="${targetVisual?.valid ? "true" : targetVisual ? "false" : "unknown"}" data-motion-card-kind="${escapeAttribute(motionKind || "stable")}" data-tabletop-zone="${escapeAttribute(permanent.tabletopZoneKey || "")}" data-placement-role="${escapeAttribute(permanent.placementRole || "")}" data-tabletop-order="${escapeAttribute(String(permanent.tabletopOrder ?? ""))}">
       <div class="permanent-art-layer ${fallbackClass} ${imageUrl ? "has-card-art" : "uses-fallback"}" ${imageUrl ? `style="--card-image:url(&quot;${escapeAttribute(imageUrl)}&quot;)"` : ""} data-card-image="${imageUrl ? "available" : "fallback"}" aria-hidden="true"></div>
-      <div class="permanent-readability-layer" aria-hidden="true"></div>
+      ${imageUrl ? "" : `<div class="permanent-readability-layer" aria-hidden="true"></div>`}
       ${permanent.quantity > 1 ? `<i class="stack-silhouette stack-silhouette--one" aria-hidden="true"></i><i class="stack-silhouette stack-silhouette--two" aria-hidden="true"></i>` : ""}
       <div class="permanent-content">
         <button ${targetAttr}>
@@ -13167,18 +13501,23 @@ function getNotificationToastEntries(profile = {}, page = "", context = {}) {
 
 function renderRecoveryToasts(profile, notice = null, page = "") {
   const entries = (profile.activeSession?.recoveryLog || []).filter((entry) => !entry.dismissed).slice(0, 3);
-  const notificationToasts = getNotificationToastEntries(profile, page, { commandHandActive: page === "battlefield" });
+  const activeFullWindowId = getActiveFullWindowNotification(profile, page)?.id || "";
+  const notificationToasts = getNotificationToastEntries(profile, page, { commandHandActive: page === "battlefield" })
+    .filter((entry) => entry.id !== activeFullWindowId);
   if (!entries.length && !notice && !notificationToasts.length) {
     return "";
   }
   return `
     <section class="recovery-toast-stack" data-no-swipe>
-      ${notice ? `
-        <article class="recovery-toast transient-notice ${escapeAttribute(notice.severity || "success")} ${notice.leaving ? "is-leaving" : ""}" data-ui-notice-id="${escapeAttribute(notice.id)}">
+      ${notice ? (() => {
+        const timing = resolveTransientNotificationTiming(notice);
+        const phase = resolveTransientPresentationPhase({ createdAt: notice.timestamp, totalMs: timing.totalMs, exitMs: timing.exitMs });
+        return `
+        <article class="recovery-toast transient-notice ${escapeAttribute(notice.severity || "success")} ${notice.leaving || phase.phase === "leaving" ? "is-leaving" : ""}" style="--notification-animation-delay:${escapeAttribute(String(phase.animationDelayMs))}ms" data-ui-notice-id="${escapeAttribute(notice.id)}">
           <strong>${escapeHtml(notice.severity === "error" ? "Needs attention" : "BoardState")}</strong>
           <p>${escapeHtml(notice.message)}</p>
         </article>
-      ` : ""}
+      `;})() : ""}
       ${notificationToasts.map((entry) => {
         const timing = resolveTransientNotificationTiming(entry);
         return `
@@ -13239,17 +13578,43 @@ function renderImportantNotes() {
 }
 
 function renderConfirmationDialog(dialog) {
+  const input = dialog.input;
+  const inputControl = !input
+    ? ""
+    : input.type === "textarea"
+      ? `<textarea data-confirmation-input name="${escapeAttribute(input.name)}" ${input.required ? "required" : ""}>${escapeHtml(input.value)}</textarea>`
+      : input.type === "select"
+        ? `<select data-confirmation-input name="${escapeAttribute(input.name)}" ${input.required ? "required" : ""}>
+            ${(input.options || []).map((option) => `<option value="${escapeAttribute(option.value)}" ${option.value === input.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+          </select>`
+        : `<input
+            data-confirmation-input
+            name="${escapeAttribute(input.name)}"
+            type="${escapeAttribute(input.type)}"
+            value="${escapeAttribute(input.value)}"
+            ${input.inputMode ? `inputmode="${escapeAttribute(input.inputMode)}"` : ""}
+            ${input.min !== undefined ? `min="${escapeAttribute(input.min)}"` : ""}
+            ${input.max !== undefined ? `max="${escapeAttribute(input.max)}"` : ""}
+            ${input.step !== undefined ? `step="${escapeAttribute(input.step)}"` : ""}
+            ${input.required ? "required" : ""}
+          />`;
   return `
     <section class="overlay-backdrop confirm-backdrop" data-no-swipe>
-      <div class="confirm-dialog glass">
+      <form class="confirm-dialog glass" data-confirmation-form data-confirm-action="${escapeAttribute(dialog.id)}">
         <p class="eyebrow">${dialog.danger ? "Safety confirmation" : "Please confirm"}</p>
         <h2>${escapeHtml(dialog.title)}</h2>
         <p>${escapeHtml(dialog.message)}</p>
+        ${input ? `
+          <label class="confirm-input-field">
+            <span>${escapeHtml(input.label)}</span>
+            ${inputControl}
+          </label>
+        ` : ""}
         <div class="row">
-          <button data-cancel-confirmation>${escapeHtml(dialog.cancelLabel || "Cancel")}</button>
-          <button class="${dialog.danger ? "danger-soft" : ""}" data-confirm-action="${escapeAttribute(dialog.id)}">${escapeHtml(dialog.confirmLabel || "Confirm")}</button>
+          ${dialog.hideCancel ? "" : `<button type="button" data-cancel-confirmation>${escapeHtml(dialog.cancelLabel || "Cancel")}</button>`}
+          <button type="submit" class="${dialog.danger ? "danger-soft" : ""}">${escapeHtml(dialog.confirmLabel || "Confirm")}</button>
         </div>
-      </div>
+      </form>
     </section>
   `;
 }

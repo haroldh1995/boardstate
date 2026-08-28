@@ -165,3 +165,14 @@ test("platform adapter is the only non-UI source allowed to resolve browser glob
     assert.match(readRepositoryFile(file), /runtimeEnvironment\.js/);
   }
 });
+
+test("production decisions use BoardState modal intents instead of browser dialogs", () => {
+  const render = readRepositoryFile("src/ui/render.js");
+  assert.doesNotMatch(render, /\b(?:prompt|confirm|alert)\s*\(/);
+  assert.match(render, /data-confirmation-form/);
+  assert.match(render, /data-confirmation-input/);
+  assert.match(render, /type === "textarea"/);
+  assert.match(render, /type === "select"/);
+  assert.match(render, /case "cast-scryfall-x"/);
+  assert.match(render, /beginCanonicalSearchCardAction/);
+});

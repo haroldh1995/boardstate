@@ -15,9 +15,9 @@ import {
   preparePermanentEntry,
   processEventTriggers,
   recalculateContinuousEffects,
+  requiresCastingXChoice,
   resolveCombat,
   resolveQueuedTrigger,
-  resolveSpell,
   resolveTopOfStack,
 } from "../rules-engine/index.js";
 import {
@@ -727,7 +727,12 @@ export function reduceProfile(profile, event) {
       }));
       break;
     case "PASS_PRIORITY":
-      nextProfile = withSession(baseProfile, passStackPriority(baseProfile.activeSession, event.playerId || "local-player"));
+      nextProfile = withSession(
+        baseProfile,
+        synchronizeSimulationPriorityState(
+          passStackPriority(baseProfile.activeSession, event.playerId || "local-player")
+        )
+      );
       break;
     case "ATTACH_PERMANENT":
       nextProfile = withSession(baseProfile, attachPermanent(baseProfile.activeSession, event.sourceId, event.targetId));
@@ -2035,6 +2040,10 @@ function runSimulationTick(session, simulationMemory = {}) {
   if (simulation.winnerId) {
     return concludeSimulationSession(preparedSession, simulation.winnerId, "winner-detected");
   }
+  const stackProgress = processSimulationStackPriority(preparedSession);
+  if (stackProgress) {
+    return stackProgress;
+  }
   const currentPlayerId = simulation.currentPlayerId || simulation.turnOrder?.[simulation.turnIndex] || "local-player";
   if (simulation.eliminatedPlayerIds?.includes(currentPlayerId)) {
     return advanceSimulationTurn(preparedSession, "skip-eliminated-player");
@@ -2360,58 +2369,139 @@ function resolveNpcCast(session, npc, card, simulationMemory = {}) {
     };
   }
   const paidSession = payment.verified ? tapPlannedManaSources(session, payment.sourceIds) : session;
-  if (isType(card, "Instant") || isType(card, "Sorcery")) {
-    const targetId = chooseThreatTargetId(paidSession, simulationMemory, npc.id);
-    const preparedSession = {
-      ...paidSession,
-      selectedIds: targetId ? [targetId] : [],
-      simulation: {
-        ...paidSession.simulation,
-        opponents: {
-          ...(paidSession.simulation?.opponents || {}),
-          [npc.id]: npc,
-        },
+  const targetId = chooseThreatTargetId(paidSession, simulationMemory, npc.id);
+  const preparedSession = {
+    ...paidSession,
+    selectedIds: targetId ? [targetId] : [],
+    simulation: {
+      ...paidSession.simulation,
+      opponents: {
+        ...(paidSession.simulation?.opponents || {}),
+        [npc.id]: npc,
       },
-    };
-    const resolved = resolveSpell(preparedSession, { ...card, controller: npc.id, owner: npc.id, zone: "hand" }, {
-      controller: npc.id,
-      sourceZone: "hand",
-      targetIds: targetId ? [targetId] : [],
-      autoChoose: true,
-      xValue,
-    });
-    const resolvedNpc = resolved.simulation?.opponents?.[npc.id] || npc;
+    },
+  };
+  const casted = castSpellToStack(preparedSession, {
+    ...card,
+    controller: npc.id,
+    owner: npc.id,
+    zone: "hand",
+  }, {
+    controller: npc.id,
+    owner: npc.id,
+    sourceZone: "hand",
+    targetIds: targetId ? [targetId] : [],
+    selectedModes: [],
+    xValue,
+  });
+  const castedNpc = casted.simulation?.opponents?.[npc.id] || npc;
+  return {
+    session: {
+      ...casted,
+      selectedIds: [],
+    },
+    npc: castedNpc,
+  };
+}
+
+function processSimulationStackPriority(session) {
+  const simulation = session.simulation || {};
+  const top = session.stack?.[0];
+  if (!simulation.enabled || !top) {
+    return null;
+  }
+
+  const pendingDecision = (session.pendingEffects || []).some(
+    (entry) => entry.stackObjectId === top.id && !["resolved", "skipped", "ignored"].includes(entry.status)
+  );
+  const pendingKey = `stack:${top.id}`;
+  if (pendingDecision) {
+    if (simulation.waitingForUser && simulation.pendingInteractionKey === pendingKey) {
+      return session;
+    }
     return {
-      session: appendSimulationEffectLog(
+      ...session,
+      simulation: appendSimulationLog(
         {
-          ...resolved,
-          selectedIds: [],
+          ...simulation,
+          waitingForUser: true,
+          pendingInteractionKey: pendingKey,
+          updatedAt: Date.now(),
         },
-        `${npc.name} resolves ${card.name}${targetId ? " against a high-threat target" : ""}.`
+        createSimLog("system", `${top.name} needs a manual gameplay decision before Dry Run can continue.`, "stack-choice")
       ),
-      npc: {
-        ...resolvedNpc,
-        zones: {
-          ...resolvedNpc.zones,
-          hand: (resolvedNpc.zones?.hand || []).filter((entry) => entry.cardId !== card.cardId),
-        },
-      },
     };
   }
+
+  const activeResponderId = session.priority?.activePlayerId || "";
+  if (session.priority?.waiting && activeResponderId) {
+    if (activeResponderId === "local-player" || activeResponderId === "player") {
+      if (simulation.waitingForUser && simulation.pendingInteractionKey === pendingKey) {
+        return session;
+      }
+      return {
+        ...session,
+        simulation: appendSimulationLog(
+          {
+            ...simulation,
+            waitingForUser: true,
+            pendingInteractionKey: pendingKey,
+            updatedAt: Date.now(),
+          },
+          createSimLog("system", `You have priority while ${top.name} is on the stack. Respond or pass priority.`, "stack-priority")
+        ),
+      };
+    }
+
+    const passed = passStackPriority(session, activeResponderId);
+    const stackStillActive = Boolean(passed.stack?.length);
+    return {
+      ...passed,
+      simulation: appendSimulationLog(
+        {
+          ...passed.simulation,
+          waitingForUser: false,
+          pendingInteractionKey: stackStillActive ? `stack:${passed.stack[0].id}` : "",
+          updatedAt: Date.now(),
+        },
+        createSimLog(activeResponderId, `${getSimulationPlayerName(simulation, activeResponderId)} passes priority on ${top.name}.`, "stack-priority")
+      ),
+    };
+  }
+
+  return null;
+}
+
+function synchronizeSimulationPriorityState(session) {
+  const simulation = session.simulation || {};
+  if (!simulation.enabled) {
+    return session;
+  }
+  const top = session.stack?.[0];
+  const localHasPriority = Boolean(
+    top &&
+      session.priority?.waiting &&
+      ["local-player", "player"].includes(session.priority?.activePlayerId)
+  );
+  const hasPendingDecision = Boolean(
+    top &&
+      (session.pendingEffects || []).some(
+        (entry) => entry.stackObjectId === top.id && !["resolved", "skipped", "ignored"].includes(entry.status)
+      )
+  );
   return {
-    session: addOpponentCardToBattlefield(paidSession, card, npc.id),
-    npc: {
-      ...npc,
-      zones: {
-        ...npc.zones,
-        battlefield: [...(npc.zones?.battlefield || []), card],
-      },
+    ...session,
+    simulation: {
+      ...simulation,
+      waitingForUser: localHasPriority || hasPendingDecision || (!top && simulation.currentPlayerId === "local-player"),
+      pendingInteractionKey: top && (localHasPriority || hasPendingDecision) ? `stack:${top.id}` : "",
+      updatedAt: Date.now(),
     },
   };
 }
 
 function chooseNpcXValue(session, npc, card) {
-  if (!/\{x\}|\bx\b/i.test(`${card.manaCost || ""} ${card.oracleText || ""}`)) {
+  if (!requiresCastingXChoice(card)) {
     return undefined;
   }
   const available = getNpcAvailableMana(session, npc.id);

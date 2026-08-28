@@ -56,6 +56,26 @@ export function parseManaRequirements(manaCost = "", xValue = 0) {
   return requirements;
 }
 
+export function requiresCastingXChoice(card = {}) {
+  if (/\{X\}/i.test(String(card.manaCost || ""))) {
+    return true;
+  }
+
+  const text = String(card.oracleText || card.rulesText || "");
+  return (
+    /\bchoose (?:a value|a number|one or more values) for X\b/i.test(text) ||
+    /\bas an additional cost to cast (?:this spell|[^,.]+),?[^.]*\bX\b/i.test(text)
+  );
+}
+
+export function normalizeCastingXValue(value, fallback = 0) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return Math.max(0, Math.floor(Number(fallback) || 0));
+  }
+  return Math.max(0, Math.floor(parsed));
+}
+
 export function planManaPayment(session = {}, controller = "player", manaCost = "", xValue = 0) {
   const requirements = parseManaRequirements(manaCost, xValue);
   const side = controller === "player" || controller === "local-player" ? "player" : "opponent";

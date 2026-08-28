@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { castSpellToStack, resolveSpell, resolveTopOfStack } from "../src/effects/effectEngine.js";
+import { normalizeCastingXValue, requiresCastingXChoice } from "../src/rules-engine/index.js";
 import { createDefaultProfile, createGameSession, createPermanent } from "../src/state/schema.js";
 import { reduceProfile } from "../src/state/gameReducer.js";
 import { createAction } from "../src/state/actions.js";
@@ -216,7 +217,7 @@ test("spell copy resolves separately and ceases to exist", () => {
   assert.ok(!session.zones.graveyard.some((card) => card.isCopy));
 });
 
-test("NPC non-permanent spell resolves to its graveyard instead of battlefield", () => {
+test("NPC non-permanent spell uses the canonical stack and resolves after local priority", () => {
   let profile = createDefaultProfile();
   profile = dispatch(profile, { type: "START_SIMULATION", selectedOpponents: ["beta"], speed: "step" });
   const beta = profile.activeSession.simulation.opponents.beta;
@@ -248,9 +249,72 @@ test("NPC non-permanent spell resolves to its graveyard instead of battlefield",
     },
   };
   profile = dispatch(profile, { type: "SIMULATION_TICK", internalOnly: true, remote: true });
+  assert.equal(profile.activeSession.stack.length, 1);
+  assert.equal(profile.activeSession.stack[0].name, "Opt");
+  assert.equal(profile.activeSession.priority.activePlayerId, "local-player");
+  assert.ok(!profile.activeSession.simulation.opponents.beta.zones.graveyard.some((card) => card.name === "Opt"));
+
+  profile = dispatch(profile, { type: "PASS_PRIORITY", playerId: "local-player" });
   const nextBeta = profile.activeSession.simulation.opponents.beta;
+  assert.equal(profile.activeSession.stack.length, 0);
   assert.ok(nextBeta.zones.graveyard.some((card) => card.name === "Opt"));
   assert.ok(!profile.activeSession.battlefield.opponent.some((card) => card.name === "Opt"));
+});
+
+test("NPC permanent resolves once into synchronized battlefield state", () => {
+  let profile = createDefaultProfile();
+  profile = dispatch(profile, { type: "START_SIMULATION", selectedOpponents: ["beta"], speed: "step" });
+  const beta = profile.activeSession.simulation.opponents.beta;
+  profile = {
+    ...profile,
+    activeSession: {
+      ...profile.activeSession,
+      battlefield: {
+        ...profile.activeSession.battlefield,
+        opponent: [createPermanent({ name: "Forest", typeLine: "Land", controller: "beta", owner: "beta" })],
+      },
+      simulation: {
+        ...profile.activeSession.simulation,
+        currentPlayerId: "beta",
+        currentPhaseIndex: 1,
+        waitingForUser: false,
+        opponents: {
+          ...profile.activeSession.simulation.opponents,
+          beta: {
+            ...beta,
+            currentPhaseIndex: 1,
+            zones: {
+              ...beta.zones,
+              hand: [{
+                id: "npc-elf",
+                name: "Llanowar Elves",
+                typeLine: "Creature - Elf Druid",
+                manaCost: "{G}",
+                manaValue: 1,
+                oracleText: "{T}: Add {G}.",
+                owner: "beta",
+                controller: "beta",
+              }],
+            },
+          },
+        },
+      },
+    },
+  };
+
+  profile = dispatch(profile, { type: "SIMULATION_TICK", internalOnly: true, remote: true });
+  assert.equal(profile.activeSession.stack.length, 1);
+  assert.equal(profile.activeSession.stack[0].name, "Llanowar Elves");
+  assert.ok(!profile.activeSession.battlefield.opponent.some((card) => card.name === "Llanowar Elves"));
+
+  profile = dispatch(profile, { type: "PASS_PRIORITY", playerId: "local-player" });
+  const canonicalElf = profile.activeSession.battlefield.opponent.find((card) => card.name === "Llanowar Elves");
+  const npcElf = profile.activeSession.simulation.opponents.beta.zones.battlefield.find((card) => card.name === "Llanowar Elves");
+  assert.equal(profile.activeSession.stack.length, 0);
+  assert.ok(canonicalElf);
+  assert.equal(npcElf?.id, canonicalElf.id);
+  assert.equal(profile.activeSession.battlefield.opponent.filter((card) => card.name === "Llanowar Elves").length, 1);
+  assert.ok(!profile.activeSession.simulation.opponents.beta.zones.hand.some((card) => card.name === "Llanowar Elves"));
 });
 
 test("X board wipe respects mana value and leaves lands", () => {
@@ -274,6 +338,37 @@ test("X board wipe respects mana value and leaves lands", () => {
   }, { xValue: 2 });
   next = resolveTopOfStack(next);
   assert.deepEqual(next.battlefield.opponent.map((card) => card.name).sort(), ["Forest", "Large Creature"]);
+});
+
+test("casting X choice derives from cost semantics rather than effect-text references", () => {
+  const animPakal = {
+    name: "Anim Pakal, Thousandth Moon",
+    manaCost: "{1}{R}{W}",
+    typeLine: "Legendary Creature - Human Soldier",
+    oracleText: "Whenever you attack, create X Gnome tokens, where X is the number of +1/+1 counters on Anim Pakal.",
+  };
+  const trueXSpell = {
+    name: "Gaze of Granite",
+    manaCost: "{X}{B}{B}{G}",
+    oracleText: "Destroy each nonland permanent with mana value X or less.",
+  };
+  const additionalCostX = {
+    name: "Test Offering",
+    manaCost: "{2}{B}",
+    oracleText: "As an additional cost to cast this spell, sacrifice X creatures.",
+  };
+
+  assert.equal(requiresCastingXChoice(animPakal), false);
+  assert.equal(requiresCastingXChoice(trueXSpell), true);
+  assert.equal(requiresCastingXChoice(additionalCostX), true);
+  assert.equal(normalizeCastingXValue("4"), 4);
+  assert.equal(normalizeCastingXValue("4.8"), 4);
+  assert.equal(normalizeCastingXValue(-3), 0);
+  assert.equal(normalizeCastingXValue("not-a-number"), 0);
+
+  const session = castSpellToStack(createGameSession(), animPakal);
+  assert.notEqual(session.stack[0].status, "awaiting-choice");
+  assert.equal(session.pendingEffects.some((entry) => entry.effect?.choiceKind === "x-value"), false);
 });
 
 test("NPC Cultivate searches real library and puts lands in different zones", () => {

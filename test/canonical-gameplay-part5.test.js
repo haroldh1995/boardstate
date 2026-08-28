@@ -610,8 +610,9 @@ test("Part 5 static release-baseline audit guards renderer, CSS, docs, and share
   assert.match(styles, /zone-local-horizontal-scroll/);
   assert.match(styles, /commander-action-hand/);
   assert.match(styles, /--protected-command-hand-clearance/);
-  assert.match(styles, /grid-template-rows:\s*minmax\(5\.8rem,\s*1fr\)\s*minmax\(1\.55rem,\s*auto\)\s*minmax\(5\.8rem,\s*1fr\)/);
-  assert.match(styles, /--tabletop-card-width:\s*clamp\(4\.2rem,\s*17\.5svh,\s*5\.6rem\)/);
+  assert.match(styles, /grid-template-rows:\s*minmax\(5\.2rem,\s*0\.82fr\)\s*minmax\(1\.45rem,\s*auto\)\s*minmax\(6\.35rem,\s*1\.18fr\)/);
+  assert.match(styles, /landscape-arena\.arena--opponent-hidden[\s\S]*?grid-template-rows:\s*minmax\(2\.75rem,\s*0\.4fr\)\s*minmax\(1\.45rem,\s*auto\)\s*minmax\(10\.75rem,\s*1\.66fr\)/);
+  assert.match(styles, /--tabletop-card-width:\s*clamp\(4\.45rem,\s*20svh,\s*6\.1rem\)/);
   assert.match(styles, /touch-action:\s*none/);
   assert.match(styles, /recovery-toast-stack/);
 
