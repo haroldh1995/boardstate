@@ -2,9 +2,15 @@
 
 ## App
 - Name: BoardState
-- Version: 1.43.2
-- Version code: 47
+- Version: 1.43.3
+- Version code: 48
 - Package: `com.boardstate.app`
+
+## Version 1.43.3
+- Routes local and simulated Commander casts through the canonical stack and single-Resolve pipeline, applies Commander tax during payment, and preserves valid Commander destinations after countering or resolution.
+- Makes rear Tactical Command Hand cards focus before activation, keeps only the centered command in keyboard order, and preserves one canonical focus identity across pointer, touch, and keyboard input.
+- Coalesces high-frequency simulation persistence while retaining settled decisions, stack changes, turn changes, eliminations, winners, semantic Event Knowledge, and bounded recovery checkpoints.
+- Revalidates the fixed landscape battlefield, clear card presentation, notification timing, responsive board scale, Commander flows, Command Hand ownership, production build, Android packaging, and native portability boundaries.
 
 ## Version 1.43.2
 - Enforces landscape-only BoardState after loading without rotating the application shell sideways; portrait browsers now receive a safe rotate-device gate while native wrappers retain platform orientation locks.

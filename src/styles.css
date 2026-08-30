@@ -11837,7 +11837,7 @@ body[data-page="battlefield"] .commander-action-hand {
   }
 }
 
-/* Release 1.43.2: post-loader landscape gate and compositor-safe presentation polish. */
+/* Release 1.43.3: canonical landscape, Commander, and presentation hardening. */
 .boardstate-landscape-gate {
   position: fixed;
   inset: 0;

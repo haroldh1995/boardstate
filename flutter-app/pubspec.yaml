@@ -1,7 +1,7 @@
 name: boardstate_flutter
 description: BoardState Flutter wrapper for iPhone-compatible WebView builds.
 publish_to: "none"
-version: 1.43.2+432
+version: 1.43.3+433
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
