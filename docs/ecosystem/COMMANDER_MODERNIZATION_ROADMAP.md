@@ -196,6 +196,7 @@ Status: Completed through the canonical 13.2.6 Part 3 mode-policy baseline.
 - Live Tracking and Full Control are interaction policies over the same authoritative reducer, rules engine, State Engine, Event Knowledge, persistence, stack, trigger, battlefield, and explanation systems.
 - Live Tracking accepts physical-table-reported actions, preserves honest hidden/unknown information, applies deterministic consequences automatically, and retains Single Resolve.
 - Strict Full Control and Dry Run route direct casting, mana, land timing, targets, combat, priority, stack, and zone actions through the existing rules-engine boundary.
+- Local and simulated commander casts now use that same stack pipeline, include commander tax in tracked payment, synchronize command/stack/battlefield destinations, and preserve a genuine local destination choice when a commander is countered.
 - Mode parity and no-fork guardrails live in `test/canonical-gameplay-part3.test.js`, `test/land-play-system.test.js`, `test/rules-engine-boundary.test.js`, and the Part 5/6 suites.
 
 ### Prompt 14: Timeline And Relationship Experience
@@ -234,6 +235,7 @@ Status: Completed and retained as a continuous release gate.
 
 - Reproducible stress coverage validates 360-object battlefield geometry, repeated Command Hand projection, 5,000-event paged timelines, and ten-player Commander metadata while rendering only the focused opponent battlefield.
 - Presentation performance boundaries prohibit Command Hand, zone-scroll, opponent-focus, timeline, and animation state from recomputing authoritative rules or mounting unbounded history rows.
+- High-frequency AI ticks retain semantic Event Knowledge while omitting redundant full-session replay snapshots, coalescing intermediate persistence writes, and preserving immediate saves at decisions, turn changes, stack changes, eliminations, winners, and maximum autosave boundaries.
 - Phone, tablet, desktop, and ultrawide models retain fixed landscape composition, safe-area semantics, zone-local overflow, and no global gameplay scroll.
 - Keyboard navigation, screen-reader labels, 44-pixel touch targets, non-color state cues, reduced motion, larger text, and no hover-only essential actions remain part of the canonical accessibility contract.
 - Focused protection lives in `test/performance-accessibility-baseline.test.js` alongside the Part 4 through Part 6 gameplay regression suites.

@@ -45,6 +45,7 @@ import {
   COMMAND_DECK_VISIBLE_RADIUS,
   COMMAND_DECK_WHEEL_IDLE_SNAP_MS,
   resolveCommandDeckCardProjection,
+  resolveCommandDeckCardPress,
   resolveCommandDeckFocusedCard,
   resolveCommandDeckPointerOffsetPx,
   resolveCommandDeckPointerSnapSteps,
@@ -1183,6 +1184,19 @@ export function mountApp(root, store) {
           event.preventDefault();
           event.stopPropagation();
           return;
+        }
+        if (actionCard) {
+          const press = resolveCommandDeckCardPress(
+            Number(actionCard.dataset.commandDeckLiveSlot || actionCard.dataset.commandDeckSlot || 0),
+            actionCard.dataset.commandDeckFocused === "true" || actionCard.dataset.commandDeckLiveCenter === "true"
+          );
+          if (press.intent === "focus" && press.rotationSteps) {
+            event.preventDefault();
+            event.stopPropagation();
+            commandDeckSuppressClickUntil = Date.now() + 180;
+            rotateCommandDeckFromElement(deck, press.rotationSteps);
+            return;
+          }
         }
         if (!actionCard) {
           const nearestCard = findCommandDeckCardForPoint(deck, event.clientX, event.clientY);
@@ -3673,6 +3687,16 @@ export function mountApp(root, store) {
     });
     container.querySelectorAll("[data-pending-effect]").forEach((button) => {
       button.addEventListener("click", () => store.dispatch({ type: "MARK_PENDING_EFFECT", id: button.dataset.pendingEffect, status: button.dataset.status }));
+    });
+    container.querySelectorAll("[data-commander-zone-choice]").forEach((button) => {
+      button.addEventListener("click", () => {
+        store.dispatch({
+          type: "CHOOSE_COMMANDER_DESTINATION",
+          pendingId: button.dataset.commanderZoneChoice,
+          moveToCommand: button.dataset.moveToCommand === "true",
+        });
+        showNotice(button.dataset.moveToCommand === "true" ? "Commander moved to the command zone." : "Commander remains in its current zone.");
+      });
     });
     container.querySelectorAll("[data-entry-choice]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -9802,6 +9826,7 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
       data-command-deck-canonical-command-id="${escapeAttribute(card.id)}"
       data-command-deck-index="${escapeAttribute(String(deckEntry.deckIndex ?? index))}"
       data-command-deck-center="${deckEntry.isCenter ? "true" : "false"}"
+      tabindex="${deckEntry.isCenter ? "0" : "-1"}"
       data-command-card-frame="boardstate-command-card"
       data-command-card-tone="${escapeAttribute(frame.tone)}"
       data-visual-material="${escapeAttribute(visualMaterial)}"
@@ -11038,7 +11063,8 @@ function renderPending(session, collapsed = false, perspective = null) {
           ${effect.stackObjectId ? `<small>Stack object: ${escapeHtml(effect.stackObjectId)} · Controller: ${escapeHtml(effect.controller || "player")}</small>` : ""}
           ${localCanResolve ? renderSpellTargetChoices(session, effect) : `<small>Prompt routed to ${escapeHtml(ownerLabel)}. This client can inspect the state but cannot answer for them.</small>`}
           ${localCanResolve && effect.effect?.action === "entry-choice" ? `<div class="manual-target-grid"><button data-entry-choice="${escapeAttribute(effect.id)}" data-entry-untapped="false">Enter Tapped / Decline</button><button data-entry-choice="${escapeAttribute(effect.id)}" data-entry-untapped="true">Condition Met / Pay Cost / Enter Untapped</button></div>` : ""}
-          ${localCanResolve ? `<button data-pending-effect="${effect.id}" data-status="resolved">Resolved</button><button data-pending-effect="${effect.id}" data-status="skipped">Skipped</button><button data-pending-effect="${effect.id}" data-status="ignored">Ignored</button>` : ""}
+          ${localCanResolve && effect.effect?.action === "commander-zone-choice" ? `<div class="manual-target-grid"><button data-commander-zone-choice="${escapeAttribute(effect.id)}" data-move-to-command="true">Move to Command Zone</button><button data-commander-zone-choice="${escapeAttribute(effect.id)}" data-move-to-command="false">Leave in ${escapeHtml(effect.effect.currentDestination || "Current Zone")}</button></div>` : ""}
+          ${localCanResolve && effect.effect?.action !== "commander-zone-choice" ? `<button data-pending-effect="${effect.id}" data-status="resolved">Resolved</button><button data-pending-effect="${effect.id}" data-status="skipped">Skipped</button><button data-pending-effect="${effect.id}" data-status="ignored">Ignored</button>` : ""}
           <button data-helper-remind>Remind Me</button>
         </article>
       `;

@@ -100,6 +100,13 @@ export const alphaDeck = {
   isFallback: false,
   commander: {
     name: "Hearthhull, the Worldseed",
+    manaCost: "{1}{B}{R}{G}",
+    manaValue: 4,
+    typeLine: "Legendary Artifact - Spacecraft",
+    oracleText: "Station\n2+ | {1}, {T}, Sacrifice a land: Draw two cards. You may play an additional land this turn.\n8+ | Flying, vigilance, haste\nWhenever you sacrifice a land, each opponent loses 2 life.",
+    power: 6,
+    toughness: 7,
+    colorIdentity: ["B", "G", "R"],
     role: "primary-commander",
   },
   backupCommander: {

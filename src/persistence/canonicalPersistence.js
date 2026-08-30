@@ -743,7 +743,10 @@ function getCheckpointRequests(previousSession = null, session = {}, action = {}
   if (type === "SIMULATION_PASS_TURN" || (previousSession && Number(previousSession.turn || 0) !== Number(session.turn || 0))) {
     requests.push({ reason: "beginning-of-turn", timing: "after" });
   }
-  if (type === "ADVANCE_PHASE" || (previousSession && Number(previousSession.phaseIndex ?? -1) !== Number(session.phaseIndex ?? -1))) {
+  if (
+    type === "ADVANCE_PHASE" ||
+    (type !== "SIMULATION_TICK" && previousSession && Number(previousSession.phaseIndex ?? -1) !== Number(session.phaseIndex ?? -1))
+  ) {
     requests.push({ reason: "beginning-of-phase", timing: "after" });
   }
   if (["RESOLVE_TOP_SPELL", "RESOLVE_TOP_OF_STACK", "RESOLVE_SPELL"].includes(type)) {

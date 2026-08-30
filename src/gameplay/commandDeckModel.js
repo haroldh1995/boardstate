@@ -83,3 +83,14 @@ export function resolveCommandDeckFocusedCard(candidates = []) {
     return left.index - right.index;
   })[0];
 }
+
+export function resolveCommandDeckCardPress(slotOffset = 0, isFocused = false) {
+  const offset = Number(slotOffset || 0);
+  if (isFocused || Math.abs(offset) < 0.45) {
+    return { intent: "activate", rotationSteps: 0 };
+  }
+  return {
+    intent: "focus",
+    rotationSteps: Math.round(offset),
+  };
+}

@@ -20,6 +20,7 @@ import {
 } from "../src/gameplay/inputIntent.js";
 import {
   resolveCommandDeckCardProjection,
+  resolveCommandDeckCardPress,
   resolveCommandDeckFocusedCard,
 } from "../src/gameplay/commandDeckModel.js";
 import { createDefaultProfile } from "../src/state/schema.js";
@@ -118,6 +119,12 @@ test("Part 4 Command Hand focus, highlight, preview, activation, and hit testing
     assert.equal(validation.topZOrderId, commandIds[centerIndex]);
     assert.equal(validation.topHitTestId, commandIds[centerIndex]);
   }
+});
+
+test("Part 4 Command Hand rear cards focus before activation", () => {
+  assert.deepEqual(resolveCommandDeckCardPress(0, true), { intent: "activate", rotationSteps: 0 });
+  assert.deepEqual(resolveCommandDeckCardPress(2, false), { intent: "focus", rotationSteps: 2 });
+  assert.deepEqual(resolveCommandDeckCardPress(-3, false), { intent: "focus", rotationSteps: -3 });
 });
 
 test("Part 4 visual command clones map to one canonical command identity", () => {

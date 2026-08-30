@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { castSpellToStack, resolveSpell, resolveTopOfStack } from "../src/effects/effectEngine.js";
+import { castSpellToStack, counterStackObject, resolveSpell, resolveTopOfStack } from "../src/effects/effectEngine.js";
 import { normalizeCastingXValue, requiresCastingXChoice } from "../src/rules-engine/index.js";
 import { createDefaultProfile, createGameSession, createPermanent } from "../src/state/schema.js";
 import { reduceProfile } from "../src/state/gameReducer.js";
@@ -315,6 +315,150 @@ test("NPC permanent resolves once into synchronized battlefield state", () => {
   assert.equal(npcElf?.id, canonicalElf.id);
   assert.equal(profile.activeSession.battlefield.opponent.filter((card) => card.name === "Llanowar Elves").length, 1);
   assert.ok(!profile.activeSession.simulation.opponents.beta.zones.hand.some((card) => card.name === "Llanowar Elves"));
+});
+
+test("local and NPC commanders use the canonical stack and pay commander tax", () => {
+  let localProfile = createDefaultProfile();
+  localProfile = dispatch(localProfile, {
+    type: "SET_COMMANDER",
+    card: {
+      cardId: "local-commander",
+      name: "Test Table Captain",
+      manaCost: "{2}{G}",
+      manaValue: 3,
+      typeLine: "Legendary Creature - Human",
+      oracleText: "Vigilance",
+    },
+  });
+  localProfile = dispatch(localProfile, { type: "CAST_COMMANDER" });
+  assert.equal(localProfile.activeSession.stack.length, 1);
+  assert.equal(localProfile.activeSession.stack[0].sourceZone, "command");
+  assert.equal(localProfile.activeSession.commander.zone, "stack");
+  assert.equal(localProfile.activeSession.commander.commanderTax, 2);
+  assert.ok(!localProfile.activeSession.battlefield.player.some((card) => card.name === "Test Table Captain"));
+  localProfile = dispatch(localProfile, { type: "RESOLVE_TOP_SPELL" });
+  assert.equal(localProfile.activeSession.commander.zone, "battlefield");
+  assert.ok(localProfile.activeSession.battlefield.player.some((card) => card.name === "Test Table Captain"));
+
+  let strictProfile = dispatch(createDefaultProfile(), {
+    type: "SET_COMMANDER",
+    card: {
+      name: "Strict Table Captain",
+      manaCost: "{2}{G}",
+      manaValue: 3,
+      typeLine: "Legendary Creature - Human",
+    },
+  });
+  strictProfile = {
+    ...strictProfile,
+    settings: { ...strictProfile.settings, strictPhaseEnforcement: true },
+    activeSession: {
+      ...strictProfile.activeSession,
+      gameTracking: { ...strictProfile.activeSession.gameTracking, active: true, mode: "full-control" },
+      phaseIndex: 0,
+    },
+  };
+  strictProfile = dispatch(strictProfile, { type: "CAST_COMMANDER" });
+  assert.equal(strictProfile.activeSession.stack.length, 0);
+  assert.equal(strictProfile.activeSession.commander.zone, "command");
+  assert.match(strictProfile.activeSession.recoveryLog[0]?.message || "", /timing is not legal/i);
+
+  let npcProfile = dispatch(createDefaultProfile(), {
+    type: "START_SIMULATION",
+    selectedOpponents: ["beta"],
+    speed: "step",
+  });
+  const beta = npcProfile.activeSession.simulation.opponents.beta;
+  const manaSources = Array.from({ length: 10 }, (_, index) => createPermanent({
+    id: `beta-source-${index}`,
+    name: "Command Tower",
+    typeLine: "Land",
+    oracleText: "{T}: Add one mana of any color.",
+    colorIdentity: ["W", "U", "B", "R", "G"],
+    controller: "beta",
+    owner: "beta",
+  }));
+  npcProfile = {
+    ...npcProfile,
+    activeSession: {
+      ...npcProfile.activeSession,
+      battlefield: {
+        ...npcProfile.activeSession.battlefield,
+        opponent: manaSources,
+      },
+      simulation: {
+        ...npcProfile.activeSession.simulation,
+        currentPlayerId: "beta",
+        currentPhaseIndex: 1,
+        waitingForUser: false,
+        opponents: {
+          ...npcProfile.activeSession.simulation.opponents,
+          beta: {
+            ...beta,
+            landPlaysThisTurn: 1,
+            currentPhaseIndex: 1,
+            commander: {
+              ...beta.commander,
+              zone: "command",
+              castCount: 1,
+              tax: 2,
+            },
+            zones: {
+              ...beta.zones,
+              hand: [],
+              command: [beta.commander.card],
+            },
+          },
+        },
+      },
+    },
+  };
+  npcProfile = dispatch(npcProfile, { type: "SIMULATION_TICK", internalOnly: true, remote: true });
+  assert.equal(npcProfile.activeSession.stack.length, 1);
+  assert.equal(npcProfile.activeSession.stack[0].card.isCommander, true);
+  assert.equal(npcProfile.activeSession.stack[0].additionalCosts.commanderTax, 2);
+  assert.equal(npcProfile.activeSession.simulation.opponents.beta.commander.zone, "stack");
+  assert.equal(npcProfile.activeSession.simulation.opponents.beta.commander.castCount, 2);
+  assert.equal(npcProfile.activeSession.simulation.opponents.beta.commander.tax, 4);
+  assert.ok(!npcProfile.activeSession.battlefield.opponent.some((card) => card.isCommander));
+  assert.equal(npcProfile.activeSession.battlefield.opponent.filter((card) => card.tapped).length, 5);
+
+  npcProfile = dispatch(npcProfile, { type: "PASS_PRIORITY", playerId: "local-player" });
+  assert.equal(npcProfile.activeSession.stack.length, 0);
+  assert.equal(npcProfile.activeSession.simulation.opponents.beta.commander.zone, "battlefield");
+  assert.ok(npcProfile.activeSession.battlefield.opponent.some((card) => card.isCommander));
+});
+
+test("countered commanders keep zone state coherent and preserve the local command-zone choice", () => {
+  let profile = createDefaultProfile();
+  const commander = {
+    cardId: "commander-counter-test",
+    name: "Countered Commander",
+    manaCost: "{1}{U}",
+    manaValue: 2,
+    typeLine: "Legendary Creature - Wizard",
+    oracleText: "",
+    colorIdentity: ["U"],
+  };
+  profile = dispatch(profile, { type: "SET_COMMANDER", card: commander });
+  profile = dispatch(profile, { type: "CAST_COMMANDER" });
+  const stackId = profile.activeSession.stack[0].id;
+  profile.activeSession = counterStackObject(profile.activeSession, stackId, "Test Counter");
+
+  assert.equal(profile.activeSession.commander.zone, "graveyard");
+  assert.ok(profile.activeSession.zones.graveyard.some((card) => card.cardId === commander.cardId));
+  const choice = profile.activeSession.pendingEffects.find((entry) => entry.effect?.action === "commander-zone-choice");
+  assert.ok(choice);
+
+  profile = dispatch(profile, {
+    type: "CHOOSE_COMMANDER_DESTINATION",
+    pendingId: choice.id,
+    moveToCommand: true,
+  });
+  assert.equal(profile.activeSession.commander.zone, "command");
+  assert.ok(profile.activeSession.zones.command.some((card) => card.cardId === commander.cardId));
+  assert.ok(!profile.activeSession.zones.graveyard.some((card) => card.cardId === commander.cardId));
+  assert.equal(profile.activeSession.pendingEffects.find((entry) => entry.id === choice.id).status, "resolved");
 });
 
 test("X board wipe respects mana value and leaves lands", () => {

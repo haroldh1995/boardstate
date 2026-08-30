@@ -950,6 +950,15 @@ export function createTournamentState(source = {}) {
 }
 
 export function createCommanderState(source = {}) {
+  const card = source.card && typeof source.card === "object"
+    ? {
+        ...source.card,
+        owner: normalizeName(source.card.owner, "player"),
+        controller: normalizeName(source.card.controller, "player"),
+        zone: normalizeName(source.card.zone, source.zone || "command"),
+        isCommander: true,
+      }
+    : null;
   return {
     name: normalizeName(source.name),
     cardId: normalizeName(source.cardId),
@@ -959,6 +968,7 @@ export function createCommanderState(source = {}) {
     commanderTax: normalizeCount(source.commanderTax),
     damageByOpponent: source.damageByOpponent || {},
     deckKey: normalizeName(source.deckKey),
+    card,
   };
 }
 

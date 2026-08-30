@@ -85,6 +85,13 @@ export const betaDeck = {
   isFallback: false,
   commander: {
     name: "Stella Lee, Wild Card",
+    manaCost: "{1}{U}{R}",
+    manaValue: 3,
+    typeLine: "Legendary Creature - Human Rogue",
+    oracleText: "Whenever you cast your second spell each turn, exile the top card of your library. Until the end of your next turn, you may play that card.\n{T}: Copy target instant or sorcery spell you control. You may choose new targets for the copy. Activate only if you've cast three or more spells this turn.",
+    power: 2,
+    toughness: 4,
+    colorIdentity: ["R", "U"],
     role: "primary-commander",
   },
   strategy: {

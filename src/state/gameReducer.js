@@ -806,6 +806,12 @@ export function reduceProfile(profile, event) {
     case "MARK_PENDING_EFFECT":
       nextProfile = withSession(baseProfile, updatePendingEffect(baseProfile.activeSession, event.id, event.status, event));
       break;
+    case "CHOOSE_COMMANDER_DESTINATION":
+      nextProfile = withSession(
+        baseProfile,
+        chooseCommanderDestination(baseProfile.activeSession, event.pendingId, Boolean(event.moveToCommand))
+      );
+      break;
     case "SET_SPELL_TARGET":
       nextProfile = withSession(baseProfile, setSpellTargetChoice(baseProfile.activeSession, event.pendingId, event.targetId));
       break;
@@ -946,7 +952,7 @@ export function reduceProfile(profile, event) {
   nextProfile = refreshAiGameplayForAction(nextProfile, baseProfile.activeSession, actionType, event);
   nextProfile = refreshEcosystemIntegrationForAction(nextProfile, actionType);
   nextProfile = maybeAddTournamentNotification(nextProfile, baseProfile, actionType, event);
-  return withHistory(nextProfile, finalizeAction(event, nextProfile));
+  return withHistory(nextProfile, finalizeAction(event, nextProfile), baseProfile.activeSession);
 }
 
 function addPermanent(profile, card, controller) {
@@ -2141,7 +2147,7 @@ function applyNpcMainStep(session, npc, simulation, simulationMemory = {}) {
     if (commanderCast) {
       nextSession = commanderCast.session;
       updatedNpc = commanderCast.npc;
-      actionText = `${npc.name} casts commander ${updatedNpc.commander.card.name}${updatedNpc.commander.tax > 0 ? ` (tax ${updatedNpc.commander.tax})` : ""}.`;
+      actionText = `${npc.name} casts commander ${updatedNpc.commander.card.name}${commanderCast.commanderTaxPaid > 0 ? ` (tax ${commanderCast.commanderTaxPaid})` : ""}.`;
     } else {
     const castIndex = chooseNpcCastIndex(updatedNpc, nextSession, simulationMemory, { secondary: false });
     if (castIndex >= 0) {
@@ -2550,29 +2556,48 @@ function maybeCastNpcCommander(session, npc, options = {}) {
   }
   const castCard = {
     ...npc.commander.card,
-    unresolvedDefinition: false,
     isCommander: true,
   };
-  const payment = planManaPayment(session, npc.id, castCard.manaCost || "", 0);
+  if (castCard.unresolvedDefinition || (!castCard.manaCost && Number(castCard.manaValue || 0) > 0)) {
+    return null;
+  }
+  const payment = planManaPayment(session, npc.id, castCard.manaCost || "", 0, { additionalGeneric: tax });
   if (!payment.verified) {
     return null;
   }
-  const nextSession = addOpponentCardToBattlefield(tapPlannedManaSources(session, payment.sourceIds), castCard, npc.id);
-  return {
-    session: nextSession,
-    npc: {
-      ...npc,
-      commander: {
-        ...npc.commander,
-        zone: "battlefield",
-        castCount: Number(npc.commander.castCount || 0) + 1,
-      },
-      zones: {
-        ...npc.zones,
-        command: [],
-        battlefield: [...(npc.zones?.battlefield || []), castCard],
+  const nextCastCount = Number(npc.commander.castCount || 0) + 1;
+  const castingNpc = {
+    ...npc,
+    commander: {
+      ...npc.commander,
+      zone: "stack",
+      castCount: nextCastCount,
+      tax: nextCastCount * 2,
+    },
+  };
+  const preparedSession = {
+    ...tapPlannedManaSources(session, payment.sourceIds),
+    simulation: {
+      ...session.simulation,
+      opponents: {
+        ...(session.simulation?.opponents || {}),
+        [npc.id]: castingNpc,
       },
     },
+  };
+  const nextSession = castSpellToStack(preparedSession, castCard, {
+    controller: npc.id,
+    owner: npc.id,
+    sourceZone: "command",
+    castPermission: "commander-rule",
+    additionalCosts: { commanderTax: tax },
+    manaPaymentVerified: true,
+    manaPaymentSources: payment.sourceIds,
+  });
+  return {
+    session: nextSession,
+    npc: nextSession.simulation?.opponents?.[npc.id] || castingNpc,
+    commanderTaxPaid: tax,
   };
 }
 
@@ -4687,7 +4712,7 @@ function applySimulationZoneUpdatesForRemoval(session, removed = [], mode = "rem
         commander: {
           ...npc.commander,
           zone: "command",
-          tax: Number(npc.commander?.tax || 0) + 2,
+          tax: Number(npc.commander?.tax || 0),
         },
         updatedAt: Date.now(),
       };
@@ -4837,6 +4862,57 @@ function updatePendingEffect(session, id, status, options = {}) {
     }
   );
   return recovery.updated ? { ...updatedSession, rulesRecovery: recovery.state } : updatedSession;
+}
+
+function chooseCommanderDestination(session, pendingId, moveToCommand) {
+  const pending = (session.pendingEffects || []).find(
+    (entry) => entry.id === pendingId && entry.effect?.action === "commander-zone-choice"
+  );
+  if (!pending) {
+    return session;
+  }
+  const currentDestination = pending.effect.currentDestination || session.commander?.zone || "graveyard";
+  const updated = updatePendingEffect(session, pendingId, "resolved");
+  if (!moveToCommand) {
+    return {
+      ...updated,
+      commander: {
+        ...(updated.commander || {}),
+        card: { ...(updated.commander?.card || {}), zone: currentDestination, isCommander: true },
+        zone: currentDestination,
+      },
+    };
+  }
+  const commanderCard = {
+    ...(updated.commander?.card || {}),
+    name: updated.commander?.name || pending.effect.cardName || updated.commander?.card?.name || "Commander",
+    cardId: updated.commander?.cardId || pending.effect.cardId || updated.commander?.card?.cardId || "",
+    zone: "command",
+    owner: "player",
+    controller: "player",
+    isCommander: true,
+  };
+  const destinationCards = updated.zones?.[currentDestination] || [];
+  return {
+    ...updated,
+    commander: {
+      ...(updated.commander || {}),
+      card: commanderCard,
+      zone: "command",
+    },
+    zones: {
+      ...(updated.zones || {}),
+      [currentDestination]: destinationCards.filter(
+        (entry) => entry.cardId !== commanderCard.cardId && entry.name !== commanderCard.name
+      ),
+      command: [
+        commanderCard,
+        ...(updated.zones?.command || []).filter(
+          (entry) => entry.cardId !== commanderCard.cardId && entry.name !== commanderCard.name
+        ),
+      ],
+    },
+  };
 }
 
 function setSpellTargetChoice(session, pendingId, targetId) {
@@ -5720,7 +5796,7 @@ function withRuntimeSettings(session, settings = {}) {
   };
 }
 
-function withHistory(profile, event) {
+function withHistory(profile, event, previousSession = null) {
   if (event.actionType === "SAVE_TICK" || event.type === "SAVE_TICK") {
     return profile;
   }
@@ -5728,10 +5804,11 @@ function withHistory(profile, event) {
   if (actionType === "CLEAR_GAME_HISTORY") {
     return profile;
   }
-  const committedSession = commitStateTransition(profile.activeSession, profile.activeSession, {
+  const committedSession = commitStateTransition(previousSession || profile.activeSession, profile.activeSession, {
     action: event,
     actionId: event.actionId || "",
   });
+  const captureReplaySnapshot = actionType !== "SIMULATION_TICK";
   const actionRecord = {
     actionId: event.actionId || createId("action"),
     timestamp: event.timestamp || Date.now(),
@@ -5743,9 +5820,9 @@ function withHistory(profile, event) {
     resultingStateReference: event.resultingStateReference || `${committedSession.id}:${committedSession.updatedAt}`,
     replayable: event.replayable !== false,
     undoable: event.undoable !== false,
-    snapshot: createReplaySnapshot(committedSession),
+    snapshot: captureReplaySnapshot ? createReplaySnapshot(committedSession) : null,
   };
-  const beforeSession = profile.activeSession.undoStack?.[0]?.snapshot || null;
+  const beforeSession = previousSession || profile.activeSession.undoStack?.[0]?.snapshot || null;
   const knowledgeSession = recordActionKnowledge(committedSession, actionRecord, {
     beforeSession,
     syncRevision: Number(committedSession.eventRevision || 0),

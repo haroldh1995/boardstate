@@ -267,9 +267,10 @@ export function recordActionKnowledge(session = {}, actionRecord = {}, options =
     },
     payload: actionRecord.payload || {},
   });
-  return appendKnowledgeEvent(session, event, {
-    snapshot: actionRecord.snapshot || createKnowledgeStateSnapshot(session, event.eventId),
-  });
+  const snapshot = Object.prototype.hasOwnProperty.call(actionRecord, "snapshot")
+    ? actionRecord.snapshot
+    : createKnowledgeStateSnapshot(session, event.eventId);
+  return appendKnowledgeEvent(session, event, { snapshot });
 }
 
 export function appendKnowledgeEvent(session = {}, eventInput = {}, options = {}) {

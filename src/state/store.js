@@ -7,11 +7,34 @@ import { createTournamentSyncManager } from "../multiplayer/tournamentSyncManage
 import { createFriendSyncManager } from "../multiplayer/friendSyncManager.js";
 import { getSimulationSpeedInterval } from "../simulation/commanderSimulation.js";
 
+export const SIMULATION_AUTOSAVE_MAX_INTERVAL_MS = 2_000;
+export const SIMULATION_AUTOSAVE_SETTLE_MS = 700;
+
+export function shouldPersistSimulationTickImmediately(previousState = {}, nextState = {}, timing = {}) {
+  const previous = previousState.activeSession?.simulation || {};
+  const next = nextState.activeSession?.simulation || {};
+  const now = Number(timing.now || Date.now());
+  const lastPersistedAt = Number(timing.lastPersistedAt || 0);
+  return Boolean(
+    next.waitingForUser ||
+    next.winnerId ||
+    next.status !== previous.status ||
+    next.currentPlayerId !== previous.currentPlayerId ||
+    Number(nextState.activeSession?.turn || 0) !== Number(previousState.activeSession?.turn || 0) ||
+    (nextState.activeSession?.stack || []).length !== (previousState.activeSession?.stack || []).length ||
+    (next.eliminatedPlayerIds || []).length !== (previous.eliminatedPlayerIds || []).length ||
+    now - lastPersistedAt >= SIMULATION_AUTOSAVE_MAX_INTERVAL_MS
+  );
+}
+
 export function createStore() {
   let state = createDefaultProfile();
   const listeners = new Set();
   let simulationTimer = null;
   let simulationTickInFlight = false;
+  let deferredPersistenceTimer = null;
+  let lastPersistedAt = 0;
+  let persistenceQueue = Promise.resolve();
   const syncManager = createSyncManager({
     onRemoteAction: async (remoteAction, publicState) => {
       const merged = {
@@ -162,6 +185,48 @@ export function createStore() {
     listeners.forEach((listener) => listener(state, action));
   }
 
+  function queueProfileSave(profileSnapshot) {
+    persistenceQueue = persistenceQueue
+      .catch(() => undefined)
+      .then(() => saveProfile(profileSnapshot));
+    return persistenceQueue;
+  }
+
+  async function persistImmediately() {
+    clearTimeout(deferredPersistenceTimer);
+    deferredPersistenceTimer = null;
+    const profileSnapshot = state;
+    await queueProfileSave(profileSnapshot);
+    lastPersistedAt = Date.now();
+  }
+
+  function scheduleSettledPersistence() {
+    if (deferredPersistenceTimer) {
+      return;
+    }
+    deferredPersistenceTimer = setTimeout(() => {
+      deferredPersistenceTimer = null;
+      const profileSnapshot = state;
+      void queueProfileSave(profileSnapshot)
+        .then(() => {
+          lastPersistedAt = Date.now();
+        })
+        .catch(() => undefined);
+    }, SIMULATION_AUTOSAVE_SETTLE_MS);
+  }
+
+  async function persistAfterAction(action, previousState) {
+    if (action.actionType !== "SIMULATION_TICK") {
+      await persistImmediately();
+      return;
+    }
+    if (shouldPersistSimulationTickImmediately(previousState, state, { lastPersistedAt })) {
+      await persistImmediately();
+      return;
+    }
+    scheduleSettledPersistence();
+  }
+
   function refreshSimulationLoop() {
     clearTimeout(simulationTimer);
     simulationTimer = null;
@@ -226,6 +291,7 @@ export function createStore() {
   const storeApi = {
     async init() {
       state = await loadProfile();
+      lastPersistedAt = Date.now();
       configureSync();
       configureTournamentSync();
       configureFriendSync();
@@ -247,7 +313,7 @@ export function createStore() {
         return;
       }
       emit(action);
-      await saveProfile(state);
+      await persistAfterAction(action, previousState);
       const isTournamentAction = String(action.actionType || "").startsWith("TOURNAMENT_");
       const isFriendAction = String(action.actionType || "").startsWith("FRIEND_");
       if (!event?.remote && !event?.internalOnly && !isTournamentAction && !isFriendAction) {
@@ -273,7 +339,7 @@ export function createStore() {
       configureTournamentSync();
       configureFriendSync();
       emit();
-      await saveProfile(state);
+      await persistImmediately();
       refreshSimulationLoop();
     },
     async login(password) {

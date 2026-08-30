@@ -97,6 +97,13 @@ export const omegaDeck = {
   isFallback: false,
   commander: {
     name: "Zhulodok, Void Gorger",
+    manaCost: "{5}{C}",
+    manaValue: 6,
+    typeLine: "Legendary Creature - Eldrazi",
+    oracleText: "Colorless spells you cast from your hand with mana value 7 or greater have cascade, cascade.",
+    power: 7,
+    toughness: 4,
+    colorIdentity: [],
     role: "primary-commander",
   },
   backupCommander: {

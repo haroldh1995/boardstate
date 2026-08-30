@@ -76,8 +76,9 @@ export function normalizeCastingXValue(value, fallback = 0) {
   return Math.max(0, Math.floor(parsed));
 }
 
-export function planManaPayment(session = {}, controller = "player", manaCost = "", xValue = 0) {
+export function planManaPayment(session = {}, controller = "player", manaCost = "", xValue = 0, options = {}) {
   const requirements = parseManaRequirements(manaCost, xValue);
+  requirements.generic += Math.max(0, Number(options.additionalGeneric || 0));
   const side = controller === "player" || controller === "local-player" ? "player" : "opponent";
   if (requirements.ambiguous) {
     return { verified: false, sourceIds: [], poolAfter: { ...(session.manaPool || {}) }, reason: "ambiguous-cost" };

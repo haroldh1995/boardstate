@@ -10,7 +10,13 @@ import {
   createInteractionPerformanceBudget,
   resolveResponsiveLandscapeComposition,
 } from "../src/gameplay/inputIntent.js";
-import { createPermanent } from "../src/state/schema.js";
+import { createAction } from "../src/state/actions.js";
+import { reduceProfile } from "../src/state/gameReducer.js";
+import { createDefaultProfile, createPermanent } from "../src/state/schema.js";
+import {
+  SIMULATION_AUTOSAVE_MAX_INTERVAL_MS,
+  shouldPersistSimulationTickImmediately,
+} from "../src/state/store.js";
 import { createLandscapeBattlefieldModel } from "../src/ui/landscapeBattlefield.js";
 import { createCommanderPlayers, createCommanderTestSession } from "./fixtures/commanderSessionFixtures.js";
 
@@ -127,4 +133,63 @@ test("Prompt 17 accessibility and device semantics remain input-complete without
   assert.match(render, /role="status"/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(styles, /safe-area-inset-bottom/);
+});
+
+test("internal AI ticks retain semantic history without accumulating full-session snapshots", () => {
+  const dispatch = (profile, input) => reduceProfile(profile, createAction(input, profile));
+  let profile = dispatch(createDefaultProfile(), {
+    type: "START_SIMULATION",
+    selectedOpponents: ["alpha", "beta", "omega"],
+    speed: "fast",
+  });
+  profile = dispatch(profile, { type: "SIMULATION_PASS_TURN" });
+  const snapshotsBefore = profile.activeSession.eventKnowledge.stateSnapshots.length;
+  const checkpointsBefore = profile.activeSession.persistence.checkpoints.length;
+
+  for (let index = 0; index < 12; index += 1) {
+    profile = dispatch(profile, { type: "SIMULATION_TICK", internalOnly: true, remote: true });
+  }
+
+  const tickActions = profile.activeSession.actionHistory.filter((entry) => entry.actionType === "SIMULATION_TICK");
+  assert.ok(tickActions.length >= 8);
+  assert.ok(tickActions.every((entry) => entry.snapshot === null));
+  assert.equal(profile.activeSession.eventKnowledge.stateSnapshots.length, snapshotsBefore);
+  assert.ok(profile.activeSession.persistence.checkpoints.length <= checkpointsBefore + 1);
+  assert.ok(profile.activeSession.eventKnowledge.events.some((entry) => entry.what?.actionType === "SIMULATION_TICK"));
+});
+
+test("AI autosave policy coalesces frames but persists settled gameplay boundaries", () => {
+  const previous = createDefaultProfile();
+  previous.activeSession.simulation = {
+    enabled: true,
+    status: "running",
+    currentPlayerId: "alpha",
+    waitingForUser: false,
+    eliminatedPlayerIds: [],
+  };
+  const intermediate = structuredClone(previous);
+  intermediate.activeSession.simulation.currentPhaseIndex = 2;
+
+  assert.equal(shouldPersistSimulationTickImmediately(previous, intermediate, {
+    now: 1_000,
+    lastPersistedAt: 500,
+  }), false);
+  assert.equal(shouldPersistSimulationTickImmediately(previous, intermediate, {
+    now: SIMULATION_AUTOSAVE_MAX_INTERVAL_MS + 501,
+    lastPersistedAt: 500,
+  }), true);
+
+  const decision = structuredClone(intermediate);
+  decision.activeSession.simulation.waitingForUser = true;
+  assert.equal(shouldPersistSimulationTickImmediately(previous, decision, {
+    now: 1_000,
+    lastPersistedAt: 500,
+  }), true);
+
+  const nextTurn = structuredClone(intermediate);
+  nextTurn.activeSession.simulation.currentPlayerId = "beta";
+  assert.equal(shouldPersistSimulationTickImmediately(previous, nextTurn, {
+    now: 1_000,
+    lastPersistedAt: 500,
+  }), true);
 });

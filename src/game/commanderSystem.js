@@ -1,5 +1,7 @@
 import { createDeckRecord, createPermanent, makeCommanderDeckKey } from "../state/schema.js";
-import { normalizeCount } from "../state/ids.js";
+import { createId, normalizeCount } from "../state/ids.js";
+import { castSpellToStack } from "../effects/effectEngine.js";
+import { planManaPayment } from "./manaSystem.js";
 
 const BASIC_LANDS = new Set(["plains", "island", "swamp", "mountain", "forest", "wastes"]);
 
@@ -24,6 +26,13 @@ export function assignCommander(profile, card) {
     commanderTax: 0,
     damageByOpponent: {},
     deckKey,
+    card: {
+      ...card,
+      owner: "player",
+      controller: "player",
+      zone: "command",
+      isCommander: true,
+    },
   };
   return {
     ...profile,
@@ -75,33 +84,99 @@ export function createDeckWithCard(profile, card, options = {}) {
 
 export function castCommander(profile) {
   const session = profile.activeSession;
-  if (!session.commander?.name) {
+  if (!session.commander?.name || session.commander.zone !== "command") {
     return profile;
   }
-  const commanderPermanent = createPermanent({
-    ...session.commander,
+  const commanderCard = {
+    ...(session.commander.card || {}),
     name: session.commander.name,
-    typeLine: "Legendary Creature",
+    cardId: session.commander.cardId || session.commander.card?.cardId || "",
+    manaCost: session.commander.manaCost || session.commander.card?.manaCost || "",
+    manaValue: Number(session.commander.manaValue ?? session.commander.card?.manaValue ?? 0),
+    typeLine: session.commander.typeLine || session.commander.card?.typeLine || "Legendary Creature",
+    oracleText: session.commander.oracleText || session.commander.card?.oracleText || "",
     isCommander: true,
     controller: "player",
     owner: "player",
     ownedByCommanderDeck: true,
-  });
+    zone: "command",
+  };
   const nextCastCount = normalizeCount(session.commander.castCount) + 1;
+  const commanderTaxPaid = Math.max(0, Number(session.commander.commanderTax || 0));
+  const fullControl = ["simulation-game", "dry-run", "full-control", "digital-game"].includes(
+    String(session.gameTracking?.mode || "").toLowerCase()
+  );
+  const requiresPayment = Boolean(profile.settings?.strictPhaseEnforcement || fullControl);
+  const activeGame = Boolean(session.gameTracking?.active || session.simulation?.enabled);
+  const instantSpeedPermission = /\bflash\b|you may cast .* as though .* flash/i.test(commanderCard.oracleText || "");
+  const legalTiming = instantSpeedPermission || ([1, 3].includes(Number(session.phaseIndex)) && !(session.stack || []).length);
+  if (requiresPayment && activeGame && !legalTiming) {
+    return rejectCommanderCast(profile, "Commander timing is not legal while strict Full Control is active.");
+  }
+  const payment = requiresPayment
+    ? planManaPayment(session, "player", commanderCard.manaCost, 0, { additionalGeneric: commanderTaxPaid })
+    : { verified: true, sourceIds: [], poolAfter: { ...(session.manaPool || {}) } };
+  if (requiresPayment && !payment.verified) {
+    return rejectCommanderCast(profile, `Commander mana payment failed: ${payment.reason || "insufficient tracked mana"}.`);
+  }
+  const paidSession = payment.verified ? applyCommanderManaPayment(session, payment) : session;
+  const castedSession = castSpellToStack(paidSession, commanderCard, {
+    controller: "player",
+    owner: "player",
+    sourceZone: "command",
+    castPermission: "commander-rule",
+    additionalCosts: { commanderTax: commanderTaxPaid },
+    manaPaymentVerified: Boolean(payment.verified),
+    manaPaymentSources: payment.sourceIds || [],
+  });
   return {
     ...profile,
     activeSession: {
-      ...session,
+      ...castedSession,
       commander: {
         ...session.commander,
-        zone: "battlefield",
+        card: commanderCard,
+        zone: "stack",
         castCount: nextCastCount,
-        commanderTax: Math.max(0, (nextCastCount - 1) * 2),
+        commanderTax: nextCastCount * 2,
       },
-      battlefield: {
-        ...session.battlefield,
-        player: [...session.battlefield.player, commanderPermanent],
-      },
+    },
+  };
+}
+
+function rejectCommanderCast(profile, message) {
+  return {
+    ...profile,
+    activeSession: {
+      ...profile.activeSession,
+      recoveryLog: [
+        {
+          id: createId("recovery"),
+          source: "Commander Cast",
+          message,
+          severity: "warning",
+          suggestedAction: "Advance to a legal main phase and make enough tracked mana available.",
+          timestamp: Date.now(),
+          dismissed: false,
+        },
+        ...(profile.activeSession?.recoveryLog || []),
+      ].slice(0, 80),
+    },
+  };
+}
+
+function applyCommanderManaPayment(session, payment = {}) {
+  const sourceIds = new Set(payment.sourceIds || []);
+  return {
+    ...session,
+    manaPool: { ...(payment.poolAfter || session.manaPool || {}) },
+    battlefield: {
+      ...session.battlefield,
+      player: (session.battlefield?.player || []).map((permanent) =>
+        sourceIds.has(permanent.id)
+          ? createPermanent({ ...permanent, tapped: true })
+          : permanent
+      ),
     },
   };
 }

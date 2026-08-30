@@ -355,13 +355,21 @@ export function counterStackObject(session, stackId = "", sourceName = "Counters
     return queueSpellRecovery(session, { name: sourceName }, "Counterspell needs a valid spell or ability on the stack.");
   }
   const withoutTarget = stack.filter((entry) => entry.id !== target.id);
-  const moved = target.isCopy ? session : moveSpellCardToDestination(session, target, "graveyard");
+  const movedToDestination = target.isCopy ? session : moveSpellCardToDestination(session, target, "graveyard");
+  const moved = target.isCopy ? movedToDestination : synchronizeCommanderStackExit(movedToDestination, target, "graveyard");
+  const destinationSummary = target.isCopy
+    ? " and ceased to exist"
+    : target.card?.isCommander
+    ? target.controller === "player" || target.controller === "local-player"
+      ? " and is awaiting its command-zone choice"
+      : " and returned to the command zone"
+    : " and moved to graveyard";
   return {
     ...moved,
     stack: withoutTarget,
     priority: { activePlayerId: target.controller || "local-player", passedPlayerIds: [], waiting: Boolean(withoutTarget.length) },
     effectLog: [
-      createLog(sourceName, `${target.name} was countered${target.isCopy ? " and ceased to exist" : " and moved to graveyard"}.`),
+      createLog(sourceName, `${target.name} was countered${destinationSummary}.`),
       ...(moved.effectLog || []),
     ].slice(0, 120),
   };
@@ -551,7 +559,10 @@ function collectSpellCastingChoices(spell, session = {}) {
   }
   if (isActiveGame && !spell.manaPaymentVerified && (spell.controller === "player" || spell.controller === "local-player")) {
     const availableMana = Object.values(session.manaPool || {}).reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
-    const requiredMana = Math.max(0, Number(spell.card?.manaValue || 0) - (/\{x\}/i.test(spell.card?.manaCost || "") ? 1 : 0)) + Math.max(0, Number(spell.xValue) || 0);
+    const requiredMana =
+      Math.max(0, Number(spell.card?.manaValue || 0) - (/\{x\}/i.test(spell.card?.manaCost || "") ? 1 : 0)) +
+      Math.max(0, Number(spell.xValue) || 0) +
+      Math.max(0, Number(spell.additionalCosts?.commanderTax || 0));
     if (requiredMana > availableMana) {
       choices.push({ kind: "mana-payment", summary: `Insufficient tracked mana (${availableMana}/${requiredMana}). Confirm payment or manual override.` });
     }
@@ -677,9 +688,10 @@ function finalizePermanentSpellResolution(session, spell) {
         battlefield: stackPermanent(zones.battlefield || [], permanent),
       }))
     : entered;
-  const remainingStack = (synchronizedEntry.stack || []).filter((entry) => entry.id !== spell.id);
+  const commanderSynchronizedEntry = synchronizeResolvedCommander(synchronizedEntry, controller, permanent);
+  const remainingStack = (commanderSynchronizedEntry.stack || []).filter((entry) => entry.id !== spell.id);
   return recalculateContinuousEffects({
-    ...synchronizedEntry,
+    ...commanderSynchronizedEntry,
     stack: remainingStack,
     priority: {
       activePlayerId: controller,
@@ -692,7 +704,7 @@ function finalizePermanentSpellResolution(session, spell) {
         spell.isCopy ? "Permanent spell copy resolved as a token permanent." : "Permanent spell resolved onto the battlefield.",
         RULES_CONFIDENCE.AUTO_RESOLVED
       ),
-      ...(synchronizedEntry.rulesConfidenceLog || []),
+      ...(commanderSynchronizedEntry.rulesConfidenceLog || []),
     ].slice(0, 160),
     effectLog: [
       createLog(
@@ -700,9 +712,46 @@ function finalizePermanentSpellResolution(session, spell) {
         spell.isCopy ? "Permanent spell copy resolved as a token permanent." : "Permanent spell resolved onto the battlefield.",
         RULES_CONFIDENCE.AUTO_RESOLVED
       ),
-      ...(synchronizedEntry.effectLog || []),
+      ...(commanderSynchronizedEntry.effectLog || []),
     ].slice(0, 120),
   });
+}
+
+function synchronizeResolvedCommander(session, controller, permanent) {
+  if (!permanent?.isCommander) {
+    return session;
+  }
+  if (controller === "player" || controller === "local-player") {
+    return {
+      ...session,
+      commander: {
+        ...(session.commander || {}),
+        zone: "battlefield",
+      },
+    };
+  }
+  const npc = session.simulation?.opponents?.[controller];
+  if (!npc) {
+    return session;
+  }
+  return {
+    ...session,
+    simulation: {
+      ...session.simulation,
+      opponents: {
+        ...session.simulation.opponents,
+        [controller]: {
+          ...npc,
+          commander: {
+            ...(npc.commander || {}),
+            zone: "battlefield",
+          },
+          updatedAt: Date.now(),
+        },
+      },
+      updatedAt: Date.now(),
+    },
+  };
 }
 
 function getPriorityResponderIds(session, controller) {
@@ -761,6 +810,82 @@ function moveSpellCardToDestination(session, spell, destination) {
     ...zones,
     [destination]: [...(zones[destination] || []), card],
   }));
+}
+
+function synchronizeCommanderStackExit(session, spell, destination) {
+  if (!spell.card?.isCommander) {
+    return session;
+  }
+  const controller = spell.owner || spell.controller || "player";
+  const card = {
+    ...(spell.card || {}),
+    zone: destination,
+    owner: controller,
+    controller,
+    isCommander: true,
+  };
+  if (controller !== "player" && controller !== "local-player" && session.simulation?.opponents?.[controller]) {
+    const moved = updateControllerZones(session, controller, (zones) => ({
+      ...zones,
+      [destination]: (zones[destination] || []).filter(
+        (entry) => entry.cardId !== card.cardId && entry.name !== card.name
+      ),
+      command: [
+        card,
+        ...(zones.command || []).filter((entry) => entry.cardId !== card.cardId && entry.name !== card.name),
+      ],
+    }));
+    const npc = moved.simulation.opponents[controller];
+    return {
+      ...moved,
+      simulation: {
+        ...moved.simulation,
+        opponents: {
+          ...moved.simulation.opponents,
+          [controller]: {
+            ...npc,
+            commander: {
+              ...(npc.commander || {}),
+              card: { ...(npc.commander?.card || card), zone: "command", isCommander: true },
+              zone: "command",
+            },
+            updatedAt: Date.now(),
+          },
+        },
+        updatedAt: Date.now(),
+      },
+    };
+  }
+  const choiceId = createId("choice");
+  return {
+    ...session,
+    commander: {
+      ...(session.commander || {}),
+      card: { ...(session.commander?.card || card), zone: destination, isCommander: true },
+      zone: destination,
+    },
+    pendingEffects: [
+      {
+        id: choiceId,
+        sourceId: card.cardId || card.id || "",
+        sourceName: card.name || spell.name || "Commander",
+        controller: "local-player",
+        status: "pending",
+        mandatory: false,
+        summary: `${card.name || "This commander"} entered ${destination}. Move it to the command zone?`,
+        rulesConfidence: RULES_CONFIDENCE.MANUAL_CHOICE,
+        createdAt: Date.now(),
+        effect: {
+          action: "commander-zone-choice",
+          choiceKind: "commander-zone",
+          cardId: card.cardId || card.id || "",
+          cardName: card.name || spell.name || "Commander",
+          currentDestination: destination,
+        },
+      },
+      ...(session.pendingEffects || []),
+    ].slice(0, 120),
+  };
 }
 
 function updateControllerZones(session, controller, updater) {
