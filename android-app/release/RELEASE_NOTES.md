@@ -2,9 +2,15 @@
 
 ## App
 - Name: BoardState
-- Version: 1.43.3
-- Version code: 48
+- Version: 1.43.4
+- Version code: 49
 - Package: `com.boardstate.app`
+
+## Version 1.43.4
+- Prevents the pending-stack status from covering or intercepting the centered Resolve Command Hand card while retaining an accessible live announcement and the explicit Stack review control.
+- Restores direct pointer and touch ownership throughout the Command Hand corridor so visible rear cards can focus reliably without battlefield hit layers winning the interaction.
+- Scopes Scryfall action idempotence to one popup invocation, rejecting rapid duplicates while allowing a later deliberate action for the same card after search is reopened.
+- Revalidates notification auto-dismiss, unobstructed card art, shortened cast presentation, search-to-cast handoff, single Resolve, and portrait gameplay gating at landscape-phone geometry.
 
 ## Version 1.43.3
 - Routes local and simulated Commander casts through the canonical stack and single-Resolve pipeline, applies Commander tax during payment, and preserves valid Commander destinations after countering or resolution.

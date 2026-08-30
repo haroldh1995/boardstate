@@ -8991,7 +8991,7 @@ body[data-page="battlefield"] .gameplay-context-dock {
   border: 0;
   background: transparent;
   box-shadow: none;
-  pointer-events: none;
+  pointer-events: auto;
   transform: translateX(-50%);
   perspective: 1100px;
   isolation: isolate;
@@ -9056,11 +9056,13 @@ body[data-page="battlefield"] .gameplay-context-dock {
   letter-spacing: 0.13em;
   text-transform: uppercase;
   transform: translateX(-50%);
-  pointer-events: auto;
+  pointer-events: none;
   backdrop-filter: blur(10px);
 }
 
 .action-hand-queue {
+  display: inline-flex;
+  align-items: center;
   min-height: 1.24rem;
   padding: 0.1rem 0.42rem;
   border-color: rgba(255, 229, 138, 0.62);
@@ -9083,7 +9085,7 @@ body[data-page="battlefield"] .gameplay-context-dock {
   min-width: 0;
   padding: 1.24rem 0.4rem 0.18rem;
   overflow: visible;
-  pointer-events: none;
+  pointer-events: auto;
   transform: translateZ(0);
   transform-style: preserve-3d;
   transition: transform var(--motion-duration-micro) var(--motion-ease-inertia);
@@ -10797,8 +10799,15 @@ body[data-page="battlefield"] .commander-action-hand__status:has(.action-hand-qu
 }
 
 body[data-page="battlefield"] .commander-action-hand__status:has(.action-hand-queue) {
-  opacity: 0.95;
-  pointer-events: auto;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  opacity: 0;
+  pointer-events: none;
 }
 
 body[data-page="battlefield"] .commander-action-hand__fan {
@@ -10899,8 +10908,8 @@ body[data-page="battlefield"] .command-deck:not(.is-rotating):not(.is-dragging) 
   }
 
   body[data-page="battlefield"] .commander-action-hand__status:has(.action-hand-queue) {
-    opacity: 0.95;
-    pointer-events: auto;
+    opacity: 0;
+    pointer-events: none;
   }
 
   body[data-page="battlefield"] .commander-action-hand__aura {
@@ -11837,7 +11846,7 @@ body[data-page="battlefield"] .commander-action-hand {
   }
 }
 
-/* Release 1.43.3: canonical landscape, Commander, and presentation hardening. */
+/* Release 1.43.4: unobstructed Command Hand interaction and search-action idempotence. */
 .boardstate-landscape-gate {
   position: fixed;
   inset: 0;

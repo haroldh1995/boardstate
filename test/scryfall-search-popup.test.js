@@ -118,6 +118,35 @@ test("selection and confirmation are deliberate and duplicate action identity is
   assert.equal(closeScryfallSearch(duplicate.state).status, SCRYFALL_SEARCH_STATUS.closed);
 });
 
+test("duplicate protection resets for a deliberate later popup invocation", () => {
+  let state = requestScryfallSearchOpen(createScryfallSearchState({ query: "Sol Ring" }));
+  state = selectScryfallSearchResult({
+    ...state,
+    results: [{ cardId: "sol-ring", name: "Sol Ring" }],
+  }, "sol-ring");
+  const first = beginScryfallSearchAction(state, {
+    actionType: "cast",
+    semanticIntent: "hand",
+  });
+  assert.equal(first.accepted, true);
+  state = completeScryfallSearchAction(first.state, first.actionId);
+
+  const rapidDuplicate = beginScryfallSearchAction(state, {
+    actionType: "cast",
+    semanticIntent: "hand",
+  });
+  assert.equal(rapidDuplicate.accepted, false);
+
+  state = requestScryfallSearchOpen(closeScryfallSearch(state, { preserveSelection: true }));
+  const laterAction = beginScryfallSearchAction(state, {
+    actionType: "cast",
+    semanticIntent: "hand",
+  });
+  assert.equal(laterAction.accepted, true);
+  assert.notEqual(laterAction.actionId, first.actionId);
+  assert.equal(state.openRevision, 2);
+});
+
 test("completed presentation windows cannot deadlock later search requests", () => {
   const now = 10_000;
   const attention = resolveGameplayAttentionOwner({

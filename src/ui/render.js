@@ -6657,9 +6657,7 @@ export function mountApp(root, store) {
   }
 
   function beginCanonicalSearchCardAction(card, actionType, semanticIntent = actionType) {
-    const actionId = `scryfall:${actionType}:${card.cardId || card.name}:${scryfallSearchState.queryRevision}`;
     const result = beginScryfallSearchAction(scryfallSearchState, {
-      actionId,
       actionType,
       cardId: card.cardId || card.name,
       semanticIntent,
@@ -9564,8 +9562,8 @@ function renderCommanderActionHand(profile, options = {}) {
       <button class="command-deck__rotator command-deck__rotator--next" data-command-deck-rotate="1" aria-label="Rotate command deck right">&rsaquo;</button>
       ${centerCard ? `<button class="command-deck__favorite-toggle ${centerFavorite ? "is-favorite" : ""}" data-command-deck-favorite="${escapeAttribute(centerCard.id)}" aria-pressed="${centerFavorite}" aria-label="${escapeAttribute(centerFavorite ? `Unpin ${centerCard.label}` : `Pin ${centerCard.label}`)}">${centerFavorite ? "Pinned" : "Pin"}</button>` : ""}
       ${pendingCount ? `
-        <div class="commander-action-hand__status">
-          <button data-open-utility="${stackCount || pendingEffectsCount ? "stack" : "triggers"}" class="action-hand-queue ${activeUtilityPanel === "stack" || activeUtilityPanel === "triggers" ? "is-active" : ""}">${escapeHtml(pendingQueueLabel)}</button>
+        <div class="commander-action-hand__status" role="status" aria-live="polite">
+          <span class="action-hand-queue ${activeUtilityPanel === "stack" || activeUtilityPanel === "triggers" ? "is-active" : ""}">${escapeHtml(pendingQueueLabel)}</span>
         </div>
       ` : ""}
       <div class="commander-action-hand__fan command-deck__fan" data-command-deck-fan role="group" aria-label="Visible rotating Commander decisions" style="--action-count: ${visibleCards.length}; --deck-size: ${actionCards.length};">
@@ -13258,7 +13256,7 @@ function getUnreadNotificationCount(profile = {}) {
 }
 
 function getAppVersion() {
-  return "1.43.3";
+  return "1.43.4";
 }
 
 function renderGameOptions(profile, page = "life") {

@@ -54,6 +54,7 @@ export function createScryfallSearchState(input = {}) {
     status: SCRYFALL_SEARCH_STATUS.closed,
     context: normalizeContext(input.context),
     requestedOpen: false,
+    openRevision: Math.max(0, Number(input.openRevision || 0)),
     query: String(input.query || ""),
     queryRevision: 0,
     requestId: "",
@@ -74,12 +75,14 @@ export function requestScryfallSearchOpen(state = createScryfallSearchState(), c
   const next = normalizeState(state);
   const attention = resolveSearchAttention(context);
   const searchContext = normalizeContext(context.searchContext || next.context);
+  const openRevision = next.requestedOpen ? next.openRevision : next.openRevision + 1;
   if (attention.critical) {
     return {
       ...next,
       status: SCRYFALL_SEARCH_STATUS.deferred,
       context: searchContext,
       requestedOpen: true,
+      openRevision,
       suspendedReason: attention.reason,
       resumeAfterCriticalPresentation: true,
       mandatoryDecisionSuperseded: attention.mandatory,
@@ -90,6 +93,7 @@ export function requestScryfallSearchOpen(state = createScryfallSearchState(), c
     status: SCRYFALL_SEARCH_STATUS.open,
     context: searchContext,
     requestedOpen: true,
+    openRevision,
     suspendedReason: "",
     resumeAfterCriticalPresentation: false,
     mandatoryDecisionSuperseded: false,
@@ -237,7 +241,7 @@ export function beginScryfallSearchAction(state = createScryfallSearchState(), a
   const next = normalizeState(state);
   const cardId = String(action.cardId || next.selectedCardId || "");
   const actionType = String(action.actionType || "select");
-  const actionId = String(action.actionId || `scryfall-action:${actionType}:${cardId}:${next.queryRevision}`);
+  const actionId = String(action.actionId || createScryfallSearchActionIdentity(next, { ...action, cardId, actionType }));
   if (!cardId || next.completedActionIds.includes(actionId) || next.pendingAction?.actionId === actionId) {
     return { state: next, accepted: false, actionId };
   }
@@ -254,6 +258,14 @@ export function beginScryfallSearchAction(state = createScryfallSearchState(), a
       },
     },
   };
+}
+
+export function createScryfallSearchActionIdentity(state = createScryfallSearchState(), action = {}) {
+  const next = normalizeState(state);
+  const actionType = normalizeIdentity(action.actionType || "select");
+  const cardId = normalizeIdentity(action.cardId || next.selectedCardId || "card");
+  const semanticIntent = normalizeIdentity(action.semanticIntent || actionType);
+  return `scryfall-action:${next.openRevision}:${next.queryRevision}:${actionType}:${cardId}:${semanticIntent}`;
 }
 
 export function completeScryfallSearchAction(state = createScryfallSearchState(), actionId = "") {
@@ -298,6 +310,7 @@ function normalizeState(state = {}) {
     ...state,
     version: CANONICAL_SCRYFALL_SEARCH_VERSION,
     context: normalizeContext(state.context),
+    openRevision: Math.max(0, Number(state.openRevision || 0)),
     results: Array.isArray(state.results) ? state.results : [],
     completedActionIds: Array.isArray(state.completedActionIds) ? state.completedActionIds : [],
   };

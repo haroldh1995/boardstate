@@ -405,6 +405,13 @@ test("battlefield runtime uses the tabletop reconstruction instead of idle dashb
   assert.match(styles, /landscape-stack-core\.is-idle/);
   assert.match(styles, /app-shell--battlefield \.app-header/);
   assert.match(styles, /commander-action-hand__status:has\(\.action-hand-queue\)/);
+  assert.match(render, /commander-action-hand__status" role="status" aria-live="polite"/);
+  assert.match(render, /<span class="action-hand-queue/);
+  assert.doesNotMatch(render, /<button[^>]+class="action-hand-queue/);
+  assert.match(styles, /commander-action-hand__status:has\(\.action-hand-queue\)\s*\{[^}]*pointer-events: none;/s);
+  assert.match(styles, /commander-action-hand__status:has\(\.action-hand-queue\)\s*\{[^}]*clip-path: inset\(50%\);/s);
+  assert.match(styles, /\.commander-action-hand\s*\{[^}]*pointer-events: auto;/s);
+  assert.match(styles, /\.commander-action-hand__fan\s*\{[^}]*pointer-events: auto;/s);
   assert.match(styles, /pointer-events: none/);
   assert.match(styles, /pointer-events: auto/);
   assert.match(styles, /action-card-state-idle/);
