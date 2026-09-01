@@ -1,5 +1,7 @@
 # Native Game Visual Architecture
 
+> Historical record: the post-completion Dual Hand Dock migration supersedes every rotating, circular, center-snap Command Deck statement in this file. See `CANONICAL_GAMEPLAY_ARCHITECTURE.md` for the only current hand architecture.
+
 Date: 2026-07-23
 
 Prompt 12.1 establishes BoardState's permanent visual and interaction foundation. This is not a feature layer, alternate gameplay surface, or Arena clone. It is the repository-owned standard that future BoardState work must use when changing gameplay presentation.
@@ -108,20 +110,17 @@ Permanent standards:
 
 The corrective composition record lives in `docs/ecosystem/HUD_COMPOSITION_VISUAL_HIERARCHY.md`.
 
-## Rotating Command Deck Standard
+## Dual Hand Dock Standard
 
-Prompt 12.3F replaces the fixed linear Action Hand projection with a circular Rotating Command Deck while preserving the existing Action Card material identity and action routing.
+BoardState `1.44.0` supersedes Prompt 12.3F's circular projection. Commands and the tracked private Player Hand now share one protected bottom footprint, with only one surface expanded at a time.
 
 Permanent standards:
 
-- `src/ui/render.js` exposes `boardstate-rotating-command-deck-0.1.0` through `data-command-deck-version` and `document.body.dataset.commandDeckVersion`.
-- The deck is circular. Rotation must wrap through `normalizeCommandDeckIndex()` and must not expose a first or last card to the player.
-- Only a visible hand-sized window of the full deck renders at once through `getVisibleCommandDeckCards()`.
-- Core Command Cards keep stable order for muscle memory. User favorites may group near the front through `settings.commandDeck.favoriteIds`.
-- Contextual Command Cards enter only when relevant and may be centered by `resolveCommandDeckPriorityCard()` without becoming permanent inactive clutter.
-- Wheel, drag, keyboard, and controller-ready key aliases must produce the same rotation behavior.
-
-The interaction architecture record lives in `docs/ecosystem/ROTATING_COMMAND_DECK_ARCHITECTURE.md`.
+- `src/gameplay/dualHandModel.js` owns finite ordering, continuous overlap, rightward resting depth, semantic gesture intent, tracked-card construction, and privacy projection.
+- Persistent Command Cards keep user-controlled order. Contextual Command Cards append temporarily at the right/front without entering saved order.
+- Player Hand cards are independent authoritative Magic objects; command cards remain utility presentation objects.
+- Press-and-hold inspection, horizontal reorder, upward Cast/Play intent, local overflow, and accessibility actions share one platform-portable interaction contract.
+- No infinite cycle, centered focus anchor, visual aliases, wrap correction, or nearest-center snap remains active.
 
 ## Motion Language Standard
 
@@ -132,7 +131,7 @@ Permanent standards:
 - `src/ui/motionTokens.js` is the single source of truth for motion timing, easing, inertia, physics, state catalogs, ownership, and debug fields.
 - `src/ui/landscapeBattlefield.js` consumes Motion Tokens through the existing presentation-only battlefield motion model instead of creating a parallel animation authority.
 - `src/ui/render.js` exposes safe `data-motion-*` metadata and a development-only Motion Debug Overlay that is gated by `import.meta.env.DEV` and `boardstate-motion-debug=true`.
-- `src/styles.css` uses root `--motion-*` variables for battlefield, Action Card, Rotating Command Deck, panel, notification, and reduced-motion behavior.
+- `src/styles.css` uses root `--motion-*` variables for battlefield, Action Card, Dual Hand Dock, panel, notification, and reduced-motion behavior.
 - Motion must answer why an object moved, where it is going, and why it stopped there.
 - Gameplay-critical motion has priority. Supporting motion stays subtle. Ambient motion must never compete with the battlefield.
 
@@ -159,7 +158,7 @@ Prompt 12.6 establishes BoardState's sensory language as a permanent audio and h
 Permanent standards:
 
 - `src/ui/sensoryTokens.js` is the single source of truth for generated Web Audio tokens, haptic tokens, sensory channels, priority levels, preference defaults, notification/action mapping, and sensory-debug contracts.
-- `src/ui/render.js` exposes `boardstate-sensory-language-0.1.0` through `document.body.dataset.sensoryLanguageVersion`, battlefield `data-sensory-*` metadata, Rotating Command Deck metadata, Action Card sensory metadata, centralized notification/test feedback, and a development-only Sensory Debug Overlay gated by `import.meta.env.DEV` and `boardstate-sensory-debug=true`.
+- `src/ui/render.js` exposes `boardstate-sensory-language-0.1.0` through `document.body.dataset.sensoryLanguageVersion`, battlefield `data-sensory-*` metadata, Dual Hand Dock metadata, Action Card sensory metadata, centralized notification/test feedback, and a development-only Sensory Debug Overlay gated by `import.meta.env.DEV` and `boardstate-sensory-debug=true`.
 - `src/state/schema.js` and `src/storage/localDatabase.js` preserve `settings.sensory` with master, UI, gameplay, ambient, music, and reduced-haptics preferences while keeping existing sound and haptic opt-in controls compatible.
 - Sensory feedback is presentation-only. Gameplay must remain fully understandable when muted, without haptics, or on browsers that do not support Web Audio or vibration.
 

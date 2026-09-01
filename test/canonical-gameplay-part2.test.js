@@ -12,9 +12,9 @@ import {
   resolveBattlefieldGestureOwner,
 } from "../src/gameplay/battlefieldGeometry.js";
 import {
-  resolveCommandDeckCardProjection,
-  resolveCommandDeckFocusedCard,
-} from "../src/gameplay/commandDeckModel.js";
+  resolveArenaHandLayout,
+  validateArenaHandContinuity,
+} from "../src/gameplay/dualHandModel.js";
 import {
   createSingleResolvePlan,
   shouldAutoProgressLiveTrackingStack,
@@ -106,25 +106,16 @@ test("landscape model exposes Part 2 tabletop geometry without replacing authori
   assert.equal(model.localBattlefield.allPermanents.length, 4);
 });
 
-test("Command Hand focus law keeps one centered card as logical, visual, and z-order focus", () => {
+test("Command Hand is one continuous ordered fan with rightward resting depth", () => {
   const commandIds = ["phase", "commander", "library", "rules", "remind", "undo", "battlefield", "history", "notes", "calculator", "dice", "coin", "settings", "tablecraft"];
-  for (let centerIndex = 0; centerIndex < commandIds.length; centerIndex += 1) {
-    const candidates = commandIds.map((id, index) => {
-      let offset = index - centerIndex;
-      if (offset > commandIds.length / 2) offset -= commandIds.length;
-      if (offset < -commandIds.length / 2) offset += commandIds.length;
-      return { id, slotOffset: offset, priority: id === "phase" ? 96 : 10 };
-    });
-    const focused = resolveCommandDeckFocusedCard(candidates);
-    assert.equal(focused.id, commandIds[centerIndex]);
-    const projections = candidates.map((candidate) => ({
-      id: candidate.id,
-      projection: resolveCommandDeckCardProjection(candidate.slotOffset, candidate.priority, candidate.id === focused.id),
-    }));
-    const top = projections.reduce((best, entry) => entry.projection.zIndex > best.projection.zIndex ? entry : best);
-    assert.equal(top.id, focused.id);
-    assert.equal(projections.filter((entry) => entry.projection.offset === 0).length, 1);
-  }
+  const layout = resolveArenaHandLayout(commandIds.map((id) => ({ id })), { availableWidth: 820, cardWidth: 120 });
+  const validation = validateArenaHandContinuity(layout);
+  assert.equal(validation.valid, true, validation.issues.join(", "));
+  assert.equal(layout.circular, false);
+  assert.equal(layout.clones, false);
+  assert.equal(layout.entries.at(-1).id, "tablecraft");
+  assert.equal(layout.entries.at(-1).zIndex, Math.max(...layout.entries.map((entry) => entry.zIndex)));
+  assert.deepEqual(layout.entries.map((entry) => entry.id), commandIds);
 });
 
 test("Single Resolve completes uncontested permanent spell once and stops for real choices", () => {
@@ -160,7 +151,8 @@ test("Part 2 runtime and CSS prohibit global battlefield scrolling and document 
   assert.match(styles, /tabletop-zone-layout/);
   assert.match(styles, /overflow-y:\s*hidden/);
   assert.match(styles, /zone-local-horizontal-scroll/);
-  assert.match(styles, /data-command-deck-focused="false"/);
+  assert.match(styles, /\.dual-hand-card/);
+  assert.match(styles, /--hand-z-index/);
   assert.match(canonicalDoc, /No global battlefield scrolling/i);
   assert.match(portabilityDoc, /platform adapters/i);
 });

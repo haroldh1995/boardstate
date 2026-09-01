@@ -33,13 +33,9 @@ import {
   markPresentationEventPlayed,
 } from "../src/gameplay/cardLifecycle.js";
 import {
-  resolveCommandDeckCardProjection,
-  resolveCommandDeckFocusedCard,
-  resolveCommandDeckPointerOffsetPx,
-  resolveCommandDeckPointerSnapSteps,
-  resolveCommandDeckWheelFreeScrollOffsetPx,
-  resolveCommandDeckWheelSnapSteps,
-} from "../src/gameplay/commandDeckModel.js";
+  moveOrderedId,
+  resolveArenaHandLayout,
+} from "../src/gameplay/dualHandModel.js";
 import {
   GESTURE_OWNERS,
   INPUT_INTENTS,
@@ -47,7 +43,6 @@ import {
   createInputIntentPolicy,
   createInteractionPerformanceBudget,
   createTableRadarModel,
-  resolveCommandHandVisualCloneIdentity,
   resolveGestureOwnership,
   resolveOpponentFocusNavigation,
 } from "../src/gameplay/inputIntent.js";
@@ -87,30 +82,12 @@ function permanent(id, typeLine, extras = {}) {
   });
 }
 
-function commandEntriesForCenter(centerIndex, extras = {}) {
-  return COMMAND_IDS.map((id, index) => {
-    let slotOffset = index - centerIndex;
-    if (slotOffset > COMMAND_IDS.length / 2) slotOffset -= COMMAND_IDS.length;
-    if (slotOffset < -COMMAND_IDS.length / 2) slotOffset += COMMAND_IDS.length;
-    const focused = id === COMMAND_IDS[centerIndex];
-    const projection = resolveCommandDeckCardProjection(slotOffset, id === "phase" ? 96 : 10, focused);
-    return {
-      id,
-      commandId: id,
-      canonicalCommandId: id,
-      visualId: extras.cloneEveryCard ? `${id}:visual:${centerIndex}` : id,
-      isClone: Boolean(extras.cloneEveryCard && !focused),
-      slotOffset,
-      focused,
-      highlighted: focused,
-      previewOwner: focused ? id : "",
-      activationOwner: focused ? id : "",
-      zIndex: projection.zIndex,
-      hitTestRank: projection.zIndex,
-      scale: projection.scale,
-      liftZ: projection.liftZ,
-    };
-  });
+function commandHandEntries(commandIds = COMMAND_IDS, activeId = "") {
+  return resolveArenaHandLayout(commandIds.map((id) => ({ id })), {
+    availableWidth: 820,
+    cardWidth: 120,
+    activeId,
+  }).entries;
 }
 
 function makeExtremeBoard() {
@@ -176,59 +153,45 @@ test("Part 6 baseline locks canonical laws, responsibility map, and future-chang
   assert.equal(validation.valid, true, validation.issues.join(", "));
   assert.equal(LOCKDOWN_CANONICAL_GAMEPLAY_LAWS.length, 40);
   assert.equal(new Set(LOCKDOWN_CANONICAL_GAMEPLAY_LAWS.map((entry) => entry.id)).size, 40);
-  assert.equal(ARCHITECTURE_RESPONSIBILITY_MAP.commandHandCanonicalFocus.includes("src/gameplay/commandDeckModel.js"), true);
+  assert.equal(ARCHITECTURE_RESPONSIBILITY_MAP.dualHandDock.includes("src/gameplay/dualHandModel.js"), true);
+  assert.equal(ARCHITECTURE_RESPONSIBILITY_MAP.playerHandPrivacy.includes("src/shared-contracts/adapters.js"), true);
   assert.equal(ARCHITECTURE_RESPONSIBILITY_MAP.resolution.includes("src/gameplay/cardLifecycle.js"), true);
   assert.equal(ARCHITECTURE_RESPONSIBILITY_MAP.platformAdapters.includes("src/platform/runtimeEnvironment.js"), true);
   assert.equal(ARCHITECTURE_CHANGE_CONTRACT.explicitMigrationRequired, true);
   assert.equal(FUTURE_FEATURE_INTEGRATION_CHECKLIST.includes("platform-portability-impact"), true);
 });
 
-test("Part 6 Command Hand guardrails enforce one centered frontmost focus, clone identity, snap, and contextual safety", () => {
-  for (let centerIndex = 0; centerIndex < COMMAND_IDS.length; centerIndex += 1) {
-    const entries = commandEntriesForCenter(centerIndex, { cloneEveryCard: true });
-    const focused = resolveCommandDeckFocusedCard(entries);
-    const validation = validateCommandHandLockdown(entries, {
-      persistentCommandIds: COMMAND_IDS,
-      finalPersistentCommandIds: COMMAND_IDS,
-    });
-
-    assert.equal(focused.id, COMMAND_IDS[centerIndex]);
-    assert.equal(validation.valid, true, `${COMMAND_IDS[centerIndex]}: ${validation.issues.join(", ")}`);
-    assert.equal(validation.focusedId, COMMAND_IDS[centerIndex]);
-    assert.equal(validation.centeredId, COMMAND_IDS[centerIndex]);
-    assert.equal(validation.topZOrderId, COMMAND_IDS[centerIndex]);
-    assert.equal(validation.topHitTestId, COMMAND_IDS[centerIndex]);
-  }
-
-  const partialOffset = resolveCommandDeckPointerOffsetPx(36);
-  assert.equal(partialOffset, 36);
-  assert.equal(resolveCommandDeckPointerSnapSteps(partialOffset), 0);
-  assert.equal(resolveCommandDeckPointerSnapSteps(resolveCommandDeckPointerOffsetPx(-160)), 2);
-  assert.equal(resolveCommandDeckWheelSnapSteps(-9999), -3);
-  assert.equal(resolveCommandDeckWheelFreeScrollOffsetPx(-9999), 222);
-
-  const reversed = validateCommandHandLockdown(commandEntriesForCenter(COMMAND_IDS.length - 1), {
+test("Part 6 Command Hand guardrails enforce continuity, rightward depth, no clones, and contextual safety", () => {
+  const resting = validateCommandHandLockdown(commandHandEntries(), {
     persistentCommandIds: COMMAND_IDS,
     finalPersistentCommandIds: COMMAND_IDS,
   });
-  assert.equal(reversed.valid, true);
+  assert.equal(resting.valid, true, resting.issues.join(", "));
+  assert.equal(resting.continuous, true);
+  assert.equal(resting.rightmostFrontmost, true);
 
-  const clone = resolveCommandHandVisualCloneIdentity({ visualId: "resolve-copy-left", commandId: "resolve", isClone: true });
-  assert.equal(clone.logicalCommandId, "resolve");
-  assert.equal(clone.createsIndependentCommand, false);
+  for (const commandId of COMMAND_IDS) {
+    const inspected = validateCommandHandLockdown(commandHandEntries(COMMAND_IDS, commandId), {
+      persistentCommandIds: COMMAND_IDS,
+      finalPersistentCommandIds: COMMAND_IDS,
+    });
+    assert.equal(inspected.valid, true, `${commandId}: ${inspected.issues.join(", ")}`);
+  }
+
+  const reordered = moveOrderedId(COMMAND_IDS, "phase", "front");
+  const reorderValidation = validateCommandHandLockdown(commandHandEntries(reordered), {
+    persistentCommandIds: reordered,
+    finalPersistentCommandIds: reordered,
+  });
+  assert.equal(reorderValidation.valid, true, reorderValidation.issues.join(", "));
 
   const contextual = validateCommandHandLockdown([
-    ...commandEntriesForCenter(0),
+    ...commandHandEntries(),
     {
       id: "resolve",
-      canonicalCommandId: "resolve",
-      slotOffset: 2.5,
-      focused: false,
-      highlighted: false,
-      previewOwner: "",
-      activationOwner: "",
-      zIndex: 20,
-      hitTestRank: 20,
+      index: COMMAND_IDS.length,
+      xPx: 810,
+      zIndex: 500,
       contextual: true,
     },
   ], {
@@ -291,7 +254,7 @@ test("Part 6 multiplayer and gesture guardrails keep navigation, zone scroll, an
   const validation = validateGestureOwnershipLockdown(gestures);
   assert.equal(validation.valid, true, validation.issues.join(", "));
   assert.equal(gestures.commandHand.owner, GESTURE_OWNERS.commandHand);
-  assert.equal(gestures.commandHand.intent, INPUT_INTENTS.rotateCommandHand);
+  assert.equal(gestures.commandHand.intent, INPUT_INTENTS.reorderHandCard);
   assert.equal(gestures.zoneScroll.owner, GESTURE_OWNERS.zoneScroll);
   assert.equal(gestures.zoneScroll.noTransferAtBoundary, true);
   assert.equal(gestures.opponentNavigation.owner, GESTURE_OWNERS.opponentNavigation);
@@ -395,7 +358,8 @@ test("Part 6 presentation-only actions, save/restore, and lifecycle interruption
   }
 
   const restored = normalizeRestoredPresentationState({
-    commandFocusId: "stale-visual-clone",
+    activeHandSurface: "invalid-retired-wheel",
+    commandOrder: ["library", "phase", "stale-visual-clone"],
     opponentFocusId: "removed-opponent",
     zoneScrollPositions: { "opponent-a:creature-zone": 120, "opponent-b:land-support-zone": 48 },
     expandedGroupIds: ["saprolings", "saprolings", "treasures"],
@@ -408,7 +372,9 @@ test("Part 6 presentation-only actions, save/restore, and lifecycle interruption
     opponentIds: ["opponent-a", "opponent-b"],
   });
   const restoreValidation = validateRestoredPresentationState(restored);
-  assert.equal(restored.commandFocusId, "phase");
+  assert.equal(restored.activeHandSurface, "commands");
+  assert.deepEqual(restored.commandOrder.slice(0, 2), ["library", "phase"]);
+  assert.equal(restored.commandOrder.includes("stale-visual-clone"), false);
   assert.equal(restored.opponentFocusId, "opponent-a");
   assert.equal(restored.activeDrag, null);
   assert.equal(restored.activeGesture, null);
@@ -470,7 +436,7 @@ test("Part 6 landscape model exposes the locked baseline and preserves Part 5 re
   assert.equal(budget.commandHandRerendersBattlefield, false);
   assert.equal(budget.zoneScrollRerendersOtherZones, false);
   assert.equal(budget.rulesRunOnAnimationFrame, false);
-  assert.ok(budget.interactionTargets.includes("command-hand-rotation"));
+  assert.ok(budget.interactionTargets.includes("command-hand-reorder"));
 });
 
 test("Part 6 static lockdown audit covers docs, renderer markers, portability boundaries, and legacy-path activation", () => {
@@ -481,13 +447,13 @@ test("Part 6 static lockdown audit covers docs, renderer markers, portability bo
     "src/gameplay/canonicalGameplay.js",
     "src/gameplay/battlefieldGeometry.js",
     "src/gameplay/cardLifecycle.js",
-    "src/gameplay/commandDeckModel.js",
+    "src/gameplay/dualHandModel.js",
     "src/gameplay/inputIntent.js",
     "src/gameplay/architectureLockdown.js",
   ];
 
   assert.match(docs, /Part 6 Architecture Lock Baseline/i);
-  assert.match(docs, /boardstate-13\.2\.6-locked-baseline/);
+  assert.match(docs, /boardstate-dual-hand-post-completion-baseline/);
   assert.match(docs, /Part 6 Responsibility Map/i);
   assert.match(docs, /Part 6 Future Feature Integration Contract/i);
   assert.match(docs, /Part 6 SwiftUI \/ Native Adaptation Contract/i);
@@ -496,8 +462,8 @@ test("Part 6 static lockdown audit covers docs, renderer markers, portability bo
   assert.match(render, /CANONICAL_GAMEPLAY_BASELINE_ID/);
   assert.match(render, /data-canonical-gameplay-baseline-id/);
   assert.match(render, /data-canonical-gameplay-lockdown-version/);
-  assert.match(render, /data-command-hand-focus-contract="exactly-one-centered-frontmost-command"/);
-  assert.match(render, /data-depth-aware-hit-testing="true"/);
+  assert.match(render, /data-dual-hand-dock/);
+  assert.match(render, /data-rightmost-frontmost="true"/);
   assert.match(render, /data-zone-scroll-competes="false"/);
   assert.match(render, /data-global-vertical-scroll="false"/);
   assert.doesNotMatch(render, /autoStackTimer[\s\S]{0,900}store\.dispatch\(\{\s*type:\s*"RESOLVE_TOP_SPELL"/);

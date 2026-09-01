@@ -257,7 +257,7 @@ function getZoneLayoutMode(count = 0, densityState = "normal", overflow = false)
 
 function createGestureOwnershipContract() {
   return {
-    commandHand: "gestures-starting-inside-command-hand-rotate-command-deck-only",
+    commandHand: "gestures-starting-inside-dual-hand-dock-belong-to-that-hand-only",
     overflowingZone: "gestures-starting-inside-overflowing-zone-scroll-that-zone-only",
     opponentNavigation: "gestures-starting-on-opponent-background-switch-focused-opponent",
     noGestureTransferAtZoneEdge: true,

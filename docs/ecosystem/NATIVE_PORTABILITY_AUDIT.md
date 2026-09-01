@@ -46,11 +46,11 @@ It provides:
 
 Native shells should provide platform equivalents through this adapter instead of modifying gameplay modules. Any future platform-specific behavior must remain behind explicit platform adapters, not embedded in gameplay, rules, state, or presentation-intent modules.
 
-## Command Deck Model
+## Dual Hand Model
 
-`src/gameplay/commandDeckModel.js` owns the platform-neutral Command Deck geometry, snap math, wheel math, pointer math, and card projection values.
+`src/gameplay/dualHandModel.js` owns platform-neutral ordered-hand geometry, rightward depth, density, continuity validation, semantic gesture classification, command ordering, tracked-card identity, and privacy projection.
 
-`src/ui/render.js` only applies those values to DOM/CSS. A Swift implementation should reuse the model behavior and render the projection through native views.
+`src/ui/render.js` applies those values to the web client. Native clients use the same semantic behavior with platform-native layout and gestures; no browser primitive is authoritative.
 
 ## Audit Result
 

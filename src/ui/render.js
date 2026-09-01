@@ -41,18 +41,19 @@ import {
   CANONICAL_GAMEPLAY_LOCKDOWN_VERSION,
 } from "../gameplay/architectureLockdown.js";
 import {
-  COMMAND_DECK_RENDER_RADIUS,
-  COMMAND_DECK_VISIBLE_RADIUS,
-  COMMAND_DECK_WHEEL_IDLE_SNAP_MS,
-  resolveCommandDeckCardProjection,
-  resolveCommandDeckCardPress,
-  resolveCommandDeckFocusedCard,
-  resolveCommandDeckPointerOffsetPx,
-  resolveCommandDeckPointerSnapSteps,
-  resolveCommandDeckScrollStepsFromOffsetPx,
-  resolveCommandDeckWheelFreeScrollOffsetPx,
-  resolveCommandDeckWheelSnapSteps,
-} from "../gameplay/commandDeckModel.js";
+  DEFAULT_PERSISTENT_COMMAND_ORDER,
+  DUAL_HAND_MODEL_VERSION,
+  HAND_DOCK_SURFACES,
+  HAND_GESTURE_INTENTS,
+  HAND_INTERACTION_THRESHOLDS,
+  moveOrderedId,
+  normalizePersistentCommandOrder,
+  orderCommandCards,
+  reorderOrderedIds,
+  resolveArenaHandLayout,
+  resolveHandGestureIntent,
+  resolvePlayerHandActions,
+} from "../gameplay/dualHandModel.js";
 import {
   CANONICAL_INPUT_INTENT_VERSION,
   GESTURE_OWNERS,
@@ -201,34 +202,14 @@ import {
 const NATIVE_GAME_VISUAL_FOUNDATION_VERSION = "boardstate-native-game-visual-foundation-0.1.0";
 const VISUAL_LANGUAGE_VERSION = BOARDSTATE_VISUAL_LANGUAGE_VERSION;
 const SENSORY_LANGUAGE_VERSION = BOARDSTATE_SENSORY_LANGUAGE_VERSION;
-const COMMANDER_ACTION_HAND_VERSION = "boardstate-commander-action-hand-0.1.0";
-const COMMAND_DECK_VERSION = "boardstate-rotating-command-deck-0.1.0";
+const DUAL_HAND_DOCK_VERSION = DUAL_HAND_MODEL_VERSION;
 const TABLETOP_RECONSTRUCTION_VERSION = "boardstate-tabletop-reconstruction-0.1.0";
 const HUD_COMPOSITION_VERSION = "boardstate-hud-composition-0.1.0";
 const LANDSCAPE_VIEWPORT_LOCK_VERSION = "boardstate-landscape-viewport-lock-0.1.0";
 const CANONICAL_GAMEPLAY_COMPOSITION = "landscape";
 const RUNTIME_LAYOUT_COMPOSITION = "widescreen";
 const CANONICAL_GAMEPLAY_ORIENTATION = "landscape";
-const COMMAND_DECK_AUTO_CENTER_COOLDOWN_MS = 4200;
-const COMMAND_DECK_MAX_FAVORITES = 4;
-const COMMAND_DECK_FEEDBACK_THROTTLE_MS = 140;
-const COMMAND_DECK_SETTLE_HOVER_SUPPRESS_MS = 220;
-const COMMAND_DECK_CORE_ORDER = [
-  "phase",
-  "commander",
-  "library",
-  "rules",
-  "remind",
-  "undo",
-  "battlefield",
-  "history",
-  "notes",
-  "calculator",
-  "dice",
-  "coin",
-  "settings",
-  "tablecraft",
-];
+const HAND_REORDER_FEEDBACK_THROTTLE_MS = 140;
 let sharedSensoryAudioContext = null;
 const LONG_PRESS_DELAY_MS = 420;
 const REPEAT_INTERVAL_MS = 110;
@@ -454,14 +435,13 @@ export function mountApp(root, store) {
   let opponentBoardIndex = 0;
   let opponentOverlayOpen = false;
   let opponentSwipeStart = null;
-  let commandDeckRotationIndex = 0;
-  let commandDeckLastManualRotationAt = 0;
-  let commandDeckPointer = null;
-  let commandDeckSuppressClickUntil = 0;
-  let commandDeckWheelDelta = 0;
-  let commandDeckWheelFrame = 0;
-  let commandDeckWheelSnapTimer = null;
-  let commandDeckLastFeedbackAt = 0;
+  let dualHandGesture = null;
+  let dualHandSuppressClickUntil = 0;
+  let inspectedCommandId = "";
+  let inspectedPlayerHandCardId = "";
+  let selectedPlayerHandCardId = "";
+  let handLastFeedbackAt = 0;
+  const presentedHandEntryEventIds = new Set();
   let toolContextOverride = "";
   let quickPanelOpen = "";
   let manaAutoCloseTimer = null;
@@ -662,8 +642,7 @@ export function mountApp(root, store) {
     document.body.dataset.sensoryLanguageVersion = SENSORY_LANGUAGE_VERSION;
     document.body.dataset.onboardingExperienceVersion = ONBOARDING_EXPERIENCE_VERSION;
     document.body.dataset.contextualAssistanceVersion = CONTEXTUAL_ASSISTANCE_VERSION;
-    document.body.dataset.commanderActionHandVersion = COMMANDER_ACTION_HAND_VERSION;
-    document.body.dataset.commandDeckVersion = COMMAND_DECK_VERSION;
+    document.body.dataset.dualHandDockVersion = DUAL_HAND_DOCK_VERSION;
     document.body.dataset.inputIntentVersion = CANONICAL_INPUT_INTENT_VERSION;
     document.body.dataset.scryfallSearchVersion = CANONICAL_SCRYFALL_SEARCH_VERSION;
     document.body.dataset.scryfallSearchStatus = scryfallSearchState.status;
@@ -731,8 +710,6 @@ export function mountApp(root, store) {
       combatResolving,
       phaseAdvancePending,
       phaseControlMessage,
-      commandDeckRotationIndex,
-      commandDeckLastManualRotationAt,
       helperMessage,
       simulationSetupOpen,
       simulationLogOpen,
@@ -946,7 +923,7 @@ export function mountApp(root, store) {
     }
   }
 
-  function getCommandDeckRenderOptions() {
+  function getDualHandRenderOptions() {
     return {
       activeUtilityPanel,
       utilityDockOpen,
@@ -954,389 +931,362 @@ export function mountApp(root, store) {
       activeToolPanel,
       includeCombat: true,
       combatResolving,
-      commandDeckRotationIndex,
-      commandDeckLastManualRotationAt,
       activeOptionsCategory,
+      inspectedCommandId,
+      inspectedPlayerHandCardId,
+      selectedPlayerHandCardId,
+      presentedHandEntryEventIds,
     };
   }
 
-  function renderCommandDeckOnly() {
+  function renderDualHandDockOnly() {
     if (activePage !== "battlefield") {
       render(store.getState());
       return;
     }
-    const currentDeck = root.querySelector("[data-command-deck]");
-    if (!currentDeck) {
+    const currentDock = root.querySelector("[data-dual-hand-dock]");
+    if (!currentDock) {
       render(store.getState());
       return;
     }
     const activeElement = document.activeElement;
-    const deckHadFocus = Boolean(activeElement && currentDeck.contains(activeElement));
+    const focusedId = activeElement?.dataset?.handCardId || activeElement?.dataset?.actionCardId || "";
     const wrapper = document.createElement("div");
-    wrapper.innerHTML = renderCommanderActionHand(store.getState(), getCommandDeckRenderOptions()).trim();
-    const nextDeck = wrapper.firstElementChild;
-    if (!nextDeck) {
+    wrapper.innerHTML = renderDualHandDock(store.getState(), getDualHandRenderOptions()).trim();
+    const nextDock = wrapper.firstElementChild;
+    if (!nextDock) {
       render(store.getState());
       return;
     }
-    currentDeck.replaceWith(nextDeck);
-    nextDeck.classList.add("is-rotating");
-    window.setTimeout(() => {
-      if (nextDeck.isConnected) {
-        nextDeck.classList.remove("is-rotating");
-      }
-    }, COMMAND_DECK_SETTLE_HOVER_SUPPRESS_MS);
-    bind(nextDeck, store.getState());
-    const centerCard = nextDeck.querySelector('[data-action-card][data-command-deck-center="true"]');
-    (centerCard || (deckHadFocus ? nextDeck : null))?.focus?.({ preventScroll: true });
+    currentDock.replaceWith(nextDock);
+    bind(nextDock, store.getState());
+    if (focusedId) {
+      nextDock.querySelector(`[data-hand-card-id="${escapeCssSelector(focusedId)}"], [data-action-card-id="${escapeCssSelector(focusedId)}"]`)?.focus?.({ preventScroll: true });
+    }
   }
 
-  function playCommandDeckRotationFeedback() {
+  function playHandReorderFeedback() {
     const now = Date.now();
-    if (now - commandDeckLastFeedbackAt < COMMAND_DECK_FEEDBACK_THROTTLE_MS) {
+    if (now - handLastFeedbackAt < HAND_REORDER_FEEDBACK_THROTTLE_MS) {
       return;
     }
-    commandDeckLastFeedbackAt = now;
+    handLastFeedbackAt = now;
     playSensoryFeedback(store.getState(), {
-      audioTokenId: AUDIO_TOKEN_IDS.commandDeckRotate,
-      hapticTokenId: HAPTIC_TOKEN_IDS.commandDeckRotate,
+      audioTokenId: AUDIO_TOKEN_IDS.handReorder,
+      hapticTokenId: HAPTIC_TOKEN_IDS.handReorder,
       priority: SENSORY_PRIORITY.backgroundFeedback,
       volumeCategory: "uiVolume",
     });
   }
 
-  function rotateCommandDeckFromElement(deck, direction = 1) {
-    const size = Math.max(0, Number(deck?.dataset.commandDeckSize || 0));
-    if (size <= 1) {
-      return;
-    }
-    const current = Number.isFinite(Number(deck?.dataset.commandDeckRotation))
-      ? Number(deck.dataset.commandDeckRotation)
-      : commandDeckRotationIndex;
-    const rawDirection = Number(direction || 1);
-    const step = Number.isFinite(rawDirection) && rawDirection !== 0 ? Math.trunc(rawDirection) || Math.sign(rawDirection) : 1;
-    commandDeckRotationIndex = normalizeCommandDeckIndex(current + step, size);
-    commandDeckLastManualRotationAt = Date.now();
-    playCommandDeckRotationFeedback();
-    renderCommandDeckOnly();
-  }
-
-  function setCommandDeckFreeScrollOffset(deck, offsetPx = 0) {
-    const liveDeck = deck?.isConnected ? deck : root.querySelector("[data-command-deck]");
-    const fan = liveDeck?.querySelector?.("[data-command-deck-fan]");
-    if (!fan) {
-      return;
-    }
-    const scrollSteps = resolveCommandDeckScrollStepsFromOffsetPx(offsetPx);
-    fan.style.setProperty("--command-deck-scroll-steps", scrollSteps.toFixed(3));
-    fan.dataset.commandDeckFreeScrolling = Math.abs(scrollSteps) > 0.01 ? "true" : "false";
-    const cards = [...fan.querySelectorAll("[data-action-card]")];
-    const focused = resolveCommandDeckFocusedCard(cards.map((card) => ({
-      id: card.dataset.actionCardId || "",
-      slotOffset: Number(card.dataset.commandDeckSlot || 0) + scrollSteps,
-      priority: Number(card.dataset.actionPriority || 0),
-    })));
-    cards.forEach((card) => {
-      const baseSlot = Number(card.dataset.commandDeckSlot || 0);
-      const liveSlot = baseSlot + scrollSteps;
-      applyCommandDeckCardProjection(card, liveSlot, card.dataset.actionCardId === focused?.id);
+  function setCommandOrder(nextOrder = []) {
+    store.dispatch({
+      type: "SET_SETTING",
+      path: "dualHandDock.commandOrder",
+      value: [...nextOrder],
+      internalOnly: true,
     });
+    playHandReorderFeedback();
   }
 
-  function clearCommandDeckFreeScroll(deck) {
-    const liveDeck = deck?.isConnected ? deck : root.querySelector("[data-command-deck]");
-    const fan = liveDeck?.querySelector?.("[data-command-deck-fan]");
-    if (!fan) {
+  function reorderCommandCard(cardId, targetIndex) {
+    const profile = store.getState();
+    const available = DEFAULT_PERSISTENT_COMMAND_ORDER;
+    const current = normalizePersistentCommandOrder(
+      available,
+      profile.settings?.dualHandDock?.commandOrder || [],
+      [],
+    );
+    setCommandOrder(reorderOrderedIds(current, cardId, targetIndex));
+  }
+
+  function moveCommandCardAccessible(cardId, movement) {
+    const profile = store.getState();
+    const current = normalizePersistentCommandOrder(
+      DEFAULT_PERSISTENT_COMMAND_ORDER,
+      profile.settings?.dualHandDock?.commandOrder || [],
+      [],
+    );
+    setCommandOrder(moveOrderedId(current, cardId, movement));
+  }
+
+  function findPlayerHandCard(cardId = "") {
+    return (store.getState().activeSession?.zones?.hand || []).find(
+      (card) => (card.cardInstanceId || card.id) === cardId,
+    ) || null;
+  }
+
+  function activateTrackedHandCard(cardId = "") {
+    const card = findPlayerHandCard(cardId);
+    if (!card) return;
+    if (/\bLand\b/i.test(card.typeLine || "") || card.isLand) {
+      store.dispatch({ type: "PLAY_LAND", card, controller: "player", sourceZone: "hand" });
+      showNotice(`${card.name} played from your tracked hand.`);
+      selectedPlayerHandCardId = "";
       return;
     }
-    fan.style.setProperty("--command-deck-scroll-steps", "0");
-    fan.dataset.commandDeckFreeScrolling = "false";
-    fan.querySelectorAll("[data-action-card]").forEach((card) => {
-      const baseSlot = Number(card.dataset.commandDeckSlot || 0);
-      applyCommandDeckCardProjection(card, baseSlot, card.dataset.commandDeckCenter === "true");
+    if (requiresCastingXChoice(card)) {
+      openConfirmation({
+        id: "cast-tracked-hand-x",
+        title: `Choose X for ${card.name || "this spell"}`,
+        message: "Set the casting value for X before this tracked card enters the stack.",
+        confirmLabel: "Cast Spell",
+        payload: { cardInstanceId: card.cardInstanceId || card.id },
+        input: { name: "xValue", label: "X value", type: "number", value: "0", min: 0, step: 1, inputMode: "numeric", required: true },
+      });
+      return;
+    }
+    castTrackedHandCard(card);
+  }
+
+  function castTrackedHandCard(card, xValue) {
+    if (!card) return;
+    store.dispatch({
+      type: "CAST_SPELL",
+      card,
+      controller: "player",
+      owner: card.owner || "player",
+      sourceZone: "hand",
+      targetIds: store.getState().activeSession?.selectedIds || [],
+      xValue,
     });
+    selectedPlayerHandCardId = "";
+    inspectedPlayerHandCardId = "";
+    showNotice(`${card.name} cast from your tracked hand.`);
   }
 
-  function flushCommandDeckWheelScroll(deck) {
-    commandDeckWheelFrame = 0;
-    if (Math.abs(commandDeckWheelDelta) < 1) {
+  function bindDualHandDock(container) {
+    const dock = container.matches?.("[data-dual-hand-dock]") ? container : container.querySelector("[data-dual-hand-dock]");
+    if (!dock) {
+      dualHandGesture = null;
       return;
     }
-    setCommandDeckFreeScrollOffset(deck, resolveCommandDeckWheelFreeScrollOffsetPx(commandDeckWheelDelta));
-  }
 
-  function settleCommandDeckWheelScroll(deck) {
-    if (commandDeckWheelFrame) {
-      cancelAnimationFrame(commandDeckWheelFrame);
-      commandDeckWheelFrame = 0;
-    }
-    const delta = commandDeckWheelDelta;
-    commandDeckWheelDelta = 0;
-    clearCommandDeckFreeScroll(deck);
-    const steps = resolveCommandDeckWheelSnapSteps(delta);
-    if (steps) {
-      commandDeckSuppressClickUntil = Date.now() + 220;
-      rotateCommandDeckFromElement(deck?.isConnected ? deck : root.querySelector("[data-command-deck]"), steps);
-    }
-  }
-
-  function findCommandDeckCardForPoint(deck, clientX = 0, clientY = 0) {
-    const cards = [...(deck?.querySelectorAll?.("[data-action-card]") || [])].sort(compareCommandDeckDepth);
-    if (!cards.length) {
-      return null;
-    }
-    const hitPaddingX = 18;
-    const hitPaddingY = 16;
-    const directHit = cards.find((card) => {
-      const rect = card.getBoundingClientRect();
-      return (
-        clientX >= rect.left - hitPaddingX &&
-        clientX <= rect.right + hitPaddingX &&
-        clientY >= rect.top - hitPaddingY &&
-        clientY <= rect.bottom + hitPaddingY
-      );
-    });
-    if (directHit) {
-      return directHit;
-    }
-    let nearest = null;
-    let nearestDistance = Number.POSITIVE_INFINITY;
-    cards.forEach((card) => {
-      const rect = card.getBoundingClientRect();
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-      const distance = Math.hypot(centerX - clientX, centerY - clientY);
-      if (distance < nearestDistance) {
-        nearest = card;
-        nearestDistance = distance;
-      }
-    });
-    return nearestDistance <= 56 ? nearest : null;
-  }
-
-  function compareCommandDeckDepth(left, right) {
-    const leftFocused = left?.dataset?.commandDeckFocused === "true" || left?.dataset?.commandDeckLiveCenter === "true";
-    const rightFocused = right?.dataset?.commandDeckFocused === "true" || right?.dataset?.commandDeckLiveCenter === "true";
-    if (leftFocused !== rightFocused) {
-      return leftFocused ? -1 : 1;
-    }
-    const leftZ = Number(left?.dataset?.commandDeckHitTestRank || left?.style?.getPropertyValue("--hand-z-index") || 0);
-    const rightZ = Number(right?.dataset?.commandDeckHitTestRank || right?.style?.getPropertyValue("--hand-z-index") || 0);
-    if (leftZ !== rightZ) {
-      return rightZ - leftZ;
-    }
-    const leftDistance = Math.abs(Number(left?.dataset?.commandDeckLiveSlot || left?.dataset?.commandDeckSlot || 0));
-    const rightDistance = Math.abs(Number(right?.dataset?.commandDeckLiveSlot || right?.dataset?.commandDeckSlot || 0));
-    return leftDistance - rightDistance;
-  }
-
-  function toggleCommandDeckFavorite(cardId = "") {
-    const id = String(cardId || "").trim();
-    if (!id) {
-      return;
-    }
-    const current = getCommandDeckFavoriteIds(store.getState());
-    const next = current.includes(id)
-      ? current.filter((entry) => entry !== id)
-      : [id, ...current.filter((entry) => entry !== id)].slice(0, COMMAND_DECK_MAX_FAVORITES);
-    commandDeckLastManualRotationAt = Date.now();
-    store.dispatch({ type: "SET_SETTING", path: "commandDeck.favoriteIds", value: next });
-  }
-
-  function bindCommandDeck(container) {
-    const deck = container.matches?.("[data-command-deck]") ? container : container.querySelector("[data-command-deck]");
-    if (!deck) {
-      commandDeckPointer = null;
-      return;
-    }
-    deck.querySelectorAll("[data-command-deck-rotate]").forEach((button) => {
+    dock.querySelectorAll("[data-hand-dock-surface]").forEach((button) => {
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        rotateCommandDeckFromElement(deck, Number(button.dataset.commandDeckRotate || 1));
+        const surface = button.dataset.handDockSurface === HAND_DOCK_SURFACES.playerHand
+          ? HAND_DOCK_SURFACES.playerHand
+          : HAND_DOCK_SURFACES.commands;
+        inspectedCommandId = "";
+        inspectedPlayerHandCardId = "";
+        store.dispatch({ type: "SET_SETTING", path: "dualHandDock.activeSurface", value: surface, internalOnly: true });
+        playSensoryFeedback(store.getState(), {
+          audioTokenId: AUDIO_TOKEN_IDS.selection,
+          hapticTokenId: HAPTIC_TOKEN_IDS.selection,
+          priority: SENSORY_PRIORITY.backgroundFeedback,
+          volumeCategory: "uiVolume",
+        });
       });
     });
-    deck.querySelectorAll("[data-command-deck-favorite]").forEach((button) => {
+
+    dock.querySelectorAll("[data-hand-reorder-command]").forEach((button) => {
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        toggleCommandDeckFavorite(button.dataset.commandDeckFavorite || "");
+        moveCommandCardAccessible(button.dataset.handReorderCommand || "", button.dataset.handReorderMovement || "right");
       });
     });
-    deck.querySelectorAll("[data-action-card]").forEach((button) => {
-      button.addEventListener("click", () => {
+
+    dock.querySelectorAll("[data-hand-reorder-player]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const hand = store.getState().activeSession?.zones?.hand || [];
+        const ids = hand.map((card) => card.cardInstanceId || card.id);
+        const next = moveOrderedId(ids, button.dataset.handReorderPlayer || "", button.dataset.handReorderMovement || "right");
+        const movedId = button.dataset.handReorderPlayer || "";
+        store.dispatch({ type: "REORDER_PLAYER_HAND", cardInstanceId: movedId, targetIndex: next.indexOf(movedId), internalOnly: true });
+        playHandReorderFeedback();
+      });
+    });
+
+    dock.querySelectorAll("[data-player-hand-action]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const cardId = button.dataset.playerHandCardId || selectedPlayerHandCardId;
+        const action = button.dataset.playerHandAction || "inspect";
+        if (action === "cast" || action === "play-land") {
+          activateTrackedHandCard(cardId);
+        } else if (action === "inspect") {
+          inspectedPlayerHandCardId = inspectedPlayerHandCardId === cardId ? "" : cardId;
+          renderDualHandDockOnly();
+        } else {
+          const toZone = action === "discard" ? "graveyard" : action === "move-to-library" ? "library" : action;
+          store.dispatch({ type: "MOVE_HAND_CARD", cardInstanceId: cardId, toZone });
+          selectedPlayerHandCardId = "";
+          inspectedPlayerHandCardId = "";
+          showNotice(`Card moved from hand to ${formatLabel(toZone)}.`);
+        }
+      });
+    });
+
+    dock.querySelectorAll("[data-player-hand-card]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        if (Date.now() < dualHandSuppressClickUntil) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+        const cardId = button.dataset.handCardId || "";
+        selectedPlayerHandCardId = selectedPlayerHandCardId === cardId ? "" : cardId;
+        inspectedPlayerHandCardId = "";
+        renderDualHandDockOnly();
+      });
+    });
+
+    dock.querySelectorAll("[data-action-card]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        if (Date.now() < dualHandSuppressClickUntil) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
         playSensoryFeedback(store.getState(), {
           audioTokenId: button.dataset.audioToken || AUDIO_TOKEN_IDS.interactionConfirm,
           hapticTokenId: button.dataset.hapticToken || HAPTIC_TOKEN_IDS.selection,
           priority: button.dataset.sensoryPriority || SENSORY_PRIORITY.contextualAction,
           volumeCategory: button.dataset.sensoryChannel === SENSORY_CHANNELS.gameplay ? "gameplayVolume" : "uiVolume",
         });
-      });
+      }, true);
     });
-    deck.addEventListener(
-      "click",
-      (event) => {
-        if (event.target?.closest?.("[data-command-deck-rotate], [data-command-deck-favorite], .action-hand-queue")) {
-          return;
-        }
-        const actionCard = event.target?.closest?.("[data-action-card]");
-        if (Date.now() < commandDeckSuppressClickUntil && actionCard) {
-          event.preventDefault();
-          event.stopPropagation();
-          return;
-        }
-        if (actionCard) {
-          const press = resolveCommandDeckCardPress(
-            Number(actionCard.dataset.commandDeckLiveSlot || actionCard.dataset.commandDeckSlot || 0),
-            actionCard.dataset.commandDeckFocused === "true" || actionCard.dataset.commandDeckLiveCenter === "true"
-          );
-          if (press.intent === "focus" && press.rotationSteps) {
-            event.preventDefault();
-            event.stopPropagation();
-            commandDeckSuppressClickUntil = Date.now() + 180;
-            rotateCommandDeckFromElement(deck, press.rotationSteps);
-            return;
-          }
-        }
-        if (!actionCard) {
-          const nearestCard = findCommandDeckCardForPoint(deck, event.clientX, event.clientY);
-          if (nearestCard && !nearestCard.disabled) {
-            event.preventDefault();
-            event.stopPropagation();
-            nearestCard.click();
-          }
-        }
-      },
-      true
-    );
-    deck.addEventListener("keydown", (event) => {
-      const intent = resolveInputIntent({
-        surface: INPUT_SURFACES.commandHand,
-        key: event.key,
-      });
-      if (intent.owner !== GESTURE_OWNERS.commandHand && intent.owner !== GESTURE_OWNERS.mandatoryGameplay) {
-        return;
-      }
-      const backwardKeys = new Set(["ArrowLeft", "PageUp", "GamepadDPadLeft", "GamepadLeftShoulder", "q", "Q"]);
-      const forwardKeys = new Set(["ArrowRight", "PageDown", "GamepadDPadRight", "GamepadRightShoulder", "e", "E"]);
-      if (backwardKeys.has(event.key)) {
-        event.preventDefault();
-        rotateCommandDeckFromElement(deck, -1);
-      } else if (forwardKeys.has(event.key)) {
-        event.preventDefault();
-        rotateCommandDeckFromElement(deck, 1);
-      }
-    });
-    deck.addEventListener(
-      "wheel",
-      (event) => {
-        if (Math.abs(event.deltaX) < 8 && Math.abs(event.deltaY) < 8) {
-          return;
-        }
+
+    dock.querySelectorAll("[data-hand-card]").forEach((card) => {
+      card.addEventListener("keydown", (event) => {
+        if (!event.altKey || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
         event.stopPropagation();
-        const intent = resolveInputIntent({
-          surface: INPUT_SURFACES.commandHand,
-          wheel: true,
-          movementX: event.deltaX,
-          movementY: event.deltaY,
-        });
-        if (intent.owner !== GESTURE_OWNERS.commandHand || intent.intent !== INPUT_INTENTS.rotateCommandHand) {
+        const cardId = card.dataset.handCardId || card.dataset.actionCardId || "";
+        const movement = event.key === "ArrowLeft"
+          ? "left"
+          : event.key === "ArrowRight"
+            ? "right"
+            : event.key === "Home"
+              ? "beginning"
+              : "front";
+        if (card.dataset.handCardKind === "command") {
+          if (card.dataset.handContextual !== "true") moveCommandCardAccessible(cardId, movement);
           return;
         }
-        const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-        commandDeckWheelDelta += delta;
-        deck.classList.add("is-free-scrolling");
-        const fan = deck.querySelector("[data-command-deck-fan]");
-        fan?.classList.add("is-free-scrolling");
-        if (!commandDeckWheelFrame) {
-          commandDeckWheelFrame = requestAnimationFrame(() => flushCommandDeckWheelScroll(deck));
-        }
-        if (commandDeckWheelSnapTimer) {
-          clearTimeout(commandDeckWheelSnapTimer);
-        }
-        commandDeckWheelSnapTimer = window.setTimeout(() => {
-          commandDeckWheelSnapTimer = null;
-          deck.classList.remove("is-free-scrolling");
-          fan?.classList.remove("is-free-scrolling");
-          settleCommandDeckWheelScroll(deck);
-        }, COMMAND_DECK_WHEEL_IDLE_SNAP_MS);
-      },
-      { passive: false }
-    );
-    const fan = deck.querySelector("[data-command-deck-fan]");
-    if (!fan) {
-      return;
-    }
+        const hand = store.getState().activeSession?.zones?.hand || [];
+        const ids = hand.map((entry) => entry.cardInstanceId || entry.id);
+        const next = moveOrderedId(ids, cardId, movement);
+        store.dispatch({ type: "REORDER_PLAYER_HAND", cardInstanceId: cardId, targetIndex: next.indexOf(cardId), internalOnly: true });
+        playHandReorderFeedback();
+      });
+    });
+
+    const fan = dock.querySelector("[data-hand-fan]");
+    if (!fan) return;
     fan.addEventListener("pointerdown", (event) => {
+      const card = event.target?.closest?.("[data-hand-card]");
+      if (!card || event.target?.closest?.("[data-hand-reorder-command], [data-hand-reorder-player], [data-player-hand-action]")) return;
       event.stopPropagation();
-      commandDeckPointer = {
-        id: event.pointerId,
-        x: event.clientX,
-        y: event.clientY,
-        moved: false,
-        scrollPx: 0,
+      const cardId = card.dataset.handCardId || card.dataset.actionCardId || "";
+      const surface = card.dataset.handCardKind === "player" ? HAND_DOCK_SURFACES.playerHand : HAND_DOCK_SURFACES.commands;
+      dualHandGesture = {
+        pointerId: event.pointerId,
+        card,
+        cardId,
+        surface,
+        startX: event.clientX,
+        startY: event.clientY,
+        startedAt: Date.now(),
+        mode: "pending",
+        targetIndex: Number(card.dataset.handIndex || 0),
+        holdTimer: window.setTimeout(() => {
+          if (!dualHandGesture || dualHandGesture.pointerId !== event.pointerId || dualHandGesture.mode !== "pending") return;
+          dualHandGesture.mode = "inspect";
+          card.classList.add("is-inspected");
+          card.setAttribute("aria-expanded", "true");
+          if (surface === HAND_DOCK_SURFACES.playerHand) inspectedPlayerHandCardId = cardId;
+          else inspectedCommandId = cardId;
+          playSensoryFeedback(store.getState(), {
+            audioTokenId: AUDIO_TOKEN_IDS.cardPickup,
+            hapticTokenId: HAPTIC_TOKEN_IDS.longPress,
+            priority: SENSORY_PRIORITY.cardInteraction,
+            volumeCategory: "uiVolume",
+          });
+        }, HAND_INTERACTION_THRESHOLDS.holdMs),
       };
-      deck.classList.add("is-dragging");
-      fan.classList.add("is-dragging");
-      setCommandDeckFreeScrollOffset(deck, 0);
-      fan.setPointerCapture?.(event.pointerId);
+      card.setPointerCapture?.(event.pointerId);
     });
+
     fan.addEventListener("pointermove", (event) => {
-      if (!commandDeckPointer || commandDeckPointer.id !== event.pointerId) {
-        return;
+      if (!dualHandGesture || dualHandGesture.pointerId !== event.pointerId) return;
+      const dx = event.clientX - dualHandGesture.startX;
+      const dy = event.clientY - dualHandGesture.startY;
+      const gestureIntent = resolveHandGestureIntent({
+        surface: dualHandGesture.surface,
+        dx,
+        dy,
+        durationMs: Date.now() - dualHandGesture.startedAt,
+        playerHandCard: dualHandGesture.surface === HAND_DOCK_SURFACES.playerHand,
+      });
+      if (dualHandGesture.mode === "pending" && gestureIntent.intent === HAND_GESTURE_INTENTS.reorder) {
+        clearTimeout(dualHandGesture.holdTimer);
+        dualHandGesture.mode = "reorder";
+        dualHandGesture.card.classList.add("is-dragging");
+      } else if (dualHandGesture.mode === "pending" && gestureIntent.intent === HAND_GESTURE_INTENTS.castOrPlay) {
+        clearTimeout(dualHandGesture.holdTimer);
+        dualHandGesture.mode = "cast";
+        dualHandGesture.card.classList.add("is-cast-dragging");
       }
-      const dx = event.clientX - commandDeckPointer.x;
-      const dy = event.clientY - commandDeckPointer.y;
-      if (Math.abs(dx) > 6 && Math.abs(dx) > Math.abs(dy) * 0.7) {
-        commandDeckPointer.moved = true;
-        commandDeckSuppressClickUntil = Date.now() + 260;
+      if (dualHandGesture.mode === "reorder") {
         event.preventDefault();
         event.stopPropagation();
-      }
-      const intent = resolveInputIntent({
-        surface: INPUT_SURFACES.commandHand,
-        movementX: dx,
-        movementY: dy,
-      });
-      if (intent.owner !== GESTURE_OWNERS.commandHand) {
-        return;
-      }
-      const scrollPx = resolveCommandDeckPointerOffsetPx(dx);
-      commandDeckPointer.scrollPx = scrollPx;
-      setCommandDeckFreeScrollOffset(deck, scrollPx);
-    });
-    fan.addEventListener("pointerup", (event) => {
-      if (!commandDeckPointer || commandDeckPointer.id !== event.pointerId) {
-        return;
-      }
-      const finishedPointer = commandDeckPointer;
-      const dx = event.clientX - finishedPointer.x;
-      const dy = event.clientY - finishedPointer.y;
-      event.stopPropagation();
-      commandDeckPointer = null;
-      deck.classList.remove("is-dragging");
-      fan.classList.remove("is-dragging");
-      fan.releasePointerCapture?.(event.pointerId);
-      const scrollPx = Number(finishedPointer.scrollPx || dx || 0);
-      const steps = resolveCommandDeckPointerSnapSteps(scrollPx);
-      clearCommandDeckFreeScroll(deck);
-      if (!finishedPointer.moved || Math.abs(scrollPx) < 4 || Math.abs(dx) < Math.abs(dy) * 1.15) {
-        return;
-      }
-      commandDeckSuppressClickUntil = Date.now() + 260;
-      if (steps) {
-        rotateCommandDeckFromElement(deck, steps);
+        dualHandGesture.card.style.setProperty("--hand-drag-x", `${dx}px`);
+        const cards = [...fan.querySelectorAll(`[data-hand-card-kind="${dualHandGesture.surface === HAND_DOCK_SURFACES.playerHand ? "player" : "command"}"]`)]
+          .filter((entry) => entry.dataset.handContextual !== "true");
+        let targetIndex = cards.length - 1;
+        cards.some((entry, index) => {
+          const rect = entry.getBoundingClientRect();
+          if (event.clientX < rect.left + rect.width / 2) {
+            targetIndex = index;
+            return true;
+          }
+          return false;
+        });
+        dualHandGesture.targetIndex = targetIndex;
+        cards.forEach((entry, index) => entry.classList.toggle("is-drop-target", index === targetIndex));
+      } else if (dualHandGesture.mode === "cast") {
+        event.preventDefault();
+        event.stopPropagation();
+        dualHandGesture.card.style.setProperty("--hand-cast-lift", `${Math.min(82, Math.max(0, -dy))}px`);
       }
     });
-    fan.addEventListener("pointercancel", (event) => {
-      if (commandDeckPointer?.id === event.pointerId) {
-        commandDeckPointer = null;
-        deck.classList.remove("is-dragging");
-        fan.classList.remove("is-dragging");
-        clearCommandDeckFreeScroll(deck);
+
+    const finishGesture = (event, cancelled = false) => {
+      if (!dualHandGesture || dualHandGesture.pointerId !== event.pointerId) return;
+      const gesture = dualHandGesture;
+      clearTimeout(gesture.holdTimer);
+      gesture.card.releasePointerCapture?.(event.pointerId);
+      gesture.card.classList.remove("is-dragging", "is-cast-dragging", "is-inspected");
+      gesture.card.removeAttribute("aria-expanded");
+      gesture.card.style.removeProperty("--hand-drag-x");
+      gesture.card.style.removeProperty("--hand-cast-lift");
+      fan.querySelectorAll(".is-drop-target").forEach((entry) => entry.classList.remove("is-drop-target"));
+      dualHandGesture = null;
+      if (gesture.mode !== "pending") dualHandSuppressClickUntil = Date.now() + 260;
+      if (cancelled) return;
+      if (gesture.mode === "reorder") {
+        if (gesture.surface === HAND_DOCK_SURFACES.commands) reorderCommandCard(gesture.cardId, gesture.targetIndex);
+        else {
+          store.dispatch({ type: "REORDER_PLAYER_HAND", cardInstanceId: gesture.cardId, targetIndex: gesture.targetIndex, internalOnly: true });
+          playHandReorderFeedback();
+        }
+      } else if (gesture.mode === "cast") {
+        activateTrackedHandCard(gesture.cardId);
+      } else if (gesture.mode === "inspect") {
+        inspectedCommandId = "";
+        inspectedPlayerHandCardId = "";
+        renderDualHandDockOnly();
       }
-    });
+    };
+    fan.addEventListener("pointerup", (event) => finishGesture(event));
+    fan.addEventListener("pointercancel", (event) => finishGesture(event, true));
   }
 
   function bind(container, profile) {
@@ -1749,7 +1699,7 @@ export function mountApp(root, store) {
     );
     container.querySelectorAll("[data-opponent-swipe]").forEach((panel) => {
       panel.addEventListener("pointerdown", (event) => {
-        if (event.target?.closest?.("[data-no-swipe], [data-command-deck], [data-zone-scroll-surface=\"true\"], [data-horizontal-scroll=\"true\"], [data-action-card], [data-modal]")) {
+        if (event.target?.closest?.("[data-no-swipe], [data-dual-hand-dock], [data-zone-scroll-surface=\"true\"], [data-horizontal-scroll=\"true\"], [data-action-card], [data-modal]")) {
           opponentSwipeStart = null;
           return;
         }
@@ -1782,7 +1732,7 @@ export function mountApp(root, store) {
         render(store.getState());
       });
     });
-    bindCommandDeck(container, store);
+    bindDualHandDock(container);
     container.querySelectorAll("[data-tool-menu], [data-open-tool-menu]").forEach((button) =>
       button.addEventListener("click", () => {
         const nextOpen = !toolMenuOpen;
@@ -3698,6 +3648,23 @@ export function mountApp(root, store) {
         showNotice(button.dataset.moveToCommand === "true" ? "Commander moved to the command zone." : "Commander remains in its current zone.");
       });
     });
+    container.querySelectorAll("[data-add-to-player-hand]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const index = Number(button.dataset.addToPlayerHand);
+        const card = searchResults[index];
+        if (!card) {
+          showNotice("Card could not be found in the current search results.", "warning");
+          return;
+        }
+        const action = beginCanonicalSearchAction(index, "add-to-hand", "private-player-hand");
+        if (!action.accepted) return;
+        store.dispatch({ type: "ADD_CARD_TO_HAND", card, sourceZone: "scryfall-search", owner: "player" });
+        completeCanonicalSearchAction(action.actionId);
+        castActionPopup = null;
+        dismissSearchInputFocus({ closeSearchPanel: true });
+        showNotice(`${card.name} added to your tracked hand.`);
+      });
+    });
     container.querySelectorAll("[data-entry-choice]").forEach((button) => {
       button.addEventListener("click", () => {
         store.dispatch({
@@ -5576,7 +5543,7 @@ export function mountApp(root, store) {
       activeUtilityPanel,
       searchQuery,
       searchLoading,
-      commandDeckRotationIndex,
+      activeHandSurface: profile.settings?.dualHandDock?.activeSurface || HAND_DOCK_SURFACES.commands,
       optionsOpen,
     });
     if (adaptiveLearningMessage) {
@@ -5611,7 +5578,7 @@ export function mountApp(root, store) {
       activeUtilityPanel,
       searchQuery,
       searchLoading,
-      commandDeckRotationIndex,
+      activeHandSurface: profile.settings?.dualHandDock?.activeSurface || HAND_DOCK_SURFACES.commands,
       optionsOpen,
       keepSearchInputFocus,
       combatResolving,
@@ -6039,6 +6006,11 @@ export function mountApp(root, store) {
           });
         }
         break;
+      case "cast-tracked-hand-x": {
+        const card = findPlayerHandCard(payload?.cardInstanceId || "");
+        if (card) castTrackedHandCard(card, normalizeCastingXValue(inputValue));
+        break;
+      }
       default:
         showNotice("Action cancelled.");
         break;
@@ -6604,9 +6576,12 @@ export function mountApp(root, store) {
     if (/\bLand\b/i.test(card.typeLine || "")) {
       const action = beginCanonicalSearchAction(index, "play-land", sourceZone);
       if (!action.accepted) return;
+      const gameplayCard = sourceZone === "hand" && !card.cardInstanceId
+        ? { ...card, id: `${action.actionId}:card`, cardInstanceId: `${action.actionId}:card` }
+        : card;
       completeCanonicalSearchAction(action.actionId);
       dismissSearchInputFocus({ closeSearchPanel: true });
-      store.dispatch({ type: "PLAY_LAND", card, controller, sourceZone });
+      store.dispatch({ type: "PLAY_LAND", card: gameplayCard, controller, sourceZone });
       showNotice(`${card.name} played as a land.`);
       return;
     }
@@ -6636,11 +6611,14 @@ export function mountApp(root, store) {
   function completeSearchCast({ card, sourceZone = "hand", controller = "player", xValue }) {
     const action = beginCanonicalSearchCardAction(card, "cast", sourceZone);
     if (!action.accepted) return;
+    const gameplayCard = sourceZone === "hand" && !card.cardInstanceId
+      ? { ...card, id: `${action.actionId}:card`, cardInstanceId: `${action.actionId}:card` }
+      : card;
     completeCanonicalSearchAction(action.actionId);
     dismissSearchInputFocus({ closeSearchPanel: true });
     store.dispatch({
       type: "CAST_SPELL",
-      card,
+      card: gameplayCard,
       controller,
       owner: controller,
       sourceZone,
@@ -6738,7 +6716,7 @@ function layout(profile, page, searchResults, searchMessage, uiState) {
       </header>
       ${page === "home" ? renderBoardStateHome(profile) : ""}
       ${page === "life" ? renderLifeTracker(profile, uiState.trackerModifier, uiState) : ""}
-      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", manualChoicePanelCollapsed: Boolean(uiState.manualChoicePanelCollapsed), utilityDockOpen: Boolean(uiState.utilityDockOpen), castActionPopup: uiState.castActionPopup, toolMenuOpen: Boolean(uiState.toolMenuOpen), activeToolPanel: uiState.activeToolPanel || "", activeOptionsCategory: uiState.activeOptionsCategory || "", commandDeckRotationIndex: uiState.commandDeckRotationIndex || 0, commandDeckLastManualRotationAt: uiState.commandDeckLastManualRotationAt || 0, sensoryDebugSnapshot: uiState.sensoryDebugSnapshot, learningDebugSnapshot: uiState.learningDebugSnapshot, assistanceDebugSnapshot: uiState.assistanceDebugSnapshot, timelineReplayObservation: uiState.timelineReplayObservation, timelineFilter: uiState.timelineFilter || "all", timelinePage: Number(uiState.timelinePage || 0) }) : ""}
+      ${page === "battlefield" ? renderBattlefield(profile, searchResults, searchMessage, uiState.searchLoading, uiState.searchQuery, uiState.combatResolving, uiState.toolContext, new Set(uiState.expandedStackIds || []), uiState.activeUtilityPanel, uiLayer.current, { opponentBoardIndex: uiState.opponentBoardIndex || 0, opponentOverlayOpen: Boolean(uiState.opponentOverlayOpen), phaseControlMessage: uiState.phaseControlMessage || "", manualChoicePanelCollapsed: Boolean(uiState.manualChoicePanelCollapsed), utilityDockOpen: Boolean(uiState.utilityDockOpen), castActionPopup: uiState.castActionPopup, toolMenuOpen: Boolean(uiState.toolMenuOpen), activeToolPanel: uiState.activeToolPanel || "", activeOptionsCategory: uiState.activeOptionsCategory || "", inspectedCommandId: uiState.inspectedCommandId || "", inspectedPlayerHandCardId: uiState.inspectedPlayerHandCardId || "", selectedPlayerHandCardId: uiState.selectedPlayerHandCardId || "", presentedHandEntryEventIds: uiState.presentedHandEntryEventIds || new Set(), sensoryDebugSnapshot: uiState.sensoryDebugSnapshot, learningDebugSnapshot: uiState.learningDebugSnapshot, assistanceDebugSnapshot: uiState.assistanceDebugSnapshot, timelineReplayObservation: uiState.timelineReplayObservation, timelineFilter: uiState.timelineFilter || "all", timelinePage: Number(uiState.timelinePage || 0) }) : ""}
       ${page === "tournament" ? renderTournamentPage(profile) : ""}
       ${page === "profile" ? renderProfile(profile) : ""}
       ${page === "archive" ? renderArchive(profile) : ""}
@@ -7567,15 +7545,17 @@ function renderBattlefield(profile, searchResults, searchMessage, searchLoading,
       ${renderLearningDebugOverlay(uiState.learningDebugSnapshot)}
       ${renderAssistanceDebugOverlay(uiState.assistanceDebugSnapshot)}
     </section>
-    ${renderCommanderActionHand(profile, {
+    ${renderDualHandDock(profile, {
       activeUtilityPanel,
       utilityDockOpen: Boolean(uiState.utilityDockOpen),
       toolMenuOpen: Boolean(uiState.toolMenuOpen),
       activeToolPanel: uiState.activeToolPanel || "",
       includeCombat: Boolean(panels.boardCombat),
       combatResolving: Boolean(combatResolving),
-      commandDeckRotationIndex: Number(uiState.commandDeckRotationIndex || 0),
-      commandDeckLastManualRotationAt: Number(uiState.commandDeckLastManualRotationAt || 0),
+      inspectedCommandId: uiState.inspectedCommandId || "",
+      inspectedPlayerHandCardId: uiState.inspectedPlayerHandCardId || "",
+      selectedPlayerHandCardId: uiState.selectedPlayerHandCardId || "",
+      presentedHandEntryEventIds: uiState.presentedHandEntryEventIds || new Set(),
       activeOptionsCategory: uiState.activeOptionsCategory || "",
     })}
     ${panels.advancedRulesHelpers || (session.pendingEffects || []).some((entry) => !["resolved", "skipped", "ignored"].includes(entry.status)) ? renderPending(session, Boolean(uiState.manualChoicePanelCollapsed), perspective) : ""}
@@ -9261,7 +9241,7 @@ function resolveCommandHudCommanderSummary(session = {}) {
   };
 }
 
-function renderCommanderActionHand(profile, options = {}) {
+function renderDualHandDock(profile, options = {}) {
   const {
     activeUtilityPanel = "",
     utilityDockOpen = false,
@@ -9269,9 +9249,11 @@ function renderCommanderActionHand(profile, options = {}) {
     activeToolPanel = "",
     includeCombat = true,
     combatResolving = false,
-    commandDeckRotationIndex = 0,
-    commandDeckLastManualRotationAt = 0,
     activeOptionsCategory = "",
+    inspectedCommandId = "",
+    inspectedPlayerHandCardId = "",
+    selectedPlayerHandCardId = "",
+    presentedHandEntryEventIds = new Set(),
   } = options;
   const session = profile.activeSession || {};
   const stackCount = (session.stack || []).length;
@@ -9543,124 +9525,64 @@ function renderCommanderActionHand(profile, options = {}) {
       visible: true,
       permanent: true,
     },
-  ], getCommandDeckFavoriteIds(profile));
-  const priorityCard = resolveCommandDeckPriorityCard(actionCards);
-  const centerIndex = resolveCommandDeckCenterIndex(actionCards, commandDeckRotationIndex, priorityCard, commandDeckLastManualRotationAt);
-  const visibleCards = getVisibleCommandDeckCards(actionCards, centerIndex, COMMAND_DECK_RENDER_RADIUS);
-  const centerCard = actionCards[centerIndex] || priorityCard || actionCards[0] || null;
-  const favoriteIds = getCommandDeckFavoriteIds(profile, actionCards.map((card) => card.id));
-  const centerFavorite = centerCard ? favoriteIds.includes(centerCard.id) : false;
-  const centerSensory = centerCard ? resolveSensoryTokenForAction(centerCard) : {
-    audioTokenId: AUDIO_TOKEN_IDS.interactionConfirm,
-    hapticTokenId: HAPTIC_TOKEN_IDS.lightConfirmation,
-    priority: SENSORY_PRIORITY.contextualAction,
-  };
+  ]);
+  const commandOrder = orderCommandCards(
+    actionCards,
+    profile.settings?.dualHandDock?.commandOrder || [],
+    [],
+  );
+  const playerHand = session.zones?.hand || [];
+  const configuredSurface = profile.settings?.dualHandDock?.activeSurface === HAND_DOCK_SURFACES.playerHand
+    ? HAND_DOCK_SURFACES.playerHand
+    : HAND_DOCK_SURFACES.commands;
+  const mandatoryDecision = Boolean(session.pendingTargetDecision || pendingEffectsCount || session.priority?.waiting);
+  const activeSurface = mandatoryDecision ? HAND_DOCK_SURFACES.commands : configuredSurface;
+  const protectedPresentation = Boolean(session.presentation?.eventId && Number(session.presentation.expiresAt || 0) > Date.now());
+  const commandLayout = resolveArenaHandLayout(commandOrder.cards, {
+    availableWidth: 960,
+    cardWidth: 138,
+    activeId: inspectedCommandId,
+  });
+  const playerLayout = resolveArenaHandLayout(
+    playerHand.map((card) => ({ ...card, id: card.cardInstanceId || card.id })),
+    { availableWidth: 960, cardWidth: 132, activeId: inspectedPlayerHandCardId || selectedPlayerHandCardId },
+  );
+  const activeLayout = activeSurface === HAND_DOCK_SURFACES.playerHand ? playerLayout : commandLayout;
+  const selectedPlayerCard = playerHand.find((card) => (card.cardInstanceId || card.id) === selectedPlayerHandCardId) || null;
   return `
-    <section class="commander-action-hand command-deck" data-command-deck data-commander-action-hand data-commander-action-hand-version="${escapeAttribute(COMMANDER_ACTION_HAND_VERSION)}" data-command-deck-version="${escapeAttribute(COMMAND_DECK_VERSION)}" data-input-intent-version="${escapeAttribute(CANONICAL_INPUT_INTENT_VERSION)}" data-input-surface="${escapeAttribute(INPUT_SURFACES.commandHand)}" data-gesture-owner="${escapeAttribute(GESTURE_OWNERS.commandHand)}" data-input-intent="${escapeAttribute(INPUT_INTENTS.rotateCommandHand)}" data-gesture-transfer="false" data-depth-aware-hit-testing="true" data-command-hand-focus-contract="exactly-one-centered-frontmost-command" data-visual-language-version="${escapeAttribute(VISUAL_LANGUAGE_VERSION)}" data-visual-material="${escapeAttribute(VISUAL_MATERIALS.metal)}" data-visual-layer="${escapeAttribute(VISUAL_LAYERS.commandHand)}" data-visual-elevation="command-hand" data-visual-shadow="raised-card" data-visual-glow="gold-subtle" data-motion-language-version="${escapeAttribute(BOARDSTATE_MOTION_LANGUAGE_VERSION)}" data-motion-owner="rotating-command-deck" data-motion-state="${escapeAttribute(priorityCard?.contextual ? "contextual-entry" : "idle")}" data-motion-token="${escapeAttribute(priorityCard?.contextual ? "emphasis" : "standard")}" data-sensory-language-version="${escapeAttribute(SENSORY_LANGUAGE_VERSION)}" data-audio-token="${escapeAttribute(centerSensory.audioTokenId)}" data-haptic-token="${escapeAttribute(centerSensory.hapticTokenId)}" data-sensory-priority="${escapeAttribute(centerSensory.priority)}" data-sensory-channel="${escapeAttribute(SENSORY_CHANNELS.ui)}" data-command-deck-size="${actionCards.length}" data-command-deck-visible-count="${visibleCards.length}" data-command-deck-rotation="${centerIndex}" data-command-deck-center="${escapeAttribute(centerCard?.id || "phase")}" data-command-deck-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" data-command-deck-card-ids="${escapeAttribute(actionCards.map((card) => card.id).join(" "))}" data-command-deck-favorites="${escapeAttribute(favoriteIds.join(" "))}" data-action-count="${actionCards.length}" data-priority-card="${escapeAttribute(priorityCard?.id || "phase")}" tabindex="0" aria-label="Rotating Commander Command Deck" aria-roledescription="infinite rotating command deck" aria-keyshortcuts="ArrowLeft ArrowRight PageUp PageDown Q E" data-no-swipe>
-      <div class="commander-action-hand__aura" aria-hidden="true"></div>
-      <button class="command-deck__rotator command-deck__rotator--previous" data-command-deck-rotate="-1" aria-label="Rotate command deck left">&lsaquo;</button>
-      <button class="command-deck__rotator command-deck__rotator--next" data-command-deck-rotate="1" aria-label="Rotate command deck right">&rsaquo;</button>
-      ${centerCard ? `<button class="command-deck__favorite-toggle ${centerFavorite ? "is-favorite" : ""}" data-command-deck-favorite="${escapeAttribute(centerCard.id)}" aria-pressed="${centerFavorite}" aria-label="${escapeAttribute(centerFavorite ? `Unpin ${centerCard.label}` : `Pin ${centerCard.label}`)}">${centerFavorite ? "Pinned" : "Pin"}</button>` : ""}
-      ${pendingCount ? `
-        <div class="commander-action-hand__status" role="status" aria-live="polite">
-          <span class="action-hand-queue ${activeUtilityPanel === "stack" || activeUtilityPanel === "triggers" ? "is-active" : ""}">${escapeHtml(pendingQueueLabel)}</span>
-        </div>
-      ` : ""}
-      <div class="commander-action-hand__fan command-deck__fan" data-command-deck-fan role="group" aria-label="Visible rotating Commander decisions" style="--action-count: ${visibleCards.length}; --deck-size: ${actionCards.length};">
-        ${visibleCards.map((entry, index) => renderCommanderActionCard(entry.card, index, visibleCards.length, entry)).join("")}
+    <section class="dual-hand-dock ${protectedPresentation ? "is-yielding" : ""} ${mandatoryDecision ? "has-mandatory-command" : ""}" data-dual-hand-dock data-dual-hand-dock-version="${escapeAttribute(DUAL_HAND_DOCK_VERSION)}" data-active-hand-surface="${escapeAttribute(activeSurface)}" data-configured-hand-surface="${escapeAttribute(configuredSurface)}" data-command-count="${commandOrder.cards.length}" data-player-hand-count="${playerHand.length}" data-circular="false" data-visual-clones="false" data-rightmost-frontmost="true" data-gesture-transfer="false" data-no-swipe>
+      <div class="dual-hand-dock__toggle" role="tablist" aria-label="Bottom hand">
+        <button type="button" role="tab" class="${configuredSurface === HAND_DOCK_SURFACES.commands ? "is-active" : ""}" data-hand-dock-surface="${HAND_DOCK_SURFACES.commands}" aria-selected="${configuredSurface === HAND_DOCK_SURFACES.commands}">Commands</button>
+        <button type="button" role="tab" class="${configuredSurface === HAND_DOCK_SURFACES.playerHand ? "is-active" : ""}" data-hand-dock-surface="${HAND_DOCK_SURFACES.playerHand}" aria-selected="${configuredSurface === HAND_DOCK_SURFACES.playerHand}">Hand <span aria-label="${playerHand.length} cards">${playerHand.length}</span></button>
       </div>
+      ${pendingCount ? `<div class="dual-hand-dock__queue" role="status" aria-live="polite">${escapeHtml(pendingQueueLabel)}</div>` : ""}
+      ${mandatoryDecision && configuredSurface === HAND_DOCK_SURFACES.playerHand ? `<p class="dual-hand-dock__decision-note" role="status">A required command is ready. Your hand position is preserved.</p>` : ""}
+      <div class="dual-hand-dock__surface" data-hand-fan data-input-surface="${escapeAttribute(activeSurface === HAND_DOCK_SURFACES.playerHand ? INPUT_SURFACES.playerHand : INPUT_SURFACES.commandHand)}" data-gesture-owner="${escapeAttribute(activeSurface === HAND_DOCK_SURFACES.playerHand ? GESTURE_OWNERS.playerHand : GESTURE_OWNERS.commandHand)}" data-input-intent="${escapeAttribute(INPUT_INTENTS.reorderHandCard)}" data-hand-overflow="${activeLayout.overflow ? "local-horizontal" : "none"}" style="--hand-content-width:${Math.ceil(activeLayout.contentWidth)}px" role="tabpanel">
+        <div class="dual-hand-dock__fan" role="group" aria-label="${activeSurface === HAND_DOCK_SURFACES.playerHand ? "Private tracked player hand" : "Ordered command hand"}">
+          ${activeSurface === HAND_DOCK_SURFACES.playerHand
+            ? playerHand.map((card, index) => renderPlayerHandCard(card, playerLayout.entries[index], {
+                inspected: inspectedPlayerHandCardId === (card.cardInstanceId || card.id),
+                selected: selectedPlayerHandCardId === (card.cardInstanceId || card.id),
+                presentationBlocked: protectedPresentation,
+                presentedHandEntryEventIds,
+              })).join("")
+            : commandOrder.cards.map((card, index) => renderCommanderActionCard(card, index, commandLayout.entries[index], inspectedCommandId === card.id)).join("")}
+          ${activeSurface === HAND_DOCK_SURFACES.playerHand && !playerHand.length ? `<div class="dual-hand-dock__empty"><strong>Your tracked hand is empty.</strong><span>Use Search, choose a card, then Add to Hand.</span><button type="button" data-open-utility="search">Search Scryfall</button></div>` : ""}
+        </div>
+      </div>
+      ${activeSurface === HAND_DOCK_SURFACES.playerHand && selectedPlayerCard ? renderPlayerHandActionTray(selectedPlayerCard, playerHand) : ""}
     </section>
   `;
 }
 
-function createCommanderActionCards(cards, favoriteIds = []) {
-  const favoriteOrder = new Map(favoriteIds.map((id, index) => [id, index]));
-  const visible = cards
+function createCommanderActionCards(cards = []) {
+  return cards
     .filter((card) => card.visible !== false)
     .map((card) => ({
       ...card,
-      favorite: favoriteOrder.has(card.id),
       priority: Number(card.priority || 0),
       state: card.state || "idle",
-      coreOrder: COMMAND_DECK_CORE_ORDER.includes(card.id) ? COMMAND_DECK_CORE_ORDER.indexOf(card.id) : 999,
     }));
-  const contextual = visible
-    .filter((card) => card.contextual)
-    .sort((left, right) => right.priority - left.priority || String(left.id).localeCompare(String(right.id)));
-  const favorites = visible
-    .filter((card) => !card.contextual && card.favorite)
-    .sort((left, right) => favoriteOrder.get(left.id) - favoriteOrder.get(right.id) || left.coreOrder - right.coreOrder);
-  const core = visible
-    .filter((card) => !card.contextual && !card.favorite)
-    .sort((left, right) => left.coreOrder - right.coreOrder || String(left.id).localeCompare(String(right.id)));
-  return [...contextual, ...favorites, ...core];
-}
-
-function resolveCommandDeckPriorityCard(cards = []) {
-  return (
-    cards.find((card) => card.contextual && ["resolving", "promoted", "selected", "waiting"].includes(card.state)) ||
-    cards.find((card) => ["expanded", "selected", "resolving", "waiting"].includes(card.state)) ||
-    cards.find((card) => card.favorite) ||
-    cards.find((card) => card.id === "phase") ||
-    cards[0] ||
-    null
-  );
-}
-
-function resolveCommandDeckCenterIndex(cards = [], requestedIndex = 0, priorityCard = null, lastManualRotationAt = 0) {
-  if (!cards.length) {
-    return 0;
-  }
-  const normalized = normalizeCommandDeckIndex(requestedIndex, cards.length);
-  const manualRecent = Date.now() - Number(lastManualRotationAt || 0) < COMMAND_DECK_AUTO_CENTER_COOLDOWN_MS;
-  const priorityIndex = priorityCard ? cards.findIndex((card) => card.id === priorityCard.id) : -1;
-  const priorityShouldAssist = Boolean(
-    priorityCard &&
-      !manualRecent &&
-      (
-        priorityCard.contextual ||
-        ["expanded", "selected", "resolving", "waiting"].includes(priorityCard.state) ||
-        priorityCard.priority >= 100
-      )
-  );
-  if (priorityIndex >= 0 && priorityShouldAssist) {
-    return priorityIndex;
-  }
-  return normalized;
-}
-
-function getVisibleCommandDeckCards(cards = [], centerIndex = 0, radius = COMMAND_DECK_VISIBLE_RADIUS) {
-  const count = cards.length;
-  if (!count) {
-    return [];
-  }
-  const visibleCount = Math.min(count, radius * 2 + 1);
-  const leftSlots = Math.floor((visibleCount - 1) / 2);
-  const center = normalizeCommandDeckIndex(centerIndex, count);
-  return Array.from({ length: visibleCount }, (_, slotIndex) => {
-    const slotOffset = slotIndex - leftSlots;
-    const deckIndex = normalizeCommandDeckIndex(center + slotOffset, count);
-    return {
-      card: cards[deckIndex],
-      deckIndex,
-      centerIndex: center,
-      slotIndex,
-      slotOffset,
-      isCenter: slotOffset === 0,
-    };
-  });
-}
-
-function normalizeCommandDeckIndex(index = 0, size = 1) {
-  const count = Math.max(1, Number(size || 1));
-  return ((Math.trunc(Number(index || 0)) % count) + count) % count;
-}
-
-function getCommandDeckFavoriteIds(profile = {}, validIds = []) {
-  const valid = new Set(validIds);
-  return [...new Set((profile.settings?.commandDeck?.favoriteIds || []).map((id) => String(id || "").trim()).filter(Boolean))]
-    .filter((id) => !valid.size || valid.has(id))
-    .slice(0, COMMAND_DECK_MAX_FAVORITES);
 }
 
 function resolveActionCardVisualMaterial(card = {}) {
@@ -9756,40 +9678,7 @@ function resolveActionCardFrame(card = {}) {
   };
 }
 
-function applyCommandDeckCardProjection(card, slotOffset = 0, focused = false) {
-  if (!card?.style) {
-    return;
-  }
-  const projection = resolveCommandDeckCardProjection(slotOffset, Number(card.dataset.actionPriority || 0), Boolean(focused));
-  card.dataset.commandDeckLiveSlot = projection.offset.toFixed(3);
-  card.dataset.commandDeckLiveCenter = focused ? "true" : "false";
-  card.dataset.commandDeckFocused = focused ? "true" : "false";
-  card.dataset.commandDeckHitTestRank = String(projection.zIndex);
-  card.dataset.inputIntentOwner = GESTURE_OWNERS.commandHand;
-  card.style.setProperty("--hand-live-x", `${projection.xPx.toFixed(2)}px`);
-  card.style.setProperty("--hand-live-angle", `${projection.angle.toFixed(2)}deg`);
-  card.style.setProperty("--hand-live-rise", `${projection.rise.toFixed(2)}px`);
-  card.style.setProperty("--hand-live-scale", projection.scale.toFixed(3));
-  card.style.setProperty("--hand-prominence", projection.prominence.toFixed(3));
-  card.style.setProperty("--hand-z-index", String(projection.zIndex));
-  card.style.setProperty("--hand-lift-z", `${projection.liftZ}px`);
-  card.style.opacity = projection.visibility.toFixed(3);
-  card.style.pointerEvents = projection.interactive ? "auto" : "none";
-}
-
-function renderCommanderActionCard(card, index, count, deckEntry = {}) {
-  const midpoint = (count - 1) / 2;
-  const offset = Number.isFinite(deckEntry.slotOffset) ? deckEntry.slotOffset : index - midpoint;
-  const distance = Math.abs(offset);
-  const projection = resolveCommandDeckCardProjection(offset, card.priority, deckEntry.isCenter);
-  const fanTilt = projection.angle;
-  const fanRise = projection.rise;
-  const prominence = projection.prominence;
-  const fanScale = projection.scale;
-  const fanDepth = Math.round((count - distance) * 10 + prominence * 24);
-  const fanStack = projection.zIndex;
-  const fanLiftZ = projection.liftZ;
-  const overlapAdjust = `${Math.round((distance % 2) * 4 - distance * 1.5)}px`;
+function renderCommanderActionCard(card, index, layoutEntry = {}, inspected = false) {
   const attrs = (card.attrs || []).join(" ");
   const disabled = card.disabled ? "disabled aria-disabled=\"true\"" : "";
   const visualMaterial = resolveActionCardVisualMaterial(card);
@@ -9798,41 +9687,32 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
   const enteringClass = card.contextual || card.state === "appearing" ? " action-card-entering" : "";
   return `
     <button
-      class="action-card action-card--${escapeAttribute(card.id)} action-card-family-${escapeAttribute(card.family || "general")} action-card-state-${escapeAttribute(card.state || "idle")}${enteringClass}"
-      style="--hand-index: ${index}; --hand-offset: ${offset.toFixed(2)}; --hand-live-x: ${projection.xPx.toFixed(2)}px; --hand-angle: ${fanTilt.toFixed(2)}deg; --hand-live-angle: ${fanTilt.toFixed(2)}deg; --hand-rise: ${fanRise.toFixed(2)}px; --hand-live-rise: ${fanRise.toFixed(2)}px; --hand-scale: ${fanScale.toFixed(3)}; --hand-live-scale: ${fanScale.toFixed(3)}; --hand-depth: ${fanDepth}; --hand-z-index: ${fanStack}; --hand-lift-z: ${fanLiftZ}px; --hand-overlap-adjust: ${overlapAdjust}; --hand-prominence: ${prominence.toFixed(3)}; opacity: ${projection.visibility.toFixed(3)}; pointer-events: ${projection.interactive ? "auto" : "none"};"
+      class="action-card dual-hand-card command-hand-card action-card--${escapeAttribute(card.id)} action-card-family-${escapeAttribute(card.family || "general")} action-card-state-${escapeAttribute(card.state || "idle")}${enteringClass} ${inspected ? "is-inspected" : ""}"
+      style="--hand-index:${index};--hand-left:${Number(layoutEntry.xPx || 0).toFixed(2)}px;--hand-angle:${Number(layoutEntry.angleDegrees || 0).toFixed(2)}deg;--hand-drop:${Number(layoutEntry.dropPx || 0).toFixed(2)}px;--hand-z-index:${Number(layoutEntry.zIndex || index + 100)};--hand-scale:${Number(layoutEntry.scale || 1).toFixed(3)};--hand-lift:${Number(layoutEntry.liftPx || 0).toFixed(2)}px"
       ${attrs}
       ${disabled}
       data-action-card
       data-action-card-id="${escapeAttribute(card.id)}"
+      data-hand-card
+      data-hand-card-id="${escapeAttribute(card.id)}"
+      data-hand-card-kind="command"
+      data-hand-index="${index}"
+      data-hand-contextual="${card.contextual ? "true" : "false"}"
       data-action-card-state="${escapeAttribute(card.state || "idle")}"
       data-action-priority="${escapeAttribute(String(card.priority || 0))}"
       data-input-intent-version="${escapeAttribute(CANONICAL_INPUT_INTENT_VERSION)}"
       data-input-surface="${escapeAttribute(INPUT_SURFACES.commandHand)}"
-      data-input-intent="${escapeAttribute(deckEntry.isCenter ? INPUT_INTENTS.confirm : INPUT_INTENTS.tapSelect)}"
+      data-input-intent="${escapeAttribute(INPUT_INTENTS.reorderHandCard)}"
       data-gesture-owner="${escapeAttribute(GESTURE_OWNERS.commandHand)}"
-      data-command-deck-card
-      data-command-deck-card-permanent="${card.contextual ? "false" : "true"}"
-      data-command-deck-contextual="${card.contextual ? "true" : "false"}"
-      data-command-deck-card-favorite="${card.favorite ? "true" : "false"}"
-      data-command-deck-slot="${escapeAttribute(String(deckEntry.slotOffset ?? offset))}"
-      data-command-deck-live-slot="${escapeAttribute(offset.toFixed(3))}"
-      data-command-deck-live-center="${deckEntry.isCenter ? "true" : "false"}"
-      data-command-deck-focused="${deckEntry.isCenter ? "true" : "false"}"
-      data-command-deck-hit-test-rank="${escapeAttribute(String(projection.zIndex))}"
-      data-command-deck-preview-owner="${deckEntry.isCenter ? escapeAttribute(card.id) : ""}"
-      data-command-deck-activation-owner="${deckEntry.isCenter ? escapeAttribute(card.id) : ""}"
-      data-command-deck-canonical-command-id="${escapeAttribute(card.id)}"
-      data-command-deck-index="${escapeAttribute(String(deckEntry.deckIndex ?? index))}"
-      data-command-deck-center="${deckEntry.isCenter ? "true" : "false"}"
-      tabindex="${deckEntry.isCenter ? "0" : "-1"}"
+      tabindex="0"
       data-command-card-frame="boardstate-command-card"
       data-command-card-tone="${escapeAttribute(frame.tone)}"
       data-visual-material="${escapeAttribute(visualMaterial)}"
       data-visual-layer="${escapeAttribute(VISUAL_LAYERS.commandHand)}"
-      data-visual-elevation="${deckEntry.isCenter ? "command-card-center" : "command-card"}"
+      data-visual-elevation="command-card"
       data-visual-shadow="${card.priority >= 100 ? "raised-card" : "panel"}"
       data-visual-glow="${card.priority >= 100 || card.state === "promoted" ? "gold-strong" : card.family === "rules" ? "crystal" : "gold-subtle"}"
-      data-motion-owner="rotating-command-deck"
+      data-motion-owner="dual-hand-dock"
       data-motion-state="${escapeAttribute(card.contextual ? "contextual-entry" : card.state || "idle")}"
       data-motion-token="${escapeAttribute(card.priority >= 100 ? "emphasis" : card.priority >= 70 ? "standard" : "micro")}"
       data-sensory-language-version="${escapeAttribute(SENSORY_LANGUAGE_VERSION)}"
@@ -9840,8 +9720,9 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
       data-haptic-token="${escapeAttribute(sensory.hapticTokenId)}"
       data-sensory-priority="${escapeAttribute(sensory.priority)}"
       data-sensory-channel="${escapeAttribute(sensory.volumeCategory === "gameplayVolume" ? SENSORY_CHANNELS.gameplay : SENSORY_CHANNELS.ui)}"
-      aria-label="${escapeAttribute(`${card.label}: ${card.detail || card.signal || "decision"}`)}"
-      aria-pressed="${deckEntry.isCenter && (card.state === "expanded" || card.state === "selected") ? "true" : "false"}"
+      aria-label="${escapeAttribute(`${card.label}: ${card.detail || card.signal || "decision"}. Position ${index + 1}. Activate, hold to inspect, or drag to reorder.`)}"
+      aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight Alt+Home Alt+End"
+      aria-expanded="${inspected ? "true" : "false"}"
     >
       <span class="action-card__rim" aria-hidden="true"></span>
       <span class="action-card__glint" aria-hidden="true"></span>
@@ -9860,6 +9741,68 @@ function renderCommanderActionCard(card, index, count, deckEntry = {}) {
       </span>
       <span class="action-card__intent">${escapeHtml(card.intent || "Available decision")}</span>
     </button>
+  `;
+}
+
+function renderPlayerHandCard(card = {}, layoutEntry = {}, options = {}) {
+  const id = card.cardInstanceId || card.id;
+  const imageUrl = getBattlefieldCardImageUrl(card);
+  const recentEntry = Date.now() - Number(card.trackedAt || 0) < 2200;
+  const entryEventId = card.handEntryEventId || "";
+  const entering = Boolean(
+    recentEntry &&
+    entryEventId &&
+    !options.presentationBlocked &&
+    !options.presentedHandEntryEventIds?.has?.(entryEventId)
+  );
+  if (entering) options.presentedHandEntryEventIds?.add?.(entryEventId);
+  const stateClasses = [
+    options.inspected ? "is-inspected" : "",
+    options.selected ? "is-selected" : "",
+    entering ? "is-entering-hand" : "",
+    imageUrl ? "has-card-art" : getBattlefieldCardFallbackClass(card),
+  ].filter(Boolean).join(" ");
+  return `
+    <button type="button" class="dual-hand-card player-hand-card ${stateClasses}"
+      style="--hand-index:${layoutEntry.index || 0};--hand-left:${Number(layoutEntry.xPx || 0).toFixed(2)}px;--hand-angle:${Number(layoutEntry.angleDegrees || 0).toFixed(2)}deg;--hand-drop:${Number(layoutEntry.dropPx || 0).toFixed(2)}px;--hand-z-index:${Number(layoutEntry.zIndex || 100)};--hand-scale:${Number(layoutEntry.scale || 1).toFixed(3)};--hand-lift:${Number(layoutEntry.liftPx || 0).toFixed(2)}px;${imageUrl ? `--card-image:url(&quot;${escapeAttribute(imageUrl)}&quot;)` : ""}"
+      data-hand-card data-player-hand-card data-hand-card-kind="player" data-hand-card-id="${escapeAttribute(id)}" data-hand-index="${layoutEntry.index || 0}" data-hand-contextual="false"
+      data-input-intent-version="${escapeAttribute(CANONICAL_INPUT_INTENT_VERSION)}" data-input-surface="${escapeAttribute(INPUT_SURFACES.playerHand)}" data-input-intent="${escapeAttribute(INPUT_INTENTS.reorderHandCard)}" data-gesture-owner="${escapeAttribute(GESTURE_OWNERS.playerHand)}"
+      aria-label="${escapeAttribute(`${card.name || "Unknown card"}. ${card.typeLine || "Magic card"}. Position ${Number(layoutEntry.index || 0) + 1}. Select, hold to inspect, drag horizontally to reorder, or drag upward to cast or play.`)}"
+      aria-pressed="${options.selected ? "true" : "false"}" aria-expanded="${options.inspected ? "true" : "false"}" aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight Alt+Home Alt+End">
+      <span class="player-hand-card__art" aria-hidden="true"></span>
+      <span class="player-hand-card__fallback">
+        <strong>${escapeHtml(card.name || "Unknown card")}</strong>
+        <small>${escapeHtml(card.typeLine || "Magic card")}</small>
+        <span>${escapeHtml(card.oracleText || card.rulesText || "Tracked private hand card")}</span>
+      </span>
+      <span class="player-hand-card__name">${escapeHtml(card.name || "Unknown card")}</span>
+    </button>
+  `;
+}
+
+function renderPlayerHandActionTray(card = {}, playerHand = []) {
+  const id = card.cardInstanceId || card.id;
+  const currentIndex = playerHand.findIndex((entry) => (entry.cardInstanceId || entry.id) === id);
+  const actions = resolvePlayerHandActions(card, { landPlayAllowed: true });
+  const labels = {
+    cast: "Cast",
+    "play-land": "Play Land",
+    inspect: "Inspect",
+    discard: "Discard",
+    exile: "Exile",
+    "move-to-library": "To Library",
+  };
+  return `
+    <div class="dual-hand-dock__actions" role="toolbar" aria-label="Actions for ${escapeAttribute(card.name || "selected hand card")}">
+      <strong>${escapeHtml(card.name || "Selected card")}</strong>
+      ${actions.map((action) => `<button type="button" data-player-hand-action="${escapeAttribute(action)}" data-player-hand-card-id="${escapeAttribute(id)}">${escapeHtml(labels[action] || formatLabel(action))}</button>`).join("")}
+      <span class="dual-hand-dock__reorder-actions" aria-label="Reorder selected card">
+        <button type="button" data-hand-reorder-player="${escapeAttribute(id)}" data-hand-reorder-movement="beginning" ${currentIndex <= 0 ? "disabled" : ""}>First</button>
+        <button type="button" data-hand-reorder-player="${escapeAttribute(id)}" data-hand-reorder-movement="left" ${currentIndex <= 0 ? "disabled" : ""}>Left</button>
+        <button type="button" data-hand-reorder-player="${escapeAttribute(id)}" data-hand-reorder-movement="right" ${currentIndex >= playerHand.length - 1 ? "disabled" : ""}>Right</button>
+        <button type="button" data-hand-reorder-player="${escapeAttribute(id)}" data-hand-reorder-movement="front" ${currentIndex >= playerHand.length - 1 ? "disabled" : ""}>Front</button>
+      </span>
+    </div>
   `;
 }
 
@@ -10590,7 +10533,8 @@ function renderScryfallSelectedResult(card = {}, index = 0, deckMode = false, se
             <button data-new-deck-result="${index}">Add to new deck</button>
             ${commanderEligible ? `<button data-commander-result="${index}">Make commander</button>` : ""}
           ` : `
-            <button class="primary-action" data-cast-action-zone="hand" data-cast-action-index="${index}">${isLand ? "Play land" : "Cast from hand"}</button>
+            <button class="primary-action" data-add-to-player-hand="${index}">Add to Hand</button>
+            <button data-cast-action-zone="hand" data-cast-action-index="${index}">${isLand ? "Play land now" : "Cast now"}</button>
             <button data-cast-action-put="${index}">Put onto battlefield</button>
             <button data-inspect-result="${index}">Inspect details</button>
           `}
@@ -13256,7 +13200,7 @@ function getUnreadNotificationCount(profile = {}) {
 }
 
 function getAppVersion() {
-  return "1.43.4";
+  return "1.44.0";
 }
 
 function renderGameOptions(profile, page = "life") {
@@ -14544,4 +14488,9 @@ function escapeHtml(value) {
 
 function escapeAttribute(value) {
   return escapeHtml(value);
+}
+
+function escapeCssSelector(value) {
+  if (globalThis.CSS?.escape) return globalThis.CSS.escape(String(value || ""));
+  return String(value || "").replace(/[^a-zA-Z0-9_-]/g, "\\$&");
 }

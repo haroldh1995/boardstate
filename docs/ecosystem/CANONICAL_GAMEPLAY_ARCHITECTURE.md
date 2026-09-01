@@ -1,6 +1,8 @@
 # Canonical Gameplay Architecture
 
-Date: 2026-08-25
+Date: 2026-08-31
+
+The post-completion Dual Hand Dock revision intentionally supersedes every earlier requirement for an infinite, rotating, centered, snapping, or clone-based Tactical Command Hand. Those retired behaviors are not compatibility targets. The canonical bottom gameplay system is now one shared dock with mutually exclusive ordered Commands and private Player Hand surfaces.
 
 Prompt 13.2.6 Part 1 establishes the permanent gameplay architecture for BoardState. This document takes precedence over earlier gameplay, battlefield, HUD, motion, assistance, and layout prompt artifacts wherever they conflict.
 
@@ -71,8 +73,10 @@ These laws are permanent:
 11. Notifications never cover gameplay.
 12. Animations always have priority.
 13. Protected gameplay space cannot be obstructed.
-14. The Tactical Command Hand remains permanently docked.
-15. BoardState assumes the tabletop game has progressed unless another decision is required.
+14. The Dual Hand Dock remains permanently integrated into gameplay.
+15. Commands form one finite, ordered, overlapping physical-card fan with user-owned order and rightward resting depth.
+16. The tracked Player Hand is authoritative owner-private hidden-zone state and shares presentation geometry, never rules identity, with Commands.
+17. BoardState assumes the tabletop game has progressed unless another decision is required.
 
 ## Gameplay Viewport Law
 
@@ -215,11 +219,11 @@ Opponent switching and zone overflow scrolling are separate systems.
 
 Gesture ownership is modeled in `src/gameplay/battlefieldGeometry.js` so native shells can preserve the same behavior without depending on DOM event rules.
 
-## Part 2 Command Hand Focus Law
+## Dual Hand Dock Law
 
-The Tactical Command Hand has exactly one focus owner. The focused card is the card nearest the mathematical center anchor and must also be the logical focus, visual focus, frontmost card, highest z-order card, strongest highlight, preview source, hit-test owner, and activation target.
+The bottom gameplay footprint contains exactly one expanded surface at a time: Commands or Player Hand. Switching surfaces is presentation state and cannot cast, resolve, move a card, advance the phase, modify the stack, or recompute rules. Each surface preserves its own order and local presentation state.
 
-`src/gameplay/commandDeckModel.js` owns the platform-neutral focus and projection math. `src/ui/render.js` applies that focus to DOM/CSS. No future implementation may allow CSS order, hover state, stale preview state, or render order to override the canonical focused command.
+`src/gameplay/dualHandModel.js` owns platform-neutral ordering, fan continuity, rightward resting depth, gesture intent, tracked-hand construction, and privacy projection. `src/ui/render.js` and native clients present that model. There is no center anchor, infinite wrap, snap engine, visual-clone system, or wheel focus identity.
 
 ## Part 2 Resolve And Animation Rules
 
@@ -229,7 +233,7 @@ Casting and resolution animation space belongs to the protected gameplay corrido
 
 ## Part 2 Platform Portability
 
-Part 2 continues the permanent cross-platform development law. Gameplay state, rules state, interaction intent, navigation state, battlefield geometry, command-deck projection, and business logic must remain platform-independent wherever practical.
+Part 2 continues the permanent cross-platform development law. Gameplay state, rules state, interaction intent, navigation state, battlefield geometry, ordered-hand projection, and business logic must remain platform-independent wherever practical.
 
 Browser-specific behavior belongs in the current web shell or explicit runtime adapters. New gameplay or presentation models must not depend exclusively on DOM, browser storage, browser navigation, CSS layout behavior, hover, or URL state.
 
@@ -239,7 +243,7 @@ Prompt 13.2.6 Part 3 establishes the card lifecycle, event identity, stack, reso
 
 Card and gameplay-object lifecycle is authoritative state. Animation state is presentation state. A card may move through lifecycle states such as in hand, being selected, being cast, on stack, resolving, entering battlefield, battlefield, moving to graveyard, exiled, returning to command zone, returning to hand, moving to library, revealed, copied, token created, and ceasing to exist.
 
-Every meaningful gameplay event must have a stable event identity. Cast, resolve, zone-change, trigger, token-creation, counter-change, life-change, combat, land-play, replacement-effect, inspection, undo, and replay events use event IDs that presentation adapters can consume. A component rerender, trigger queue update, notification receipt, Command Hand rotation, inspection open/close, or opponent switch must not replay an animation for an event that has already played.
+Every meaningful gameplay event must have a stable event identity. Cast, resolve, zone-change, trigger, token-creation, counter-change, life-change, combat, land-play, replacement-effect, inspection, undo, and replay events use event IDs that presentation adapters can consume. A component rerender, trigger queue update, notification receipt, hand reorder, dock toggle, inspection open/close, or opponent switch must not replay an animation for an event that has already played.
 
 Presentation events are idempotent. `createCardPresentationPayload()`, `createPresentationLedger()`, `shouldPlayPresentationEvent()`, and `markPresentationEventPlayed()` define the canonical contract: one authoritative event creates one primary presentation event. Presentation payloads are explicitly `presentationOnly`, must not mutate rules state, and expose `shouldReplayOnRender: false`.
 
@@ -271,7 +275,7 @@ Battlefield permanents, casting previews, inspection previews, and stack objects
 - An inspection preview is deliberate, presentation-only, and must not mutate authoritative state.
 - A stack object is temporary stack presentation and resolves according to stack order.
 
-Closing inspection must restore the previous gameplay context, including focused opponent, Command Hand focus, selected IDs, zone scroll positions, and expanded stacks where applicable.
+Closing inspection must restore the previous gameplay context, including focused opponent, active dock surface, hand order, selected IDs, zone scroll positions, and expanded stacks where applicable.
 
 ## Part 3 Trigger And Replacement Handling
 
@@ -320,7 +324,7 @@ Modified systems must preserve platform portability and avoid DOM-only behavior,
 
 ## Part 4 Input Intent Architecture
 
-Prompt 13.2.6 Part 4 establishes a platform-neutral input intent layer in `src/gameplay/inputIntent.js`. Presentation input resolves into semantic intents such as tap select, inspect, card drag, zone scroll, Command Hand rotation, opponent switch, target, confirm, cancel, context action, allowed pan, and accessibility activation.
+Prompt 13.2.6 Part 4 establishes a platform-neutral input intent layer in `src/gameplay/inputIntent.js`. Presentation input resolves into semantic intents such as tap select, inspect, card drag, zone scroll, command/player-hand reorder, player-hand cast or play, hand-local scroll, dock toggle, opponent switch, target, confirm, cancel, context action, allowed pan, and accessibility activation.
 
 Exactly one owner may control an active gesture. Ownership priority is mandatory gameplay, explicit card drag, active targeting, Command Hand, zone-local overflow scrolling, opponent navigation, card inspection, then background interaction. Once a gesture owner is established, the same gesture must not transfer to another system. Reaching a zone edge does not convert zone scrolling into opponent switching.
 
@@ -336,15 +340,13 @@ The compact table radar answers who is at the table and who is currently focused
 
 Opponent switching and zone-local scrolling remain separate. Swipes that originate inside an overflowing zone scroll that zone only. Swipes on eligible opponent background may switch opponents. Opponent arrows remain reliable whenever multiple opponents exist, including crowded board states where safe swipe space is limited.
 
-## Part 4 Command Hand Focus And Rotation
+## Ordered Command Hand And Tracked Player Hand
 
-The Tactical Command Hand remains a permanent gameplay control surface and must read as a fan of premium TCG command cards, not a toolbar, menu strip, or generic carousel.
+Commands read as one continuous Arena-style fan of premium TCG utility cards, not a toolbar, wheel, menu strip, or generic carousel. Persistent commands keep user-controlled order. The rightmost resting card is frontmost; inspection or drag may temporarily override depth. Contextual commands append predictably at the right/front and never enter the saved persistent order.
 
-At rest exactly one command card is focused. The focused command is mathematically centered, frontmost, highest z-order, most elevated, strongest restrained focus, preview owner, activation owner, hit-test owner, and accessibility focus source. These states derive from one canonical command identity. CSS order, hover state, stale preview state, and visual clones may not override it.
+The Player Hand uses the same general fan language but contains actual authoritative Magic objects in `zones.hand`. Duplicate names remain separate object identities. Tap selects and exposes contextual actions, hold inspects, horizontal drag reorders presentation, and an intentional upward drag may begin Cast or Play Land. Every critical action has a non-drag accessibility path.
 
-During active swiping the hand moves freely inside its locked wheel. When input ends, it decelerates and snaps to the nearest valid command center. Persistent commands form an infinite circular sequence with no visible beginning or end. If visual clones are used for seamless presentation, every clone maps back to one canonical command identity and must not become an independent command.
-
-Hit testing is depth-aware. The foremost focused card wins overlapping hit regions, while exposed portions of rear cards may remain selectable according to the interaction model. Command Hand gestures never switch opponents, scroll battlefield zones, or drag battlefield permanents.
+Commands and Player Hand share geometry only. Command objects never acquire Magic zone identity, and private Magic cards never become utility commands. Gesture ownership is fixed for the active gesture and cannot leak into opponent navigation, battlefield drag, targeting, or zone scrolling.
 
 ## Part 4 Responsive Landscape Composition
 
@@ -360,13 +362,13 @@ Safe areas, cutouts, rounded corners, home indicators, and system gesture region
 
 Accessibility preserves the canonical tabletop unless an explicit alternate accessibility mode is intentionally invoked. Screen-reader semantics must expose player, opponent, life, card, zone, tap state, counters, commander, focused command, stack object, current turn/phase, and mandatory decisions. Reduced motion simplifies nonessential transitions while preserving state-change clarity. High contrast cannot rely only on subtle color differences.
 
-Performance is part of quality. Command Hand rotation must not rerender the entire battlefield or recompute rules state. Zone scrolling must not rerender unrelated zones. Opponent switching must not recompute the rules engine. Animation timing is presentation state and must never define authoritative rules state.
+Performance is part of quality. Command reorder, Player Hand reorder, hold inspection, local hand scrolling, and dock toggling must not rerender the entire battlefield or recompute rules state. Zone scrolling must not rerender unrelated zones. Opponent switching must not recompute the rules engine. Animation timing is presentation state and must never define authoritative rules state.
 
 High-frequency transitions are limited to compositor-friendly transform and opacity changes. Large groups of battlefield cards must not permanently allocate filter, shadow, or layout animation layers. Card art remains unobstructed during normal battlefield presentation: readability veils and duplicate centered selection previews may not cover an available card image. Selection alone does not activate targeting visuals; those visuals require a real pending target decision. A single populated battlefield lane expands into its available region before density reduction or overflow is considered.
 
-Large Commander states must remain interactive during Command Hand rotation, zone scrolling, card inspection, opponent switching, targeting, and stack interaction. The architecture tracks these boundaries through `createInteractionPerformanceBudget()` and the landscape model's performance contract.
+Large Commander states must remain interactive during hand reorder and inspection, zone scrolling, card inspection, opponent switching, targeting, and stack interaction. The architecture tracks these boundaries through `createInteractionPerformanceBudget()` and the landscape model's performance contract.
 
-The Prompt 17 reproducible baseline exercises a 360-object battlefield, 500 repeated Command Hand projection cycles, a 5,000-event paged timeline, ten-player opponent metadata, realistic phone safe areas, keyboard semantics, reduced motion, and screen-reader labels in `test/performance-accessibility-baseline.test.js`. These checks protect bounded presentation work without making frame timing or browser primitives authoritative gameplay requirements.
+The Prompt 17 reproducible baseline exercises a 360-object battlefield, 500 repeated ordered-hand layout cycles, a 5,000-event paged timeline, ten-player opponent metadata, realistic phone safe areas, keyboard semantics, reduced motion, and screen-reader labels in `test/performance-accessibility-baseline.test.js`. These checks protect bounded presentation work without making frame timing or browser primitives authoritative gameplay requirements.
 
 ## Part 5 Release Baseline
 
@@ -381,9 +383,9 @@ Part 5 validates these release gates:
 - Density escalates through spacing, overlap, duplicate stacking, equivalent grouping, support stacking, scaling, grouped presentation, and only then zone-local horizontal scrolling.
 - Authoritative object identity survives grouping, stacking, token quantities, attachments, counters, tapped state, graveyard/exile movement, preview, replay, Undo, and inspection.
 - Multiplayer keeps exactly one focused opponent battlefield, compact table awareness, circular opponent navigation, stable seating order, local battlefield anchoring, independent zone-scroll memory, and no mid-gesture transfer from zone scrolling to opponent switching.
-- The Tactical Command Hand retains infinite circular navigation, free active motion, post-release snap, exactly one centered focus, frontmost focused card, highest z-order, correct highlight, correct preview, correct activation, depth-aware hit testing, and canonical clone identity.
+- The Dual Hand Dock retains one expanded surface, one continuous finite fan, user-owned order, rightward resting depth, temporary inspection/drag depth override, contextual command cleanup, and complete non-drag accessibility actions.
 - Live Tracking uses one Resolve for an uncontested stack object, while deterministic land, life, counter, token, static, continuous, commander-tax, and commander-damage changes do not create redundant Resolve requirements.
-- Gameplay events own stable identities, animations are idempotent, and render-only updates such as notifications, inspection, opponent switching, zone scrolling, or Command Hand rotation must not replay previous cast or resolution events.
+- Gameplay events own stable identities, animations are idempotent, and render-only updates such as notifications, inspection, opponent switching, zone scrolling, hand reorder, or dock toggling must not replay previous cast or resolution events.
 - Notifications, helpers, reminders, assistant messages, and social messages obey the gameplay communication hierarchy and never permanently obstruct the protected gameplay corridor, focused Command Hand card, casting, resolving, targeting, combat, or active stack work.
 - Phone landscape, tablet, desktop, and ultrawide composition remain fixed, safe-area-aware, and game-like rather than dashboard-like or document-like.
 - Accessibility exposes meaningful semantics and preserves state-change clarity under reduced motion, large text, high contrast, keyboard navigation, screen readers, and future controller-style focus.
@@ -397,11 +399,11 @@ The following failures are release-blocking for active gameplay:
 
 - Global layout failures: vertical webpage gameplay, global battlefield scrolling, document-style stacked gameplay sections, portrait gameplay after loading, player/opponent battlefield pushed off-screen, Command Hand below scrollable content, dashboard replacement, or permanent center obstruction.
 - Card presentation failures: oversized preview permanents, generic UI tiles, cropped horizontal card banners, text-only permanent replacement, stale cast or inspection previews, lost TCG proportions, misplaced planeswalkers, misplaced support permanents, hidden attachments, or stacking that erases authoritative individuality.
-- Command Hand failures: center card not foremost, wrong z-order, wrong highlight, wrong preview, wrong activation, wrong hit testing, multiple focus owners, focus/center disagreement, rear card dominance, resting between commands, hard active-swipe locking, visible wrap jump, clone identity corruption, temporary command corruption, or gesture leakage into battlefield navigation.
+- Hand failures: split clusters, unexplained gaps, invalid rightward depth, wheel or clone artifacts, lost user order, contextual command corruption, Commands/Player Hand state confusion, duplicate authoritative cards, private identity leakage, ambiguous cast/reorder gestures, or dock gesture leakage into battlefield navigation.
 - Multiplayer failures: missing opponent swipe on manageable boards, missing arrows with multiple opponents, unusable arrows on crowded boards, local battlefield movement during opponent switch, Command Hand reset during opponent switch, lost presentation memory, zone-edge swipe transferring to opponent switch, unstable order, unreadable permanently shrunk opponents, or active player forcibly stealing view focus.
 - Resolution failures: redundant Live Tracking Resolve prompts, lands requiring Resolve without rules need, deterministic ETB/token/counter/static consequences requiring Resolve, spell substeps masquerading as stack objects, replacement effects incorrectly treated as stack objects, animation replay after Resolve, and Resolve UI blocking the resolving object.
 - Communication failures: notifications, helpers, reminders, social messages, or duplicate assistant surfaces covering casting, resolving, combat, targeting, focused Command Hand, or active mandatory gameplay decisions.
-- State failures: inspection, replay, scroll, animation, Command Hand browsing, visual clones, opponent focus, or presentation state mutating authoritative rules state.
+- State failures: inspection, replay, scroll, animation, hand browsing/reorder, dock toggle, opponent focus, or presentation state mutating authoritative rules state.
 - Performance failures: visible Command Hand hitches, normal zone-scroll hitches, whole-game rebuilds during opponent switches, rules recomputation from presentation-only movement, unusable large boards, trigger-flood loops, memory growth from rapid navigation, delayed long sessions, or stale animation queues.
 - Platform-portability failures: new browser-only authoritative gameplay implementation, DOM objects in gameplay state, CSS as rules truth, browser event names as semantic gameplay events, hover-only required action, browser storage as sole persistence, browser lifecycle as gameplay lifecycle, or any unnecessary block to future SwiftUI adaptation.
 
@@ -409,7 +411,7 @@ Part 5 does not lock the architecture by itself. It proves that the foundation i
 
 ## Part 6 Architecture Lock Baseline
 
-Prompt 13.2.6 Part 6 locks the validated Parts 1 through 5 result as the canonical gameplay baseline. The baseline identifier is `boardstate-13.2.6-locked-baseline`, implemented in `src/gameplay/architectureLockdown.js`.
+Prompt 13.2.6 Part 6 originally locked the validated Parts 1 through 5 result. The intentional post-completion hand migration replaces only the former wheel contract. The current baseline identifier is `boardstate-dual-hand-post-completion-baseline`, implemented in `src/gameplay/architectureLockdown.js`.
 
 This lock is a development contract, not a feature freeze. Future work may improve visuals, rules support, Full Control, multiplayer, accessibility, performance, and native presentation, but it must extend the validated architecture unless an explicit architecture migration replaces one or more canonical laws.
 
@@ -420,9 +422,9 @@ The canonical lock requires:
 - Cards on the battlefield remain card-shaped battlefield permanents, distinct from casting previews, inspection previews, stack objects, search results, and Command Hand cards.
 - Density management precedes zone-local horizontal overflow; overflow never moves the entire battlefield or another zone.
 - Multiplayer keeps one primary focused opponent, stable circular order, reliable arrows, direct compact selection, local battlefield anchoring, and opponent presentation memory where practical.
-- Command Hand focus, center, z-order, highlight, preview, activation, and hit testing derive from one canonical command identity.
-- At stable rest, only the centered/frontmost Command Card may execute. Pressing a visible rear card first rotates that canonical command to the focus anchor; it cannot activate a different command through overlap, and rear cards stay outside sequential keyboard focus.
-- Command Hand movement remains free during input, snaps after motion, rotates infinitely, and treats visual clones as presentation aliases only.
+- The Command Hand is finite and ordered. Rightward resting depth, temporary inspection/drag lift, activation, and hit testing derive from each unique command identity and current ordered position.
+- Every visible Command Card can activate directly. Press-and-hold inspects, horizontal drag reorders, and keyboard/accessibility actions provide Move left, Move right, Move to beginning, and Move to front.
+- The Player Hand is authoritative private zone state; commands remain utility objects. The two surfaces share a dock footprint but never state models, rules identity, or multiplayer visibility policy.
 - Live Tracking keeps the one-Resolve default for uncontested stack objects, automatically completes deterministic consequences, and presents genuine choices directly without replaying original resolution.
 - Semantic gameplay event identity owns animation idempotence; presentation rerenders do not recreate authoritative events.
 - Notifications, helpers, reminders, and social surfaces yield to mandatory decisions, casting, resolution, targeting, combat, active stack work, inspection, and focused Command Hand interactions.
@@ -435,7 +437,7 @@ The locked canonical laws are discoverable in `LOCKDOWN_CANONICAL_GAMEPLAY_LAWS`
 
 - Laws 1-7 protect the spatial fixed landscape battlefield, no global gameplay scroll, anchored local territory, stable tabletop geography, card-shaped permanents, and temporary preview roles.
 - Laws 8-15 protect creature geography, planeswalker placement, lower land/support geography, density-before-scroll, zone-local overflow, separate opponent navigation, reliable arrows, and stable opponent order.
-- Laws 16-24 protect the Command Hand as a TCG hand with exactly one centered frontmost focus, one focus source of truth, free active movement, snap, circular rotation, clone identity, and temporary contextual commands.
+- Laws 16-24 are superseded only where they required wheel behavior. The replacement protects the Dual Hand Dock, finite ordered fan, rightward resting depth, user-owned order, tracked private Player Hand, fixed gesture ownership, and temporary contextual commands.
 - Laws 25-30 protect Live Tracking speed, one Resolve by default, automatic deterministic consequences, explicit genuine decisions, real stack objects, and hidden-information safety.
 - Laws 31-35 protect semantic event identity, presentation-only animation, animation idempotence, gameplay visual priority, and the protected gameplay corridor.
 - Laws 36-40 protect deterministic gesture ownership, no mid-gesture transfer, authoritative/presentation state separation, shared Live Tracking / Full Control rules truth, and platform portability.
@@ -448,7 +450,7 @@ The authoritative implementation locations are:
 - Battlefield card rendering: `src/ui/render.js`, `src/styles.css`.
 - Card-zone assignment, planeswalker placement, support-permanent placement, density management, stacking/grouping, and zone overflow: `src/gameplay/battlefieldGeometry.js`.
 - Opponent focus, opponent navigation, table radar, input intent, gesture ownership, responsive landscape composition, accessibility semantics, and interaction performance budgets: `src/gameplay/inputIntent.js`, consumed by `src/ui/landscapeBattlefield.js` and `src/ui/render.js`.
-- Command Hand focus math, projection, snap, free rotation, z-order, and infinite rotation: `src/gameplay/commandDeckModel.js`, `src/gameplay/inputIntent.js`, `src/ui/render.js`, and `src/styles.css`.
+- Dual Hand Dock order, fan continuity, rightward depth, gestures, tracked-card construction, and privacy projection: `src/gameplay/dualHandModel.js`, `src/gameplay/inputIntent.js`, `src/state/gameReducer.js`, `src/shared-contracts/adapters.js`, `src/ui/render.js`, and `src/styles.css`.
 - Card lifecycle, stack, resolution, trigger presentation, event identity, presentation ledger, preview roles, replay observation, and notification priority: `src/gameplay/cardLifecycle.js`, `src/gameplay/canonicalGameplay.js`, `src/effects/effectEngine.js`, and `src/state/gameReducer.js`.
 - Commander assignment, canonical command-zone casting, commander tax, and tracked mana payment: `src/game/commanderSystem.js`, `src/game/manaSystem.js`, `src/effects/effectEngine.js`, and `src/state/gameReducer.js`. A commander cast is a real stack object; a countered local commander creates an explicit destination choice, while simulation opponents use the same zone semantics with deterministic AI policy.
 - Event Knowledge timeline, turn/phase grouping, relationship explanations, bounded history presentation, and read-only replay observation: `src/authoritative-core/timelineRelationshipEngine.js`, rendered by `src/ui/render.js`.
@@ -467,7 +469,7 @@ Do not create duplicate active implementations for these responsibilities. If a 
 Architecture-critical tests must protect:
 
 - Battlefield invariants: anchored local territory, horizontal creature region, far-right planeswalkers, canonical lower land/support region, no vertical gameplay scroll, card-shaped permanents, zone-local overflow, and grouping that preserves authoritative identity.
-- Command Hand invariants: exactly one focus, center means front, highest z-order, correct highlight, correct preview, correct activation, depth-aware hit testing, snap, infinite wrapping, clone identity, contextual command cleanup, high-speed motion, and direction reversal.
+- Hand invariants: one continuous fan, unique identities, monotonic positions, rightmost resting card frontmost, temporary interaction lift, no center/snap/wrap/clones, persistent order stability, contextual cleanup, private Player Hand identity, and deterministic axis ownership.
 - Multiplayer invariants: stable circular order, arrows whenever multiple opponents exist, direct compact selection, local battlefield anchoring, independent zone scrolling, no zone-edge transfer, and opponent state restoration.
 - Resolve and event invariants: one Resolve for uncontested Live Tracking objects, deterministic consequences automatic, genuine choices direct, genuine stack objects independent, replacement effects not automatically stack objects, semantic event IDs stable, replay observational, and animations idempotent.
 - Gesture invariants: one active gesture owner, no mid-gesture transfer, Command Hand gestures do not leak, zone scroll does not switch opponents, opponent navigation does not drag cards, and targeting can survive allowed presentation navigation.
@@ -498,7 +500,7 @@ Web rendering remains one client. Platform-specific storage, pointer/touch event
 
 Future visual development is encouraged, but it may not casually destroy spatial battlefield geography, card identity, Command Hand behavior, protected gameplay corridor, fixed landscape composition, opponent navigation, zone-local overflow, touch usability, accessibility semantics, or platform portability.
 
-The reproducible performance baseline covers normal boards, busy boards, 100+ object boards, token floods, counter floods, trigger floods, board wipes, rapid opponent switching, repeated Command Hand rotation and wrap, zone scrolling, targeting, and long sessions. Do not introduce presentation-only work that unnecessarily recomputes authoritative rules, replays completed events, accumulates animation queues, leaks clone state, or degrades long-session interaction.
+The reproducible performance baseline covers normal boards, busy boards, 100+ object boards, token floods, counter floods, trigger floods, board wipes, rapid opponent switching, repeated hand reorder and inspection, large-hand local scrolling, zone scrolling, targeting, and long sessions. Do not introduce presentation-only work that unnecessarily recomputes authoritative rules, replays completed events, accumulates animation queues, retains stale drag state, or degrades long-session interaction.
 
 ## Implementation Boundary
 
@@ -507,7 +509,7 @@ This Part 1 contract is implemented by:
 - `src/gameplay/canonicalGameplay.js`
 - `src/gameplay/battlefieldGeometry.js`
 - `src/gameplay/cardLifecycle.js`
-- `src/gameplay/commandDeckModel.js`
+- `src/gameplay/dualHandModel.js`
 - `src/gameplay/inputIntent.js`
 - `src/gameplay/architectureLockdown.js`
 - `src/ui/landscapeBattlefield.js`
@@ -524,7 +526,7 @@ Future parts must continue from this architecture without redefining these conce
 
 ## Phase 13.3 Canonical Search And Workflow Baseline
 
-The canonical BoardState card search is a temporary in-scene popup, not a route or full-page gameplay replacement. It opens with a focused search field, debounces predictive lookup, exposes three immediate results by default, rejects stale request identities, preserves battlefield and Command Hand presentation context, supports keyboard and modal dismissal, and degrades safely to the embedded local card reference when Scryfall is unavailable.
+The canonical BoardState card search is a temporary in-scene popup, not a route or full-page gameplay replacement. It opens with a focused search field, debounces predictive lookup, exposes three immediate results by default, rejects stale request identities, preserves battlefield and Dual Hand Dock context, supports keyboard and modal dismissal, and degrades safely to the embedded local card reference when Scryfall is unavailable. In Live Tracking, selected cards may be added as new stable owner-private objects in `zones.hand`; Add to Hand never casts, enters the stack, reveals the identity, or requests Resolve.
 
 Search presentation never owns gameplay event identity. Confirming a card action records one semantic search action, clears the popup before a critical cast or entry presentation begins, and cannot duplicate a cast, land play, token, counter, or trigger through popup rerendering. Duplicate suppression is scoped to one explicit popup invocation: rapid repeat input is rejected, while closing and deliberately reopening search creates a new valid interaction identity. While casting, resolution, combat, board-wipe, or another protected presentation is active, search opening is deferred or an open search is suspended. Query and selection context may return only after the protected window expires and only when no mandatory decision has superseded it.
 

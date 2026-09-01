@@ -243,7 +243,7 @@ function redactSecrets(key, value) {
 function getAppVersion() {
   return {
     name: "BoardState",
-    version: "1.43.4",
+    version: "1.44.0",
     build: "landscape-presentation-polish-release",
   };
 }

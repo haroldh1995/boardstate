@@ -2,9 +2,16 @@
 
 ## App
 - Name: BoardState
-- Version: 1.43.4
-- Version code: 49
+- Version: 1.44.0
+- Version code: 50
 - Package: `com.boardstate.app`
+
+## Version 1.44.0
+- Retires the infinite rotating command cycle and replaces it with one finite Arena-style ordered Command Hand with rightward depth, press-and-hold inspection, direct reordering, accessible movement actions, and persistent user order.
+- Adds the Dual Hand Dock so Commands and the tracked private Player Hand share one protected bottom footprint while retaining independent presentation and authoritative state.
+- Adds exact-identity tracked Hand actions for Cast, Play Land, Discard, Exile, Library movement, safe Undo, persistence, and Dry Run/Full Control hand reuse.
+- Adds canonical Scryfall Add to Hand with independent duplicate identities, immediate private hand count, no false Cast or Resolve, and protected-animation-aware presentation.
+- Enforces hidden-zone privacy at synchronization boundaries, removes all active wheel clones/wrap/snap paths, and revalidates fixed landscape geometry, notification timing, single Resolve, event idempotence, and mobile hand density.
 
 ## Version 1.43.4
 - Prevents the pending-stack status from covering or intercepting the centered Resolve Command Hand card while retaining an accessible live announcement and the explicit Stack review control.

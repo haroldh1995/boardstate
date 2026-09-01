@@ -71,7 +71,7 @@ test("learning hints are teach-once and interaction records reduce future guidan
 
   profile = dispatch(profile, {
     type: "LEARNING_RECORD_INTERACTION",
-    interactionType: "command-deck-rotate",
+    interactionType: "dual-hand-dock-use",
     featureId: "commandHand",
   });
   assert.ok(profile.onboarding.adaptiveLearning.proficiencyScore > 0);
@@ -89,7 +89,7 @@ test("help catalog, shared preferences, and debug snapshot expose safe learning 
 
   const catalog = createHelpLearningCatalog(profile);
   assert.equal(catalog.version, ONBOARDING_EXPERIENCE_VERSION);
-  assert.ok(catalog.topics.some((topic) => topic.id === "command-deck"));
+  assert.ok(catalog.topics.some((topic) => topic.id === "dual-hand-dock"));
 
   const preferences = createSharedPreferenceSnapshot(profile);
   assert.equal(preferences.learning.onboardingExperienceVersion, ONBOARDING_EXPERIENCE_VERSION);
@@ -123,7 +123,7 @@ test("adaptive guidance responds to selection and undo without mutating gameplay
   };
   profile = dispatch(profile, {
     type: "LEARNING_RECORD_INTERACTION",
-    interactionType: "command-deck-rotate",
+    interactionType: "dual-hand-dock-use",
     featureId: "commandHand",
   });
   profile = dispatch(profile, {

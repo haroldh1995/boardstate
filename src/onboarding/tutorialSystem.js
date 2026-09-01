@@ -839,10 +839,10 @@ export function createHelpLearningCatalog(profile = {}) {
       tokenId: ONBOARDING_TOKEN_IDS.battlefieldFirstUse,
     },
     {
-      id: "command-deck",
-      title: "Rotating Command Deck",
-      summary: "The bottom Action Hand is a circular deck of decisions. Rotate with swipe, wheel, arrows, Q/E, or controller shoulders.",
-      actions: ["Center card is primary", "Pin favorites", "Context cards enter only when legal/relevant"],
+      id: "dual-hand-dock",
+      title: "Commands And Player Hand",
+      summary: "The bottom dock switches between ordered Commands and your private tracked Magic hand without leaving the table.",
+      actions: ["Tap a card to act", "Hold to inspect", "Drag horizontally to reorder", "Use Search to Add to Hand"],
       tokenId: ONBOARDING_TOKEN_IDS.commandHand,
     },
     {
@@ -1301,8 +1301,8 @@ function buildAdaptiveGuidanceCandidates(profile, context, learning) {
       featureId: "commandHand",
       scope: "battlefield",
       priority: LEARNING_HINT_PRIORITIES.gentle,
-      title: "Action Hand",
-      text: "Rotate the Action Hand with swipe, wheel, arrows, Q/E, or controller shoulders. The center card is your current decision.",
+      title: "Dual Hand Dock",
+      text: "Switch between Commands and Hand. Tap to act, hold to inspect, and drag horizontally to keep cards in your preferred order.",
       visible: isFirstSession && !featureCompleted(learning, "commandHand"),
     },
     {

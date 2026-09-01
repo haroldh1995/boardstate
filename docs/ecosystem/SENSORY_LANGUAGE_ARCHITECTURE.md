@@ -60,7 +60,7 @@ Future audio or haptic tuning should modify this token module instead of scatter
 - `data-sensory-priority`
 - `data-sensory-channel`
 
-The battlefield root, Rotating Command Deck, and Action Cards publish presentation metadata only. These attributes do not mutate gameplay state, persist transient presentation state, expose hidden information, alter rules authority, or claim Hub/Lite/Nexus connectivity.
+The battlefield root, Dual Hand Dock, and Hand Cards publish presentation metadata only. These attributes do not mutate gameplay state, persist transient presentation state, expose hidden information, alter rules authority, or claim Hub/Lite/Nexus connectivity.
 
 The existing notification sound and haptic controls remain the opt-in gates for browser feedback. Existing gameplay haptic hooks now route through the same token dispatcher instead of directly calling `navigator.vibrate()`.
 
@@ -103,17 +103,17 @@ Priority order:
 
 When multiple events compete, future systems must prioritize gameplay-critical and Commander events, combine repetitive minor feedback, and suppress decorative sounds before they create sensory clutter.
 
-## Command Deck Sensory Contract
+## Dual Hand Dock Sensory Contract
 
-The Rotating Command Deck publishes and consumes sensory metadata:
+The Dual Hand Dock publishes and consumes sensory metadata:
 
-- Rotation uses `command-deck-rotate` and remains subtle.
+- Reordering, selection, surface toggling, and Add to Hand use the shared sensory token dispatcher and remain subtle.
 - Action Cards resolve their token plan from their existing `id`, `family`, `state`, and priority.
 - Commander cards map to stronger Commander sensory tokens.
 - Combat and stack resolution map to gameplay-priority tokens.
 - Search, rules, reminders, history, notes, calculator, dice, settings, and tablecraft remain quieter UI/contextual feedback.
 
-This preserves the Action Hand as a handled decision system, not a toolbar.
+This preserves the dock as a handled card system, not a toolbar, without coupling private Player Hand identity to utility Commands.
 
 ## Settings And Persistence
 

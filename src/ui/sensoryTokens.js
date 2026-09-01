@@ -17,7 +17,7 @@ export const AUDIO_TOKEN_IDS = Object.freeze({
   search: "search",
   modalOpen: "modal-open",
   modalClose: "modal-close",
-  commandDeckRotate: "command-deck-rotate",
+  handReorder: "hand-reorder",
   ambient: "ambient",
 });
 
@@ -32,7 +32,7 @@ export const HAPTIC_TOKEN_IDS = Object.freeze({
   longPress: "long-press",
   cardPlacement: "card-placement",
   commanderEvent: "commander-event",
-  commandDeckRotate: "command-deck-rotate",
+  handReorder: "hand-reorder",
 });
 
 export const SENSORY_CHANNELS = Object.freeze({
@@ -180,7 +180,7 @@ const AUDIO_TOKENS = Object.freeze({
     durationMs: 86,
     gain: 0.026,
   }),
-  [AUDIO_TOKEN_IDS.commandDeckRotate]: createAudioToken({
+  [AUDIO_TOKEN_IDS.handReorder]: createAudioToken({
     channel: SENSORY_CHANNELS.ui,
     priority: SENSORY_PRIORITY.backgroundFeedback,
     frequencies: [277.18, 311.13],
@@ -207,7 +207,7 @@ const HAPTIC_TOKENS = Object.freeze({
   [HAPTIC_TOKEN_IDS.longPress]: createHapticToken([18, 28, 18], SENSORY_PRIORITY.contextualAction),
   [HAPTIC_TOKEN_IDS.cardPlacement]: createHapticToken([16], SENSORY_PRIORITY.cardInteraction),
   [HAPTIC_TOKEN_IDS.commanderEvent]: createHapticToken([36, 28, 52], SENSORY_PRIORITY.commanderEvent),
-  [HAPTIC_TOKEN_IDS.commandDeckRotate]: createHapticToken([6], SENSORY_PRIORITY.backgroundFeedback),
+  [HAPTIC_TOKEN_IDS.handReorder]: createHapticToken([8], SENSORY_PRIORITY.backgroundFeedback),
 });
 
 export function createAudioTokenSet() {

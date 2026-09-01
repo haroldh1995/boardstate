@@ -4,6 +4,12 @@ import { createOnboardingState } from "../onboarding/tutorialSystem.js";
 import { createLocalSaveCollection } from "./saveState.js";
 import { createEcosystemIntegrationState } from "../ecosystem/ecosystemIntegration.js";
 import { defaultRuntimeEnvironment } from "../platform/runtimeEnvironment.js";
+import {
+  DEFAULT_PERSISTENT_COMMAND_ORDER,
+  DUAL_HAND_MODEL_VERSION,
+  HAND_DOCK_SURFACES,
+  normalizePersistentCommandOrder,
+} from "../gameplay/dualHandModel.js";
 
 const DB_NAME = "boardstate";
 const STORE_NAME = "profiles";
@@ -291,6 +297,22 @@ function loadAuthFallback() {
 
 function normalizeProfile(profile) {
   const defaults = createDefaultProfile();
+  const profileSettings = { ...(profile.settings || {}) };
+  delete profileSettings.commandDeck;
+  const requestedHandSurface = profile.settings?.dualHandDock?.activeSurface;
+  const dualHandDockSettings = {
+    ...defaults.settings.dualHandDock,
+    ...(profile.settings?.dualHandDock || {}),
+    modelVersion: DUAL_HAND_MODEL_VERSION,
+    activeSurface: Object.values(HAND_DOCK_SURFACES).includes(requestedHandSurface)
+      ? requestedHandSurface
+      : HAND_DOCK_SURFACES.commands,
+    commandOrder: normalizePersistentCommandOrder(
+      DEFAULT_PERSISTENT_COMMAND_ORDER,
+      profile.settings?.dualHandDock?.commandOrder || [],
+      profile.settings?.commandDeck?.favoriteIds || [],
+    ),
+  };
   const navigationSettings = normalizeBoardStateNavigationSettings(
     profile.settings?.navigation || {},
     defaults.settings.navigation,
@@ -347,14 +369,14 @@ function normalizeProfile(profile) {
   MANA_COLORS.forEach((color) => {
     manaPool[color] = Number.isFinite(Number(manaPool[color])) ? Math.max(0, Math.floor(Number(manaPool[color]))) : 0;
   });
-  return {
+  const normalized = {
     ...defaults,
     ...profile,
     player: { ...defaults.player, ...(profile.player || {}) },
     onboarding,
     settings: {
       ...defaults.settings,
-      ...(profile.settings || {}),
+      ...profileSettings,
       pagePanels: { ...defaults.settings.pagePanels, ...(profile.settings?.pagePanels || {}) },
       multiplayer: { ...defaults.settings.multiplayer, ...(profile.settings?.multiplayer || {}) },
       battlefield: { ...defaults.settings.battlefield, ...(profile.settings?.battlefield || {}) },
@@ -370,7 +392,7 @@ function normalizeProfile(profile) {
       rulesAssistant: { ...defaults.settings.rulesAssistant, ...(profile.settings?.rulesAssistant || {}) },
       remindMe: { ...defaults.settings.remindMe, ...(profile.settings?.remindMe || {}) },
       aiGameplay: { ...defaults.settings.aiGameplay, ...(profile.settings?.aiGameplay || {}) },
-      commandDeck: { ...defaults.settings.commandDeck, ...(profile.settings?.commandDeck || {}) },
+      dualHandDock: dualHandDockSettings,
       learning: { ...defaults.settings.learning, ...(profile.settings?.learning || {}) },
       assistance: { ...defaults.settings.assistance, ...(profile.settings?.assistance || {}) },
       ecosystem: { ...defaults.settings.ecosystem, ...(profile.settings?.ecosystem || {}) },

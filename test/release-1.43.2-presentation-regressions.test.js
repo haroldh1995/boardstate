@@ -104,7 +104,7 @@ test("battlefield card art remains unobscured and phone landscape cards use avai
   assert.match(styles, /height:\s*min\(100%,\s*calc\(var\(--tabletop-card-width\) \* 1\.4\)\)/);
   assert.match(styles, /--game-command-hand-space:\s*calc\(clamp\(8\.28rem,\s*20\.8svh,\s*10\.86rem\)/);
   assert.match(styles, /will-change:\s*auto/);
-  assert.match(styles, /command-deck\.is-dragging \.action-card[\s\S]*?transition:\s*none/);
+  assert.match(styles, /dual-hand-card\.is-dragging[\s\S]*?transition:\s*none/);
   assert.match(styles, /boardstate-notification-exit 180ms/);
   assert.match(styles, /animation:\s*cast-presentation var\(--card-presentation-duration, 560ms\)/);
   assert.match(styles, /\.app-shell\.app-shell--battlefield\s*\{[\s\S]*?grid-template-rows:\s*minmax\(0, 1fr\)/);

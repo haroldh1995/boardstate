@@ -1,14 +1,16 @@
 import { CANONICAL_BATTLEFIELD_GEOMETRY_VERSION } from "./battlefieldGeometry.js";
 import { CANONICAL_CARD_LIFECYCLE_VERSION } from "./cardLifecycle.js";
 import { CANONICAL_GAMEPLAY_ARCHITECTURE_VERSION } from "./canonicalGameplay.js";
+import { CANONICAL_INPUT_INTENT_VERSION } from "./inputIntent.js";
 import {
-  CANONICAL_INPUT_INTENT_VERSION,
-  resolveCommandHandVisualCloneIdentity,
-  validateCommandHandFocusState,
-} from "./inputIntent.js";
+  DUAL_HAND_MODEL_VERSION,
+  HAND_DOCK_SURFACES,
+  normalizePersistentCommandOrder,
+  validateArenaHandContinuity,
+} from "./dualHandModel.js";
 
-export const CANONICAL_GAMEPLAY_BASELINE_ID = "boardstate-13.2.6-locked-baseline";
-export const CANONICAL_GAMEPLAY_LOCKDOWN_VERSION = "boardstate-gameplay-architecture-lock-13.2.6-part6";
+export const CANONICAL_GAMEPLAY_BASELINE_ID = "boardstate-dual-hand-post-completion-baseline";
+export const CANONICAL_GAMEPLAY_LOCKDOWN_VERSION = "boardstate-gameplay-architecture-lock-dual-hand-1.0.0";
 
 export const LOCKDOWN_CANONICAL_GAMEPLAY_LAWS = Object.freeze([
   law(1, "BoardState gameplay is spatial"),
@@ -27,14 +29,14 @@ export const LOCKDOWN_CANONICAL_GAMEPLAY_LAWS = Object.freeze([
   law(14, "Opponent arrows are reliable"),
   law(15, "Opponent order is stable"),
   law(16, "Command Hand is a TCG hand"),
-  law(17, "Exactly one command is focused"),
-  law(18, "Center means front"),
-  law(19, "Command focus has one source of truth"),
-  law(20, "Command Hand movement is free during input"),
-  law(21, "Command Hand snaps after motion"),
-  law(22, "Command Hand is circular"),
-  law(23, "Visual clones are not gameplay objects"),
-  law(24, "Contextual commands are temporary"),
+  law(17, "Dual Hand Dock shares one protected footprint"),
+  law(18, "Command Hand is one ordered overlapping fan"),
+  law(19, "Rightmost resting command is frontmost"),
+  law(20, "Command order belongs to the player"),
+  law(21, "Tracked Player Hand is authoritative hidden-zone state"),
+  law(22, "Commands and Magic cards remain separate object types"),
+  law(23, "Hand gestures have deterministic semantic ownership"),
+  law(24, "Contextual commands are temporary and front-visible"),
   law(25, "Live Tracking prioritizes speed"),
   law(26, "One Resolve by default"),
   law(27, "Deterministic consequences are automatic"),
@@ -67,10 +69,12 @@ export const ARCHITECTURE_RESPONSIBILITY_MAP = Object.freeze({
   opponentNavigation: ["src/gameplay/inputIntent.js", "src/ui/landscapeBattlefield.js", "src/ui/render.js"],
   gestureIntent: ["src/gameplay/inputIntent.js"],
   gestureOwnership: ["src/gameplay/inputIntent.js", "src/gameplay/battlefieldGeometry.js", "src/ui/render.js"],
-  commandHandCanonicalFocus: ["src/gameplay/commandDeckModel.js", "src/gameplay/inputIntent.js", "src/ui/render.js"],
-  commandHandGeometry: ["src/gameplay/commandDeckModel.js", "src/styles.css"],
-  commandHandZOrder: ["src/gameplay/commandDeckModel.js", "src/gameplay/inputIntent.js", "src/ui/render.js"],
-  commandHandInfiniteRotation: ["src/gameplay/commandDeckModel.js", "src/ui/render.js"],
+  dualHandDock: ["src/gameplay/dualHandModel.js", "src/ui/render.js", "src/styles.css"],
+  commandHandOrdering: ["src/gameplay/dualHandModel.js", "src/state/schema.js", "src/ui/render.js"],
+  commandHandGeometry: ["src/gameplay/dualHandModel.js", "src/styles.css"],
+  commandHandZOrder: ["src/gameplay/dualHandModel.js", "src/ui/render.js"],
+  playerHandAuthoritativeState: ["src/gameplay/dualHandModel.js", "src/state/gameReducer.js", "src/effects/effectEngine.js"],
+  playerHandPrivacy: ["src/gameplay/dualHandModel.js", "src/shared-contracts/adapters.js"],
   commandHandContextualCommands: ["src/ui/render.js", "src/gameplay/cardLifecycle.js"],
   cardLifecycle: ["src/gameplay/cardLifecycle.js", "src/effects/effectEngine.js", "src/state/gameReducer.js"],
   stack: ["src/gameplay/cardLifecycle.js", "src/effects/effectEngine.js", "src/state/schema.js"],
@@ -212,36 +216,29 @@ export function validateArchitectureLockdownBaseline(baseline = createArchitectu
 }
 
 export function validateCommandHandLockdown(entries = [], options = {}) {
-  const focusValidation = validateCommandHandFocusState(entries);
-  const issues = [...focusValidation.issues];
-  const stableRest = options.stableRest !== false;
-  if (stableRest && !focusValidation.valid) issues.push("command-hand-stable-rest-invalid");
-  if (stableRest && focusValidation.focusedId !== focusValidation.centeredId) issues.push("focused-command-must-equal-center");
-  if (stableRest && focusValidation.focusedId !== focusValidation.topZOrderId) issues.push("focused-command-must-own-top-depth");
-  if (stableRest && focusValidation.focusedId !== focusValidation.topHitTestId) issues.push("focused-command-must-own-hit-testing");
-
-  const clones = (entries || []).filter((entry) => entry?.visualId || entry?.cloneId || entry?.isClone);
-  for (const clone of clones) {
-    const identity = resolveCommandHandVisualCloneIdentity(clone);
-    if (!identity.canonicalCommandId || identity.createsIndependentCommand) {
-      issues.push(`invalid-visual-clone:${identity.visualId || "unknown"}`);
-    }
-  }
-
+  const continuity = validateArenaHandContinuity({
+    version: DUAL_HAND_MODEL_VERSION,
+    circular: false,
+    clones: false,
+    cardWidth: options.cardWidth || 116,
+    exposurePx: options.exposurePx || 48,
+    entries,
+  });
+  const issues = [...continuity.issues];
   const persistentOrder = normalizeStringArray(options.persistentCommandIds);
   const finalPersistentOrder = normalizeStringArray(options.finalPersistentCommandIds || options.persistentCommandIds);
-  if (persistentOrder.length && stableSignature(persistentOrder) !== stableSignature(finalPersistentOrder)) {
+  if (options.contextualCommandsRemoved && persistentOrder.length && stableSignature(persistentOrder) !== stableSignature(finalPersistentOrder)) {
     issues.push("contextual-command-corrupted-persistent-order");
   }
+  if (entries.some((entry) => entry.isClone || entry.cloneId || entry.visualClone)) issues.push("retired-command-clones-forbidden");
+  if (entries.some((entry) => entry.centered || entry.isCenter || entry.snapTarget)) issues.push("retired-command-center-snap-forbidden");
 
   return {
     version: CANONICAL_GAMEPLAY_LOCKDOWN_VERSION,
     baselineId: CANONICAL_GAMEPLAY_BASELINE_ID,
     valid: issues.length === 0,
-    focusedId: focusValidation.focusedId,
-    centeredId: focusValidation.centeredId,
-    topZOrderId: focusValidation.topZOrderId,
-    topHitTestId: focusValidation.topHitTestId,
+    continuous: continuity.continuous,
+    rightmostFrontmost: !issues.some((issue) => issue.includes("rightmost") || issue.includes("rightward-depth")),
     issues: uniqueStrings(issues),
   };
 }
@@ -333,12 +330,14 @@ export function validatePresentationStateMutation(beforeAuthoritative = {}, afte
 
 export function normalizeRestoredPresentationState(input = {}, context = {}) {
   const primaryCommandIds = normalizeStringArray(context.primaryCommandIds || input.primaryCommandIds || []);
-  const contextualCommandIds = normalizeStringArray(context.contextualCommandIds || input.contextualCommandIds || []);
-  const validCommandIds = [...primaryCommandIds, ...contextualCommandIds];
-  const requestedFocus = String(input.commandFocusId || input.focusedCommandId || "");
-  const commandFocusId = validCommandIds.includes(requestedFocus)
-    ? requestedFocus
-    : primaryCommandIds[0] || contextualCommandIds[0] || "";
+  const commandOrder = normalizePersistentCommandOrder(
+    primaryCommandIds,
+    input.commandOrder || input.persistentCommandIds || [],
+    input.favoriteIds || [],
+  );
+  const activeHandSurface = Object.values(HAND_DOCK_SURFACES).includes(input.activeHandSurface)
+    ? input.activeHandSurface
+    : HAND_DOCK_SURFACES.commands;
   const opponents = normalizeStringArray(context.opponentIds || input.opponentIds || []);
   const requestedOpponent = String(input.opponentFocusId || input.focusedOpponentId || "");
   const opponentFocusId = opponents.includes(requestedOpponent) ? requestedOpponent : opponents[0] || "";
@@ -348,8 +347,9 @@ export function normalizeRestoredPresentationState(input = {}, context = {}) {
     baselineId: CANONICAL_GAMEPLAY_BASELINE_ID,
     presentationOnly: true,
     mutatesAuthoritativeState: false,
-    commandFocusId,
-    commandFocusValid: Boolean(commandFocusId),
+    activeHandSurface,
+    commandOrder,
+    commandOrderValid: commandOrder.length === primaryCommandIds.length,
     opponentFocusId,
     opponentFocusValid: !opponents.length || opponents.includes(opponentFocusId),
     zoneScrollPositions: normalizeNumberRecord(input.zoneScrollPositions || {}),
@@ -370,7 +370,8 @@ export function normalizeRestoredPresentationState(input = {}, context = {}) {
 
 export function validateRestoredPresentationState(restored = {}) {
   const issues = [];
-  if (!restored.commandFocusValid || !restored.commandFocusId) issues.push("restore-requires-valid-command-focus");
+  if (!restored.commandOrderValid) issues.push("restore-requires-valid-command-order");
+  if (!Object.values(HAND_DOCK_SURFACES).includes(restored.activeHandSurface)) issues.push("restore-requires-valid-hand-surface");
   if (restored.opponentFocusValid === false) issues.push("restore-requires-valid-opponent-focus");
   if (restored.activeDrag) issues.push("restore-must-clear-active-drag");
   if (restored.activeGesture) issues.push("restore-must-clear-active-gesture");

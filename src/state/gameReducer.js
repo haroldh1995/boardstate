@@ -159,6 +159,10 @@ import {
   createAiMemoryState,
 } from "../authoritative-core/aiGameplayEngine.js";
 import {
+  createTrackedHandCard,
+  reorderOrderedIds,
+} from "../gameplay/dualHandModel.js";
+import {
   acknowledgeEcosystemSync,
   applySharedPreferencePatch,
   createEcosystemIntegrationState,
@@ -686,6 +690,18 @@ export function reduceProfile(profile, event) {
     case "ADVANCE_PHASE":
       nextProfile = withSession(baseProfile, advancePhase(withRuntimeSettings(baseProfile.activeSession, baseProfile.settings), baseProfile.settings?.multiplayer || {}));
       break;
+    case "ADD_CARD_TO_HAND":
+      nextProfile = withSession(baseProfile, addCardToTrackedHand(baseProfile.activeSession, event.card || {}, event));
+      break;
+    case "REORDER_PLAYER_HAND":
+      nextProfile = withSession(baseProfile, reorderTrackedPlayerHand(baseProfile.activeSession, event));
+      break;
+    case "MOVE_HAND_CARD":
+      nextProfile = withSession(baseProfile, moveTrackedHandCard(baseProfile.activeSession, event));
+      break;
+    case "RETURN_CARD_TO_HAND":
+      nextProfile = withSession(baseProfile, returnTrackedCardToHand(baseProfile.activeSession, event));
+      break;
     case "PLAY_LAND":
       nextProfile = playLand(baseProfile, event);
       break;
@@ -1059,7 +1075,10 @@ function playLand(profile, event = {}) {
     controller,
     turn: profile.activeSession.turn,
   });
-  const added = addPermanent(profile, event.card, controller);
+  const sourceProfile = event.sourceZone === "hand"
+    ? withSession(profile, removeTrackedCardFromZone(profile.activeSession, "hand", event.card || {}))
+    : profile;
+  const added = addPermanent(sourceProfile, event.card, controller);
   const tracked = recordLandPlay(added.activeSession, event.card, { controller, eventId });
   return withSession(added, {
     ...tracked,
@@ -1076,6 +1095,141 @@ function playLand(profile, event = {}) {
       ...(tracked.effectLog || []),
     ].slice(0, 180),
   });
+}
+
+function addCardToTrackedHand(session = {}, card = {}, event = {}) {
+  const tracked = createTrackedHandCard(card, {
+    id: event.cardInstanceId || event.id || "",
+    owner: event.owner || card.owner || "player",
+    controller: event.controller || card.controller || event.owner || "player",
+    trackedAt: event.timestamp || Date.now(),
+  });
+  const handEntryEventId = event.eventId || createGameplayEventIdentity(GAMEPLAY_EVENT_TYPES.zoneChange, {
+    objectId: tracked.cardInstanceId,
+    card: tracked,
+    controller: tracked.controller,
+    fromZone: event.sourceZone || "untracked",
+    toZone: "hand",
+  });
+  const handCard = { ...tracked, handEntryEventId };
+  return {
+    ...session,
+    zones: {
+      ...(session.zones || {}),
+      hand: [...(session.zones?.hand || []), handCard],
+    },
+    privateHistory: [
+      {
+        id: handEntryEventId,
+        eventType: "CARD_ADDED_TO_TRACKED_HAND",
+        cardInstanceId: handCard.cardInstanceId,
+        cardName: handCard.name || "Unknown card",
+        fromZone: event.sourceZone || "untracked",
+        toZone: "hand",
+        privacy: "owner-only",
+        at: Date.now(),
+      },
+      ...(session.privateHistory || []),
+    ].slice(0, 300),
+    effectLog: [
+      {
+        id: createId("effect"),
+        source: "Private hand",
+        summary: "A card was added to the local tracked hand.",
+        confidence: RULES_CONFIDENCE.AUTO_RESOLVED,
+        privacy: "count-only",
+        at: Date.now(),
+      },
+      ...(session.effectLog || []),
+    ].slice(0, 180),
+  };
+}
+
+function reorderTrackedPlayerHand(session = {}, event = {}) {
+  const hand = [...(session.zones?.hand || [])];
+  const ids = hand.map((card) => card.cardInstanceId || card.id).filter(Boolean);
+  const targetIndex = Number.isFinite(Number(event.targetIndex))
+    ? Number(event.targetIndex)
+    : ids.indexOf(String(event.beforeCardId || ""));
+  const orderedIds = reorderOrderedIds(ids, event.cardInstanceId || event.id, targetIndex < 0 ? ids.length - 1 : targetIndex);
+  const byId = new Map(hand.map((card) => [card.cardInstanceId || card.id, card]));
+  return {
+    ...session,
+    zones: {
+      ...(session.zones || {}),
+      hand: orderedIds.map((id) => byId.get(id)).filter(Boolean),
+    },
+  };
+}
+
+function moveTrackedHandCard(session = {}, event = {}) {
+  const toZone = String(event.toZone || "graveyard");
+  if (!["graveyard", "exile", "library", "command"].includes(toZone)) return session;
+  const hand = [...(session.zones?.hand || [])];
+  const cardInstanceId = String(event.cardInstanceId || event.id || event.card?.cardInstanceId || event.card?.id || "");
+  const index = hand.findIndex((card) => (card.cardInstanceId || card.id) === cardInstanceId);
+  if (index < 0) return session;
+  const [card] = hand.splice(index, 1);
+  const moved = { ...card, zone: toZone, controller: card.owner || card.controller || "player" };
+  const transitionEventId = event.eventId || createGameplayEventIdentity(GAMEPLAY_EVENT_TYPES.zoneChange, {
+    objectId: cardInstanceId,
+    card: moved,
+    controller: moved.controller,
+    fromZone: "hand",
+    toZone,
+  });
+  return {
+    ...session,
+    zones: {
+      ...(session.zones || {}),
+      hand,
+      [toZone]: [...(session.zones?.[toZone] || []), moved],
+    },
+    privateHistory: [
+      {
+        id: transitionEventId,
+        eventType: "PRIVATE_HAND_ZONE_CHANGE",
+        cardInstanceId,
+        cardName: card.name || "Unknown card",
+        fromZone: "hand",
+        toZone,
+        privacy: "owner-only",
+        at: Date.now(),
+      },
+      ...(session.privateHistory || []),
+    ].slice(0, 300),
+  };
+}
+
+function returnTrackedCardToHand(session = {}, event = {}) {
+  const fromZone = String(event.fromZone || "graveyard");
+  if (!["graveyard", "exile", "library", "command"].includes(fromZone)) return session;
+  const zone = [...(session.zones?.[fromZone] || [])];
+  const cardInstanceId = String(event.cardInstanceId || event.id || event.card?.cardInstanceId || event.card?.id || "");
+  const index = zone.findIndex((card) => (card.cardInstanceId || card.id) === cardInstanceId);
+  if (index < 0) return session;
+  const [card] = zone.splice(index, 1);
+  return addCardToTrackedHand({
+    ...session,
+    zones: { ...(session.zones || {}), [fromZone]: zone },
+  }, { ...card, zone: "hand" }, {
+    ...event,
+    id: cardInstanceId,
+    sourceZone: fromZone,
+  });
+}
+
+function removeTrackedCardFromZone(session = {}, zoneName = "hand", card = {}) {
+  const zone = [...(session.zones?.[zoneName] || [])];
+  const instanceId = String(card.cardInstanceId || card.id || "");
+  const index = instanceId
+    ? zone.findIndex((entry) => (entry.cardInstanceId || entry.id) === instanceId)
+    : zone.findIndex((entry) => entry.cardId === card.cardId || entry.name === card.name);
+  if (index >= 0) zone.splice(index, 1);
+  return {
+    ...session,
+    zones: { ...(session.zones || {}), [zoneName]: zone },
+  };
 }
 
 function emitPermanentEntryTriggerEvents(session, permanent, { instances = 1, cause = "effect", chainId = createId("chain") } = {}) {

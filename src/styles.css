@@ -648,6 +648,386 @@ body:not(.boardstate-app-ready) #app {
   }
 }
 
+/* Canonical post-completion Dual Hand Dock. Commands and private cards share
+   geometry, but never state or gameplay identity. */
+body[data-page="battlefield"] .dual-hand-dock {
+  --dual-hand-card-width: clamp(6.75rem, 10.4vw, 8.75rem);
+  --dual-hand-card-height: calc(var(--dual-hand-card-width) * 1.4);
+  position: fixed;
+  left: 50%;
+  bottom: max(0.35rem, env(safe-area-inset-bottom));
+  z-index: 46;
+  width: min(94vw, 72rem);
+  height: min(31svh, 15.75rem);
+  min-height: 10.5rem;
+  transform: translateX(-50%);
+  isolation: isolate;
+  pointer-events: none;
+  transition: transform 180ms cubic-bezier(0.2, 0.72, 0.2, 1), opacity 160ms ease;
+}
+
+body[data-page="battlefield"] .dual-hand-dock::before {
+  content: "";
+  position: absolute;
+  inset: auto 7% 0.1rem;
+  height: 42%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(6, 5, 13, 0.82), rgba(6, 5, 13, 0) 70%);
+  filter: blur(8px);
+  pointer-events: none;
+}
+
+body[data-page="battlefield"] .dual-hand-dock.is-yielding {
+  transform: translate(-50%, 68%);
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+body[data-page="battlefield"] .dual-hand-dock__toggle {
+  position: absolute;
+  left: 0;
+  bottom: max(0.15rem, env(safe-area-inset-bottom));
+  z-index: 2400;
+  display: grid;
+  gap: 0.16rem;
+  padding: 0.22rem;
+  border: 1px solid rgba(236, 200, 122, 0.42);
+  border-radius: 0.7rem;
+  background: linear-gradient(145deg, rgba(20, 17, 30, 0.96), rgba(5, 6, 13, 0.98));
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 243, 199, 0.12);
+  pointer-events: auto;
+}
+
+body[data-page="battlefield"] .dual-hand-dock__toggle button {
+  min-width: 5.2rem;
+  min-height: 2.5rem;
+  padding: 0.42rem 0.62rem;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  color: rgba(238, 229, 206, 0.76);
+  background: transparent;
+  font: 700 0.66rem/1 "Cinzel", Georgia, serif;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+body[data-page="battlefield"] .dual-hand-dock__toggle button.is-active {
+  border-color: rgba(255, 222, 137, 0.74);
+  color: #fff3c8;
+  background: linear-gradient(145deg, rgba(121, 88, 37, 0.82), rgba(47, 33, 20, 0.92));
+  box-shadow: inset 0 1px 0 rgba(255, 247, 216, 0.24), 0 0 18px rgba(236, 200, 122, 0.16);
+}
+
+body[data-page="battlefield"] .dual-hand-dock__toggle span {
+  display: inline-grid;
+  min-width: 1.25rem;
+  min-height: 1.25rem;
+  place-items: center;
+  margin-left: 0.22rem;
+  border-radius: 999px;
+  color: #140f0b;
+  background: #e9c978;
+}
+
+body[data-page="battlefield"] .dual-hand-dock__queue,
+body[data-page="battlefield"] .dual-hand-dock__decision-note {
+  position: absolute;
+  right: 0;
+  z-index: 2300;
+  max-width: 15rem;
+  margin: 0;
+  border: 1px solid rgba(236, 200, 122, 0.42);
+  border-radius: 999px;
+  color: #f5e9c7;
+  background: rgba(9, 8, 17, 0.92);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.34);
+  font-size: 0.68rem;
+  pointer-events: none;
+}
+
+body[data-page="battlefield"] .dual-hand-dock__queue {
+  bottom: 0.35rem;
+  padding: 0.4rem 0.72rem;
+}
+
+body[data-page="battlefield"] .dual-hand-dock__decision-note {
+  bottom: 2.55rem;
+  padding: 0.5rem 0.75rem;
+}
+
+body[data-page="battlefield"] .dual-hand-dock__surface {
+  position: absolute;
+  inset: 0 6rem 0 6rem;
+  overflow-x: auto;
+  overflow-y: visible;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  touch-action: pan-x;
+  pointer-events: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+body[data-page="battlefield"] .dual-hand-dock__surface::-webkit-scrollbar {
+  display: none;
+}
+
+body[data-page="battlefield"] .dual-hand-dock__fan {
+  position: relative;
+  width: max(100%, var(--hand-content-width, 100%));
+  min-width: var(--hand-content-width, 100%);
+  height: 100%;
+  contain: layout style;
+}
+
+body[data-page="battlefield"] .dual-hand-card {
+  position: absolute;
+  left: var(--hand-left, 0px);
+  bottom: 0.25rem;
+  z-index: var(--hand-z-index, 100);
+  width: var(--dual-hand-card-width);
+  height: var(--dual-hand-card-height);
+  margin: 0;
+  transform:
+    translate3d(var(--hand-drag-x, 0px), calc(var(--hand-drop, 0px) - var(--hand-lift, 0px) - var(--hand-cast-lift, 0px)), 0)
+    rotate(var(--hand-angle, 0deg))
+    scale(var(--hand-scale, 1));
+  transform-origin: 50% 122%;
+  backface-visibility: hidden;
+  will-change: transform;
+  transition:
+    left 170ms cubic-bezier(0.2, 0.72, 0.2, 1),
+    transform 170ms cubic-bezier(0.2, 0.72, 0.2, 1),
+    box-shadow 140ms ease,
+    filter 140ms ease,
+    opacity 140ms ease;
+  touch-action: none;
+  cursor: grab;
+}
+
+body[data-page="battlefield"] .dual-hand-card:hover,
+body[data-page="battlefield"] .dual-hand-card:focus-visible,
+body[data-page="battlefield"] .dual-hand-card.is-selected,
+body[data-page="battlefield"] .dual-hand-card.is-inspected {
+  z-index: 2200;
+  --hand-lift: 2.45rem;
+  --hand-scale: 1.1;
+  outline: none;
+  filter: saturate(1.08) brightness(1.04);
+}
+
+body[data-page="battlefield"] .dual-hand-card:focus-visible {
+  box-shadow: 0 0 0 3px rgba(143, 211, 255, 0.88), 0 22px 42px rgba(0, 0, 0, 0.58);
+}
+
+body[data-page="battlefield"] .dual-hand-card.is-dragging,
+body[data-page="battlefield"] .dual-hand-card.is-cast-dragging {
+  z-index: 2600;
+  transition: none;
+  cursor: grabbing;
+  filter: saturate(1.12) brightness(1.07);
+}
+
+body[data-page="battlefield"] .dual-hand-card.is-drop-target {
+  filter: brightness(1.16) drop-shadow(0 0 12px rgba(143, 211, 255, 0.72));
+}
+
+body[data-page="battlefield"] .dual-hand-dock .action-card {
+  --hand-prominence: 0.5;
+  --action-card-width: var(--dual-hand-card-width);
+  --action-card-height: var(--dual-hand-card-height);
+  bottom: 0.25rem;
+  left: var(--hand-left, 0px);
+  width: var(--dual-hand-card-width);
+  height: var(--dual-hand-card-height);
+  transform:
+    translate3d(var(--hand-drag-x, 0px), calc(var(--hand-drop, 0px) - var(--hand-lift, 0px)), 0)
+    rotate(var(--hand-angle, 0deg))
+    scale(var(--hand-scale, 1));
+  transform-origin: 50% 122%;
+}
+
+body[data-page="battlefield"] .dual-hand-dock .action-card__intent {
+  display: none;
+}
+
+body[data-page="battlefield"] .dual-hand-dock .action-card:hover .action-card__intent,
+body[data-page="battlefield"] .dual-hand-dock .action-card:focus-visible .action-card__intent,
+body[data-page="battlefield"] .dual-hand-dock .action-card.is-inspected .action-card__intent {
+  display: block;
+  height: auto;
+  opacity: 1;
+}
+
+body[data-page="battlefield"] .player-hand-card {
+  overflow: hidden;
+  padding: 0;
+  border: 2px solid rgba(18, 14, 13, 0.98);
+  border-radius: clamp(0.48rem, 0.85vw, 0.7rem);
+  color: #f7edcf;
+  background: linear-gradient(160deg, #26212b, #07070c);
+  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.5), inset 0 0 0 2px rgba(231, 203, 138, 0.16);
+  text-align: left;
+}
+
+body[data-page="battlefield"] .player-hand-card__art {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(180deg, transparent 66%, rgba(2, 2, 5, 0.84) 92%),
+    var(--card-image, radial-gradient(circle at 50% 28%, rgba(141, 106, 188, 0.66), rgba(16, 12, 23, 0.96)));
+  background-position: center;
+  background-size: cover;
+}
+
+body[data-page="battlefield"] .player-hand-card__fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: start;
+  gap: 0.32rem;
+  padding: 0.62rem;
+  background: linear-gradient(180deg, rgba(244, 226, 183, 0.96), rgba(161, 137, 101, 0.96));
+  color: #211711;
+}
+
+body[data-page="battlefield"] .player-hand-card.has-card-art .player-hand-card__fallback {
+  display: none;
+}
+
+body[data-page="battlefield"] .player-hand-card__fallback strong {
+  font: 700 0.72rem/1.05 "Cinzel", Georgia, serif;
+}
+
+body[data-page="battlefield"] .player-hand-card__fallback small,
+body[data-page="battlefield"] .player-hand-card__fallback span {
+  font-size: 0.56rem;
+  line-height: 1.2;
+}
+
+body[data-page="battlefield"] .player-hand-card__name {
+  position: absolute;
+  inset: auto 0.42rem 0.38rem;
+  overflow: hidden;
+  color: #fff5d8;
+  font: 700 0.66rem/1.12 "Cinzel", Georgia, serif;
+  text-shadow: 0 2px 5px #000;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-page="battlefield"] .player-hand-card.is-entering-hand {
+  animation: dual-hand-card-entry 280ms cubic-bezier(0.2, 0.72, 0.2, 1) both;
+}
+
+body[data-page="battlefield"] .dual-hand-dock__actions {
+  position: absolute;
+  left: 50%;
+  bottom: 0.12rem;
+  z-index: 2700;
+  display: flex;
+  max-width: min(82vw, 54rem);
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.42rem;
+  overflow-x: auto;
+  border: 1px solid rgba(236, 200, 122, 0.44);
+  border-radius: 0.65rem;
+  background: rgba(7, 7, 13, 0.94);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+  transform: translateX(-50%);
+  pointer-events: auto;
+  scrollbar-width: none;
+}
+
+body[data-page="battlefield"] .dual-hand-dock__actions strong {
+  max-width: 9rem;
+  overflow: hidden;
+  padding: 0 0.35rem;
+  color: #f4e6bd;
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-page="battlefield"] .dual-hand-dock__actions button,
+body[data-page="battlefield"] .dual-hand-dock__empty button {
+  min-height: 2.25rem;
+  flex: 0 0 auto;
+  padding: 0.38rem 0.64rem;
+  border: 1px solid rgba(236, 200, 122, 0.38);
+  border-radius: 0.45rem;
+  color: #f7edcf;
+  background: linear-gradient(145deg, rgba(75, 53, 32, 0.96), rgba(22, 17, 21, 0.98));
+  font-size: 0.64rem;
+}
+
+body[data-page="battlefield"] .dual-hand-dock__reorder-actions {
+  display: flex;
+  gap: 0.2rem;
+}
+
+body[data-page="battlefield"] .dual-hand-dock__empty {
+  position: absolute;
+  inset: auto 50% 1.25rem auto;
+  display: grid;
+  min-width: min(78vw, 24rem);
+  justify-items: center;
+  gap: 0.42rem;
+  padding: 1rem 1.2rem;
+  border: 1px dashed rgba(236, 200, 122, 0.44);
+  border-radius: 1rem;
+  color: rgba(241, 232, 208, 0.78);
+  background: rgba(8, 7, 14, 0.78);
+  transform: translateX(50%);
+}
+
+body[data-page="battlefield"] .dual-hand-dock__empty strong {
+  color: #fff1c4;
+}
+
+@keyframes dual-hand-card-entry {
+  from { opacity: 0; transform: translate3d(3.5rem, 4rem, 0) rotate(8deg) scale(0.82); }
+  to { opacity: 1; transform: translate3d(0, calc(var(--hand-drop, 0px) - var(--hand-lift, 0px)), 0) rotate(var(--hand-angle, 0deg)) scale(var(--hand-scale, 1)); }
+}
+
+@media (orientation: landscape) and (max-height: 560px) {
+  body[data-page="battlefield"] .dual-hand-dock {
+    --dual-hand-card-width: clamp(4.45rem, 9.5vw, 5rem);
+    width: 98vw;
+    height: 7.25rem;
+    min-height: 7.25rem;
+  }
+
+  body[data-page="battlefield"] .dual-hand-dock__surface {
+    inset-inline: 4.5rem;
+  }
+
+  body[data-page="battlefield"] .dual-hand-dock__toggle button {
+    min-width: 4.25rem;
+    min-height: 2.25rem;
+    padding-inline: 0.38rem;
+    font-size: 0.56rem;
+  }
+
+  body[data-page="battlefield"] .dual-hand-dock__queue,
+  body[data-page="battlefield"] .dual-hand-dock__decision-note {
+    display: none;
+  }
+
+  body[data-page="battlefield"] .dual-hand-dock__actions {
+    max-width: 78vw;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-page="battlefield"] .dual-hand-dock,
+  body[data-page="battlefield"] .dual-hand-card,
+  body[data-page="battlefield"] .player-hand-card.is-entering-hand {
+    animation: none !important;
+    transition-duration: 1ms !important;
+  }
+}
+
 /* Keep the event-ready Arena rows authoritative over legacy wide column grouping. */
 body[data-composition="widescreen"] .battlefield-groups {
   grid-auto-flow: row;
@@ -8519,7 +8899,7 @@ body[data-page="battlefield"] .landscape-command-center,
 body[data-page="battlefield"] .landscape-selected-card,
 body[data-page="battlefield"] .landscape-stack-core,
 body[data-page="battlefield"] .gameplay-context-dock,
-body[data-page="battlefield"] .commander-action-hand,
+body[data-page="battlefield"] .dual-hand-dock,
 body[data-page="battlefield"] .opponent-carousel {
   transition:
     transform var(--battlefield-motion-standard) var(--battlefield-motion-ease),
@@ -8898,7 +9278,7 @@ body[data-page="battlefield"] .motion-none {
   body[data-page="battlefield"] .landscape-stack-core.is-active,
   body[data-page="battlefield"] .landscape-floating-notices small,
   body[data-page="battlefield"] .gameplay-context-dock,
-  body[data-page="battlefield"] .commander-action-hand,
+  body[data-page="battlefield"] .dual-hand-dock,
   body[data-page="battlefield"] .action-card,
   body[data-page="battlefield"] .card-presentation,
   body[data-page="battlefield"] .motion-reduced *,
@@ -8964,100 +9344,13 @@ body[data-page="battlefield"] .motion-none {
 
 }
 
-/* Prompt 12.3C: Commander Action Hand replaces the prior HUD exploration with a living hand of decisions. */
+/* The Dual Hand Dock reserves a stable protected footprint above the bottom safe area. */
 body[data-page="battlefield"] .battlefield-page {
   padding-bottom: calc(7.2rem + env(safe-area-inset-bottom));
 }
 
 body[data-page="battlefield"] .gameplay-context-dock {
   bottom: calc(max(12px, env(safe-area-inset-bottom)) + 7.65rem);
-}
-
-.commander-action-hand {
-  --action-hand-gold: rgba(236, 200, 122, 0.92);
-  --action-hand-cyan: rgba(143, 211, 255, 0.78);
-  --action-card-width: clamp(5.34rem, 7.42vw, 6.96rem);
-  --action-card-height: clamp(7.62rem, 17.35svh, 9.96rem);
-  position: fixed;
-  right: auto;
-  bottom: max(0.18rem, env(safe-area-inset-bottom));
-  left: 50%;
-  z-index: 126;
-  width: min(58rem, calc(100vw - 1.2rem));
-  min-height: clamp(8.38rem, 20.4svh, 10.88rem);
-  display: grid;
-  place-items: end center;
-  padding: 0.32rem clamp(0.35rem, 1vw, 0.85rem) 0.3rem;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  pointer-events: auto;
-  transform: translateX(-50%);
-  perspective: 1100px;
-  isolation: isolate;
-  contain: layout paint style;
-  touch-action: none;
-}
-
-.commander-action-hand__aura {
-  position: absolute;
-  inset: auto 9% 0.02rem;
-  height: clamp(4.1rem, 8.6svh, 5.8rem);
-  border-radius: 50% 50% 1.4rem 1.4rem / 100% 100% 1.1rem 1.1rem;
-  background:
-    radial-gradient(ellipse at 50% 4%, rgba(255, 229, 150, 0.22), transparent 30%),
-    radial-gradient(ellipse at 50% 96%, rgba(126, 63, 255, 0.22), transparent 58%),
-    linear-gradient(90deg, transparent, rgba(9, 7, 24, 0.58) 22%, rgba(21, 13, 44, 0.72) 50%, rgba(9, 7, 24, 0.58) 78%, transparent);
-  filter: drop-shadow(0 -8px 28px rgba(0, 0, 0, 0.32));
-  opacity: 0.96;
-  pointer-events: none;
-  animation: commander-action-hand-breathe var(--motion-duration-ambient) var(--motion-ease-settle) infinite;
-}
-
-.commander-action-hand__aura::before,
-.commander-action-hand__aura::after {
-  content: "";
-  position: absolute;
-  right: 5%;
-  left: 5%;
-  height: 1px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, transparent, rgba(236, 200, 122, 0.7), rgba(143, 211, 255, 0.5), rgba(236, 200, 122, 0.7), transparent);
-  filter: drop-shadow(0 0 12px rgba(236, 200, 122, 0.36));
-}
-
-.commander-action-hand__aura::before {
-  top: 0.86rem;
-}
-
-.commander-action-hand__aura::after {
-  bottom: 0.52rem;
-  opacity: 0.44;
-}
-
-.commander-action-hand__status {
-  position: absolute;
-  top: 0.12rem;
-  left: 50%;
-  z-index: 5;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-height: 1.46rem;
-  padding: 0.15rem 0.58rem;
-  border: 1px solid rgba(236, 200, 122, 0.32);
-  border-radius: 999px;
-  color: rgba(255, 242, 198, 0.82);
-  background:
-    radial-gradient(circle at 50% 0%, rgba(236, 200, 122, 0.12), transparent 56%),
-    rgba(5, 7, 18, 0.62);
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
-  font-size: 0.58rem;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-  transform: translateX(-50%);
-  pointer-events: none;
-  backdrop-filter: blur(10px);
 }
 
 .action-hand-queue {
@@ -9075,30 +9368,6 @@ body[data-page="battlefield"] .gameplay-context-dock {
   border-color: rgba(143, 211, 255, 0.68);
 }
 
-.commander-action-hand__fan {
-  --command-deck-scroll-steps: 0;
-  position: relative;
-  z-index: 3;
-  width: min(38rem, 100%);
-  max-width: 100%;
-  height: calc(var(--action-card-height) + 1.45rem);
-  min-width: 0;
-  padding: 1.24rem 0.4rem 0.18rem;
-  overflow: visible;
-  pointer-events: auto;
-  transform: translateZ(0);
-  transform-style: preserve-3d;
-  transition: transform var(--motion-duration-micro) var(--motion-ease-inertia);
-  will-change: transform;
-}
-
-.commander-action-hand__fan.is-dragging {
-  transition: none;
-}
-
-.commander-action-hand__fan.is-free-scrolling {
-  transition: none;
-}
 
 .action-card {
   --action-card-material: var(--visual-material-card-stock);
@@ -9476,30 +9745,6 @@ body[data-page="battlefield"] .gameplay-context-dock {
   transition: opacity 150ms ease, height 150ms ease;
 }
 
-.commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:hover,
-.commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:focus-visible {
-  z-index: var(--hand-z-index, 2000);
-  border-color: rgba(255, 236, 174, 0.98);
-  box-shadow:
-    0 28px 52px rgba(0, 0, 0, 0.44),
-    0 0 32px rgba(236, 200, 122, 0.32),
-    inset 0 1px 0 rgba(255, 246, 211, 0.38);
-  transform:
-    translateX(-50%)
-    rotate(calc(var(--hand-live-angle, var(--hand-angle)) * 0.42))
-    translateY(calc(-22px - var(--hand-live-rise, var(--hand-rise))))
-    translateZ(44px)
-    scale(var(--motion-physics-card-hover-scale));
-  cursor: grabbing;
-  outline: none;
-}
-
-.commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:hover .action-card__intent,
-.commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:focus-visible .action-card__intent {
-  height: 1.3rem;
-  opacity: 1;
-}
-
 .action-card:active {
   transform:
     translateX(-50%)
@@ -9507,34 +9752,6 @@ body[data-page="battlefield"] .gameplay-context-dock {
     translateY(calc(-10px - var(--hand-live-rise, var(--hand-rise))))
     translateZ(20px)
     scale(var(--motion-physics-card-active-scale));
-}
-
-.commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:focus-visible {
-  outline: 2px solid rgba(143, 211, 255, 0.72);
-  outline-offset: 4px;
-}
-
-.commander-action-hand:not(.is-rotating):not(.is-dragging) .commander-action-hand__fan:has(.action-card[data-command-deck-center="true"]:hover) .action-card:not([data-command-deck-center="true"]),
-.commander-action-hand:not(.is-rotating):not(.is-dragging) .commander-action-hand__fan:has(.action-card[data-command-deck-center="true"]:focus-visible) .action-card:not([data-command-deck-center="true"]) {
-  opacity: 0.76;
-}
-
-.commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:hover + .action-card,
-.commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:focus-visible + .action-card {
-  transform:
-    translateX(calc(-50% + var(--motion-physics-neighbor-displacement)))
-    rotate(var(--hand-live-angle, var(--hand-angle)))
-    translateY(calc(-4px - var(--hand-live-rise, var(--hand-rise))))
-    translateZ(8px);
-}
-
-.commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card:has(+ .action-card[data-command-deck-center="true"]:hover),
-.commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card:has(+ .action-card[data-command-deck-center="true"]:focus-visible) {
-  transform:
-    translateX(calc(-50% - var(--motion-physics-neighbor-displacement)))
-    rotate(var(--hand-live-angle, var(--hand-angle)))
-    translateY(calc(-4px - var(--hand-live-rise, var(--hand-rise))))
-    translateZ(8px);
 }
 
 .action-card-state-resting {
@@ -9634,17 +9851,6 @@ body.phase-advance-celebration .action-card--phase {
   animation: action-card-priority-pulse var(--motion-duration-cinematic) var(--motion-ease-emphasis);
 }
 
-@keyframes commander-action-hand-breathe {
-  0%, 100% {
-    opacity: 0.88;
-    transform: translateY(0) scaleX(0.985);
-  }
-  50% {
-    opacity: 1;
-    transform: translateY(-2px) scaleX(1.01);
-  }
-}
-
 @keyframes action-card-draw {
   0% {
     opacity: 0;
@@ -9715,55 +9921,11 @@ body.phase-advance-celebration .action-card--phase {
     bottom: calc(max(8px, env(safe-area-inset-bottom)) + 5.9rem);
   }
 
-  .commander-action-hand {
-    --action-card-width: clamp(3.96rem, 8.8vw, 4.92rem);
-    --action-card-height: clamp(5.92rem, 18.4svh, 6.96rem);
-    width: min(100vw, calc(100vw - 0.35rem));
-    min-height: clamp(6.36rem, 20.4svh, 7.62rem);
-    bottom: calc(env(safe-area-inset-bottom) - 0.42rem);
-    padding-inline: 0.22rem;
-  }
-
-  .commander-action-hand__aura {
-    right: 2%;
-    left: 2%;
-    height: 4.2rem;
-  }
-
-  .commander-action-hand__status {
-    top: 0;
-    min-height: 1.22rem;
-    padding: 0.1rem 0.42rem;
-    font-size: 0.5rem;
-  }
-
-  .commander-action-hand__fan {
-    max-width: 100vw;
-    overflow-x: visible;
-    overflow-y: visible;
-    justify-content: center;
-    padding: 0.78rem 0.35rem 0.08rem;
-    scrollbar-width: none;
-  }
-
-  .commander-action-hand__fan::-webkit-scrollbar {
-    display: none;
-  }
-
-  .action-card:not(:first-child) {
-    margin-left: calc(-1.72rem + var(--hand-overlap-adjust));
-  }
-
   .action-card {
     grid-template-rows: auto minmax(2.12rem, 1fr) auto minmax(1.32rem, auto) auto 0fr;
     padding: 0.24rem;
     animation-name: action-card-draw-compact;
     transform: translate3d(calc(var(--hand-offset) * 0.04rem), 0, 0) translateY(calc(0px - var(--hand-rise))) rotate(calc(var(--hand-angle) * 0.5));
-  }
-
-  .commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:hover,
-  .commander-action-hand:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:focus-visible {
-    transform: translate3d(calc(var(--hand-offset) * 0.04rem), 0, 0) translateY(calc(-8px - var(--hand-rise))) rotate(calc(var(--hand-angle) * 0.16)) scale(var(--motion-physics-card-compact-hover-scale));
   }
 
   .action-card__intent {
@@ -9835,9 +9997,7 @@ body.phase-advance-celebration .action-card--phase {
     --motion-delay-command-card-stagger: 0ms;
   }
 
-  .commander-action-hand__aura,
   .action-card,
-  .commander-action-hand__status,
   body.phase-advance-celebration .action-card--phase {
     animation: none !important;
     transition-duration: 0ms !important;
@@ -10201,9 +10361,7 @@ body[data-page="battlefield"] .tabletop-battlefield-page .opponent-zone-header {
 }
 
 body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-player-vitals {
-  right: clamp(0.2rem, 1vw, 1rem);
-  bottom: 0.25rem;
-  display: block;
+  display: none;
 }
 
 body[data-page="battlefield"] .tabletop-battlefield-page .landscape-board-title .eyebrow,
@@ -10292,6 +10450,7 @@ body[data-page="battlefield"] .tabletop-battlefield-page .landscape-board-region
 
 body[data-page="battlefield"] .tabletop-battlefield-page .landscape-board-region--local .landscape-battlefield-groups {
   align-content: start;
+  transform: translateY(-2.25rem);
 }
 
 body[data-page="battlefield"] .tabletop-battlefield-page .battlefield-group {
@@ -10411,6 +10570,29 @@ body[data-page="battlefield"] .tabletop-battlefield-page .landscape-board-region
 
 body[data-page="battlefield"] .tabletop-battlefield-page .landscape-board-region--local .tabletop-zone-layout .tile-grid {
   align-items: start;
+}
+
+/* The lower support lane may use the empty space above it so full TCG card
+   proportions remain visible without entering the Dual Hand Dock. */
+body[data-page="battlefield"] .tabletop-battlefield-page .landscape-board-region--local .tabletop-zone-layout,
+body[data-page="battlefield"] .tabletop-battlefield-page .landscape-board-region--local .tabletop-zone-layout > .battlefield-group:nth-child(2),
+body[data-page="battlefield"] .tabletop-battlefield-page .landscape-board-region--local .tabletop-zone-layout > .battlefield-group:nth-child(2) .tile-grid {
+  overflow-y: visible;
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .landscape-board-region--local .tabletop-zone-layout > .battlefield-group:nth-child(2) {
+  z-index: 2;
+  transform: translateY(-3rem);
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .landscape-board-region--local .tabletop-zone-layout > .battlefield-group:nth-child(2) .tile-grid {
+  --tabletop-card-width: clamp(4.75rem, 7vw, 7.25rem);
+  align-items: end;
+}
+
+body[data-page="battlefield"] .tabletop-battlefield-page .landscape-board-region--local .tabletop-zone-layout > .battlefield-group:nth-child(2) .permanent {
+  height: calc(var(--tabletop-card-width) * 1.4);
+  max-height: none;
 }
 
 body[data-page="battlefield"] .tabletop-battlefield-page .tabletop-zone-layout .permanent {
@@ -10665,9 +10847,6 @@ body[data-page="battlefield"] .tabletop-battlefield-page .gameplay-context-dock 
     grid-template-rows: repeat(2, minmax(0, 1fr));
   }
 
-  body[data-page="battlefield"] .commander-action-hand {
-    min-height: clamp(5.8rem, 18svh, 6.65rem);
-  }
 }
 
 @media (max-width: 920px) {
@@ -10757,65 +10936,6 @@ body[data-page="battlefield"] .tabletop-battlefield-page .phase-next-chip {
   background: rgba(8, 10, 25, 0.28);
 }
 
-body[data-page="battlefield"] .commander-action-hand {
-  --action-card-width: clamp(5.32rem, 7.52vw, 6.98rem);
-  --action-card-height: clamp(7.58rem, 18.15svh, 10rem);
-  width: min(49rem, calc(100vw - 2.1rem));
-  min-height: clamp(8.28rem, 20.8svh, 10.86rem);
-  bottom: calc(env(safe-area-inset-bottom) - 0.68rem);
-}
-
-body[data-page="battlefield"] .commander-action-hand__aura {
-  inset: auto 20% 0.18rem;
-  height: clamp(2.6rem, 5.8svh, 3.8rem);
-  opacity: 0.54;
-  filter: drop-shadow(0 -5px 18px rgba(0, 0, 0, 0.22));
-}
-
-body[data-page="battlefield"] .commander-action-hand__aura::before,
-body[data-page="battlefield"] .commander-action-hand__aura::after {
-  right: 24%;
-  left: 24%;
-  opacity: 0.34;
-}
-
-body[data-page="battlefield"] .commander-action-hand__status {
-  top: 0.5rem;
-  border-color: rgba(236, 200, 122, 0.12);
-  background: rgba(5, 7, 18, 0.28);
-  box-shadow: none;
-  opacity: 0;
-  transform: translateX(-50%) translateY(0.08rem) scale(0.9);
-  transition: opacity 160ms ease, transform 160ms ease, border-color 160ms ease;
-  pointer-events: none;
-}
-
-body[data-page="battlefield"] .commander-action-hand:hover .commander-action-hand__status,
-body[data-page="battlefield"] .commander-action-hand:focus-within .commander-action-hand__status,
-body[data-page="battlefield"] .commander-action-hand__status:has(.action-hand-queue) {
-  border-color: rgba(236, 200, 122, 0.32);
-  opacity: 0.72;
-  transform: translateX(-50%) translateY(0) scale(1);
-}
-
-body[data-page="battlefield"] .commander-action-hand__status:has(.action-hand-queue) {
-  width: 1px;
-  height: 1px;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  opacity: 0;
-  pointer-events: none;
-}
-
-body[data-page="battlefield"] .commander-action-hand__fan {
-  height: calc(var(--action-card-height) + 0.55rem);
-  padding-top: 0.35rem;
-  padding-bottom: 0;
-}
-
 body[data-page="battlefield"] .action-card {
   box-shadow:
     0 calc(14px + (var(--hand-prominence) * 12px)) calc(26px + (var(--hand-prominence) * 16px)) rgba(0, 0, 0, 0.42),
@@ -10840,11 +10960,6 @@ body[data-page="battlefield"] .action-card-state-focused,
 body[data-page="battlefield"] .action-card-state-waiting,
 body[data-page="battlefield"] .action-card-state-resolving {
   opacity: 0.96;
-}
-
-body[data-page="battlefield"] .command-deck:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:hover,
-body[data-page="battlefield"] .command-deck:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:focus-visible {
-  opacity: 1;
 }
 
 @media (orientation: landscape) and (max-height: 560px) {
@@ -10894,238 +11009,6 @@ body[data-page="battlefield"] .command-deck:not(.is-rotating):not(.is-dragging) 
     line-height: 1.02;
   }
 
-  body[data-page="battlefield"] .commander-action-hand {
-    --action-card-width: clamp(4.02rem, 8.4vw, 5.05rem);
-    --action-card-height: clamp(5.78rem, 18.4svh, 6.96rem);
-    width: min(100vw, calc(100vw - 0.9rem));
-    min-height: clamp(6.34rem, 20.4svh, 7.58rem);
-    bottom: calc(env(safe-area-inset-bottom) - 0.52rem);
-  }
-
-  body[data-page="battlefield"] .commander-action-hand__status {
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  body[data-page="battlefield"] .commander-action-hand__status:has(.action-hand-queue) {
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  body[data-page="battlefield"] .commander-action-hand__aura {
-    inset-inline: 9%;
-    height: 2.85rem;
-    opacity: 0.42;
-  }
-}
-
-/* Prompt 12.3F: Rotating Command Deck. The Action Hand is now a circular deck projection, not a linear strip. */
-body[data-page="battlefield"] .commander-action-hand.command-deck {
-  --command-deck-control-size: clamp(1.72rem, 3vw, 2.28rem);
-  width: min(44rem, calc(100vw - 2.2rem));
-}
-
-body[data-page="battlefield"] .command-deck:focus-visible {
-  outline: none;
-}
-
-body[data-page="battlefield"] .command-deck:focus-visible .action-card[data-command-deck-center="true"] {
-  outline: 2px solid rgba(143, 211, 255, 0.68);
-  outline-offset: 0.18rem;
-}
-
-body[data-page="battlefield"] .command-deck__fan {
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-}
-
-body[data-page="battlefield"] .command-deck__fan:active {
-  cursor: grabbing;
-}
-
-body[data-page="battlefield"] .command-deck .action-card {
-  will-change: transform, opacity;
-}
-
-body[data-page="battlefield"] .command-deck.is-dragging .action-card,
-body[data-page="battlefield"] .command-deck.is-free-scrolling .action-card,
-body[data-page="battlefield"] .command-deck .commander-action-hand__fan.is-dragging .action-card,
-body[data-page="battlefield"] .command-deck .commander-action-hand__fan.is-free-scrolling .action-card {
-  transition: none;
-}
-
-body[data-page="battlefield"] .command-deck .action-card[data-command-deck-center="true"] {
-  z-index: var(--hand-z-index, 2000);
-  border-color: rgba(255, 239, 182, 0.98);
-  opacity: 1;
-  box-shadow:
-    0 28px 54px rgba(0, 0, 0, 0.5),
-    0 0 30px rgba(236, 200, 122, 0.28),
-    inset 0 0 0 2px rgba(255, 244, 204, 0.12),
-    inset 0 0 0 4px rgba(19, 13, 28, 0.92);
-}
-
-body[data-page="battlefield"] .command-deck .action-card[data-command-deck-live-center="true"] {
-  z-index: var(--hand-z-index, 2000);
-  border-color: rgba(255, 239, 182, 0.98);
-  box-shadow:
-    0 28px 54px rgba(0, 0, 0, 0.5),
-    0 0 30px rgba(236, 200, 122, 0.28),
-    inset 0 0 0 2px rgba(255, 244, 204, 0.12),
-    inset 0 0 0 4px rgba(19, 13, 28, 0.92);
-}
-
-body[data-page="battlefield"] .command-deck.is-free-scrolling .action-card[data-command-deck-center="true"]:not([data-command-deck-live-center="true"]),
-body[data-page="battlefield"] .command-deck .commander-action-hand__fan.is-dragging .action-card[data-command-deck-center="true"]:not([data-command-deck-live-center="true"]) {
-  border-color: rgba(236, 200, 122, 0.42);
-}
-
-body[data-page="battlefield"] .command-deck.is-free-scrolling .action-card[data-command-deck-focused="false"],
-body[data-page="battlefield"] .command-deck .commander-action-hand__fan.is-dragging .action-card[data-command-deck-focused="false"] {
-  border-color: rgba(4, 4, 8, 0.96);
-  box-shadow:
-    0 calc(16px + (var(--hand-prominence) * 12px)) calc(28px + (var(--hand-prominence) * 18px)) rgba(0, 0, 0, 0.46),
-    0 0 calc(10px + (var(--hand-prominence) * 18px)) var(--action-card-glow),
-    inset 0 0 0 2px rgba(255, 244, 204, 0.09),
-    inset 0 0 0 4px rgba(19, 13, 28, 0.92);
-}
-
-body[data-page="battlefield"] .command-deck .action-card:not([data-command-deck-center="true"]).action-card-state-expanded,
-body[data-page="battlefield"] .command-deck .action-card:not([data-command-deck-center="true"]).action-card-state-selected,
-body[data-page="battlefield"] .command-deck .action-card:not([data-command-deck-center="true"]).action-card-state-focused,
-body[data-page="battlefield"] .command-deck .action-card:not([data-command-deck-center="true"]).action-card-state-promoted,
-body[data-page="battlefield"] .command-deck .action-card:not([data-command-deck-center="true"]).action-card-state-waiting,
-body[data-page="battlefield"] .command-deck .action-card:not([data-command-deck-center="true"]).action-card-state-resolving {
-  border-color: rgba(236, 200, 122, 0.42);
-  --action-card-glow: rgba(236, 200, 122, 0.1);
-  box-shadow:
-    0 calc(14px + (var(--hand-prominence) * 12px)) calc(26px + (var(--hand-prominence) * 16px)) rgba(0, 0, 0, 0.42),
-    0 0 calc(8px + (var(--hand-prominence) * 16px)) rgba(236, 200, 122, calc(0.08 + (var(--hand-prominence) * 0.14))),
-    inset 0 0 0 2px rgba(255, 244, 204, 0.09),
-    inset 0 0 0 4px rgba(19, 13, 28, 0.92);
-}
-
-body[data-page="battlefield"] .command-deck .action-card[data-command-deck-card-favorite="true"] .action-card__rune {
-  border-color: rgba(255, 232, 158, 0.8);
-  box-shadow:
-    0 0 12px rgba(236, 200, 122, 0.24),
-    inset 0 0 0 1px rgba(0, 0, 0, 0.34);
-}
-
-body[data-page="battlefield"] .command-deck .action-card[data-command-deck-contextual="true"] {
-  border-color: rgba(143, 211, 255, 0.78);
-}
-
-body[data-page="battlefield"] .command-deck .action-card:not([data-command-deck-center="true"])[data-command-deck-contextual="true"] {
-  border-color: rgba(236, 200, 122, 0.42);
-  --action-card-glow: rgba(236, 200, 122, 0.1);
-}
-
-body[data-page="battlefield"] .command-deck .action-card[data-command-deck-slot="-3"],
-body[data-page="battlefield"] .command-deck .action-card[data-command-deck-slot="3"] {
-  opacity: 0.68;
-}
-
-body[data-page="battlefield"] .command-deck .action-card[data-command-deck-slot="-2"],
-body[data-page="battlefield"] .command-deck .action-card[data-command-deck-slot="2"] {
-  opacity: 0.78;
-}
-
-body[data-page="battlefield"] .command-deck:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:hover,
-body[data-page="battlefield"] .command-deck:not(.is-rotating):not(.is-dragging) .action-card[data-command-deck-center="true"]:focus-visible {
-  opacity: 1;
-}
-
-body[data-page="battlefield"] .command-deck__rotator,
-body[data-page="battlefield"] .command-deck__favorite-toggle {
-  position: absolute;
-  z-index: 8;
-  min-width: var(--command-deck-control-size);
-  min-height: var(--command-deck-control-size);
-  border-color: rgba(236, 200, 122, 0.22);
-  color: rgba(255, 239, 190, 0.74);
-  background:
-    radial-gradient(circle at 50% 0%, rgba(236, 200, 122, 0.14), transparent 58%),
-    rgba(5, 7, 18, 0.44);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
-  opacity: 0.5;
-  pointer-events: auto;
-  backdrop-filter: blur(8px);
-  transition:
-    opacity var(--motion-duration-micro) ease,
-    transform var(--motion-duration-micro) var(--motion-ease-inertia),
-    border-color var(--motion-duration-micro) ease;
-}
-
-body[data-page="battlefield"] .command-deck__rotator {
-  bottom: 1.54rem;
-  width: var(--command-deck-control-size);
-  padding: 0;
-  border-radius: 999px;
-  font-size: clamp(1.1rem, 2.2vw, 1.55rem);
-  line-height: 1;
-}
-
-body[data-page="battlefield"] .command-deck__rotator--previous {
-  left: clamp(0.12rem, 1.1vw, 0.72rem);
-}
-
-body[data-page="battlefield"] .command-deck__rotator--next {
-  right: clamp(0.12rem, 1.1vw, 0.72rem);
-}
-
-body[data-page="battlefield"] .command-deck__favorite-toggle {
-  right: clamp(2.4rem, 5vw, 5.4rem);
-  bottom: 0.36rem;
-  min-width: clamp(2.8rem, 6vw, 4.15rem);
-  padding: 0.12rem 0.48rem;
-  border-radius: 999px;
-  font-size: 0.54rem;
-  font-weight: 850;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-body[data-page="battlefield"] .command-deck__favorite-toggle.is-favorite {
-  border-color: rgba(255, 228, 139, 0.62);
-  color: #ffe49b;
-}
-
-body[data-page="battlefield"] .command-deck:hover .command-deck__rotator,
-body[data-page="battlefield"] .command-deck:focus-within .command-deck__rotator,
-body[data-page="battlefield"] .command-deck:hover .command-deck__favorite-toggle,
-body[data-page="battlefield"] .command-deck:focus-within .command-deck__favorite-toggle,
-body[data-page="battlefield"] .command-deck__rotator:hover,
-body[data-page="battlefield"] .command-deck__favorite-toggle:hover,
-body[data-page="battlefield"] .command-deck__rotator:focus-visible,
-body[data-page="battlefield"] .command-deck__favorite-toggle:focus-visible {
-  border-color: rgba(236, 200, 122, 0.52);
-  opacity: 1;
-  transform: translateY(-0.08rem);
-}
-
-@media (orientation: landscape) and (max-height: 560px) {
-  body[data-page="battlefield"] .commander-action-hand.command-deck {
-    width: min(100vw, calc(100vw - 0.75rem));
-  }
-
-  body[data-page="battlefield"] .command-deck__rotator {
-    bottom: 1.1rem;
-    opacity: 0.42;
-  }
-
-  body[data-page="battlefield"] .command-deck__favorite-toggle {
-    right: clamp(2rem, 7vw, 4rem);
-    bottom: 0.18rem;
-    min-height: 1.42rem;
-    font-size: 0.46rem;
-  }
-
-  body[data-page="battlefield"] .command-deck .action-card[data-command-deck-slot="-3"],
-  body[data-page="battlefield"] .command-deck .action-card[data-command-deck-slot="3"] {
-    opacity: 0.48;
-  }
 }
 
 /* Prompt 13.2.5: fixed native landscape gameplay viewport.
@@ -11436,7 +11319,7 @@ body[data-page="battlefield"] .tabletop-battlefield-page::before {
   inset-bottom: calc(var(--game-command-hand-space) - 0.8rem);
 }
 
-body[data-page="battlefield"] .commander-action-hand {
+body[data-page="battlefield"] .dual-hand-dock {
   bottom: var(--game-safe-bottom);
 }
 
@@ -11846,7 +11729,7 @@ body[data-page="battlefield"] .commander-action-hand {
   }
 }
 
-/* Release 1.43.4: unobstructed Command Hand interaction and search-action idempotence. */
+/* Release 1.44.0: canonical Dual Hand Dock and tracked private Player Hand. */
 .boardstate-landscape-gate {
   position: fixed;
   inset: 0;
@@ -12026,7 +11909,7 @@ body[data-page="battlefield"] .landscape-command-center,
 body[data-page="battlefield"] .landscape-selected-card,
 body[data-page="battlefield"] .landscape-stack-core,
 body[data-page="battlefield"] .gameplay-context-dock,
-body[data-page="battlefield"] .commander-action-hand,
+body[data-page="battlefield"] .dual-hand-dock,
 body[data-page="battlefield"] .opponent-carousel,
 body[data-page="battlefield"] .action-card {
   transition:
@@ -12139,9 +12022,7 @@ body[data-page="battlefield"] .tabletop-battlefield-page .permanent.has-card-art
   body[data-page="battlefield"] .tabletop-battlefield-page .landscape-stack-core,
   body[data-page="battlefield"] .tabletop-battlefield-page .landscape-combat-strip,
   body[data-page="battlefield"] .tabletop-battlefield-page .landscape-commander-tax-strip,
-  body[data-page="battlefield"] .tabletop-battlefield-page .landscape-floating-notices,
-  body[data-page="battlefield"] .tabletop-battlefield-page .command-deck__rotator,
-  body[data-page="battlefield"] .tabletop-battlefield-page .command-deck__favorite-toggle {
+  body[data-page="battlefield"] .tabletop-battlefield-page .landscape-floating-notices {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }

@@ -1,5 +1,7 @@
 # Commander Modernization Roadmap
 
+> Historical roadmap: completed wheel-era milestones remain implementation history, not current architecture. The post-completion Dual Hand Dock in `CANONICAL_GAMEPLAY_ARCHITECTURE.md` supersedes those hand requirements.
+
 This roadmap preserves the existing BoardState application and evolves it in place. Each phase must follow `docs/ecosystem/BOARDSTATE_CONSTITUTION.md`: inspect first, reuse existing systems, refactor before replacing, extend before rebuilding, and avoid duplicate rules, state, event, save, sync, AI, tutorial, or bridge implementations.
 
 ## Completed Foundations

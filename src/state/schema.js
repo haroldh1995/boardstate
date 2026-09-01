@@ -157,8 +157,10 @@ export function createDefaultProfile() {
         densityScale: 1,
         focusMode: true,
       },
-      commandDeck: {
-        favoriteIds: [],
+      dualHandDock: {
+        modelVersion: "boardstate-dual-hand-dock-1.0.0",
+        activeSurface: "commands",
+        commandOrder: [],
       },
       learning: {
         adaptiveGuidance: true,

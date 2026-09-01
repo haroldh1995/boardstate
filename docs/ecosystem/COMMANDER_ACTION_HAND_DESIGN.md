@@ -1,5 +1,7 @@
 # Commander Action Hand Design Record
 
+> Historical design record: the centered/cycling Command Hand described below is retired. The canonical replacement is the finite ordered Commands surface inside the Dual Hand Dock in `CANONICAL_GAMEPLAY_ARCHITECTURE.md`.
+
 Date: 2026-07-23
 
 Prompt 12.3C supersedes Prompt 12.3 where the two conflict. The prior Command HUD was an exploration and is no longer BoardState's bottom interaction foundation.

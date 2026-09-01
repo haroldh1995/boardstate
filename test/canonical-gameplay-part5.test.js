@@ -9,15 +9,10 @@ import {
   resolveBattlefieldDensityState,
 } from "../src/gameplay/battlefieldGeometry.js";
 import {
-  COMMAND_DECK_MAX_FREE_SCROLL_STEPS,
-  COMMAND_DECK_SCROLL_PX_PER_CARD,
-  resolveCommandDeckCardProjection,
-  resolveCommandDeckFocusedCard,
-  resolveCommandDeckPointerOffsetPx,
-  resolveCommandDeckPointerSnapSteps,
-  resolveCommandDeckWheelFreeScrollOffsetPx,
-  resolveCommandDeckWheelSnapSteps,
-} from "../src/gameplay/commandDeckModel.js";
+  moveOrderedId,
+  resolveArenaHandLayout,
+  validateArenaHandContinuity,
+} from "../src/gameplay/dualHandModel.js";
 import {
   GESTURE_OWNERS,
   INPUT_INTENTS,
@@ -26,10 +21,8 @@ import {
   createInputIntentPolicy,
   createInteractionPerformanceBudget,
   createTableRadarModel,
-  resolveCommandHandVisualCloneIdentity,
   resolveGestureOwnership,
   resolveResponsiveLandscapeComposition,
-  validateCommandHandFocusState,
 } from "../src/gameplay/inputIntent.js";
 import {
   CARD_PRESENTATION_ROLES,
@@ -146,25 +139,11 @@ function makeExtremeBoard() {
   ];
 }
 
-function commandEntriesForCenter(centerIndex) {
-  return COMMAND_IDS.map((id, index) => {
-    let slotOffset = index - centerIndex;
-    if (slotOffset > COMMAND_IDS.length / 2) slotOffset -= COMMAND_IDS.length;
-    if (slotOffset < -COMMAND_IDS.length / 2) slotOffset += COMMAND_IDS.length;
-    const focused = id === COMMAND_IDS[centerIndex];
-    const projection = resolveCommandDeckCardProjection(slotOffset, id === "phase" ? 96 : 10, focused);
-    return {
-      id,
-      slotOffset,
-      focused,
-      highlighted: focused,
-      previewOwner: focused ? id : "",
-      activationOwner: focused ? id : "",
-      zIndex: projection.zIndex,
-      hitTestRank: projection.zIndex,
-      scale: projection.scale,
-      liftZ: projection.liftZ,
-    };
+function commandHandLayout(commandIds = COMMAND_IDS, activeId = "") {
+  return resolveArenaHandLayout(commandIds.map((id) => ({ id })), {
+    availableWidth: 820,
+    cardWidth: 120,
+    activeId,
   });
 }
 
@@ -363,7 +342,7 @@ test("Part 5 input contamination matrix has one owner for command hand, zones, o
       "command-hand swipe",
       { surface: INPUT_SURFACES.commandHand, movementX: 96, movementY: 4 },
       GESTURE_OWNERS.commandHand,
-      INPUT_INTENTS.rotateCommandHand,
+      INPUT_INTENTS.reorderHandCard,
     ],
     [
       "zone overflow swipe",
@@ -402,37 +381,25 @@ test("Part 5 input contamination matrix has one owner for command hand, zones, o
   assert.equal(zoneEdge.noTransferAtBoundary, true);
 });
 
-test("Part 5 Command Hand matrix proves center, z-order, preview, activation, snap, wrap, and clone identity", () => {
-  for (let centerIndex = 0; centerIndex < COMMAND_IDS.length; centerIndex += 1) {
-    const entries = commandEntriesForCenter(centerIndex);
-    const focused = resolveCommandDeckFocusedCard(entries);
-    const validation = validateCommandHandFocusState(entries);
-    assert.equal(focused.id, COMMAND_IDS[centerIndex]);
-    assert.equal(validation.valid, true, `${COMMAND_IDS[centerIndex]}: ${validation.issues.join(", ")}`);
-    assert.equal(validation.focusedId, COMMAND_IDS[centerIndex]);
-    assert.equal(validation.centeredId, COMMAND_IDS[centerIndex]);
-    assert.equal(validation.topZOrderId, COMMAND_IDS[centerIndex]);
-    assert.equal(validation.topHitTestId, COMMAND_IDS[centerIndex]);
-    assert.ok(entries.find((entry) => entry.id === focused.id).scale > entries.find((entry) => Math.abs(entry.slotOffset) === 1).scale);
+test("Part 5 Command Hand matrix proves continuity, rightward depth, inspection lift, and persistent reordering", () => {
+  const resting = commandHandLayout();
+  assert.equal(validateArenaHandContinuity(resting).valid, true);
+  assert.equal(resting.circular, false);
+  assert.equal(resting.clones, false);
+  assert.equal(resting.entries.at(-1).zIndex, Math.max(...resting.entries.map((entry) => entry.zIndex)));
+
+  for (const commandId of COMMAND_IDS) {
+    const inspected = commandHandLayout(COMMAND_IDS, commandId);
+    const entry = inspected.entries.find((candidate) => candidate.id === commandId);
+    assert.equal(entry.active, true);
+    assert.ok(entry.zIndex >= 2000);
+    assert.equal(validateArenaHandContinuity(inspected).valid, true);
   }
 
-  for (let centerIndex = COMMAND_IDS.length - 1; centerIndex >= 0; centerIndex -= 1) {
-    assert.equal(validateCommandHandFocusState(commandEntriesForCenter(centerIndex)).valid, true);
-  }
-
-  const partialOffset = resolveCommandDeckPointerOffsetPx(37);
-  assert.equal(partialOffset, 37);
-  assert.equal(resolveCommandDeckPointerSnapSteps(partialOffset), 0);
-  assert.equal(resolveCommandDeckPointerSnapSteps(resolveCommandDeckPointerOffsetPx(140)), -2);
-  assert.equal(resolveCommandDeckWheelSnapSteps(9999), COMMAND_DECK_MAX_FREE_SCROLL_STEPS);
-  assert.equal(resolveCommandDeckWheelFreeScrollOffsetPx(9999), -COMMAND_DECK_MAX_FREE_SCROLL_STEPS * COMMAND_DECK_SCROLL_PX_PER_CARD);
-
-  const seamLeft = commandEntriesForCenter(0);
-  const seamRight = commandEntriesForCenter(COMMAND_IDS.length - 1);
-  assert.equal(validateCommandHandFocusState(seamLeft).valid, true);
-  assert.equal(validateCommandHandFocusState(seamRight).valid, true);
-  assert.equal(resolveCommandHandVisualCloneIdentity({ visualId: "phase-left-clone", commandId: "phase", isClone: true }).createsIndependentCommand, false);
-  assert.equal(resolveCommandHandVisualCloneIdentity({ visualId: "phase-left-clone", commandId: "phase", isClone: true }).logicalCommandId, "phase");
+  const reordered = moveOrderedId(COMMAND_IDS, "phase", "front");
+  assert.equal(reordered.at(-1), "phase");
+  assert.equal(validateArenaHandContinuity(commandHandLayout(reordered)).valid, true);
+  assert.equal(new Set(reordered).size, COMMAND_IDS.length);
 });
 
 test("Part 5 Live Tracking resolution, event identity, replay, and preview separation remain stable", () => {
@@ -592,14 +559,14 @@ test("Part 5 static release-baseline audit guards renderer, CSS, docs, and share
     "src/gameplay/canonicalGameplay.js",
     "src/gameplay/battlefieldGeometry.js",
     "src/gameplay/cardLifecycle.js",
-    "src/gameplay/commandDeckModel.js",
+    "src/gameplay/dualHandModel.js",
     "src/gameplay/inputIntent.js",
   ];
 
   assert.match(render, /data-fixed-gameplay-viewport="true"/);
   assert.match(render, /data-global-vertical-scroll="false"/);
-  assert.match(render, /data-command-hand-focus-contract="exactly-one-centered-frontmost-command"/);
-  assert.match(render, /data-depth-aware-hit-testing="true"/);
+  assert.match(render, /data-dual-hand-dock/);
+  assert.match(render, /data-rightmost-frontmost="true"/);
   assert.match(render, /data-opponent-navigation-circular/);
   assert.match(render, /data-zone-scroll-competes="false"/);
   assert.match(render, /shouldDeferNotification/);
@@ -608,7 +575,7 @@ test("Part 5 static release-baseline audit guards renderer, CSS, docs, and share
   assert.match(styles, /body\[data-page="battlefield"\][\s\S]*overflow:\s*hidden/);
   assert.match(styles, /tabletop-zone-layout/);
   assert.match(styles, /zone-local-horizontal-scroll/);
-  assert.match(styles, /commander-action-hand/);
+  assert.match(styles, /dual-hand-dock/);
   assert.match(styles, /--protected-command-hand-clearance/);
   assert.match(styles, /grid-template-rows:\s*minmax\(5\.2rem,\s*0\.82fr\)\s*minmax\(1\.45rem,\s*auto\)\s*minmax\(6\.35rem,\s*1\.18fr\)/);
   assert.match(styles, /landscape-arena\.arena--opponent-hidden[\s\S]*?grid-template-rows:\s*minmax\(2\.75rem,\s*0\.4fr\)\s*minmax\(1\.45rem,\s*auto\)\s*minmax\(10\.75rem,\s*1\.66fr\)/);

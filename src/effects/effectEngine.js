@@ -792,7 +792,10 @@ function removeKnownZoneCard(session, controller, zoneName, card) {
   if (!zoneName || zoneName === "stack") return session;
   return updateControllerZones(session, controller, (zones) => {
     const zone = [...(zones[zoneName] || [])];
-    const index = zone.findIndex((entry) => entry.cardId === card.cardId || entry.name === card.name);
+    const instanceId = String(card.cardInstanceId || card.id || "");
+    const index = instanceId
+      ? zone.findIndex((entry) => (entry.cardInstanceId || entry.id) === instanceId)
+      : zone.findIndex((entry) => entry.cardId === card.cardId || entry.name === card.name);
     if (index >= 0) zone.splice(index, 1);
     return { ...zones, [zoneName]: zone };
   });

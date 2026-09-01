@@ -5,14 +5,11 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  COMMAND_DECK_MODEL_VERSION,
-  resolveCommandDeckCardProjection,
-  resolveCommandDeckPointerOffsetPx,
-  resolveCommandDeckPointerSnapSteps,
-  resolveCommandDeckScrollStepsFromOffsetPx,
-  resolveCommandDeckWheelFreeScrollOffsetPx,
-  resolveCommandDeckWheelSnapSteps,
-} from "../src/gameplay/commandDeckModel.js";
+  DUAL_HAND_MODEL_VERSION,
+  moveOrderedId,
+  resolveArenaHandLayout,
+  validateArenaHandContinuity,
+} from "../src/gameplay/dualHandModel.js";
 import {
   RUNTIME_ENVIRONMENT_VERSION,
   createMemoryKeyValueStore,
@@ -70,28 +67,28 @@ function assertNoDirectWebRuntimeAccess(file) {
   }
 }
 
-test("command deck projection model is platform-neutral and drives renderer geometry", () => {
+test("dual hand layout model is platform-neutral and drives renderer geometry", () => {
   const render = readRepositoryFile("src/ui/render.js");
-  const model = readRepositoryFile("src/gameplay/commandDeckModel.js");
+  const model = readRepositoryFile("src/gameplay/dualHandModel.js");
 
-  assert.equal(COMMAND_DECK_MODEL_VERSION, "boardstate-command-deck-model-0.1.0");
-  assert.match(render, /from "\.\.\/gameplay\/commandDeckModel\.js"/);
-  assert.equal(render.includes("function resolveCommandDeckCardProjection"), false);
+  assert.equal(DUAL_HAND_MODEL_VERSION, "boardstate-dual-hand-dock-1.0.0");
+  assert.match(render, /from "\.\.\/gameplay\/dualHandModel\.js"/);
+  assert.equal(render.includes("function resolveArenaHandLayout"), false);
   assert.equal(model.includes("document."), false);
   assert.equal(model.includes("window."), false);
   assert.equal(model.includes("localStorage"), false);
   assert.equal(model.includes("sessionStorage"), false);
   assert.equal(model.includes("navigator."), false);
 
-  const center = resolveCommandDeckCardProjection(0, 0, true);
-  const neighbor = resolveCommandDeckCardProjection(1, 0, false);
-  assert.equal(center.zIndex > neighbor.zIndex, true);
-  assert.equal(center.prominence > neighbor.prominence, true);
-  assert.equal(resolveCommandDeckScrollStepsFromOffsetPx(74), 1);
-  assert.equal(resolveCommandDeckWheelFreeScrollOffsetPx(220), -74);
-  assert.equal(resolveCommandDeckWheelSnapSteps(440), 2);
-  assert.equal(resolveCommandDeckPointerOffsetPx(999), 222);
-  assert.equal(resolveCommandDeckPointerSnapSteps(-148), 2);
+  const layout = resolveArenaHandLayout(
+    ["phase", "library", "rules", "undo"].map((id) => ({ id })),
+    { availableWidth: 360, cardWidth: 120 },
+  );
+  assert.equal(validateArenaHandContinuity(layout).valid, true);
+  assert.equal(layout.circular, false);
+  assert.equal(layout.clones, false);
+  assert.equal(layout.entries.at(-1).zIndex, Math.max(...layout.entries.map((entry) => entry.zIndex)));
+  assert.deepEqual(moveOrderedId(["phase", "library", "rules"], "phase", "front"), ["library", "rules", "phase"]);
 });
 
 test("runtime environment adapter provides storage, location, navigator, and encoding fallbacks", () => {

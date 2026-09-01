@@ -44,10 +44,11 @@ test("canonical gameplay architecture Part 1 is documented as the precedence lay
 });
 
 test("canonical gameplay module exposes permanent laws, geography, and runtime contract", () => {
-  assert.equal(CANONICAL_GAMEPLAY_ARCHITECTURE_VERSION, "boardstate-canonical-gameplay-13.2.6-part1");
-  assert.equal(CANONICAL_GAMEPLAY_LAWS.length, 15);
+  assert.equal(CANONICAL_GAMEPLAY_ARCHITECTURE_VERSION, "boardstate-canonical-gameplay-dual-hand-1.0.0");
+  assert.equal(CANONICAL_GAMEPLAY_LAWS.length, 17);
   assert.ok(CANONICAL_GAMEPLAY_LAWS.includes("no-global-battlefield-scrolling"));
-  assert.ok(CANONICAL_GAMEPLAY_LAWS.includes("tactical-command-hand-remains-permanently-docked"));
+  assert.ok(CANONICAL_GAMEPLAY_LAWS.includes("dual-hand-dock-remains-permanently-integrated"));
+  assert.ok(CANONICAL_GAMEPLAY_LAWS.includes("player-hand-is-authoritative-private-zone-state"));
   assert.equal(CANONICAL_BATTLEFIELD_GEOGRAPHY.playerTerritory, "bottom-anchored");
   assert.equal(CANONICAL_BATTLEFIELD_GEOGRAPHY.opponentTerritory, "top-anchored");
   assert.equal(CANONICAL_BATTLEFIELD_GEOGRAPHY.lanes.creatures, "combat-facing-creature-lane");
@@ -63,7 +64,8 @@ test("canonical gameplay module exposes permanent laws, geography, and runtime c
   assert.equal(contract.orientation, "landscape");
   assert.equal(contract.globalBattlefieldScroll, false);
   assert.equal(contract.notificationsCoverGameplay, false);
-  assert.equal(contract.tacticalCommandHand, "permanently-docked");
+  assert.equal(contract.tacticalCommandHand, "ordered-overlapping-non-circular-command-hand");
+  assert.equal(contract.playerHand, "authoritative-owner-private-hand-zone");
 });
 
 test("battlefield model carries canonical gameplay law metadata without becoming rules authority", () => {

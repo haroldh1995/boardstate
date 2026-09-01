@@ -1,4 +1,4 @@
-export const CANONICAL_GAMEPLAY_ARCHITECTURE_VERSION = "boardstate-canonical-gameplay-13.2.6-part1";
+export const CANONICAL_GAMEPLAY_ARCHITECTURE_VERSION = "boardstate-canonical-gameplay-dual-hand-1.0.0";
 
 export const CANONICAL_GAMEPLAY_LAWS = Object.freeze([
   "gameplay-is-landscape",
@@ -14,7 +14,9 @@ export const CANONICAL_GAMEPLAY_LAWS = Object.freeze([
   "notifications-never-cover-gameplay",
   "animations-always-have-priority",
   "protected-gameplay-space-cannot-be-obstructed",
-  "tactical-command-hand-remains-permanently-docked",
+  "dual-hand-dock-remains-permanently-integrated",
+  "command-hand-is-one-ordered-overlapping-fan",
+  "player-hand-is-authoritative-private-zone-state",
   "live-tracking-assumes-tabletop-progression-unless-decision-required",
 ]);
 
@@ -117,7 +119,9 @@ export function createCanonicalGameplayRuntimeContract(page = "battlefield") {
     opponentBattlefieldAnchor: "top",
     overflowingZoneScroll: "horizontal-only",
     protectedGameplayCorridor: PROTECTED_GAMEPLAY_CORRIDOR.id,
-    tacticalCommandHand: "permanently-docked",
+    dualHandDock: "commands-and-private-player-hand-share-one-protected-footprint",
+    tacticalCommandHand: "ordered-overlapping-non-circular-command-hand",
+    playerHand: "authoritative-owner-private-hand-zone",
     notificationsCoverGameplay: false,
     liveTrackingAssumptionEngine: LIVE_TRACKING_ASSUMPTIONS.engine,
   };

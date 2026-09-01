@@ -39,7 +39,7 @@ The token set defines duration, delay, easing, physics, transform, and opacity v
 - `--motion-ease-*`
 - `--motion-physics-*`
 
-Battlefield and Rotating Command Deck animation now consume these variables through existing BoardState-native CSS rather than introducing a second animation library.
+Battlefield and Dual Hand Dock animation consume these variables through existing BoardState-native CSS rather than introducing a second animation library.
 
 ## Animation States
 
@@ -47,7 +47,7 @@ Motion states are explicit and reusable:
 
 - Cards: idle, hovered, selected, dragging, resolving, disabled, hidden, destroyed.
 - Panels: closed, opening, active, inactive, closing.
-- Command Cards: idle, rotating, highlighted, contextual-entry, contextual-exit, selected, waiting, disabled, resolving.
+- Hand Cards: idle, selected, inspecting, reordering, contextual-entry, contextual-exit, waiting, disabled, resolving.
 
 `src/ui/render.js` exposes `data-motion-owner`, `data-motion-state`, `data-motion-token`, and duration metadata where motion-capable battlefield surfaces render.
 
@@ -56,7 +56,7 @@ Motion states are explicit and reusable:
 `src/ui/landscapeBattlefield.js` exposes a presentation-only ownership plan:
 
 - Battlefield owns camera focus, battlefield movement, and permanent lane reflow.
-- Rotating Command Deck owns Command Card rotation, contextual entry/exit, and favorite feedback.
+- Dual Hand Dock owns hand switching, card inspection, reordering, contextual entry/exit, and restrained Add-to-Hand feedback.
 - Card Inspection owns selected-card lift and inspection overlays.
 - Notification System owns toast arrival and non-modal feedback.
 - Modal System owns blocking dialog entrance and dismissal.

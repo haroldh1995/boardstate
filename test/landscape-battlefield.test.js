@@ -376,20 +376,20 @@ test("motion tokens centralize timing, ownership, states, and debug metadata", (
   assert.ok(MOTION_STATE_CATALOG.card.includes("dragging"));
   assert.ok(MOTION_STATE_CATALOG.panel.includes("opening"));
   assert.ok(MOTION_STATE_CATALOG.commandCard.includes("contextual-entry"));
-  assert.equal(MOTION_OWNERS.commandDeck, "rotating-command-deck");
+  assert.equal(MOTION_OWNERS.dualHandDock, "dual-hand-dock");
 
   const reduced = createMotionTokenSet(0.45);
   assert.equal(reduced.durations.emphasis, 153);
   assert.equal(reduced.delays.commandCardStagger, 11);
 
   const debug = createMotionDebugSnapshot({
-    owner: MOTION_OWNERS.commandDeck,
-    state: "rotating",
+    owner: MOTION_OWNERS.dualHandDock,
+    state: "reordering",
     token: "standard",
     duration: full.durations.standard,
     queue: "2 command cards",
     interrupt: "redirect",
-    transition: "deck-rotate",
+    transition: "hand-reorder",
   });
   assert.equal(debug.version, BOARDSTATE_MOTION_LANGUAGE_VERSION);
   assert.equal(debug.productionVisible, false);

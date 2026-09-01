@@ -81,7 +81,7 @@ Materials should not be assigned randomly. If a future surface does not fit an e
 Lighting establishes hierarchy:
 
 - Gameplay and cards remain the primary visual read.
-- The Rotating Command Deck is second and uses raised card stock/metal treatment.
+- The Dual Hand Dock is second and uses raised card stock/metal treatment for its one active ordered hand.
 - Contextual overlays use polished glass and elevated shadows.
 - Debug overlays use the highest layer but render only in development.
 

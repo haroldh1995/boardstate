@@ -1,5 +1,7 @@
 # Landscape Battlefield Modernization
 
+> Historical record: battlefield geography remains applicable, but the post-completion Dual Hand Dock migration supersedes every rotating, circular, center-snap Command Deck statement in this file. See `CANONICAL_GAMEPLAY_ARCHITECTURE.md`.
+
 Date: 2026-07-20
 
 Prompt 5 modernizes the existing gameplay interface into a landscape-first Commander battlefield while preserving BoardState's existing cosmic background, gold HUD accents, glass panels, card rendering, rules engine, State Engine, Event Knowledge Engine, persistence, synchronization, tutorials, Dry Run, and AI behavior.
@@ -79,10 +81,10 @@ Existing permanent identity, stack quantity, counters, tapped state, targeting d
 Prompt 13.2.6 Part 2 restores physical Commander geography as the active battlefield contract while preserving the premium digital presentation layers from Prompts 8 through 12. The authoritative source remains `docs/ecosystem/CANONICAL_GAMEPLAY_ARCHITECTURE.md`.
 
 - `src/gameplay/battlefieldGeometry.js` owns the portable tabletop geometry model, density state, overflow order, zone-local scroll contract, and gesture ownership rules.
-- `src/ui/landscapeBattlefield.js` exposes tabletop geometry and presentation state without moving zone scroll, opponent focus, Command Hand rotation, or animation state into authoritative gameplay state.
+- `src/ui/landscapeBattlefield.js` exposes tabletop geometry and presentation state without moving zone scroll, opponent focus, hand ordering, or animation state into authoritative gameplay state.
 - `src/ui/render.js` renders canonical creature and land/support zones instead of document-style permanent lanes during active battlefield play.
 - `src/styles.css` keeps active gameplay inside one fixed landscape viewport, hides global gameplay overflow, and permits horizontal movement only inside overflowing tabletop zones.
-- `src/gameplay/commandDeckModel.js` owns the single Command Hand focus calculation and projection z-order so the centered card, visual focus, hit target, preview source, and activation target cannot disagree.
+- `src/gameplay/dualHandModel.js` owns finite hand ordering, continuous overlap, rightward resting depth, and semantic gesture intent while keeping tracked Player Hand identity authoritative.
 
 The density strategy escalates from normal placement to adaptive spacing, controlled overlap, duplicate/equivalent stacking, nonland support stacking, adaptive scaling, expandable grouping, and only then zone-local horizontal scrolling. Planeswalkers remain far-right creature-zone permanents. Noncreature nonland permanents remain far-right lower-zone support permanents. Opponent navigation and zone overflow scrolling remain separate gesture systems.
 
@@ -217,18 +219,17 @@ Prompt 12.3E is a corrective visual hierarchy pass over the completed tabletop a
 
 This pass is presentation-only. It does not add gameplay features, change Rules Engine authority, alter action routing, change save formats, expose hidden information, or create a new HUD system. The corrective standard lives in `docs/ecosystem/HUD_COMPOSITION_VISUAL_HIERARCHY.md`.
 
-## Prompt 12.3F Rotating Command Deck
+## Post-Completion Dual Hand Dock
 
-Prompt 12.3F keeps the Commander Action Hand as the bottom gameplay decision surface but replaces the fixed linear projection with a circular Rotating Command Deck:
+BoardState `1.44.0` intentionally replaces Prompt 12.3F's retired cycle behavior:
 
-- `src/ui/render.js` exposes `COMMAND_DECK_VERSION` as `boardstate-rotating-command-deck-0.1.0`.
-- `renderCommanderActionHand()` now marks the hand root with `data-command-deck`, `data-command-deck-version`, `data-command-deck-size`, `data-command-deck-visible-count`, `data-command-deck-rotation`, and `data-command-deck-center`.
-- `createCommanderActionCards()` separates stable core Command Cards from temporary contextual cards, applies user favorites, and preserves the existing action attributes.
-- `getVisibleCommandDeckCards()` projects only a small circular window of the deck into the visible fan while `normalizeCommandDeckIndex()` keeps rotation infinite.
-- `bindCommandDeck()` adds wheel, pointer-drag, keyboard, and controller-ready rotation without changing existing card click handlers.
-- `settings.commandDeck.favoriteIds` stores only favorite-card preferences. It is not gameplay state.
+- `renderDualHandDock()` presents Commands or Player Hand inside one fixed bottom footprint.
+- `orderCommandCards()` separates persistent user order from temporary contextual commands and places contextual actions at the right/front.
+- `resolveArenaHandLayout()` progressively overlaps finite cards and enables hand-local overflow only after practical density is reached.
+- `bindDualHandDock()` classifies tap, hold, horizontal reorder, upward Cast/Play, and local scrolling without transferring ownership mid-gesture.
+- `settings.dualHandDock.commandOrder` persists only user command organization. Authoritative Player Hand objects remain in session Hand-zone state.
 
-The Rotating Command Deck is presentation and action entry only. It does not change rules processing, State Engine ownership, Event Knowledge, saves, synchronization, hidden-information policy, or future Hub/Lite/Nexus boundaries. The interaction record lives in `docs/ecosystem/ROTATING_COMMAND_DECK_ARCHITECTURE.md`.
+The previous cycle model and its standalone architecture document are removed. Migration consumes useful legacy priority preferences and discards obsolete coordinates.
 
 ## Prompt 12.4 Motion Language
 
@@ -237,7 +238,7 @@ Prompt 12.4 establishes BoardState's permanent motion language over the existing
 - `src/ui/motionTokens.js` owns `BOARDSTATE_MOTION_LANGUAGE_VERSION`, timing, easing, physics, transform, opacity, state, owner, CSS-variable, and debug snapshot contracts.
 - `src/ui/landscapeBattlefield.js` exposes `boardstate-battlefield-motion-0.2.0`, consumes `createMotionTokenSet()`, reports `motion.languageVersion`, `motion.tokens`, `motion.stateCatalog`, `motion.ownership`, and development debug metadata.
 - `src/ui/render.js` exposes `data-motion-language-version`, `data-motion-token-version`, `data-motion-owner`, `data-motion-state`, `data-motion-token`, and `data-motion-duration` on motion-capable battlefield surfaces and Command Cards.
-- `src/styles.css` maps battlefield, card, panel, notification, Commander Action Hand, and Rotating Command Deck movement to root `--motion-*` tokens with reduced-motion fallbacks.
+- `src/styles.css` maps battlefield, card, panel, notification, and Dual Hand Dock movement to root `--motion-*` tokens with reduced-motion fallbacks.
 - `renderMotionDebugOverlay()` is development-only and additionally requires `boardstate-motion-debug=true`; it renders nothing in production builds.
 
 The motion language remains presentation-only. It does not mutate gameplay state, persist transient animation state, replace the rules engine, create a second motion authority, expose hidden information, or copy protected Arena motion identity. The permanent record lives in `docs/ecosystem/MOTION_LANGUAGE_ARCHITECTURE.md`.
@@ -247,7 +248,7 @@ The motion language remains presentation-only. It does not mutate gameplay state
 Prompt 12.5 establishes BoardState's permanent visual language without changing gameplay behavior:
 
 - `src/ui/visualTokens.js` owns `BOARDSTATE_VISUAL_LANGUAGE_VERSION`, semantic materials, visual layers, color/border/radius/elevation/shadow/glow/blur/opacity/outline tokens, CSS-variable generation, and debug snapshot helpers.
-- `src/ui/render.js` exposes `boardstate-visual-language-0.1.0` through body and gameplay `data-visual-*` metadata for the battlefield, table regions, command center, Rotating Command Deck, Action Cards, and utility overlays.
+- `src/ui/render.js` exposes `boardstate-visual-language-0.1.0` through body and gameplay `data-visual-*` metadata for the battlefield, table regions, command center, Dual Hand Dock, Action Cards, and utility overlays.
 - `renderVisualDebugOverlay()` is development-only and additionally requires `boardstate-visual-debug=true`; it renders nothing in production builds.
 - `src/styles.css` maps BoardState's existing cosmic atmosphere, glass overlays, stone table grounding, metal command structure, premium Action Card stock, gold Commander emphasis, crystal rules/focus treatment, parchment memory treatment, elevation, shadows, glows, blur, and focus outlines to root `--visual-*` tokens.
 
@@ -259,6 +260,6 @@ The battlefield, gameplay-flow, motion, visual language, sensory language, Rules
 
 ## Prompt 12.6 Audio Language And Haptics
 
-Prompt 12.6 adds `src/ui/sensoryTokens.js` as the centralized Audio Token and Haptic Token contract for generated browser-safe feedback. `src/ui/render.js` exposes `data-sensory-*` metadata on the battlefield, Rotating Command Deck, and Action Cards; notification tests and Command Deck rotation now use `playSensoryFeedback()` instead of hard-coded beeps or direct vibration calls. `src/state/schema.js`, `src/storage/localDatabase.js`, and `src/ecosystem/ecosystemIntegration.js` preserve sensory preferences without changing gameplay authority, save truth, hidden-information boundaries, or Hub availability claims.
+Prompt 12.6 adds `src/ui/sensoryTokens.js` as the centralized Audio Token and Haptic Token contract for generated browser-safe feedback. `src/ui/render.js` exposes `data-sensory-*` metadata on the battlefield, Dual Hand Dock, and Action Cards; notification tests and hand reorder feedback use `playSensoryFeedback()` instead of hard-coded beeps or direct vibration calls. `src/state/schema.js`, `src/storage/localDatabase.js`, and `src/ecosystem/ecosystemIntegration.js` preserve sensory preferences without changing gameplay authority, save truth, hidden-information boundaries, or Hub availability claims.
 
 The permanent sensory architecture record lives in `docs/ecosystem/SENSORY_LANGUAGE_ARCHITECTURE.md`.

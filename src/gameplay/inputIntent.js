@@ -1,11 +1,15 @@
-export const CANONICAL_INPUT_INTENT_VERSION = "boardstate-input-intent-13.2.6-part4";
+export const CANONICAL_INPUT_INTENT_VERSION = "boardstate-input-intent-dual-hand-1.0.0";
 
 export const INPUT_INTENTS = Object.freeze({
   tapSelect: "TAP_SELECT",
   inspect: "INSPECT",
   dragCard: "DRAG_CARD",
   scrollZone: "SCROLL_ZONE",
-  rotateCommandHand: "ROTATE_COMMAND_HAND",
+  reorderHandCard: "REORDER_HAND_CARD",
+  inspectHandCard: "INSPECT_HAND_CARD",
+  castOrPlayHandCard: "CAST_OR_PLAY_HAND_CARD",
+  scrollHand: "SCROLL_HAND_LOCAL",
+  toggleHandDock: "TOGGLE_HAND_DOCK_SURFACE",
   switchOpponent: "SWITCH_OPPONENT",
   target: "TARGET",
   confirm: "CONFIRM",
@@ -17,6 +21,8 @@ export const INPUT_INTENTS = Object.freeze({
 
 export const INPUT_SURFACES = Object.freeze({
   commandHand: "command-hand",
+  playerHand: "player-hand",
+  handDockToggle: "hand-dock-toggle",
   overflowingZone: "overflowing-zone",
   opponentBackground: "opponent-background",
   card: "card",
@@ -31,6 +37,8 @@ export const GESTURE_OWNERS = Object.freeze({
   cardDrag: "card-drag",
   targeting: "targeting",
   commandHand: "command-hand",
+  playerHand: "player-hand",
+  handDockToggle: "hand-dock-toggle",
   zoneScroll: "zone-scroll",
   opponentNavigation: "opponent-navigation",
   cardInspection: "card-inspection",
@@ -45,17 +53,18 @@ export const TOUCH_INTENT_THRESHOLDS = Object.freeze({
   dragStartPx: 14,
   horizontalSwipePx: 42,
   verticalToleranceRatio: 1.2,
-  wheelStepPx: 96,
+  handLocalScrollStepPx: 96,
 });
 
-export const COMMAND_HAND_FOCUS_CONTRACT = Object.freeze({
-  exactFocusCount: 1,
-  centerAnchor: "mathematical-command-hand-center",
-  focusSource: "nearest-card-center",
-  zOrderSource: "canonical-focus-depth-order",
-  previewSource: "canonical-focused-command-id",
-  activationSource: "canonical-focused-command-id",
-  hitTestSource: "visible-depth-order",
+export const DUAL_HAND_DOCK_CONTRACT = Object.freeze({
+  surfaces: Object.freeze([INPUT_SURFACES.commandHand, INPUT_SURFACES.playerHand]),
+  oneExpandedSurface: true,
+  circular: false,
+  visualClones: false,
+  commandOrderSource: "persisted-user-command-order",
+  playerHandIdentitySource: "authoritative-hand-zone-card-instance-id",
+  restingDepth: "rightmost-frontmost",
+  sharedFootprintSeparateState: true,
 });
 
 export function createInputIntentPolicy(options = {}) {
@@ -72,6 +81,8 @@ export function createInputIntentPolicy(options = {}) {
       GESTURE_OWNERS.cardDrag,
       GESTURE_OWNERS.targeting,
       GESTURE_OWNERS.commandHand,
+      GESTURE_OWNERS.playerHand,
+      GESTURE_OWNERS.handDockToggle,
       GESTURE_OWNERS.zoneScroll,
       GESTURE_OWNERS.opponentNavigation,
       GESTURE_OWNERS.cardInspection,
@@ -132,8 +143,30 @@ export function resolveInputIntent(input = {}, policy = createInputIntentPolicy(
     }
     return createIntentResult(INPUT_INTENTS.target, GESTURE_OWNERS.targeting, input);
   }
+  if (surface === INPUT_SURFACES.handDockToggle || input.handDockToggle) {
+    return createIntentResult(INPUT_INTENTS.toggleHandDock, GESTURE_OWNERS.handDockToggle, input);
+  }
+  if (surface === INPUT_SURFACES.playerHand || input.playerHandOrigin) {
+    if (movementY <= -thresholds.horizontalSwipePx && absY >= absX * thresholds.verticalToleranceRatio) {
+      return createIntentResult(INPUT_INTENTS.castOrPlayHandCard, GESTURE_OWNERS.playerHand, input);
+    }
+    if (horizontalSwipe && input.handOverflowing) {
+      return createIntentResult(INPUT_INTENTS.scrollHand, GESTURE_OWNERS.playerHand, { ...input, noTransferAtBoundary: true });
+    }
+    if (horizontalSwipe) {
+      return createIntentResult(INPUT_INTENTS.reorderHandCard, GESTURE_OWNERS.playerHand, input);
+    }
+    if (durationMs >= thresholds.longPressMs && tapMovement) {
+      return createIntentResult(INPUT_INTENTS.inspectHandCard, GESTURE_OWNERS.playerHand, input);
+    }
+    return createIntentResult(INPUT_INTENTS.tapSelect, GESTURE_OWNERS.playerHand, input);
+  }
   if (surface === INPUT_SURFACES.commandHand || input.commandHandOrigin) {
-    const intent = horizontalSwipe || input.wheel ? INPUT_INTENTS.rotateCommandHand : INPUT_INTENTS.tapSelect;
+    const intent = horizontalSwipe
+      ? input.handOverflowing ? INPUT_INTENTS.scrollHand : INPUT_INTENTS.reorderHandCard
+      : durationMs >= thresholds.longPressMs && tapMovement
+        ? INPUT_INTENTS.inspectHandCard
+        : INPUT_INTENTS.tapSelect;
     return createIntentResult(intent, GESTURE_OWNERS.commandHand, input);
   }
   if ((surface === INPUT_SURFACES.overflowingZone || input.zoneOverflowing) && horizontalSwipe) {
@@ -215,78 +248,24 @@ export function createTableRadarModel(players = [], options = {}) {
   };
 }
 
-export function resolveCommandHandVisualCloneIdentity(visualInstance = {}) {
-  const canonicalCommandId = String(
-    visualInstance.canonicalCommandId ||
-      visualInstance.commandId ||
-      visualInstance.actionCardId ||
-      visualInstance.id ||
-      ""
-  );
-  const visualId = String(visualInstance.visualId || visualInstance.cloneId || canonicalCommandId);
-  return {
-    visualId,
-    canonicalCommandId,
-    isClone: Boolean(visualInstance.isClone || (visualId && canonicalCommandId && visualId !== canonicalCommandId)),
-    logicalCommandId: canonicalCommandId,
-    mayOwnFocus: Boolean(canonicalCommandId),
-    createsIndependentCommand: false,
-  };
-}
-
-export function validateCommandHandFocusState(entries = []) {
-  const normalized = (entries || []).map((entry, index) => ({
-    ...entry,
-    index,
-    id: String(entry.id || entry.commandId || entry.canonicalCommandId || ""),
-    slotOffset: Number(entry.slotOffset ?? entry.liveSlot ?? 0),
-    zIndex: Number(entry.zIndex ?? 0),
-    focused: Boolean(entry.focused || entry.isFocused || entry.center || entry.isCenter),
-    highlighted: entry.highlighted === undefined ? Boolean(entry.focused || entry.isFocused || entry.center || entry.isCenter) : Boolean(entry.highlighted),
-    previewOwner: String(entry.previewOwner || entry.previewCommandId || ""),
-    activationOwner: String(entry.activationOwner || entry.activationCommandId || ""),
-    hitTestRank: Number(entry.hitTestRank ?? entry.zIndex ?? 0),
-  }));
-  const centered = normalized.filter((entry) => Math.abs(entry.slotOffset) < 0.001);
-  const focused = normalized.filter((entry) => entry.focused);
-  const topByZ = normalized.reduce((best, entry) => (entry.zIndex > (best?.zIndex ?? Number.NEGATIVE_INFINITY) ? entry : best), null);
-  const topByHit = normalized.reduce((best, entry) => (entry.hitTestRank > (best?.hitTestRank ?? Number.NEGATIVE_INFINITY) ? entry : best), null);
-  const focusedEntry = focused[0] || centered[0] || null;
-  const issues = [];
-  if (focused.length !== 1) issues.push("exactly-one-focused-command-required");
-  if (centered.length !== 1) issues.push("exactly-one-centered-command-required");
-  if (focusedEntry && centered[0] && focusedEntry.id !== centered[0].id) issues.push("focus-must-match-center");
-  if (focusedEntry && topByZ && focusedEntry.id !== topByZ.id) issues.push("focused-command-must-have-highest-z-order");
-  if (focusedEntry && topByHit && focusedEntry.id !== topByHit.id) issues.push("focused-command-must-win-hit-testing");
-  if (focusedEntry && normalized.some((entry) => entry.highlighted && entry.id !== focusedEntry.id)) issues.push("highlight-must-match-focus");
-  if (focusedEntry && normalized.some((entry) => entry.previewOwner && entry.previewOwner !== focusedEntry.id)) issues.push("preview-must-match-focus");
-  if (focusedEntry && normalized.some((entry) => entry.activationOwner && entry.activationOwner !== focusedEntry.id)) issues.push("activation-must-match-focus");
+export function createCommandHandAccessibilityModel(commands = [], selectedCommandId = "") {
   return {
     version: CANONICAL_INPUT_INTENT_VERSION,
-    valid: issues.length === 0,
-    focusedId: focusedEntry?.id || "",
-    centeredId: centered[0]?.id || "",
-    topZOrderId: topByZ?.id || "",
-    topHitTestId: topByHit?.id || "",
-    issues,
-    contract: COMMAND_HAND_FOCUS_CONTRACT,
-  };
-}
-
-export function createCommandHandAccessibilityModel(commands = [], focusedCommandId = "") {
-  return {
-    version: CANONICAL_INPUT_INTENT_VERSION,
-    role: "accessible-command-hand",
-    focusTraversal: "logical-circular-command-order",
+    role: "accessible-ordered-command-hand",
+    focusTraversal: "logical-left-to-right-command-order",
     hoverRequired: false,
-    commands: (commands || []).map((command) => ({
+    circular: false,
+    commands: (commands || []).map((command, index) => ({
       id: command.id,
       label: command.label || command.name || "Command",
       purpose: command.intent || command.detail || command.purpose || "Available command",
-      focused: command.id === focusedCommandId,
+      selected: command.id === selectedCommandId,
+      position: index + 1,
+      count: commands.length,
       disabled: Boolean(command.disabled),
       shortcut: command.shortcut || "",
       activationIntent: INPUT_INTENTS.confirm,
+      reorderActions: ["move-left", "move-right", "move-to-beginning", "move-to-front"],
     })),
   };
 }
@@ -366,13 +345,14 @@ export function createInteractionPerformanceBudget(options = {}) {
   return {
     version: CANONICAL_INPUT_INTENT_VERSION,
     commandHandRerendersBattlefield: false,
+    playerHandReorderRecomputesRules: false,
     zoneScrollRerendersOtherZones: false,
     opponentSwitchRecomputesRules: false,
     rulesRunOnAnimationFrame: false,
     animationDefinesRulesState: false,
     largeBoardStressTargetObjects: Math.max(100, permanentCount),
     multiplayerStressTargetOpponents: Math.max(3, opponentCount),
-    interactionTargets: ["command-hand-rotation", "zone-scroll", "card-inspection", "opponent-switch", "targeting", "stack-interaction"],
+    interactionTargets: ["command-hand-reorder", "player-hand-reorder", "hand-inspection", "hand-local-scroll", "zone-scroll", "card-inspection", "opponent-switch", "targeting", "stack-interaction"],
   };
 }
 

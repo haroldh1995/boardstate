@@ -32,7 +32,7 @@ test("sensory tokens centralize generated audio and reusable haptic feedback", (
   assert.equal(audio.version, BOARDSTATE_SENSORY_LANGUAGE_VERSION);
   assert.equal(haptics.version, BOARDSTATE_SENSORY_LANGUAGE_VERSION);
   assert.equal(audio.assetPolicy, "generated-web-audio-only");
-  assert.equal(audio.tokens[AUDIO_TOKEN_IDS.commandDeckRotate].channel, SENSORY_CHANNELS.ui);
+  assert.equal(audio.tokens[AUDIO_TOKEN_IDS.handReorder].channel, SENSORY_CHANNELS.ui);
   assert.equal(audio.tokens[AUDIO_TOKEN_IDS.commanderEvent].priority, SENSORY_PRIORITY.commanderEvent);
   assert.equal(haptics.tokens[HAPTIC_TOKEN_IDS.commanderEvent].priority, SENSORY_PRIORITY.commanderEvent);
   assert.ok(haptics.tokens[HAPTIC_TOKEN_IDS.error].pattern.length > 1);
@@ -131,8 +131,8 @@ test("runtime exposes sensory metadata and routes existing feedback through toke
   assert.match(render, /boardstate-sensory-debug/);
   assert.match(render, /import\.meta\.env\?\.DEV/);
   assert.match(render, /resolveSensoryTokenForAction\(card\)/);
-  assert.match(render, /AUDIO_TOKEN_IDS\.commandDeckRotate/);
-  assert.match(render, /HAPTIC_TOKEN_IDS\.commandDeckRotate/);
+  assert.match(render, /AUDIO_TOKEN_IDS\.handReorder/);
+  assert.match(render, /HAPTIC_TOKEN_IDS\.handReorder/);
   assert.equal(render.includes("const context = new AudioContext()"), false);
   assert.match(styles, /\.sensory-debug-overlay/);
   assert.match(styles, /\.sensory-debug-overlay\[hidden\]/);

@@ -1,5 +1,7 @@
 # Commander Modernization Audit
 
+> Historical audit: current hand architecture is governed only by the post-completion Dual Hand Dock revision in `CANONICAL_GAMEPLAY_ARCHITECTURE.md`.
+
 Date: 2026-07-19
 Baseline commit: d81d5c3
 Package version before this prompt: 1.24.0

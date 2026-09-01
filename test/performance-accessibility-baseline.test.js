@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { createTimelineExperience } from "../src/authoritative-core/timelineRelationshipEngine.js";
 import { createCanonicalBattlefieldGeometry } from "../src/gameplay/battlefieldGeometry.js";
-import { resolveCommandDeckCardProjection } from "../src/gameplay/commandDeckModel.js";
+import { resolveArenaHandLayout } from "../src/gameplay/dualHandModel.js";
 import {
   createAccessibilitySemanticsModel,
   createInteractionPerformanceBudget,
@@ -60,7 +60,7 @@ test("Prompt 17 large Commander projections remain bounded and preserve one focu
   assert.ok(elapsedMs < 5_000, `ten-player projection took ${elapsedMs.toFixed(1)}ms`);
 });
 
-test("Prompt 17 extreme battlefield and command rotation checks are reproducible", () => {
+test("Prompt 17 extreme battlefield and ordered hand layout checks are reproducible", () => {
   const permanents = Array.from({ length: 360 }, (_, index) => largePermanent(index));
   const startedAt = performance.now();
   const geometry = createCanonicalBattlefieldGeometry(permanents, {
@@ -70,9 +70,11 @@ test("Prompt 17 extreme battlefield and command rotation checks are reproducible
   });
   let maximumZ = 0;
   for (let cycle = 0; cycle < 500; cycle += 1) {
-    for (let slot = -7; slot <= 7; slot += 1) {
-      maximumZ = Math.max(maximumZ, resolveCommandDeckCardProjection(slot, 14, slot === 0).zIndex);
-    }
+    const layout = resolveArenaHandLayout(
+      Array.from({ length: 24 }, (_, index) => ({ id: `command-${index}` })),
+      { availableWidth: 820, cardWidth: 120, activeId: `command-${cycle % 24}` },
+    );
+    maximumZ = Math.max(maximumZ, ...layout.entries.map((entry) => entry.zIndex));
   }
   const elapsedMs = performance.now() - startedAt;
 

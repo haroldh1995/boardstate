@@ -9,7 +9,7 @@ export const MOTION_INTENT = Object.freeze({
 
 export const MOTION_OWNERS = Object.freeze({
   battlefield: "battlefield",
-  commandDeck: "rotating-command-deck",
+  dualHandDock: "dual-hand-dock",
   cardInspector: "card-inspection",
   notificationSystem: "notification-system",
   modalSystem: "modal-system",
@@ -21,7 +21,8 @@ export const MOTION_STATE_CATALOG = Object.freeze({
   panel: Object.freeze(["closed", "opening", "active", "inactive", "closing"]),
   commandCard: Object.freeze([
     "idle",
-    "rotating",
+    "reordering",
+    "inspecting",
     "highlighted",
     "contextual-entry",
     "contextual-exit",

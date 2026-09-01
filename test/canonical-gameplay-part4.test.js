@@ -12,17 +12,16 @@ import {
   createInputIntentPolicy,
   createInteractionPerformanceBudget,
   createTableRadarModel,
-  resolveCommandHandVisualCloneIdentity,
   resolveGestureOwnership,
   resolveOpponentFocusNavigation,
   resolveResponsiveLandscapeComposition,
-  validateCommandHandFocusState,
 } from "../src/gameplay/inputIntent.js";
 import {
-  resolveCommandDeckCardProjection,
-  resolveCommandDeckCardPress,
-  resolveCommandDeckFocusedCard,
-} from "../src/gameplay/commandDeckModel.js";
+  moveOrderedId,
+  reorderOrderedIds,
+  resolveArenaHandLayout,
+  validateArenaHandContinuity,
+} from "../src/gameplay/dualHandModel.js";
 import { createDefaultProfile } from "../src/state/schema.js";
 import {
   createLandscapeBattlefieldModel,
@@ -53,7 +52,7 @@ test("Part 4 input intent resolves exactly one owner by semantic priority", () =
   assert.equal(resolveGestureOwnership({ activeMandatoryDecision: true, surface: INPUT_SURFACES.card }, policy).owner, GESTURE_OWNERS.mandatoryGameplay);
   assert.equal(resolveGestureOwnership({ surface: INPUT_SURFACES.card, cardDragActive: true, zoneOverflowing: true }, policy).owner, GESTURE_OWNERS.cardDrag);
   assert.equal(resolveGestureOwnership({ targetingActive: true, surface: INPUT_SURFACES.overflowingZone, zoneOverflowing: true, movementX: 72, movementY: 2 }, policy).owner, GESTURE_OWNERS.zoneScroll);
-  assert.equal(resolveGestureOwnership({ surface: INPUT_SURFACES.commandHand, movementX: 72, movementY: 2 }, policy).intent, INPUT_INTENTS.rotateCommandHand);
+  assert.equal(resolveGestureOwnership({ surface: INPUT_SURFACES.commandHand, movementX: 72, movementY: 2 }, policy).intent, INPUT_INTENTS.reorderHandCard);
   assert.equal(resolveGestureOwnership({ surface: INPUT_SURFACES.overflowingZone, zoneOverflowing: true, movementX: 72, movementY: 2 }, policy).owner, GESTURE_OWNERS.zoneScroll);
   assert.equal(resolveGestureOwnership({ surface: INPUT_SURFACES.opponentBackground, opponentBackground: true, movementX: 72, movementY: 2 }, policy).intent, INPUT_INTENTS.switchOpponent);
 
@@ -69,7 +68,7 @@ test("Part 4 input intent resolves exactly one owner by semantic priority", () =
   assert.equal(zoneEdge.transferDuringActiveGesture, false);
 });
 
-test("Part 4 Command Hand focus, highlight, preview, activation, and hit testing stay unified", () => {
+test("Part 4 ordered Command Hand maintains continuity and rightward depth", () => {
   const commandIds = [
     "phase",
     "commander",
@@ -86,57 +85,21 @@ test("Part 4 Command Hand focus, highlight, preview, activation, and hit testing
     "settings",
     "tablecraft",
   ];
-  for (let centerIndex = 0; centerIndex < commandIds.length; centerIndex += 1) {
-    const candidates = commandIds.map((id, index) => {
-      let slotOffset = index - centerIndex;
-      if (slotOffset > commandIds.length / 2) slotOffset -= commandIds.length;
-      if (slotOffset < -commandIds.length / 2) slotOffset += commandIds.length;
-      return { id, slotOffset, priority: id === "phase" ? 96 : 10 };
-    });
-    const focused = resolveCommandDeckFocusedCard(candidates);
-    assert.equal(focused.id, commandIds[centerIndex]);
-
-    const entries = candidates.map((candidate) => {
-      const projection = resolveCommandDeckCardProjection(
-        candidate.slotOffset,
-        candidate.priority,
-        candidate.id === focused.id
-      );
-      return {
-        id: candidate.id,
-        slotOffset: candidate.slotOffset,
-        focused: candidate.id === focused.id,
-        highlighted: candidate.id === focused.id,
-        previewOwner: candidate.id === focused.id ? candidate.id : "",
-        activationOwner: candidate.id === focused.id ? candidate.id : "",
-        zIndex: projection.zIndex,
-        hitTestRank: projection.zIndex,
-      };
-    });
-    const validation = validateCommandHandFocusState(entries);
-    assert.equal(validation.valid, true, validation.issues.join(", "));
-    assert.equal(validation.focusedId, commandIds[centerIndex]);
-    assert.equal(validation.topZOrderId, commandIds[centerIndex]);
-    assert.equal(validation.topHitTestId, commandIds[centerIndex]);
-  }
+  const layout = resolveArenaHandLayout(commandIds.map((id) => ({ id })), { availableWidth: 780, cardWidth: 118 });
+  const validation = validateArenaHandContinuity(layout);
+  assert.equal(validation.valid, true, validation.issues.join(", "));
+  assert.equal(layout.entries.at(-1).zIndex, Math.max(...layout.entries.map((entry) => entry.zIndex)));
+  assert.equal(layout.circular, false);
+  assert.equal(layout.clones, false);
 });
 
-test("Part 4 Command Hand rear cards focus before activation", () => {
-  assert.deepEqual(resolveCommandDeckCardPress(0, true), { intent: "activate", rotationSteps: 0 });
-  assert.deepEqual(resolveCommandDeckCardPress(2, false), { intent: "focus", rotationSteps: 2 });
-  assert.deepEqual(resolveCommandDeckCardPress(-3, false), { intent: "focus", rotationSteps: -3 });
+test("Part 4 Command Hand reorder operations are exact and non-circular", () => {
+  assert.deepEqual(reorderOrderedIds(["phase", "library", "rules"], "phase", 2), ["library", "rules", "phase"]);
+  assert.deepEqual(moveOrderedId(["phase", "library", "rules"], "rules", "beginning"), ["rules", "phase", "library"]);
+  assert.deepEqual(moveOrderedId(["phase", "library", "rules"], "phase", "left"), ["phase", "library", "rules"]);
 });
 
-test("Part 4 visual command clones map to one canonical command identity", () => {
-  const clone = resolveCommandHandVisualCloneIdentity({
-    visualId: "phase-copy-left",
-    commandId: "phase",
-    isClone: true,
-  });
-  assert.equal(clone.canonicalCommandId, "phase");
-  assert.equal(clone.logicalCommandId, "phase");
-  assert.equal(clone.createsIndependentCommand, false);
-
+test("Part 4 Command Hand accessibility exposes activation and non-drag reordering", () => {
   const accessibility = createCommandHandAccessibilityModel(
     [
       { id: "phase", label: "Next Phase", intent: "Advance turn" },
@@ -145,7 +108,9 @@ test("Part 4 visual command clones map to one canonical command identity", () =>
     "library"
   );
   assert.equal(accessibility.hoverRequired, false);
-  assert.deepEqual(accessibility.commands.map((command) => command.focused), [false, true]);
+  assert.equal(accessibility.circular, false);
+  assert.deepEqual(accessibility.commands.map((command) => command.selected), [false, true]);
+  assert.deepEqual(accessibility.commands[1].reorderActions, ["move-left", "move-right", "move-to-beginning", "move-to-front"]);
 });
 
 test("Part 4 opponent navigation is circular, stable, and suppressed for two-player games", () => {
@@ -256,8 +221,8 @@ test("Part 4 renderer and CSS expose platform-portable contracts without new glo
 
   assert.match(render, /CANONICAL_INPUT_INTENT_VERSION/);
   assert.match(render, /data-input-intent-version/);
-  assert.match(render, /data-depth-aware-hit-testing="true"/);
-  assert.match(render, /compareCommandDeckDepth/);
+  assert.match(render, /data-rightmost-frontmost="true"/);
+  assert.match(render, /resolveArenaHandLayout/);
   assert.match(render, /data-opponent-navigation-circular/);
   assert.match(render, /data-zone-scroll-competes="false"/);
   assert.match(render, /data-gesture-transfer="false"/);
