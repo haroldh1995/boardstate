@@ -73,19 +73,25 @@ test("card selection alone never activates battlefield target overlays", () => {
   assert.equal(getPendingTargetDecision(targetDecision)?.id, "choice-2");
 });
 
-test("post-loader portrait handling gates gameplay instead of rotating the application shell", () => {
+test("post-loader gameplay requests native landscape without a rotate-device gate", () => {
   const index = readRepositoryFile("index.html");
   const main = readRepositoryFile("src/main.js");
   const styles = readRepositoryFile("src/styles.css");
 
-  assert.match(index, /id="boardstate-landscape-gate"/);
-  assert.match(main, /activatePostLoadingLandscapeEnforcement/);
-  assert.match(main, /data-landscape-ready|dataset\.landscapeReady/);
-  assert.match(styles, /body\.boardstate-app-ready\[data-landscape-ready="false"\] #app/);
-  assert.match(styles, /@media \(orientation: portrait\)[\s\S]*?body\.boardstate-app-ready #app[\s\S]*?visibility:\s*hidden !important/);
-  assert.match(styles, /body\.boardstate-app-ready \.boardstate-landscape-gate[\s\S]*?display:\s*grid !important/);
+  assert.doesNotMatch(index, /boardstate-landscape-gate|Turn your device sideways|Landscape Required/i);
+  assert.match(main, /onComplete:\s*enterCanonicalLandscapeGameplay/);
+  assert.match(main, /void requestBoardStateLandscapeLock\(\)/);
+  assert.doesNotMatch(main, /matchMedia|portraitQuery|root\.inert\s*=|landscapeReady\s*=\s*portrait/);
+  assert.doesNotMatch(styles, /boardstate-landscape-gate|data-landscape-ready="false"/);
+  assert.doesNotMatch(styles, /@media \(orientation: portrait\)[\s\S]*?body\.boardstate-app-ready #app[\s\S]*?visibility:\s*hidden !important/);
   assert.doesNotMatch(styles, /body\[data-gameplay-orientation="landscape"\] \.app-shell\s*\{[\s\S]{0,240}rotate\(90deg\)/);
   assert.doesNotMatch(main, /css-landscape/);
+});
+
+test("the complete designated battlefield wallpaper is retained as the primary layer", () => {
+  const styles = readRepositoryFile("src/styles.css");
+  assert.match(styles, /body::before\s*\{[\s\S]*?boardstate-bg-landscape\.png"\) center \/ 100% 100% no-repeat/);
+  assert.doesNotMatch(styles, /body::before\s*\{[\s\S]*?boardstate-bg-landscape\.png"\)[^;]*\bcover\b/);
 });
 
 test("battlefield card art remains unobscured and phone landscape cards use available space", () => {

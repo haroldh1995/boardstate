@@ -94,9 +94,10 @@ test("runtime contains landscape enforcement without portrait gameplay scaffoldi
   assert.equal(existsSync(repositoryPath("assets/boardstate-bg-landscape.png")), true);
   assert.equal(existsSync(repositoryPath("assets/boardstate-bg-portrait.png")), false);
   assert.match(main, /requestBoardStateLandscapeLock/);
-  assert.match(main, /activatePostLoadingLandscapeEnforcement/);
+  assert.match(main, /enterCanonicalLandscapeGameplay/);
   assert.match(main, /orientation\.lock\(mode\)/);
-  assert.match(index, /boardstate-landscape-gate/);
+  assert.doesNotMatch(index, /boardstate-landscape-gate|Turn your device sideways/i);
+  assert.doesNotMatch(main, /matchMedia|portraitQuery|root\.inert\s*=/);
   assert.match(loadingScreen, /location\.hash = "#battlefield"/);
   assert.equal(styles.includes("boardstate-bg-portrait"), false);
   assert.equal(render.includes("portrait-allowed"), false);
@@ -104,8 +105,8 @@ test("runtime contains landscape enforcement without portrait gameplay scaffoldi
   assert.equal(styles.includes("rotate(90deg)"), false);
   assert.match(index, /<meta name="screen-orientation" content="landscape"/);
   assert.match(manifest, /"orientation": "landscape"/);
-  assert.match(androidManifest, /android:screenOrientation="landscape"/);
-  assert.match(mainActivity, /SCREEN_ORIENTATION_LANDSCAPE/);
+  assert.match(androidManifest, /android:screenOrientation="sensorLandscape"/);
+  assert.match(mainActivity, /SCREEN_ORIENTATION_SENSOR_LANDSCAPE/);
   assert.match(flutter, /DeviceOrientation\.landscapeLeft/);
   assert.match(flutter, /DeviceOrientation\.landscapeRight/);
 });

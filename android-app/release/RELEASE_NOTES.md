@@ -2,9 +2,13 @@
 
 ## App
 - Name: BoardState
-- Version: 1.44.0
-- Version code: 50
+- Version: 1.44.1
+- Version code: 51
 - Package: `com.boardstate.app`
+
+## Version 1.44.1
+- Removes the post-loading rotate-device interruption; BoardState requests landscape directly and Android supports both landscape directions.
+- Displays the complete designated battlefield wallpaper across the active scene instead of cropping it to the viewport.
 
 ## Version 1.44.0
 - Retires the infinite rotating command cycle and replaces it with one finite Arena-style ordered Command Hand with rightward depth, press-and-hold inspection, direct reordering, accessible movement actions, and persistent user order.

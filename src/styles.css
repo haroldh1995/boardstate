@@ -147,11 +147,8 @@ body::after {
 
 body::before {
   background:
-    url("../assets/boardstate-bg-landscape.png"),
+    url("../assets/boardstate-bg-landscape.png") center / 100% 100% no-repeat,
     linear-gradient(135deg, #06030b, #170d21 52%, #090612);
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
 }
 
 body::after {
@@ -11729,81 +11726,6 @@ body[data-page="battlefield"] .dual-hand-dock {
   }
 }
 
-/* Release 1.44.0: canonical Dual Hand Dock and tracked private Player Hand. */
-.boardstate-landscape-gate {
-  position: fixed;
-  inset: 0;
-  z-index: 99998;
-  display: grid;
-  place-items: center;
-  padding:
-    max(1rem, env(safe-area-inset-top))
-    max(1rem, env(safe-area-inset-right))
-    max(1rem, env(safe-area-inset-bottom))
-    max(1rem, env(safe-area-inset-left));
-  overflow: hidden;
-  color: var(--text);
-  background:
-    radial-gradient(circle at 50% 44%, rgba(126, 63, 255, 0.24), transparent 42%),
-    linear-gradient(180deg, rgba(5, 3, 10, 0.9), rgba(5, 3, 10, 0.98)),
-    url("../assets/boardstate-bg-landscape.png") center / cover no-repeat;
-}
-
-.boardstate-landscape-gate[hidden],
-body:not(.boardstate-app-ready) .boardstate-landscape-gate {
-  display: none;
-}
-
-body.boardstate-app-ready[data-landscape-ready="false"] #app {
-  visibility: hidden;
-  pointer-events: none;
-}
-
-.landscape-gate-card {
-  width: min(31rem, 92vw);
-  display: grid;
-  justify-items: center;
-  gap: 0.65rem;
-  padding: clamp(1.25rem, 5vw, 2rem);
-  border: 1px solid rgba(255, 229, 138, 0.46);
-  border-radius: 1.4rem;
-  background: linear-gradient(180deg, rgba(16, 12, 34, 0.94), rgba(6, 7, 18, 0.94));
-  box-shadow: 0 1.4rem 3.5rem rgba(0, 0, 0, 0.52), inset 0 0 2rem rgba(143, 211, 255, 0.07);
-  text-align: center;
-}
-
-.landscape-gate-card h1,
-.landscape-gate-card p {
-  margin: 0;
-}
-
-.landscape-gate-card > p:not(.eyebrow) {
-  max-width: 27rem;
-  color: rgba(247, 239, 255, 0.8);
-  line-height: 1.45;
-}
-
-.landscape-gate-icon {
-  position: relative;
-  width: 4.8rem;
-  height: 2.85rem;
-  border: 2px solid rgba(255, 229, 138, 0.76);
-  border-radius: 0.72rem;
-  box-shadow: 0 0 1.5rem rgba(143, 211, 255, 0.18);
-}
-
-.landscape-gate-icon::after {
-  position: absolute;
-  top: 50%;
-  right: 0.28rem;
-  width: 0.3rem;
-  height: 0.3rem;
-  border-radius: 50%;
-  background: rgba(255, 229, 138, 0.9);
-  content: "";
-  transform: translateY(-50%);
-}
-
 .recovery-toast.transient-notice,
 .recovery-toast.notification-toast,
 .notification-presentation {
@@ -12037,16 +11959,5 @@ body[data-page="battlefield"] .tabletop-battlefield-page .permanent.has-card-art
   body[data-page="battlefield"] .card-presentation__card,
   body[data-page="battlefield"] .card-presentation__energy {
     animation-duration: 1ms;
-  }
-}
-
-@media (orientation: portrait) {
-  body.boardstate-app-ready #app {
-    visibility: hidden !important;
-    pointer-events: none !important;
-  }
-
-  body.boardstate-app-ready .boardstate-landscape-gate {
-    display: grid !important;
   }
 }

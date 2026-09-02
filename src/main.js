@@ -6,12 +6,9 @@ import landscapeWallpaperUrl from "../assets/boardstate-bg-landscape.png";
 
 const LANDSCAPE_LOCK_MODES = Object.freeze(["landscape", "landscape-primary"]);
 const root = document.querySelector("#app");
-const landscapeGate = document.querySelector("#boardstate-landscape-gate");
-const portraitQuery = globalThis.matchMedia?.("(orientation: portrait)");
-let postLoadingLandscapeEnforcementActive = false;
 const loading = createLoadingScreenController({
   assets: [loadingDragonUrl, landscapeWallpaperUrl],
-  onComplete: activatePostLoadingLandscapeEnforcement,
+  onComplete: enterCanonicalLandscapeGameplay,
 });
 
 bootstrap();
@@ -65,37 +62,11 @@ async function requestBoardStateLandscapeLock() {
   return false;
 }
 
-function activatePostLoadingLandscapeEnforcement() {
-  if (postLoadingLandscapeEnforcementActive) {
-    updatePostLoadingLandscapeState();
-    return;
-  }
-  postLoadingLandscapeEnforcementActive = true;
-  portraitQuery?.addEventListener?.("change", updatePostLoadingLandscapeState);
-  globalThis.visualViewport?.addEventListener?.("resize", updatePostLoadingLandscapeState, { passive: true });
-  globalThis.addEventListener?.("resize", updatePostLoadingLandscapeState, { passive: true });
-  globalThis.addEventListener?.("pageshow", updatePostLoadingLandscapeState, { passive: true });
-  landscapeGate?.querySelector("[data-retry-landscape-lock]")?.addEventListener("click", async () => {
-    await requestBoardStateLandscapeLock();
-    updatePostLoadingLandscapeState();
-  });
-  updatePostLoadingLandscapeState();
-}
-
-function updatePostLoadingLandscapeState() {
-  if (!postLoadingLandscapeEnforcementActive) {
-    return;
-  }
-  const portrait = portraitQuery?.matches ?? (globalThis.innerHeight > globalThis.innerWidth);
-  document.body.dataset.landscapeReady = portrait ? "false" : "true";
-  if (landscapeGate) {
-    landscapeGate.hidden = !portrait;
-    landscapeGate.setAttribute("aria-hidden", portrait ? "false" : "true");
-  }
-  if (root) {
-    root.inert = portrait;
-    root.setAttribute("aria-hidden", portrait ? "true" : "false");
-  }
+function enterCanonicalLandscapeGameplay() {
+  document.body.dataset.landscapeReady = "true";
+  root?.removeAttribute("inert");
+  root?.removeAttribute("aria-hidden");
+  void requestBoardStateLandscapeLock();
 }
 
 function preloadAfterStartup(assetUrl = "") {
